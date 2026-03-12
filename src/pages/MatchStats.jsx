@@ -7,7 +7,7 @@ const db = globalThis.__B44_DB__ || {
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Settings } from 'lucide-react';
@@ -21,7 +21,9 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_SUB_MENUS } from '@/components/statDefaults';
 
 export default function MatchStats() {
-    const urlParams = new URLSearchParams(window.location.search);
+    // With HashRouter, query params live in the hash segment, so use react-router's location.
+    const location = useLocation();
+    const urlParams = new URLSearchParams(location.search);
     const matchId = urlParams.get('id');
     const debugPitch = urlParams.get('debug') === '1';
 
