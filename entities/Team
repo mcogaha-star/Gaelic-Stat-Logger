@@ -1,0 +1,16 @@
+{
+  "name": "Team",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "color": {
+      "type": "string",
+      "default": "#22c55e"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

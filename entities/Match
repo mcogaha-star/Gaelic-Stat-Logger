@@ -1,0 +1,29 @@
+{
+  "name": "Match",
+  "type": "object",
+  "properties": {
+    "home_team_id": {
+      "type": "string"
+    },
+    "away_team_id": {
+      "type": "string"
+    },
+    "opponent": {
+      "type": "string",
+      "description": "Legacy: opposition team name"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "venue": {
+      "type": "string"
+    },
+    "competition": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "date"
+  ]
+}

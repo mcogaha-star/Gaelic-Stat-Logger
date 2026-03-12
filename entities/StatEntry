@@ -1,0 +1,63 @@
+{
+  "name": "StatEntry",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string"
+    },
+    "player_name": {
+      "type": "string"
+    },
+    "player_number": {
+      "type": "number"
+    },
+    "stat_type": {
+      "type": "string"
+    },
+    "x_position": {
+      "type": "number"
+    },
+    "y_position": {
+      "type": "number"
+    },
+    "end_x_position": {
+      "type": "number"
+    },
+    "end_y_position": {
+      "type": "number"
+    },
+    "recipient_name": {
+      "type": "string"
+    },
+    "recipient_number": {
+      "type": "number"
+    },
+    "is_pass": {
+      "type": "boolean",
+      "default": false
+    },
+    "half": {
+      "type": "string",
+      "enum": [
+        "first",
+        "second",
+        "et_first",
+        "et_second"
+      ]
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "extra_data": {
+      "type": "string",
+      "description": "JSON string containing all sub-menu field values"
+    }
+  },
+  "required": [
+    "match_id",
+    "player_name",
+    "stat_type",
+    "x_position",
+    "y_position"
+  ]
+}

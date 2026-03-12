@@ -1,0 +1,23 @@
+{
+  "name": "AppSettings",
+  "type": "object",
+  "properties": {
+    "click_stats_config": {
+      "type": "string",
+      "description": "JSON array of click stat configs"
+    },
+    "drag_stats_config": {
+      "type": "string",
+      "description": "JSON array of drag stat configs"
+    },
+    "defaults_config": {
+      "type": "string",
+      "description": "JSON object of default values"
+    },
+    "sub_menus_config": {
+      "type": "string",
+      "description": "JSON object of sub-menu options per dropdown"
+    }
+  },
+  "required": []
+}
