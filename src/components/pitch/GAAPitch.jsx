@@ -65,7 +65,7 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
             {/* Background image */}
             <img 
                 src={pitchImg}
-                alt="GAA Pitch"
+                alt="Gaelic Pitch"
                 // Use fill so the image aligns 1:1 with the 140x90 coordinate plane.
                 className="absolute inset-0 w-full h-full object-fill"
             />
