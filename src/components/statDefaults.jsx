@@ -75,7 +75,7 @@ export const DEFAULT_SUB_MENUS = [
         options: [
             { value: 'won_clean', label: 'Won Clean' }, { value: 'lost_clean', label: 'Lost Clean' },
             { value: 'won_break', label: 'Won Break' }, { value: 'lost_break', label: 'Lost Break' },
-            { value: 'free_won', label: 'Free Won' }, { value: 'free_lost', label: 'Free Lost' },
+            { value: 'foul', label: 'Foul' },
             { value: 'sideline_won', label: 'Sideline Won' }, { value: 'sideline_lost', label: 'Sideline Lost' },
         ],
     },
@@ -115,7 +115,7 @@ export const DEFAULT_SUB_MENUS = [
     },
     {
         id: 'foul_type', label: 'Foul Type', applies_to: ['foul', 'turnover', 'pass', 'carry'],
-        display_type: 'buttons', condition: 'show_foul_panel', group: 'post', default_value: '',
+        display_type: 'select', condition: 'show_foul_panel', group: 'post', default_value: '',
         options: [
             { value: 'breach', label: 'Breach' },
             { value: 'pull', label: 'Pull' },

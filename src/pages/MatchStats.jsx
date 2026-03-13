@@ -331,6 +331,7 @@ export default function MatchStats() {
         const passOutcome = extra?.pass_outcome || '';
         const carryOutcome = extra?.carry_outcome || '';
         const turnoverType = extra?.turnover_type || '';
+        const kickoutOutcome = extra?.kickout_outcome || '';
 
         const passTurnover = passOutcome === 'free_lost' || passOutcome === 'intercepted' || passOutcome === 'sideline_against' || passOutcome === 'over_endline';
         const carryTurnover = carryOutcome === 'free_against' || carryOutcome === 'dispossessed';
@@ -344,6 +345,7 @@ export default function MatchStats() {
             statType === 'foul' ||
             turnoverType === 'foul' ||
             passOutcome === 'free_lost' ||
+            kickoutOutcome === 'foul' ||
             carryOutcome === 'free_won' ||
             carryOutcome === 'free_against';
 
@@ -356,7 +358,8 @@ export default function MatchStats() {
             derived.foul_reason =
                 statType === 'foul' ? 'foul'
                     : (turnoverType === 'foul' ? 'turnover:foul'
-                        : (passOutcome === 'free_lost' ? 'pass:free_lost' : `carry:${carryOutcome}`));
+                        : (passOutcome === 'free_lost' ? 'pass:free_lost'
+                            : (kickoutOutcome === 'foul' ? 'kickout:foul' : `carry:${carryOutcome}`)));
         }
 
         return derived;
@@ -525,7 +528,7 @@ export default function MatchStats() {
 
         const extraHeaders = [
             'Derived Turnover','Derived Foul','Turnover Reason','Foul Reason',
-            'Turnover Caused By','Player Fouled','Fouler (Carry Free Won)',
+            'Turnover Caused By','Player Fouled','Fouler',
             'Tackler','Kickout Intended Recipient'
         ];
 
@@ -627,10 +630,10 @@ export default function MatchStats() {
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <div className="flex items-center justify-between mb-3">
-                            <div className="text-sm text-slate-600">
-                                <span className="font-medium">Home attacking</span>{' '}
-                                <span className="font-semibold">
-                                    {getDirForHalf(half) === 'left' ? '←' : '→'}
+                            <div className="text-lg text-slate-700">
+                                <span className="font-semibold">Home attacking</span>{' '}
+                                <span className="font-bold font-mono">
+                                    {getDirForHalf(half) === 'left' ? '<-' : '->'}
                                 </span>
                             </div>
                             <Button

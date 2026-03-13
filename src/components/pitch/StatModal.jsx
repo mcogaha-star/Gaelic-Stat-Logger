@@ -91,6 +91,9 @@ export default function StatModal({
         if (passType === 'pass') {
             return (subMenuValues.pass_outcome || '') === 'free_lost';
         }
+        if (passType === 'kickout') {
+            return (subMenuValues.kickout_outcome || '') === 'foul';
+        }
         if (passType === 'carry') {
             const co = subMenuValues.carry_outcome || '';
             return co === 'free_won' || co === 'free_against';
@@ -417,11 +420,6 @@ export default function StatModal({
                         />
                     )}
 
-                    {/* Recipient (pass + kickout) */}
-                    {isPass && (passType === 'pass' || passType === 'kickout') && (
-                        <PlayerSelect label="Recipient" value={selectedRecipient} onChange={setSelectedRecipient} />
-                    )}
-
                     {/* Kickout intended recipient */}
                     {isPass && passType === 'kickout' && (
                         <SpecialPlayerSelect
@@ -429,6 +427,11 @@ export default function StatModal({
                             value={subMenuValues.kickout_intended_recipient || ''}
                             onChange={(v) => setVal('kickout_intended_recipient', v)}
                         />
+                    )}
+
+                    {/* Recipient (pass + kickout) */}
+                    {isPass && (passType === 'pass' || passType === 'kickout') && (
+                        <PlayerSelect label="Recipient" value={selectedRecipient} onChange={setSelectedRecipient} />
                     )}
 
                     {/* Carry: dispossession tackler */}
@@ -453,7 +456,7 @@ export default function StatModal({
                             )}
                             {isPass && passType === 'carry' && (subMenuValues.carry_outcome || '') === 'free_against' && (
                                 <SpecialPlayerSelect
-                                    label="Won By"
+                                    label="Player Fouled"
                                     value={subMenuValues.foul_fouled_player || ''}
                                     onChange={(v) => setVal('foul_fouled_player', v)}
                                 />
@@ -467,8 +470,17 @@ export default function StatModal({
                                     onChange={(v) => setVal('foul_fouled_player', v)}
                                 />
                             )}
-                            {/* Pass free lost: pick player fouled */}
+                            {/* Pass free lost: select fouler */}
                             {isPass && passType === 'pass' && (subMenuValues.pass_outcome || '') === 'free_lost' && (
+                                <SpecialPlayerSelect
+                                    label="Fouler"
+                                    value={subMenuValues.foul_fouler_player || ''}
+                                    onChange={(v) => setVal('foul_fouler_player', v)}
+                                />
+                            )}
+
+                            {/* Kickout foul: pick player fouled */}
+                            {isPass && passType === 'kickout' && (subMenuValues.kickout_outcome || '') === 'foul' && (
                                 <SpecialPlayerSelect
                                     label="Player Fouled"
                                     value={subMenuValues.foul_fouled_player || ''}
