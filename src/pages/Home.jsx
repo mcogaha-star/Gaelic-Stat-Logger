@@ -147,9 +147,9 @@ export default function Home() {
                                         <Plus className="w-4 h-4" /> New Match
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent>
+                                <DialogContent className="max-h-[90vh] overflow-hidden">
                                     <DialogHeader><DialogTitle>Create New Match</DialogTitle></DialogHeader>
-                                    <div className="space-y-4 py-4">
+                                    <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-4">
                                         <div className="space-y-2">
                                             <Label>Code</Label>
                                             <div className="flex gap-2">
@@ -220,6 +220,8 @@ export default function Home() {
                                             <Label>Competition</Label>
                                             <Input placeholder="e.g. All-Ireland Championship" value={newMatch.competition} onChange={(e) => setNewMatch({ ...newMatch, competition: e.target.value })} />
                                         </div>
+                                    </div>
+                                    <div className="pt-3 border-t">
                                         <Button onClick={handleCreateMatch} className="w-full bg-green-600 hover:bg-green-700" disabled={createMatchMutation.isPending}>
                                             Create Match
                                         </Button>
