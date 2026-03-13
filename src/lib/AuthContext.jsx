@@ -3,6 +3,26 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext(null);
 
+async function maybeExchangeCodeForSession() {
+  // Supabase magic links often return with ?code=... (PKCE). With HashRouter,
+  // it is easy to end up on a blank route if we don't exchange and then
+  // clean the URL.
+  if (!isSupabaseConfigured || !supabase) return;
+  try {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('code');
+    if (!code) return;
+
+    await supabase.auth.exchangeCodeForSession(window.location.href);
+
+    // Remove the code param so refreshes don't re-run the exchange.
+    url.searchParams.delete('code');
+    window.history.replaceState({}, '', url.pathname + (url.search ? `?${url.searchParams.toString()}` : '') + (url.hash || ''));
+  } catch {
+    // Best-effort; the rest of the auth flow will surface any issues.
+  }
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -24,6 +44,9 @@ export const AuthProvider = ({ children }) => {
         setIsLoadingAuth(false);
         return;
       }
+
+      // Handle PKCE callback if we landed here from a magic-link.
+      await maybeExchangeCodeForSession();
 
       const { data, error } = await supabase.auth.getSession();
       if (error) {

@@ -8,6 +8,7 @@ import { useLocation } from 'react-router-dom';
 
 const CONSENT_VERSION = '2026-03-13';
 const CONSENT_KEY = 'gaelic_consent_version';
+const CONSENT_SERVER_SYNC_KEY = 'gaelic_consent_server_synced_version';
 
 export function getConsentVersion() {
   try {
@@ -20,6 +21,7 @@ export function getConsentVersion() {
 export function clearConsent() {
   try {
     window.localStorage.removeItem(CONSENT_KEY);
+    window.localStorage.removeItem(CONSENT_SERVER_SYNC_KEY);
   } catch {}
 }
 
@@ -34,7 +36,12 @@ async function recordConsentOnServer({ accepted }) {
     : { user_id: user.id, consent_version: CONSENT_VERSION, revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
 
   // Upsert requires a unique key; we use user_id as PK.
-  await supabase.from('user_consents').upsert(patch);
+  const { error } = await supabase.from('user_consents').upsert(patch);
+  if (!error && accepted) {
+    try {
+      window.localStorage.setItem(CONSENT_SERVER_SYNC_KEY, CONSENT_VERSION);
+    } catch {}
+  }
 }
 
 export default function ConsentGate({ children }) {
@@ -48,6 +55,40 @@ export default function ConsentGate({ children }) {
   const accepted = consentVersion === CONSENT_VERSION;
   const path = location?.pathname || '/';
   const allowWithoutConsent = path === '/Privacy' || path === '/Login';
+
+  // If the user accepted previously while logged out, sync it to the server
+  // once auth becomes available.
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (!accepted) return;
+
+    let isMounted = true;
+
+    const maybeSync = async () => {
+      if (!isMounted) return;
+      let alreadySynced = null;
+      try {
+        alreadySynced = window.localStorage.getItem(CONSENT_SERVER_SYNC_KEY);
+      } catch {}
+      if (alreadySynced === CONSENT_VERSION) return;
+      await recordConsentOnServer({ accepted: true });
+    };
+
+    // Try immediately (covers "accepted then login in same tab" cases).
+    maybeSync().catch(() => {});
+
+    // Also retry when auth state changes (covers "accepted, later clicked magic link").
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      maybeSync().catch(() => {});
+    });
+
+    return () => {
+      isMounted = false;
+      try {
+        sub?.subscription?.unsubscribe?.();
+      } catch {}
+    };
+  }, [accepted]);
 
   if (accepted || allowWithoutConsent) return children;
 
