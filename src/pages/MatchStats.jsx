@@ -72,7 +72,21 @@ export default function MatchStats() {
     const clickStatsRaw = settingsRecord?.click_stats_config ? (() => { try { return JSON.parse(settingsRecord.click_stats_config); } catch { return DEFAULT_CLICK_STATS; } })() : DEFAULT_CLICK_STATS;
     const dragStats = settingsRecord?.drag_stats_config ? (() => { try { return JSON.parse(settingsRecord.drag_stats_config); } catch { return DEFAULT_DRAG_STATS; } })() : DEFAULT_DRAG_STATS;
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
-    const subMenus = settingsRecord?.sub_menus_config ? (() => { try { return JSON.parse(settingsRecord.sub_menus_config); } catch { return DEFAULT_SUB_MENUS; } })() : DEFAULT_SUB_MENUS;
+    const subMenus = useMemo(() => {
+        const menus = settingsRecord?.sub_menus_config
+            ? (() => { try { return JSON.parse(settingsRecord.sub_menus_config); } catch { return DEFAULT_SUB_MENUS; } })()
+            : DEFAULT_SUB_MENUS;
+
+        const arr = Array.isArray(menus) ? menus : DEFAULT_SUB_MENUS;
+
+        // Merge new default submenu sections into existing configs so upgrades "just appear".
+        const map = new Map(arr.map(m => [m.id, m]));
+        for (const def of DEFAULT_SUB_MENUS) {
+            if (!map.has(def.id)) map.set(def.id, def);
+        }
+
+        return [...map.values()];
+    }, [settingsRecord?.sub_menus_config]);
 
     // Best-effort config migration for existing installs.
     const clickStats = useMemo(() => {
@@ -632,9 +646,9 @@ export default function MatchStats() {
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <div className="flex items-center justify-between mb-3">
-                            <div className="text-lg text-slate-700">
-                                <span className="font-semibold">Home attacking</span>{' '}
-                                <span className="font-bold font-mono">
+                            <div className="text-2xl text-slate-800 flex items-center gap-2">
+                                <span className="font-semibold">Home attacking</span>
+                                <span className="font-extrabold font-mono tracking-tight">
                                     {getDirForHalf(half) === 'left' ? '<-' : '->'}
                                 </span>
                             </div>

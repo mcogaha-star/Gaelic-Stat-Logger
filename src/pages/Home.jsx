@@ -52,6 +52,13 @@ export default function Home() {
 
     const scoreByMatch = React.useMemo(() => {
         const map = {};
+
+        // Ensure every match shows a score line (defaults to 0:0 - 0:0).
+        for (const m of (matches || [])) {
+            if (!m?.id) continue;
+            map[m.id] = { home: { goals: 0, points: 0 }, away: { goals: 0, points: 0 } };
+        }
+
         const add = (matchId, side, kind, amt) => {
             if (!matchId || !side) return;
             map[matchId] = map[matchId] || { home: { goals: 0, points: 0 }, away: { goals: 0, points: 0 } };
@@ -65,7 +72,7 @@ export default function Home() {
             if (s.stat_type === '2_point') add(s.match_id, side, 'points', 2);
         }
         return map;
-    }, [allStats]);
+    }, [allStats, matches]);
 
     const createMatchMutation = useMutation({
         mutationFn: async (data) => {

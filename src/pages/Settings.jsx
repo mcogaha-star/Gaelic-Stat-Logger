@@ -70,7 +70,20 @@ export default function Settings() {
                     setDefaults({ ...DEFAULT_DEFAULTS, ...(parsed && typeof parsed === 'object' ? parsed : {}) });
                 }
             } catch {}
-            try { if (settingsRecord.sub_menus_config) setSubMenus(JSON.parse(settingsRecord.sub_menus_config)); } catch {}
+            try {
+                if (settingsRecord.sub_menus_config) {
+                    const parsed = JSON.parse(settingsRecord.sub_menus_config);
+                    const menus = Array.isArray(parsed) ? parsed : DEFAULT_SUB_MENUS;
+
+                    // Merge new default submenu sections into existing configs so upgrades "just appear".
+                    const map = new Map(menus.map(m => [m.id, m]));
+                    for (const def of DEFAULT_SUB_MENUS) {
+                        if (!map.has(def.id)) map.set(def.id, def);
+                    }
+
+                    setSubMenus([...map.values()]);
+                }
+            } catch {}
         }
     }, [settingsRecord?.id]);
 

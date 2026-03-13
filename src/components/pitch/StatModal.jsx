@@ -437,6 +437,11 @@ export default function StatModal({
                         />
                     )}
 
+                    {/* Recipient (pass + kickout) */}
+                    {isPass && (passType === 'pass' || passType === 'kickout') && (
+                        <PlayerSelect label="Recipient" value={selectedRecipient} onChange={setSelectedRecipient} />
+                    )}
+
                     {/* Kickout intended recipient */}
                     {isPass && passType === 'kickout' && (
                         <SpecialPlayerSelect
@@ -444,11 +449,6 @@ export default function StatModal({
                             value={subMenuValues.kickout_intended_recipient || ''}
                             onChange={(v) => setVal('kickout_intended_recipient', v)}
                         />
-                    )}
-
-                    {/* Recipient (pass + kickout) */}
-                    {isPass && (passType === 'pass' || passType === 'kickout') && (
-                        <PlayerSelect label="Recipient" value={selectedRecipient} onChange={setSelectedRecipient} />
                     )}
 
                     {/* Carry: dispossession tackler */}
