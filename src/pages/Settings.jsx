@@ -50,17 +50,17 @@ export default function Settings() {
                 if (settingsRecord.click_stats_config) {
                     const parsed = JSON.parse(settingsRecord.click_stats_config);
                     const stats = Array.isArray(parsed) ? parsed : DEFAULT_CLICK_STATS;
-                    const hasLegacy = stats.some(s => ['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value));
-                    setClickStats(
-                        hasLegacy
-                            ? stats
-                                  .filter(s => !['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value))
-                                  .concat([
-                                      stats.find(s => s.value === 'foul') || { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
-                                      stats.find(s => s.value === 'turnover') || { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
-                                  ])
-                            : stats
-                    );
+
+                    // Merge new default stat types into existing configs so upgrades "just appear".
+                    const map = new Map(stats.map(s => [s.value, s]));
+                    for (const def of DEFAULT_CLICK_STATS) {
+                        if (!map.has(def.value)) map.set(def.value, def);
+                    }
+
+                    // Remove legacy types if still present.
+                    ['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].forEach((k) => map.delete(k));
+
+                    setClickStats([...map.values()]);
                 }
             } catch {}
             try { if (settingsRecord.drag_stats_config) setDragStats(JSON.parse(settingsRecord.drag_stats_config)); } catch {}

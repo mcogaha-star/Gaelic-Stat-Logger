@@ -77,15 +77,17 @@ export default function MatchStats() {
     // Best-effort config migration for existing installs.
     const clickStats = useMemo(() => {
         const stats = Array.isArray(clickStatsRaw) ? [...clickStatsRaw] : DEFAULT_CLICK_STATS;
-        const hasLegacyFoul = stats.some(s => s.value === 'foul_won' || s.value === 'foul_against');
-        const hasLegacyTurnover = stats.some(s => s.value === 'turnover_won' || s.value === 'turnover_against');
-        if (!hasLegacyFoul && !hasLegacyTurnover) return stats;
-        return stats
-            .filter(s => !['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value))
-            .concat([
-                stats.find(s => s.value === 'foul') || { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
-                stats.find(s => s.value === 'turnover') || { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
-            ]);
+
+        // Merge missing default stats (e.g. Throw Ball Won) into existing saved config.
+        const map = new Map(stats.map(s => [s.value, s]));
+        for (const def of DEFAULT_CLICK_STATS) {
+            if (!map.has(def.value)) map.set(def.value, def);
+        }
+
+        // Remove legacy types if still present.
+        ['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].forEach((k) => map.delete(k));
+
+        return [...map.values()];
     }, [settingsRecord?.click_stats_config]);
 
     const appDefaults = useMemo(() => {
