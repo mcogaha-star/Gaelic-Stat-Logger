@@ -260,7 +260,12 @@ function createLocalDb() {
     },
   };
 
-  return { auth, entities, integrations };
+  // Base44 scaffolds sometimes call this; keep it as a harmless no-op.
+  const appLogs = {
+    logUserInApp: async () => {},
+  };
+
+  return { auth, entities, integrations, appLogs };
 }
 
 // Initialize global DB once (so Base44-exported pages that do `globalThis.__B44_DB__ || stub` will pick it up).

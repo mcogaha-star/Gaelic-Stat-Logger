@@ -1,7 +1,8 @@
 const db = globalThis.__B44_DB__ || {
   auth: { isAuthenticated: async () => false, me: async () => null },
   entities: new Proxy({}, { get: () => ({ filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
-  integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
+  integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } },
+  appLogs: { logUserInApp: async () => {} },
 };
 
 import { useEffect } from 'react';
@@ -46,7 +47,7 @@ export default function NavigationTracker() {
         }
 
         if (isAuthenticated && pageName) {
-            db.appLogs.logUserInApp(pageName).catch(() => {
+            db.appLogs?.logUserInApp?.(pageName)?.catch?.(() => {
                 // Silently fail - logging shouldn't break the app
             });
         }
