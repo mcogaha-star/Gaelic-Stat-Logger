@@ -91,9 +91,9 @@ export default function Teams() {
     };
 
     const handlePlayerSubmit = () => {
-        if (!playerForm.name || !playerForm.number) { toast.error('Enter name and number'); return; }
+        if (!playerForm.number) { toast.error('Enter number'); return; }
         const data = {
-            name: playerForm.name,
+            name: (playerForm.name || '').trim() || String(parseInt(playerForm.number)),
             number: parseInt(playerForm.number),
             position: playerForm.position,
             team_id: playerDialog.teamId

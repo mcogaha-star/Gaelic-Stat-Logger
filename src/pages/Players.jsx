@@ -94,13 +94,13 @@ export default function Players() {
     };
 
     const handleSubmit = () => {
-        if (!formData.name || !formData.number) {
-            toast.error('Please fill in name and number');
+        if (!formData.number) {
+            toast.error('Please fill in number');
             return;
         }
 
         const data = {
-            name: formData.name,
+            name: (formData.name || '').trim() || String(parseInt(formData.number)),
             number: parseInt(formData.number),
             position: formData.position,
             team_type: formData.team_type

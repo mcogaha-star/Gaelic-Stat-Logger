@@ -15,13 +15,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export default function Home() {
     const [dialogOpen, setDialogOpen] = useState(false);
-    const [newMatch, setNewMatch] = useState({ home_team_id: '', away_team_id: '', date: '', venue: '', competition: '' });
+    const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
+    const [newMatch, setNewMatch] = useState({
+        home_team_id: '',
+        away_team_id: '',
+        date: '',
+        venue: '',
+        competition: '',
+        level: 'Senior',
+        code: 'GAA',
+    });
     const queryClient = useQueryClient();
 
     const { data: matches = [], isLoading } = useQuery({
@@ -35,11 +46,41 @@ export default function Home() {
     });
 
     const createMatchMutation = useMutation({
-        mutationFn: (data) => db.entities.Match.create(data),
+        mutationFn: async (data) => {
+            const payload = {
+                ...data,
+                public_match_id: data.public_match_id || generatePublicMatchId(),
+            };
+
+            const created = await db.entities.Match.create(payload);
+
+            // Best-effort server upload (redacted): exclude venue/competition.
+            const res = await ensureServerMatch({
+                publicMatchId: created.public_match_id,
+                matchDate: created.date,
+                code: created.code || 'GAA',
+                level: created.level || 'Other',
+            });
+
+            if (res.ok && res.id) {
+                await db.entities.Match.update(created.id, { server_match_id: res.id });
+                return { ...created, server_match_id: res.id };
+            }
+
+            return created;
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['matches'] });
             setDialogOpen(false);
-            setNewMatch({ home_team_id: '', away_team_id: '', date: '', venue: '', competition: '' });
+            setNewMatch({
+                home_team_id: '',
+                away_team_id: '',
+                date: '',
+                venue: '',
+                competition: '',
+                level: 'Senior',
+                code: 'GAA',
+            });
             toast.success('Match created');
         }
     });
@@ -55,6 +96,33 @@ export default function Home() {
         const awayTeam = teams.find(t => t.id === match.away_team_id);
         if (homeTeam && awayTeam) return `${homeTeam.name} vs ${awayTeam.name}`;
         return match.opponent ? `vs ${match.opponent}` : 'Match';
+    };
+
+    const requestDeleteMatch = (match) => setDeleteDialog({ open: true, match });
+    const closeDelete = () => setDeleteDialog({ open: false, match: null });
+
+    const confirmDeleteMatch = async () => {
+        const m = deleteDialog.match;
+        if (!m?.id) return;
+
+        try {
+            // Soft delete on server if known (best-effort)
+            if (m.server_match_id) {
+                await softDeleteServerMatch(m.server_match_id);
+            }
+
+            // Local delete: match + all stats
+            const stats = await db.entities.StatEntry.filter({ match_id: m.id });
+            await Promise.all((stats || []).map(s => db.entities.StatEntry.delete(s.id)));
+            await db.entities.Match.delete(m.id);
+
+            queryClient.invalidateQueries({ queryKey: ['matches'] });
+            toast.success('Match deleted');
+        } catch (e) {
+            toast.error(e?.message || 'Failed to delete match');
+        } finally {
+            closeDelete();
+        }
     };
 
     return (
@@ -82,6 +150,41 @@ export default function Home() {
                                 <DialogContent>
                                     <DialogHeader><DialogTitle>Create New Match</DialogTitle></DialogHeader>
                                     <div className="space-y-4 py-4">
+                                        <div className="space-y-2">
+                                            <Label>Code</Label>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant={newMatch.code === 'GAA' ? 'default' : 'outline'}
+                                                    onClick={() => setNewMatch({ ...newMatch, code: 'GAA' })}
+                                                >
+                                                    GAA
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={newMatch.code === 'LGFA' ? 'default' : 'outline'}
+                                                    onClick={() => setNewMatch({ ...newMatch, code: 'LGFA' })}
+                                                >
+                                                    LGFA
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Level</Label>
+                                            <Select value={newMatch.level} onValueChange={(v) => setNewMatch({ ...newMatch, level: v })}>
+                                                <SelectTrigger><SelectValue placeholder="Select level..." /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Intercounty">Intercounty</SelectItem>
+                                                    <SelectItem value="Senior">Senior</SelectItem>
+                                                    <SelectItem value="Intermediate">Intermediate</SelectItem>
+                                                    <SelectItem value="Junior">Junior</SelectItem>
+                                                    <SelectItem value="Minor">Minor</SelectItem>
+                                                    <SelectItem value="Other">Other</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
                                         <div className="space-y-2">
                                             <Label>Home Team *</Label>
                                             <Select value={newMatch.home_team_id} onValueChange={(v) => setNewMatch({ ...newMatch, home_team_id: v })}>
@@ -161,7 +264,19 @@ export default function Home() {
                                                     </div>
                                                 )}
                                             </div>
-                                            <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-green-500 group-hover:translate-x-1 transition-all" />
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteMatch(match); }}
+                                                    title="Delete match"
+                                                >
+                                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                                </Button>
+                                                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-green-500 group-hover:translate-x-1 transition-all" />
+                                            </div>
                                         </div>
                                     </CardHeader>
                                     <CardContent className="space-y-2">
@@ -182,6 +297,23 @@ export default function Home() {
                     </div>
                 )}
             </main>
+
+            <AlertDialog open={deleteDialog.open} onOpenChange={(open) => !open && closeDelete()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete match?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete the match and all its logged stats from this device. It will also request a server-side delete (soft delete) if the match was uploaded.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={closeDelete}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={confirmDeleteMatch}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

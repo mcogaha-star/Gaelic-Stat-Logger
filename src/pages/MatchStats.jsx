@@ -19,6 +19,7 @@ import StatMarkers from '@/components/pitch/StatMarkers';
 import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_SUB_MENUS } from '@/components/statDefaults';
+import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 
 export default function MatchStats() {
     // With HashRouter, query params live in the hash segment, so use react-router's location.
@@ -129,13 +130,62 @@ export default function MatchStats() {
         playerGroups.push({ team: null, players: unassigned });
     }
 
+    const ensureMatchServerId = async () => {
+        if (!match) return null;
+        if (match.server_match_id) return match.server_match_id;
+        if (!match.public_match_id) return null;
+
+        const res = await ensureServerMatch({
+            publicMatchId: match.public_match_id,
+            matchDate: match.date,
+            code: match.code || 'GAA',
+            level: match.level || 'Other',
+        });
+        if (res.ok && res.id) {
+            await db.entities.Match.update(match.id, { server_match_id: res.id });
+            return res.id;
+        }
+        return null;
+    };
+
     const createStatMutation = useMutation({
-        mutationFn: (data) => db.entities.StatEntry.create(data),
+        mutationFn: async (data) => {
+            const created = await db.entities.StatEntry.create(data);
+
+            // Best-effort server upload (redacted)
+            const serverMatchId = await ensureMatchServerId();
+            if (serverMatchId && match?.public_match_id) {
+                const res = await insertServerStat({
+                    matchId: serverMatchId,
+                    publicMatchId: match.public_match_id,
+                    stat: created,
+                    teamSide: created.team_side || 'unknown',
+                });
+                if (res.ok && res.id) {
+                    await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
+                    return { ...created, server_stat_id: res.id };
+                }
+            }
+
+            return created;
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat logged'); }
     });
 
     const updateStatMutation = useMutation({
-        mutationFn: ({ id, data }) => db.entities.StatEntry.update(id, data),
+        mutationFn: async ({ id, data }) => {
+            const updated = await db.entities.StatEntry.update(id, data);
+            if (updated?.server_stat_id) {
+                await updateServerStat(updated.server_stat_id, {
+                    stat_type: updated.stat_type,
+                    is_pass: !!updated.is_pass,
+                    player_number: updated.player_number ?? null,
+                    recipient_number: updated.recipient_number ?? null,
+                    extra_data: updated.extra_data ?? null,
+                });
+            }
+            return updated;
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
             toast.success('Stat updated');
@@ -143,7 +193,14 @@ export default function MatchStats() {
     });
 
     const deleteStatMutation = useMutation({
-        mutationFn: (id) => db.entities.StatEntry.delete(id),
+        mutationFn: async (id) => {
+            const stat = await db.entities.StatEntry.get(id);
+            await db.entities.StatEntry.delete(id);
+            if (stat?.server_stat_id) {
+                await softDeleteServerStat(stat.server_stat_id);
+            }
+            return { id };
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat deleted'); }
     });
 
@@ -267,6 +324,11 @@ export default function MatchStats() {
         const hasEnd = !!rawEnd;
         const end = hasEnd ? normalizeCoords(rawEnd.x, rawEnd.y) : {};
 
+        const teamSide =
+            data.player?.team_id && data.player.team_id === match?.home_team_id ? 'home'
+            : data.player?.team_id && data.player.team_id === match?.away_team_id ? 'away'
+            : 'unknown';
+
         const statData = {
             match_id: matchId,
             player_name: data.player?.name,
@@ -282,6 +344,7 @@ export default function MatchStats() {
             raw_end_y_position: hasEnd ? rawEnd.y : undefined,
             recipient_name: data.recipient?.name,
             recipient_number: data.recipient?.number,
+            team_side: teamSide,
             is_pass: data.is_pass,
             half: half,
             timestamp: new Date().toISOString()
@@ -360,7 +423,7 @@ export default function MatchStats() {
             return String(at).localeCompare(String(bt));
         });
 
-        const baseHeaders = ['Match ID','Player Name','Player Number','Stat Type','X Position','Y Position',
+        const baseHeaders = ['Match ID','Match Public ID','Match Date','Code','Level','Player Name','Player Number','Stat Type','X Position','Y Position',
             'End X','End Y',
             'Raw X','Raw Y','Raw End X','Raw End Y',
             'Recipient Name','Recipient Number','Is Pass','Half','Timestamp'];
@@ -369,7 +432,8 @@ export default function MatchStats() {
 
         const rows = orderedStats.map(stat => {
             const base = [
-                stat.match_id, stat.player_name, stat.player_number, stat.stat_type,
+                stat.match_id, match?.public_match_id || '', match?.date || '', match?.code || '', match?.level || '',
+                stat.player_name, stat.player_number, stat.stat_type,
                 stat.x_position?.toFixed(2), stat.y_position?.toFixed(2),
                 stat.end_x_position?.toFixed(2) || '', stat.end_y_position?.toFixed(2) || '',
                 stat.raw_x_position?.toFixed?.(2) ?? '', stat.raw_y_position?.toFixed?.(2) ?? '',

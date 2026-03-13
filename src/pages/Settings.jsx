@@ -19,9 +19,13 @@ import { ArrowLeft, Save, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_SUB_MENUS } from '@/components/statDefaults';
 import SubMenuEditor from '@/components/settings/SubMenuEditor';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { clearConsent } from '@/components/ConsentGate';
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
 export default function Settings() {
     const queryClient = useQueryClient();
+    const [revokeOpen, setRevokeOpen] = useState(false);
 
     const { data: settingsRecords = [] } = useQuery({
         queryKey: ['app-settings'],
@@ -113,6 +117,7 @@ export default function Settings() {
                         <TabsTrigger value="drag" className="flex-1">Drag Stats</TabsTrigger>
                         <TabsTrigger value="submenus" className="flex-1">Sub-menus</TabsTrigger>
                         <TabsTrigger value="defaults" className="flex-1">Defaults</TabsTrigger>
+                        <TabsTrigger value="privacy" className="flex-1">Privacy</TabsTrigger>
                     </TabsList>
 
                     {/* Click Stats */}
@@ -252,6 +257,64 @@ export default function Settings() {
                                 </Select>
                             </div>
                         </div>
+                    </TabsContent>
+
+                    {/* Privacy */}
+                    <TabsContent value="privacy">
+                        <div className="bg-white border rounded-xl p-6 space-y-4">
+                            <p className="text-sm text-slate-600">
+                                You can review privacy details and revoke consent. Revoking consent stops further uploads.
+                            </p>
+                            <div className="flex gap-2">
+                                <Link to={createPageUrl('Privacy')}>
+                                    <Button variant="outline">View Privacy Details</Button>
+                                </Link>
+                                <Button variant="destructive" onClick={() => setRevokeOpen(true)}>
+                                    Revoke Consent
+                                </Button>
+                            </div>
+                        </div>
+
+                        <AlertDialog open={revokeOpen} onOpenChange={(open) => setRevokeOpen(open)}>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Revoke consent?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will stop any further uploads from this device and sign you out. Existing server data is not deleted automatically.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setRevokeOpen(false)}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        className="bg-red-600 hover:bg-red-700"
+                                        onClick={async () => {
+                                            try {
+                                                clearConsent();
+                                                if (isSupabaseConfigured && supabase) {
+                                                    const { data } = await supabase.auth.getUser();
+                                                    const user = data?.user;
+                                                    if (user) {
+                                                        await supabase.from('user_consents').upsert({
+                                                            user_id: user.id,
+                                                            consent_version: '2026-03-13',
+                                                            revoked_at: new Date().toISOString(),
+                                                            updated_at: new Date().toISOString(),
+                                                        });
+                                                    }
+                                                    await supabase.auth.signOut();
+                                                }
+                                                toast.success('Consent revoked');
+                                                window.location.reload();
+                                            } catch (e) {
+                                                toast.error(e?.message || 'Failed to revoke');
+                                            }
+                                        }}
+                                    >
+                                        Revoke
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </TabsContent>
                 </Tabs>
             </main>

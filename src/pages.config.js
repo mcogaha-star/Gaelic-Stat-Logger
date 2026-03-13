@@ -48,20 +48,24 @@
  * The mainPage value must match a key in the PAGES object exactly.
  */
 import Home from './pages/Home';
+import Login from './pages/Login';
 import MatchStats from './pages/MatchStats';
 import Players from './pages/Players';
+import Privacy from './pages/Privacy';
 import Settings from './pages/Settings';
 import Teams from './pages/Teams';
 
 export const PAGES = {
     "Home": Home,
+    "Login": Login,
     "MatchStats": MatchStats,
     "Players": Players,
+    "Privacy": Privacy,
     "Settings": Settings,
     "Teams": Teams,
 }
 
 export const pagesConfig = {
-    mainPage: "MatchStats",
+    mainPage: "Home",
     Pages: PAGES,
 };
