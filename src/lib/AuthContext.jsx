@@ -3,21 +3,46 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext(null);
 
-async function maybeExchangeCodeForSession() {
-  // Supabase magic links often return with ?code=... (PKCE). With HashRouter,
-  // it is easy to end up on a blank route if we don't exchange and then
-  // clean the URL.
+function parseHashParams(hash) {
+  // Accept both "#access_token=..." and "#/route?access_token=..." shapes.
+  const raw = (hash || '').replace(/^#/, '');
+  const qIndex = raw.indexOf('?');
+  const query = qIndex >= 0 ? raw.slice(qIndex + 1) : raw;
+  const params = new URLSearchParams(query);
+  return params;
+}
+
+async function maybeHandleAuthCallbackInUrl() {
+  // Magic links can come back as:
+  // 1) PKCE: https://.../app/?code=... (preferred)
+  // 2) Implicit: https://.../app/#access_token=...&refresh_token=...
+  // HashRouter makes (2) especially painful because it uses the hash for routing.
   if (!isSupabaseConfigured || !supabase) return;
+
   try {
     const url = new URL(window.location.href);
+
+    // PKCE flow
     const code = url.searchParams.get('code');
-    if (!code) return;
+    if (code) {
+      await supabase.auth.exchangeCodeForSession(window.location.href);
+      url.searchParams.delete('code');
+      // If we landed without a hash, go to app root inside HashRouter.
+      if (!url.hash) url.hash = '#/';
+      window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') + url.hash);
+      return;
+    }
 
-    await supabase.auth.exchangeCodeForSession(window.location.href);
-
-    // Remove the code param so refreshes don't re-run the exchange.
-    url.searchParams.delete('code');
-    window.history.replaceState({}, '', url.pathname + (url.search ? `?${url.searchParams.toString()}` : '') + (url.hash || ''));
+    // Implicit flow
+    const hp = parseHashParams(url.hash);
+    const access_token = hp.get('access_token');
+    const refresh_token = hp.get('refresh_token');
+    if (access_token && refresh_token) {
+      await supabase.auth.setSession({ access_token, refresh_token });
+      url.hash = '#/';
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : '') + url.hash);
+      return;
+    }
   } catch {
     // Best-effort; the rest of the auth flow will surface any issues.
   }
@@ -46,7 +71,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Handle PKCE callback if we landed here from a magic-link.
-      await maybeExchangeCodeForSession();
+      await maybeHandleAuthCallbackInUrl();
 
       const { data, error } = await supabase.auth.getSession();
       if (error) {
