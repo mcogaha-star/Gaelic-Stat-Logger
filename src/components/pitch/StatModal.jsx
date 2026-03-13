@@ -38,6 +38,12 @@ export default function StatModal({
     const buildInitialValues = () => {
         const vals = {};
         subMenus.forEach(s => { vals[s.id] = s.default_value || ''; });
+        // v0.3 dynamic fields (not in sub-menu config, but stored in extra_data)
+        vals.foul_fouled_player = vals.foul_fouled_player || '';
+        vals.foul_fouler_player = vals.foul_fouler_player || '';
+        vals.turnover_caused_by = vals.turnover_caused_by || '';
+        vals.tackler = vals.tackler || '';
+        vals.kickout_intended_recipient = vals.kickout_intended_recipient || '';
         return vals;
     };
 
@@ -62,7 +68,35 @@ export default function StatModal({
         setSelectedStat('');
     }, [open, initialData, defaultPlayerId, defaultRecipientId]);
 
+    // Kickout convenience: if no default player is set, default to #1 when present.
+    useEffect(() => {
+        if (!open) return;
+        if (!isPass) return;
+        if (initialData) return;
+        if (passType !== 'kickout') return;
+        if (selectedPlayer) return;
+        const gk = allPlayers.find(p => String(p.number) === '1');
+        if (gk?.id) setSelectedPlayer(gk.id);
+    }, [open, isPass, initialData, passType, selectedPlayer, allPlayers]);
+
     const setVal = (id, value) => setSubMenuValues(prev => ({ ...prev, [id]: value }));
+
+    const shouldShowFoulPanel = () => {
+        if (!isPass) {
+            if (selectedStat === 'foul') return true;
+            if (selectedStat === 'turnover') return (subMenuValues.turnover_type || '') === 'foul';
+            return false;
+        }
+
+        if (passType === 'pass') {
+            return (subMenuValues.pass_outcome || '') === 'free_lost';
+        }
+        if (passType === 'carry') {
+            const co = subMenuValues.carry_outcome || '';
+            return co === 'free_won' || co === 'free_against';
+        }
+        return false;
+    };
 
     // Current stat identifier for filtering sub-menu sections
     const currentType = isPass ? passType : selectedStat;
@@ -81,6 +115,21 @@ export default function StatModal({
         if (section.condition === 'only_play') {
             const sec = subMenus.find(s => s.options?.some(o => o.value === 'play') && s.applies_to?.includes(currentType));
             return sec ? subMenuValues[sec.id] === 'play' : false;
+        }
+        if (section.condition === 'show_foul_panel') {
+            return shouldShowFoulPanel();
+        }
+        if (section.condition === 'kickout_mark_show') {
+            return isPass && passType === 'kickout' && (subMenuValues.kickout_outcome || '') === 'won_clean';
+        }
+        if (section.condition === 'kickpass_mark_show') {
+            if (!isPass || passType !== 'pass') return false;
+            if ((subMenuValues.pass_outcome || '') !== 'completed') return false;
+            const style = subMenuValues.pass_style || '';
+            if (!(style === 'high' || style === 'chest')) return false;
+            const passBodySection = subMenus.find(s => s.applies_to?.includes('pass') && s.options?.some(o => o.value === 'handpass'));
+            const isHandpass = passBodySection ? (subMenuValues[passBodySection.id] === 'handpass') : false;
+            return !isHandpass;
         }
         if (section.condition === 'foul_type_show') {
             const turnoverSec = findSection('foul', 'turnover_against');
@@ -111,9 +160,7 @@ export default function StatModal({
         if (!selectedPlayer) return false;
         if (!isPass) return !!selectedStat;
         if (!passType) return false;
-        if (passType !== 'pass') return true;
-        const passBodySection = subMenus.find(s => s.applies_to?.includes('pass') && s.options?.some(o => o.value === 'handpass'));
-        return passBodySection ? !!subMenuValues[passBodySection.id] : true;
+        return true;
     };
 
     const handleSubmit = () => {
@@ -133,6 +180,10 @@ export default function StatModal({
         // Attach all active sub-menu values that have a value set
         activeSections.forEach(s => {
             if (subMenuValues[s.id]) data[s.id] = subMenuValues[s.id];
+        });
+        // Attach v0.3 dynamic values (player-based pickers etc.)
+        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+            if (subMenuValues[k]) data[k] = subMenuValues[k];
         });
         onSubmit(data);
         onClose();
@@ -177,12 +228,62 @@ export default function StatModal({
         </div>
     );
 
+    const SpecialPlayerSelect = ({ label, value, onChange, includeUnforced = false }) => (
+        <div className="space-y-2">
+            <Label className="text-sm font-medium text-slate-700">{label}</Label>
+            <Select value={value} onValueChange={onChange}>
+                <SelectTrigger className="h-12"><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="team">Team</SelectItem>
+                    {includeUnforced && <SelectItem value="unforced">Unforced</SelectItem>}
+                    <SelectItem value="none">None</SelectItem>
+                    {playerGroups.map(group => (
+                        <React.Fragment key={group.team?.id || 'all'}>
+                            {group.team && (
+                                <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50 sticky top-0">
+                                    {group.team.name}
+                                </div>
+                            )}
+                            {(group.players || []).map(p => (
+                                <SelectItem key={p.id} value={p.id}>
+                                    <span className="font-semibold mr-2">#{p.number}</span>{p.name}
+                                </SelectItem>
+                            ))}
+                        </React.Fragment>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
+
     const renderSection = (section) => {
         const val = subMenuValues[section.id] || '';
         const opts = section.options || [];
         if (opts.length === 0) return null;
 
         if (section.display_type === 'select') {
+            if (opts.length <= 4) {
+                const cols = opts.length <= 2 ? opts.length : 2;
+                return (
+                    <div key={section.id} className="space-y-2">
+                        <Label className="text-sm font-medium text-slate-700">{section.label}</Label>
+                        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+                            {opts.map(opt => (
+                                <Button
+                                    key={opt.value}
+                                    type="button"
+                                    variant={val === opt.value ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => setVal(section.id, opt.value)}
+                                    className="text-xs"
+                                >
+                                    {opt.label}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
             return (
                 <div key={section.id} className="space-y-2">
                     <Label className="text-sm font-medium text-slate-700">{section.label}</Label>
@@ -218,9 +319,7 @@ export default function StatModal({
         const cols = opts.length <= 2 ? opts.length : opts.length <= 4 ? 2 : 3;
         return (
             <div key={section.id} className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">
-                    {section.label}{section.id === 'pass_body' ? ' *' : ''}
-                </Label>
+                <Label className="text-sm font-medium text-slate-700">{section.label}</Label>
                 <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
                     {opts.map(opt => (
                         <Button
@@ -241,17 +340,17 @@ export default function StatModal({
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
-            <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-full sm:max-w-xl md:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="text-xl font-semibold">
                         {isPass ? 'Log Pass / Carry' : 'Log Stat'}
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-5 py-4">
+                <div className="space-y-5 py-4 flex-1 overflow-y-auto pr-1">
                     {/* Player */}
                     <PlayerSelect
-                        label={isPass ? 'Passer / Carrier' : 'Player'}
+                        label={!isPass && selectedStat === 'foul' ? 'Fouler' : (isPass ? 'Passer / Carrier' : 'Player')}
                         value={selectedPlayer}
                         onChange={setSelectedPlayer}
                     />
@@ -284,7 +383,7 @@ export default function StatModal({
                                 {Object.entries(clickStatsByCategory).map(([cat, stats]) => (
                                     <div key={cat}>
                                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 capitalize">{cat}</div>
-                                        <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                             {stats.map(stat => (
                                                 <Button
                                                     key={stat.value}
@@ -308,16 +407,82 @@ export default function StatModal({
                     {/* Pre-recipient dynamic sections */}
                     {preSections.map(renderSection)}
 
+                    {/* Turnover "caused by" (player/team/unforced) */}
+                    {!isPass && selectedStat === 'turnover' && (
+                        <SpecialPlayerSelect
+                            label="Caused By"
+                            value={subMenuValues.turnover_caused_by || ''}
+                            onChange={(v) => setVal('turnover_caused_by', v)}
+                            includeUnforced={true}
+                        />
+                    )}
+
                     {/* Recipient (pass + kickout) */}
                     {isPass && (passType === 'pass' || passType === 'kickout') && (
                         <PlayerSelect label="Recipient" value={selectedRecipient} onChange={setSelectedRecipient} />
+                    )}
+
+                    {/* Kickout intended recipient */}
+                    {isPass && passType === 'kickout' && (
+                        <SpecialPlayerSelect
+                            label="Intended Recipient"
+                            value={subMenuValues.kickout_intended_recipient || ''}
+                            onChange={(v) => setVal('kickout_intended_recipient', v)}
+                        />
+                    )}
+
+                    {/* Carry: dispossession tackler */}
+                    {isPass && passType === 'carry' && (subMenuValues.carry_outcome || '') === 'dispossessed' && (
+                        <SpecialPlayerSelect
+                            label="Tackler"
+                            value={subMenuValues.tackler || ''}
+                            onChange={(v) => setVal('tackler', v)}
+                        />
+                    )}
+
+                    {/* Foul-related player dropdowns */}
+                    {shouldShowFoulPanel() && (
+                        <>
+                            {/* Carry free won/against have different semantics */}
+                            {isPass && passType === 'carry' && (subMenuValues.carry_outcome || '') === 'free_won' && (
+                                <SpecialPlayerSelect
+                                    label="Fouler"
+                                    value={subMenuValues.foul_fouler_player || ''}
+                                    onChange={(v) => setVal('foul_fouler_player', v)}
+                                />
+                            )}
+                            {isPass && passType === 'carry' && (subMenuValues.carry_outcome || '') === 'free_against' && (
+                                <SpecialPlayerSelect
+                                    label="Won By"
+                                    value={subMenuValues.foul_fouled_player || ''}
+                                    onChange={(v) => setVal('foul_fouled_player', v)}
+                                />
+                            )}
+
+                            {/* Foul/turnover: pick player fouled */}
+                            {!isPass && (selectedStat === 'foul' || selectedStat === 'turnover') && (
+                                <SpecialPlayerSelect
+                                    label="Player Fouled"
+                                    value={subMenuValues.foul_fouled_player || ''}
+                                    onChange={(v) => setVal('foul_fouled_player', v)}
+                                />
+                            )}
+                            {/* Pass free lost: pick player fouled */}
+                            {isPass && passType === 'pass' && (subMenuValues.pass_outcome || '') === 'free_lost' && (
+                                <SpecialPlayerSelect
+                                    label="Player Fouled"
+                                    value={subMenuValues.foul_fouled_player || ''}
+                                    onChange={(v) => setVal('foul_fouled_player', v)}
+                                />
+                            )}
+                        </>
                     )}
 
                     {/* Post-recipient dynamic sections */}
                     {postSections.map(renderSection)}
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex gap-3 pt-4 border-t">
                     <Button variant="outline" onClick={handleClose} className="flex-1">Cancel</Button>
                     <Button onClick={handleSubmit} disabled={!canSubmit()} className="flex-1 bg-green-600 hover:bg-green-700">
                         {submitLabel || 'Log Stat'}

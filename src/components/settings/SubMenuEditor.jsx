@@ -9,7 +9,11 @@ const CONDITIONS = [
     { value: '__none__', label: 'Always show' },
     { value: 'not_handpass', label: 'Hide when Handpass selected' },
     { value: 'only_play', label: 'Only when Shot Situation = Play' },
-    { value: 'foul_type_show', label: 'Only for foul-related stats' },
+    { value: 'show_foul_panel', label: 'Only when a foul panel applies (v0.3)' },
+    { value: 'kickout_mark_show', label: 'Only when Kickout outcome = Won Clean (v0.3)' },
+    { value: 'kickpass_mark_show', label: 'Only when Kickpass completed + high/chest (v0.3)' },
+    // Legacy condition kept for backwards compatibility
+    { value: 'foul_type_show', label: 'Only for foul-related stats (legacy)' },
 ];
 
 const DISPLAY_TYPES = [

@@ -12,6 +12,10 @@ import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Settings } from 'lucide-react';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 import GAAPitch from '@/components/pitch/GAAPitch';
 import StatModal from '@/components/pitch/StatModal';
@@ -65,53 +69,59 @@ export default function MatchStats() {
     });
 
     const settingsRecord = settingsRecords[0];
-    const clickStats = settingsRecord?.click_stats_config ? (() => { try { return JSON.parse(settingsRecord.click_stats_config); } catch { return DEFAULT_CLICK_STATS; } })() : DEFAULT_CLICK_STATS;
+    const clickStatsRaw = settingsRecord?.click_stats_config ? (() => { try { return JSON.parse(settingsRecord.click_stats_config); } catch { return DEFAULT_CLICK_STATS; } })() : DEFAULT_CLICK_STATS;
     const dragStats = settingsRecord?.drag_stats_config ? (() => { try { return JSON.parse(settingsRecord.drag_stats_config); } catch { return DEFAULT_DRAG_STATS; } })() : DEFAULT_DRAG_STATS;
-    const appDefaults = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
+    const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
     const subMenus = settingsRecord?.sub_menus_config ? (() => { try { return JSON.parse(settingsRecord.sub_menus_config); } catch { return DEFAULT_SUB_MENUS; } })() : DEFAULT_SUB_MENUS;
+
+    // Best-effort config migration for existing installs.
+    const clickStats = useMemo(() => {
+        const stats = Array.isArray(clickStatsRaw) ? [...clickStatsRaw] : DEFAULT_CLICK_STATS;
+        const hasLegacyFoul = stats.some(s => s.value === 'foul_won' || s.value === 'foul_against');
+        const hasLegacyTurnover = stats.some(s => s.value === 'turnover_won' || s.value === 'turnover_against');
+        if (!hasLegacyFoul && !hasLegacyTurnover) return stats;
+        return stats
+            .filter(s => !['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value))
+            .concat([
+                stats.find(s => s.value === 'foul') || { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
+                stats.find(s => s.value === 'turnover') || { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
+            ]);
+    }, [settingsRecord?.click_stats_config]);
+
+    const appDefaults = useMemo(() => {
+        const d = (appDefaultsRaw && typeof appDefaultsRaw === 'object') ? appDefaultsRaw : DEFAULT_DEFAULTS;
+        return {
+            ...DEFAULT_DEFAULTS,
+            ...d,
+            // Legacy keys are ignored; keep for older saves.
+        };
+    }, [settingsRecord?.defaults_config]);
 
     const [half, setHalf] = useState(appDefaults.half || 'first');
 
-    const [quickLogEnabled, setQuickLogEnabled] = useState(() => {
+    const quickLogEnabled = useMemo(() => {
+        if (typeof appDefaults.quick_log_enabled === 'boolean') return appDefaults.quick_log_enabled;
+        // Backwards compat for one version: read old localStorage key.
         try {
             const stored = window.localStorage.getItem('gaa_quick_log_enabled');
             if (stored === 'true') return true;
             if (stored === 'false') return false;
         } catch { }
         return true;
-    });
+    }, [appDefaults]);
 
-    useEffect(() => {
-        try { window.localStorage.setItem('gaa_quick_log_enabled', String(!!quickLogEnabled)); } catch { }
-    }, [quickLogEnabled]);
+    const autoNormalizeCoords = useMemo(() => {
+        if (typeof appDefaults.auto_normalize_coords === 'boolean') return appDefaults.auto_normalize_coords;
+        return true;
+    }, [appDefaults]);
 
     const [defaultPlayerId, setDefaultPlayerId] = useState('');
-
-    const [flipSecondHalfCoords, setFlipSecondHalfCoords] = useState(() => {
-        try {
-            const stored = window.localStorage.getItem('gaa_flip_second_half_coords');
-            if (stored === 'true') return true;
-            if (stored === 'false') return false;
-        } catch { }
-        return appDefaults.flip_second_half_coords !== false;
-    });
-
-    useEffect(() => {
-        try { window.localStorage.setItem('gaa_flip_second_half_coords', String(!!flipSecondHalfCoords)); } catch { }
-    }, [flipSecondHalfCoords]);
-
-    const [flipEtFirstCoords, setFlipEtFirstCoords] = useState(() => {
-        try {
-            const stored = window.localStorage.getItem('gaa_flip_et_first_coords');
-            if (stored === 'true') return true;
-            if (stored === 'false') return false;
-        } catch { }
-        return appDefaults.flip_et_first_coords === true;
-    });
-
-    useEffect(() => {
-        try { window.localStorage.setItem('gaa_flip_et_first_coords', String(!!flipEtFirstCoords)); } catch { }
-    }, [flipEtFirstCoords]);
+    const [directionByPeriod, setDirectionByPeriod] = useState(null);
+    const [halfPrompt, setHalfPrompt] = useState({ open: false, nextHalf: null });
+    const [subDialogOpen, setSubDialogOpen] = useState(false);
+    const [subOut, setSubOut] = useState('');
+    const [subIn, setSubIn] = useState('');
+    const [endPeriodPrompt, setEndPeriodPrompt] = useState({ open: false, nextHalf: null });
 
     // Build player groups: match home/away teams, then unassigned
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -129,6 +139,24 @@ export default function MatchStats() {
     if (unassigned.length > 0 || playerGroups.length === 0) {
         playerGroups.push({ team: null, players: unassigned });
     }
+
+    useEffect(() => {
+        if (!match?.id) return;
+        const fallback = { first: 'right', second: 'left', et_first: 'right', et_second: 'left' };
+        let next = null;
+        const raw = match.direction_by_period;
+        if (raw && typeof raw === 'string') {
+            try { next = JSON.parse(raw); } catch { next = null; }
+        } else if (raw && typeof raw === 'object') {
+            next = raw;
+        }
+        const merged = { ...fallback, ...(next || {}) };
+        setDirectionByPeriod(merged);
+        // If it wasn't set yet, persist the defaults once.
+        if (!raw) {
+            db.entities.Match.update(match.id, { direction_by_period: JSON.stringify(merged) }).catch(() => {});
+        }
+    }, [match?.id]);
 
     const ensureMatchServerId = async () => {
         if (!match) return null;
@@ -252,6 +280,28 @@ export default function MatchStats() {
         return leftDist < rightDist ? { x: 20, y: 45 } : { x: 120, y: 45 };
     };
 
+    const getDirForHalf = (h) => (directionByPeriod && directionByPeriod[h]) ? directionByPeriod[h] : 'right';
+
+    const persistDirectionByPeriod = async (next) => {
+        setDirectionByPeriod(next);
+        if (!match?.id) return;
+        try {
+            await db.entities.Match.update(match.id, { direction_by_period: JSON.stringify(next) });
+        } catch {}
+    };
+
+    const flipDirectionForHalf = async (h) => {
+        const cur = getDirForHalf(h);
+        const nextDir = cur === 'left' ? 'right' : 'left';
+        const next = { ...(directionByPeriod || {}), [h]: nextDir };
+        await persistDirectionByPeriod(next);
+    };
+
+    const requestHalfChange = (nextHalf) => {
+        if (!nextHalf || nextHalf === half) return;
+        setHalfPrompt({ open: true, nextHalf });
+    };
+
     const handlePointClick = (coords) => {
         setEditingStat(null);
         setClickCoords(coords);
@@ -269,15 +319,47 @@ export default function MatchStats() {
     };
 
     const normalizeCoords = (x, y) => {
-        const isSecondHalf = half === 'second';
-        const isEtFirst = half === 'et_first';
-        const isEtSecond = half === 'et_second';
+        const PITCH_W = 140;
+        const PITCH_H = 90;
+        const dir = (directionByPeriod && directionByPeriod[half]) ? directionByPeriod[half] : 'right';
+        const shouldRotate = !!autoNormalizeCoords && dir === 'left';
+        return shouldRotate ? { x: PITCH_W - x, y: PITCH_H - y } : { x, y };
+    };
 
-        const shouldFlip =
-            (!!flipSecondHalfCoords && (isSecondHalf || isEtSecond)) ||
-            (!!flipEtFirstCoords && isEtFirst);
+    const computeDerived = (statType, isPass, extra) => {
+        const derived = {};
+        const passOutcome = extra?.pass_outcome || '';
+        const carryOutcome = extra?.carry_outcome || '';
+        const turnoverType = extra?.turnover_type || '';
 
-        return shouldFlip ? { x: 140 - x, y: 90 - y } : { x, y };
+        const passTurnover = passOutcome === 'free_lost' || passOutcome === 'intercepted' || passOutcome === 'sideline_against' || passOutcome === 'over_endline';
+        const carryTurnover = carryOutcome === 'free_against' || carryOutcome === 'dispossessed';
+
+        derived.is_turnover =
+            statType === 'turnover' ||
+            (isPass && (statType === 'kickpass' || statType === 'handpass') && passTurnover) ||
+            (statType === 'carry' && carryTurnover);
+
+        derived.is_foul =
+            statType === 'foul' ||
+            turnoverType === 'foul' ||
+            passOutcome === 'free_lost' ||
+            carryOutcome === 'free_won' ||
+            carryOutcome === 'free_against';
+
+        if (derived.is_turnover) {
+            derived.turnover_reason =
+                statType === 'turnover' ? 'turnover'
+                    : (statType === 'carry' ? `carry:${carryOutcome}` : `pass:${passOutcome}`);
+        }
+        if (derived.is_foul) {
+            derived.foul_reason =
+                statType === 'foul' ? 'foul'
+                    : (turnoverType === 'foul' ? 'turnover:foul'
+                        : (passOutcome === 'free_lost' ? 'pass:free_lost' : `carry:${carryOutcome}`));
+        }
+
+        return derived;
     };
 
     const handleStatSubmit = (data) => {
@@ -287,6 +369,10 @@ export default function MatchStats() {
             subMenus.forEach(section => {
                 if (data[section.id]) subMenuData[section.id] = data[section.id];
             });
+            ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+                if (data[k]) subMenuData[k] = data[k];
+            });
+            subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
 
             const patch = {
                 player_name: data.player?.name,
@@ -354,6 +440,10 @@ export default function MatchStats() {
         subMenus.forEach(section => {
             if (data[section.id]) subMenuData[section.id] = data[section.id];
         });
+        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+            if (data[k]) subMenuData[k] = data[k];
+        });
+        subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
         statData.extra_data = JSON.stringify(subMenuData);
 
         if (quickLogEnabled) {
@@ -423,12 +513,28 @@ export default function MatchStats() {
             return String(at).localeCompare(String(bt));
         });
 
+        const idToPlayerLabel = (v) => {
+            if (!v) return '';
+            if (v === 'team') return 'Team';
+            if (v === 'unforced') return 'Unforced';
+            if (v === 'none') return 'None';
+            const p = allPlayers.find(pp => pp.id === v);
+            if (!p) return String(v);
+            return `#${p.number} ${p.name || ''}`.trim();
+        };
+
+        const extraHeaders = [
+            'Derived Turnover','Derived Foul','Turnover Reason','Foul Reason',
+            'Turnover Caused By','Player Fouled','Fouler (Carry Free Won)',
+            'Tackler','Kickout Intended Recipient'
+        ];
+
         const baseHeaders = ['Match ID','Match Public ID','Match Date','Code','Level','Player Name','Player Number','Stat Type','X Position','Y Position',
             'End X','End Y',
             'Raw X','Raw Y','Raw End X','Raw End Y',
             'Recipient Name','Recipient Number','Is Pass','Half','Timestamp'];
         const subMenuHeaders = subMenus.map(s => s.label);
-        const headers = [...baseHeaders, ...subMenuHeaders];
+        const headers = [...baseHeaders, ...extraHeaders, ...subMenuHeaders];
 
         const rows = orderedStats.map(stat => {
             const base = [
@@ -443,8 +549,20 @@ export default function MatchStats() {
                 stat.half, stat.timestamp
             ];
             const extraData = stat.extra_data ? (() => { try { return JSON.parse(stat.extra_data); } catch { return {}; } })() : {};
+            const derived = extraData?.derived || {};
+            const extraCols = [
+                derived.is_turnover ? 'Yes' : 'No',
+                derived.is_foul ? 'Yes' : 'No',
+                derived.turnover_reason || '',
+                derived.foul_reason || '',
+                idToPlayerLabel(extraData.turnover_caused_by),
+                idToPlayerLabel(extraData.foul_fouled_player),
+                idToPlayerLabel(extraData.foul_fouler_player),
+                idToPlayerLabel(extraData.tackler),
+                idToPlayerLabel(extraData.kickout_intended_recipient),
+            ];
             const subMenuValues = subMenus.map(s => extraData[s.id] || stat[s.id] || '');
-            return [...base, ...subMenuValues];
+            return [...base, ...extraCols, ...subMenuValues];
         });
 
         const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -476,15 +594,19 @@ export default function MatchStats() {
                 match={match}
                 matchTitle={matchTitle}
                 half={half}
-                onHalfChange={setHalf}
-                quickLogEnabled={quickLogEnabled}
-                onQuickLogEnabledChange={setQuickLogEnabled}
-                flipSecondHalfCoords={flipSecondHalfCoords}
-                onFlipSecondHalfCoordsChange={setFlipSecondHalfCoords}
-                flipEtFirstCoords={flipEtFirstCoords}
-                onFlipEtFirstCoordsChange={setFlipEtFirstCoords}
+                onHalfChange={requestHalfChange}
                 onUndo={handleUndoLast}
                 onExport={exportToCSV}
+                onSub={() => setSubDialogOpen(true)}
+                onEndPeriod={() => {
+                    const nextMap = { first: 'second', second: 'et_first', et_first: 'et_second', et_second: null };
+                    const nextHalf = nextMap[half] || null;
+                    if (!nextHalf) {
+                        toast.message('No next period');
+                        return;
+                    }
+                    setEndPeriodPrompt({ open: true, nextHalf });
+                }}
                 statsCount={stats.length}
             />
 
@@ -504,6 +626,23 @@ export default function MatchStats() {
 
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="text-sm text-slate-600">
+                                <span className="font-medium">Home attacking</span>{' '}
+                                <span className="font-semibold">
+                                    {getDirForHalf(half) === 'left' ? '←' : '→'}
+                                </span>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => flipDirectionForHalf(half)}
+                                title="Flip home attacking direction (affects new stats only)"
+                            >
+                                Flip
+                            </Button>
+                        </div>
                         <div className="bg-slate-900 rounded-2xl p-4 shadow-xl relative overflow-hidden">
                             <GAAPitch onPointClick={handlePointClick} onPassDraw={handlePassDraw} debug={debugPitch} />
                             <StatMarkers stats={stats} clickStats={clickStats} />
@@ -538,6 +677,170 @@ export default function MatchStats() {
                 defaultPlayerId={quickLogEnabled ? defaultPlayerId : ''}
                 submitLabel={editingStat ? 'Save' : 'Log Stat'}
             />
+
+            {/* Half change prompt */}
+            <AlertDialog open={halfPrompt.open} onOpenChange={(open) => !open && setHalfPrompt({ open: false, nextHalf: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Switch period?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Switching to the new period. Would you like to flip the Home attacking direction too? This affects new stats only.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setHalfPrompt({ open: false, nextHalf: null })}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async () => {
+                                const nextHalf = halfPrompt.nextHalf;
+                                if (!nextHalf) return;
+                                const prevDir = getDirForHalf(half);
+                                const nextDir = prevDir === 'left' ? 'right' : 'left';
+                                await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: nextDir });
+                                setHalf(nextHalf);
+                                setHalfPrompt({ open: false, nextHalf: null });
+                            }}
+                        >
+                            Flip direction
+                        </AlertDialogAction>
+                        <AlertDialogAction
+                            className="bg-slate-900 hover:bg-slate-800"
+                            onClick={async () => {
+                                const nextHalf = halfPrompt.nextHalf;
+                                if (!nextHalf) return;
+                                const prevDir = getDirForHalf(half);
+                                await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: prevDir });
+                                setHalf(nextHalf);
+                                setHalfPrompt({ open: false, nextHalf: null });
+                            }}
+                        >
+                            Keep direction
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Substitution dialog */}
+            <Dialog open={subDialogOpen} onOpenChange={setSubDialogOpen}>
+                <DialogContent className="w-full sm:max-w-lg">
+                    <DialogHeader><DialogTitle>Substitution</DialogTitle></DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Player subbed out</Label>
+                            <Select value={subOut} onValueChange={setSubOut}>
+                                <SelectTrigger><SelectValue placeholder="Select player..." /></SelectTrigger>
+                                <SelectContent>
+                                    {allPlayers.map(p => (
+                                        <SelectItem key={p.id} value={p.id}>#{p.number} {p.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Player subbed in</Label>
+                            <Select value={subIn} onValueChange={setSubIn}>
+                                <SelectTrigger><SelectValue placeholder="Select player..." /></SelectTrigger>
+                                <SelectContent>
+                                    {allPlayers.map(p => (
+                                        <SelectItem key={p.id} value={p.id}>#{p.number} {p.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                            <Button
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                className="flex-1 bg-green-600 hover:bg-green-700"
+                                disabled={!subOut || !subIn}
+                                onClick={() => {
+                                    const outP = allPlayers.find(p => p.id === subOut);
+                                    const inP = allPlayers.find(p => p.id === subIn);
+                                    const extra = { sub_out_id: subOut, sub_in_id: subIn };
+                                    const statData = {
+                                        match_id: matchId,
+                                        player_name: outP?.name,
+                                        player_number: outP?.number,
+                                        recipient_name: inP?.name,
+                                        recipient_number: inP?.number,
+                                        stat_type: 'substitution',
+                                        is_pass: false,
+                                        half,
+                                        timestamp: new Date().toISOString(),
+                                        extra_data: JSON.stringify(extra),
+                                    };
+                                    createStatMutation.mutate(statData);
+                                    setSubDialogOpen(false);
+                                    setSubOut(''); setSubIn('');
+                                }}
+                            >
+                                Log sub
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* End period prompt */}
+            <AlertDialog open={endPeriodPrompt.open} onOpenChange={(open) => !open && setEndPeriodPrompt({ open: false, nextHalf: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>End period?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will log an end-of-period marker, then switch to the next period. Would you like to flip the Home attacking direction too? This affects new stats only.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setEndPeriodPrompt({ open: false, nextHalf: null })}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async () => {
+                                const nextHalf = endPeriodPrompt.nextHalf;
+                                if (!nextHalf) return;
+                                createStatMutation.mutate({
+                                    match_id: matchId,
+                                    stat_type: 'period_end',
+                                    is_pass: false,
+                                    half,
+                                    timestamp: new Date().toISOString(),
+                                    extra_data: JSON.stringify({ period: half }),
+                                });
+                                const prevDir = getDirForHalf(half);
+                                const nextDir = prevDir === 'left' ? 'right' : 'left';
+                                await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: nextDir });
+                                setHalf(nextHalf);
+                                setEndPeriodPrompt({ open: false, nextHalf: null });
+                            }}
+                        >
+                            Flip direction
+                        </AlertDialogAction>
+                        <AlertDialogAction
+                            className="bg-slate-900 hover:bg-slate-800"
+                            onClick={async () => {
+                                const nextHalf = endPeriodPrompt.nextHalf;
+                                if (!nextHalf) return;
+                                createStatMutation.mutate({
+                                    match_id: matchId,
+                                    stat_type: 'period_end',
+                                    is_pass: false,
+                                    half,
+                                    timestamp: new Date().toISOString(),
+                                    extra_data: JSON.stringify({ period: half }),
+                                });
+                                const prevDir = getDirForHalf(half);
+                                await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: prevDir });
+                                setHalf(nextHalf);
+                                setEndPeriodPrompt({ open: false, nextHalf: null });
+                            }}
+                        >
+                            Keep direction
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

@@ -22,6 +22,7 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
     return (
         <svg viewBox="0 0 140 90" className="absolute inset-0 w-full h-full pointer-events-none">
             {stats.map((stat, index) => {
+                if (stat?.x_position == null || stat?.y_position == null) return null;
                 const color = STAT_COLORS[stat.stat_type] || '#ffffff';
                 
                 // Only show pass line for the most recent pass

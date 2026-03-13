@@ -10,10 +10,8 @@ export const DEFAULT_CLICK_STATS = [
     { value: 'blocked_retained', label: 'Blocked Retained', color: '#b91c1c', category: 'scoring', visible: true },
     { value: 'saved_retained', label: 'Saved Retained', color: '#ec4899', category: 'scoring', visible: true },
     { value: 'saved_for_45', label: 'Saved For 45', color: '#db2777', category: 'scoring', visible: true },
-    { value: 'foul_won', label: 'Foul Won', color: '#22c55e', category: 'other', visible: true },
-    { value: 'foul_against', label: 'Foul Against', color: '#eab308', category: 'other', visible: true },
-    { value: 'turnover_won', label: 'Turnover Won', color: '#3b82f6', category: 'other', visible: true },
-    { value: 'turnover_against', label: 'Turnover Against', color: '#ef4444', category: 'other', visible: true },
+    { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
+    { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
     { value: 'defensive_contact', label: 'Defensive Contact', color: '#64748b', category: 'other', visible: true },
 ];
 
@@ -25,12 +23,11 @@ export const DEFAULT_DRAG_STATS = [
 
 export const DEFAULT_DEFAULTS = {
     half: 'first',
-    // When true, stats logged in 2nd half / ET 2nd half are rotated 180 degrees
-    // so "attacking direction" stays consistent.
-    flip_second_half_coords: true,
-    // When true, also rotate coordinates in ET 1st half.
-    // Some workflows prefer treating all non-first periods as flipped.
-    flip_et_first_coords: false,
+    // When true, logged stats are rotated 180 degrees as needed so the Home team
+    // always attacks left -> right (based on the per-period direction arrow).
+    auto_normalize_coords: true,
+    // When true, the player picker defaults to the last-used recipient/player.
+    quick_log_enabled: true,
 };
 
 // Sub-menus are now a dynamic array of section objects.
@@ -86,15 +83,16 @@ export const DEFAULT_SUB_MENUS = [
         id: 'carry_outcome', label: 'Carry Outcome', applies_to: ['carry'],
         display_type: 'select', condition: null, group: 'post', default_value: '',
         options: [
-            { value: 'won_free', label: 'Won Free' }, { value: 'dispossessed', label: 'Dispossessed' },
-            { value: 'overcarried', label: 'Overcarried' }, { value: 'completed_pass', label: 'Completed Pass' },
-            { value: 'shot_taken', label: 'Shot Taken' },
+            { value: 'free_won', label: 'Free Won' },
+            { value: 'free_against', label: 'Free Against' },
+            { value: 'completed', label: 'Completed' },
+            { value: 'dispossessed', label: 'Dispossessed' },
         ],
     },
     {
         id: 'shot_situation', label: 'Shot Situation', applies_to: SCORING,
         display_type: 'radio', condition: null, group: 'pre', default_value: '',
-        options: [{ value: 'free_kick', label: 'Free Kick' }, { value: '45', label: '45' }, { value: 'sideline', label: 'Sideline' }, { value: 'play', label: 'Play' }],
+        options: [{ value: 'free_kick', label: 'Free Kick' }, { value: '45', label: '45' }, { value: 'sideline', label: 'Sideline' }, { value: 'mark', label: 'Mark' }, { value: 'play', label: 'Play' }],
     },
     {
         id: 'shot_pressure', label: 'Shot Pressure', applies_to: SCORING,
@@ -107,7 +105,7 @@ export const DEFAULT_SUB_MENUS = [
         options: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }],
     },
     {
-        id: 'turnover_type', label: 'Turnover Type', applies_to: ['turnover_won', 'turnover_against'],
+        id: 'turnover_type', label: 'Turnover Type', applies_to: ['turnover'],
         display_type: 'select', condition: null, group: 'post', default_value: '',
         options: [
             { value: 'block', label: 'Block' }, { value: 'interception', label: 'Interception' },
@@ -116,11 +114,40 @@ export const DEFAULT_SUB_MENUS = [
         ],
     },
     {
-        id: 'foul_type', label: 'Foul Type', applies_to: ['foul_against', 'turnover_against'],
-        display_type: 'buttons', condition: 'foul_type_show', group: 'post', default_value: '',
+        id: 'foul_type', label: 'Foul Type', applies_to: ['foul', 'turnover', 'pass', 'carry'],
+        display_type: 'buttons', condition: 'show_foul_panel', group: 'post', default_value: '',
         options: [
-            { value: 'overcarrying', label: 'Overcarrying' }, { value: 'pick_off_ground', label: 'Pick Off Ground' },
-            { value: 'throw_ball', label: 'Throw Ball' }, { value: 'other', label: 'Other' },
+            { value: 'breach', label: 'Breach' },
+            { value: 'pull', label: 'Pull' },
+            { value: 'push', label: 'Push' },
+            { value: 'high_tackle', label: 'High Tackle' },
+            { value: 'square_ball', label: 'Square Ball' },
+        ],
+    },
+    {
+        id: 'card', label: 'Card', applies_to: ['foul', 'turnover', 'pass', 'carry'],
+        display_type: 'buttons', condition: 'show_foul_panel', group: 'post', default_value: 'none',
+        options: [
+            { value: 'none', label: 'None' },
+            { value: 'yellow', label: 'Yellow' },
+            { value: 'black', label: 'Black' },
+            { value: 'red', label: 'Red' },
+        ],
+    },
+    {
+        id: 'kickout_mark', label: 'Mark', applies_to: ['kickout'],
+        display_type: 'buttons', condition: 'kickout_mark_show', group: 'post', default_value: '',
+        options: [
+            { value: 'yes', label: 'Yes' },
+            { value: 'no', label: 'No' },
+        ],
+    },
+    {
+        id: 'kickpass_mark', label: 'Mark', applies_to: ['pass'],
+        display_type: 'buttons', condition: 'kickpass_mark_show', group: 'post', default_value: '',
+        options: [
+            { value: 'yes', label: 'Yes' },
+            { value: 'no', label: 'No' },
         ],
     },
 ];

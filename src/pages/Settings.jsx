@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, Save, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_SUB_MENUS } from '@/components/statDefaults';
@@ -45,9 +46,30 @@ export default function Settings() {
 
     useEffect(() => {
         if (settingsRecord) {
-            try { if (settingsRecord.click_stats_config) setClickStats(JSON.parse(settingsRecord.click_stats_config)); } catch {}
+            try {
+                if (settingsRecord.click_stats_config) {
+                    const parsed = JSON.parse(settingsRecord.click_stats_config);
+                    const stats = Array.isArray(parsed) ? parsed : DEFAULT_CLICK_STATS;
+                    const hasLegacy = stats.some(s => ['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value));
+                    setClickStats(
+                        hasLegacy
+                            ? stats
+                                  .filter(s => !['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].includes(s.value))
+                                  .concat([
+                                      stats.find(s => s.value === 'foul') || { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
+                                      stats.find(s => s.value === 'turnover') || { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
+                                  ])
+                            : stats
+                    );
+                }
+            } catch {}
             try { if (settingsRecord.drag_stats_config) setDragStats(JSON.parse(settingsRecord.drag_stats_config)); } catch {}
-            try { if (settingsRecord.defaults_config) setDefaults(JSON.parse(settingsRecord.defaults_config)); } catch {}
+            try {
+                if (settingsRecord.defaults_config) {
+                    const parsed = JSON.parse(settingsRecord.defaults_config);
+                    setDefaults({ ...DEFAULT_DEFAULTS, ...(parsed && typeof parsed === 'object' ? parsed : {}) });
+                }
+            } catch {}
             try { if (settingsRecord.sub_menus_config) setSubMenus(JSON.parse(settingsRecord.sub_menus_config)); } catch {}
         }
     }, [settingsRecord?.id]);
@@ -255,6 +277,32 @@ export default function Settings() {
                                         <SelectItem value="et_second">ET 2nd Half</SelectItem>
                                     </SelectContent>
                                 </Select>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3 pt-2">
+                                <div>
+                                    <Label>Quick Log</Label>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        When enabled, the player picker defaults to the last-used recipient/player. (Moved here from the match screen.)
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={defaults.quick_log_enabled !== false}
+                                    onCheckedChange={(v) => setDefaults({ ...defaults, quick_log_enabled: !!v })}
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3 pt-2">
+                                <div>
+                                    <Label>Auto Normalize Coordinates</Label>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        When enabled, stats are rotated as needed so Home always attacks left to right.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={defaults.auto_normalize_coords !== false}
+                                    onCheckedChange={(v) => setDefaults({ ...defaults, auto_normalize_coords: !!v })}
+                                />
                             </div>
                         </div>
                     </TabsContent>

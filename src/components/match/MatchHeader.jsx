@@ -2,8 +2,7 @@ import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Download, Clock, MapPin, Undo2 } from 'lucide-react';
+import { Download, Clock, MapPin, Repeat2, Undo2, Users } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function MatchHeader({
@@ -11,14 +10,10 @@ export default function MatchHeader({
     matchTitle,
     half,
     onHalfChange,
-    quickLogEnabled,
-    onQuickLogEnabledChange,
-    flipSecondHalfCoords,
-    onFlipSecondHalfCoordsChange,
-    flipEtFirstCoords,
-    onFlipEtFirstCoordsChange,
     onUndo,
     onExport,
+    onSub,
+    onEndPeriod,
     statsCount
 }) {
     return (
@@ -49,30 +44,6 @@ export default function MatchHeader({
                         <Badge variant="secondary" className="text-sm">
                             {statsCount} stats logged
                         </Badge>
-
-                        <div className="hidden lg:flex items-center gap-2 text-sm text-slate-600">
-                            <span>Quick log</span>
-                            <Switch
-                                checked={!!quickLogEnabled}
-                                onCheckedChange={(v) => onQuickLogEnabledChange?.(!!v)}
-                            />
-                        </div>
-
-                        <div className="hidden lg:flex items-center gap-2 text-sm text-slate-600">
-                            <span>Flip 2nd-half coords</span>
-                            <Switch
-                                checked={!!flipSecondHalfCoords}
-                                onCheckedChange={(v) => onFlipSecondHalfCoordsChange?.(!!v)}
-                            />
-                        </div>
-
-                        <div className="hidden lg:flex items-center gap-2 text-sm text-slate-600">
-                            <span>Flip ET 1st coords</span>
-                            <Switch
-                                checked={!!flipEtFirstCoords}
-                                onCheckedChange={(v) => onFlipEtFirstCoordsChange?.(!!v)}
-                            />
-                        </div>
                         
                         <Select value={half} onValueChange={onHalfChange}>
                             <SelectTrigger className="w-36">
@@ -85,6 +56,26 @@ export default function MatchHeader({
                                 <SelectItem value="et_second">ET 2nd Half</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        <Button
+                            variant="outline"
+                            onClick={onEndPeriod}
+                            className="gap-2"
+                            title="Log end of period and switch"
+                        >
+                            <Repeat2 className="w-4 h-4" />
+                            <span className="hidden sm:inline">End Period</span>
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            onClick={onSub}
+                            className="gap-2"
+                            title="Log a substitution"
+                        >
+                            <Users className="w-4 h-4" />
+                            <span className="hidden sm:inline">Sub</span>
+                        </Button>
 
                         <Button
                             variant="outline"
