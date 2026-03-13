@@ -73,7 +73,7 @@ export default function RecentStats({ stats, onDelete, onEdit }) {
                                     <span className="font-medium text-slate-900 truncate">
                                         {primaryTitle}
                                     </span>
-                                    {(!isSub && stat.is_pass && stat.recipient_name) && (
+                                    {(!isSub && (stat.is_pass || stat.stat_type === 'throw_ball_won') && stat.recipient_name) && (
                                         <>
                                             <ArrowRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                                             <span className="text-slate-600 truncate">

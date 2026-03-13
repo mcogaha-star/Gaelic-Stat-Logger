@@ -30,6 +30,7 @@ export default function StatModal({
     const [selectedPlayer, setSelectedPlayer] = useState('');
     const [selectedRecipient, setSelectedRecipient] = useState('');
     const [selectedStat, setSelectedStat] = useState('');
+    const [selectedLoser, setSelectedLoser] = useState('');
     const [passType, setPassType] = useState('');
     const [subMenuValues, setSubMenuValues] = useState({});
 
@@ -44,6 +45,7 @@ export default function StatModal({
         vals.turnover_caused_by = vals.turnover_caused_by || '';
         vals.tackler = vals.tackler || '';
         vals.kickout_intended_recipient = vals.kickout_intended_recipient || '';
+        vals.throw_loser_player = vals.throw_loser_player || '';
         return vals;
     };
 
@@ -59,6 +61,7 @@ export default function StatModal({
             setSelectedPlayer(initialData.playerId || '');
             setSelectedRecipient(initialData.recipientId || '');
             setSelectedStat(initialData.statType || '');
+            setSelectedLoser(initialData.loserId || '');
             return;
         }
 
@@ -66,6 +69,7 @@ export default function StatModal({
         setSelectedPlayer(defaultPlayerId || '');
         setSelectedRecipient(defaultRecipientId || '');
         setSelectedStat('');
+        setSelectedLoser('');
     }, [open, initialData, defaultPlayerId, defaultRecipientId]);
 
     // Kickout convenience: if no default player is set, default to #1 when present.
@@ -170,9 +174,10 @@ export default function StatModal({
         if (!canSubmit()) return;
         const player = allPlayers.find(p => p.id === selectedPlayer);
         const recipient = allPlayers.find(p => p.id === selectedRecipient);
+        const loser = allPlayers.find(p => p.id === selectedLoser);
         const data = {
             player,
-            recipient: isPass ? recipient : null,
+            recipient: isPass ? recipient : (selectedStat === 'throw_ball_won' ? loser : null),
             stat_type: derivedStatType(),
             is_pass: isPass,
             x_position: startCoords?.x,
@@ -185,16 +190,19 @@ export default function StatModal({
             if (subMenuValues[s.id]) data[s.id] = subMenuValues[s.id];
         });
         // Attach v0.3 dynamic values (player-based pickers etc.)
-        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
             if (subMenuValues[k]) data[k] = subMenuValues[k];
         });
+        if (!isPass && selectedStat === 'throw_ball_won') {
+            if (selectedLoser) data.throw_loser_player = selectedLoser;
+        }
         onSubmit(data);
         onClose();
     };
 
     const handleClose = () => {
         setSubMenuValues(buildInitialValues());
-        setSelectedPlayer(''); setSelectedRecipient(''); setSelectedStat('');
+        setSelectedPlayer(''); setSelectedRecipient(''); setSelectedStat(''); setSelectedLoser('');
         onClose();
     };
 
@@ -353,7 +361,7 @@ export default function StatModal({
                 <div className="space-y-5 py-4 flex-1 overflow-y-auto pr-1">
                     {/* Player */}
                     <PlayerSelect
-                        label={!isPass && selectedStat === 'foul' ? 'Fouler' : (isPass ? 'Passer / Carrier' : 'Player')}
+                        label={!isPass && selectedStat === 'foul' ? 'Fouler' : (!isPass && selectedStat === 'throw_ball_won' ? 'Winner' : (isPass ? 'Passer / Carrier' : 'Player'))}
                         value={selectedPlayer}
                         onChange={setSelectedPlayer}
                     />
@@ -410,13 +418,22 @@ export default function StatModal({
                     {/* Pre-recipient dynamic sections */}
                     {preSections.map(renderSection)}
 
-                    {/* Turnover "caused by" (player/team/unforced) */}
+                    {/* Turnover "won by" (player/team/unforced) */}
                     {!isPass && selectedStat === 'turnover' && (
                         <SpecialPlayerSelect
-                            label="Caused By"
+                            label="Won By"
                             value={subMenuValues.turnover_caused_by || ''}
                             onChange={(v) => setVal('turnover_caused_by', v)}
                             includeUnforced={true}
+                        />
+                    )}
+
+                    {/* Throw ball won: loser */}
+                    {!isPass && selectedStat === 'throw_ball_won' && (
+                        <SpecialPlayerSelect
+                            label="Loser"
+                            value={selectedLoser || ''}
+                            onChange={(v) => setSelectedLoser(v)}
                         />
                     )}
 

@@ -45,6 +45,28 @@ export default function Home() {
         queryFn: () => db.entities.Team.list('name')
     });
 
+    const { data: allStats = [] } = useQuery({
+        queryKey: ['all-stats'],
+        queryFn: () => db.entities.StatEntry.list('-timestamp')
+    });
+
+    const scoreByMatch = React.useMemo(() => {
+        const map = {};
+        const add = (matchId, side, kind, amt) => {
+            if (!matchId || !side) return;
+            map[matchId] = map[matchId] || { home: { goals: 0, points: 0 }, away: { goals: 0, points: 0 } };
+            map[matchId][side][kind] += amt;
+        };
+        for (const s of (allStats || [])) {
+            const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
+            if (!side) continue;
+            if (s.stat_type === 'goal') add(s.match_id, side, 'goals', 1);
+            if (s.stat_type === 'point') add(s.match_id, side, 'points', 1);
+            if (s.stat_type === '2_point') add(s.match_id, side, 'points', 2);
+        }
+        return map;
+    }, [allStats]);
+
     const createMatchMutation = useMutation({
         mutationFn: async (data) => {
             const payload = {
@@ -282,6 +304,19 @@ export default function Home() {
                                         </div>
                                     </CardHeader>
                                     <CardContent className="space-y-2">
+                                        {(() => {
+                                            const sc = scoreByMatch?.[match.id];
+                                            if (!sc) return null;
+                                            const hg = sc.home.goals || 0;
+                                            const hp = sc.home.points || 0;
+                                            const ag = sc.away.goals || 0;
+                                            const ap = sc.away.points || 0;
+                                            return (
+                                                <div className="text-sm font-semibold text-slate-800">
+                                                    {hg}:{hp} - {ag}:{ap}
+                                                </div>
+                                            );
+                                        })()}
                                         <div className="flex items-center gap-2 text-sm text-slate-600">
                                             <Calendar className="w-4 h-4 text-slate-400" />
                                             {format(new Date(match.date), 'EEEE, d MMMM yyyy')}

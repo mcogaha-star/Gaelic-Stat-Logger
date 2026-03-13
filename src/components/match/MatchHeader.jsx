@@ -61,10 +61,10 @@ export default function MatchHeader({
                             variant="outline"
                             onClick={onEndPeriod}
                             className="gap-2"
-                            title="Log end of period and switch"
+                            title="Log end of half and switch"
                         >
                             <Repeat2 className="w-4 h-4" />
-                            <span className="hidden sm:inline">End Period</span>
+                            <span className="hidden sm:inline">End Half</span>
                         </Button>
 
                         <Button

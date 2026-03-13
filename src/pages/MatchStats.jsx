@@ -372,7 +372,7 @@ export default function MatchStats() {
             subMenus.forEach(section => {
                 if (data[section.id]) subMenuData[section.id] = data[section.id];
             });
-            ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+            ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
                 if (data[k]) subMenuData[k] = data[k];
             });
             subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
@@ -443,7 +443,7 @@ export default function MatchStats() {
         subMenus.forEach(section => {
             if (data[section.id]) subMenuData[section.id] = data[section.id];
         });
-        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient'].forEach((k) => {
+        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
             if (data[k]) subMenuData[k] = data[k];
         });
         subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
@@ -528,7 +528,7 @@ export default function MatchStats() {
 
         const extraHeaders = [
             'Derived Turnover','Derived Foul','Turnover Reason','Foul Reason',
-            'Turnover Caused By','Player Fouled','Fouler',
+            'Turnover Won By','Player Fouled','Fouler',
             'Tackler','Kickout Intended Recipient'
         ];
 
@@ -788,13 +788,13 @@ export default function MatchStats() {
                 </DialogContent>
             </Dialog>
 
-            {/* End period prompt */}
+            {/* End half prompt */}
             <AlertDialog open={endPeriodPrompt.open} onOpenChange={(open) => !open && setEndPeriodPrompt({ open: false, nextHalf: null })}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>End period?</AlertDialogTitle>
+                        <AlertDialogTitle>End half?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will log an end-of-period marker, then switch to the next period. Would you like to flip the Home attacking direction too? This affects new stats only.
+                            This will log an end-of-half marker, then switch to the next half. Would you like to flip the Home attacking direction too? This affects new stats only.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

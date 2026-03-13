@@ -12,6 +12,7 @@ export const DEFAULT_CLICK_STATS = [
     { value: 'saved_for_45', label: 'Saved For 45', color: '#db2777', category: 'scoring', visible: true },
     { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
     { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
+    { value: 'throw_ball_won', label: 'Throw Ball Won', color: '#0ea5e9', category: 'other', visible: true },
     { value: 'defensive_contact', label: 'Defensive Contact', color: '#64748b', category: 'other', visible: true },
 ];
 
@@ -118,6 +119,7 @@ export const DEFAULT_SUB_MENUS = [
         display_type: 'select', condition: 'show_foul_panel', group: 'post', default_value: '',
         options: [
             { value: 'breach', label: 'Breach' },
+            { value: 'advancement', label: 'Advancement' },
             { value: 'pull', label: 'Pull' },
             { value: 'push', label: 'Push' },
             { value: 'high_tackle', label: 'High Tackle' },
