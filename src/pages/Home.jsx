@@ -147,7 +147,7 @@ export default function Home() {
                                         <Plus className="w-4 h-4" /> New Match
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="max-h-[90vh] overflow-hidden">
+                                <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
                                     <DialogHeader><DialogTitle>Create New Match</DialogTitle></DialogHeader>
                                     <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-4">
                                         <div className="space-y-2">
