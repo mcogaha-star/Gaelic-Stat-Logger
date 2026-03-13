@@ -118,6 +118,16 @@ export const AuthProvider = ({ children }) => {
     if (error) throw error;
   };
 
+  const signInWithGoogle = async () => {
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
+    });
+    if (error) throw error;
+  };
+
   const logout = async () => {
     if (!isSupabaseConfigured) return;
     await supabase.auth.signOut();
@@ -145,6 +155,7 @@ export const AuthProvider = ({ children }) => {
       navigateToLogin,
       checkAppState,
       signInWithMagicLink,
+      signInWithGoogle,
       isSupabaseConfigured,
     }),
     [user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings, authError, appPublicSettings],
