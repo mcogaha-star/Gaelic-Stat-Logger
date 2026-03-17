@@ -68,9 +68,10 @@ export default function Home() {
         for (const s of (allStats || [])) {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
-            if (s.stat_type === 'goal') add(s.match_id, side, 'goals', 1);
-            if (s.stat_type === 'point') add(s.match_id, side, 'points', 1);
-            if (s.stat_type === '2_point') add(s.match_id, side, 'points', 2);
+            const t = String(s.stat_type || '').toLowerCase();
+            if (t === 'goal') add(s.match_id, side, 'goals', 1);
+            if (t === 'point') add(s.match_id, side, 'points', 1);
+            if (t === '2_point' || t === '2 point' || t === '2point') add(s.match_id, side, 'points', 2);
         }
         return map;
     }, [allStats, matches]);

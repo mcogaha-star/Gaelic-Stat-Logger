@@ -623,9 +623,10 @@ export default function MatchStats() {
         for (const s of (stats || [])) {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
-            if (s.stat_type === 'goal') score[side].goals += 1;
-            if (s.stat_type === 'point') score[side].points += 1;
-            if (s.stat_type === '2_point') score[side].points += 2;
+            const t = String(s.stat_type || '').toLowerCase();
+            if (t === 'goal') score[side].goals += 1;
+            if (t === 'point') score[side].points += 1;
+            if (t === '2_point' || t === '2 point' || t === '2point') score[side].points += 2;
         }
         return `${score.home.goals}:${score.home.points} - ${score.away.goals}:${score.away.points}`;
     })();
