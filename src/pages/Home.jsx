@@ -304,9 +304,9 @@ export default function Home() {
                                             <div className="flex items-center gap-2">
                                                 <Button
                                                     type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-9 px-3 gap-2"
                                                     onClick={(e) => {
                                                         e.preventDefault();
                                                         e.stopPropagation();
@@ -314,13 +314,14 @@ export default function Home() {
                                                     }}
                                                     title="View match stats"
                                                 >
-                                                    <BarChart3 className="w-4 h-4 text-slate-500" />
+                                                    <BarChart3 className="w-4 h-4" />
+                                                    <span className="hidden sm:inline">Stats</span>
                                                 </Button>
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="h-8 w-8"
                                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteMatch(match); }}
                                                     title="Delete match"
                                                 >

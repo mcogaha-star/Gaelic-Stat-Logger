@@ -76,11 +76,15 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                 onTouchMove={handleMouseMove}
                 onTouchEnd={handleMouseUp}
             >
-                {/* Pitch background (replaces hardcoded image) */}
-                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="#43c81f" />
+                {/* Pitch background styled to match the provided reference image */}
+                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="#49d21f" />
+
+                {/* Lighter end-zone bands (approx) */}
+                <rect x="13" y="0" width="7" height={PITCH_H} fill="#9be37a" opacity="0.65" />
+                <rect x={PITCH_W - 20} y="0" width="7" height={PITCH_H} fill="#9be37a" opacity="0.65" />
 
                 {/* Main boundary */}
-                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
 
                 {/* Key vertical lines (13m, 20m, 45m, halfway, mirrored) */}
                 {[
@@ -88,7 +92,7 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                     PITCH_W / 2,
                     PITCH_W - 45, PITCH_W - 20, PITCH_W - 13,
                 ].map((x) => (
-                    <line key={x} x1={x} y1="0" x2={x} y2={PITCH_H} stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
+                    <line key={x} x1={x} y1="0" x2={x} y2={PITCH_H} stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
                 ))}
 
                 {/* Halfway dashed line */}
@@ -97,8 +101,8 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                     y1="0"
                     x2={PITCH_W / 2}
                     y2={PITCH_H}
-                    stroke="#e7f6cf"
-                    strokeWidth="0.9"
+                    stroke="#dff3c6"
+                    strokeWidth="1.0"
                     strokeDasharray="2.5,2.5"
                     opacity="0.95"
                 />
@@ -113,11 +117,11 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                     return (
                         <>
                             {/* Left goal areas */}
-                            <rect x="0" y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
-                            <rect x="0" y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                            <rect x="0" y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
+                            <rect x="0" y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
                             {/* Right goal areas */}
-                            <rect x={PITCH_W - bigW} y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
-                            <rect x={PITCH_W - smallW} y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                            <rect x={PITCH_W - bigW} y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
+                            <rect x={PITCH_W - smallW} y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
                         </>
                     );
                 })()}
@@ -128,8 +132,8 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                     const r = 20;
                     return (
                         <>
-                            <path d={`M 20 ${cy - r} A ${r} ${r} 0 0 1 20 ${cy + r}`} fill="none" stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
-                            <path d={`M ${PITCH_W - 20} ${cy - r} A ${r} ${r} 0 0 0 ${PITCH_W - 20} ${cy + r}`} fill="none" stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
+                            <path d={`M 20 ${cy - r} A ${r} ${r} 0 0 1 20 ${cy + r}`} fill="none" stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
+                            <path d={`M ${PITCH_W - 20} ${cy - r} A ${r} ${r} 0 0 0 ${PITCH_W - 20} ${cy + r}`} fill="none" stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
                         </>
                     );
                 })()}
