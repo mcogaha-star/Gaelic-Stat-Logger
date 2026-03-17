@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Settings } from 'lucide-react';
+import { ArrowLeft, BarChart3, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -290,10 +290,13 @@ export default function MatchStats() {
     }, [stats]);
 
     const snapKickoutOrigin = (coords) => {
-        // Snap to nearest 20m line midpoint: (20, 45) or (120, 45)
-        const leftDist = Math.sqrt(Math.pow(coords.x - 20, 2) + Math.pow(coords.y - 45, 2));
-        const rightDist = Math.sqrt(Math.pow(coords.x - 120, 2) + Math.pow(coords.y - 45, 2));
-        return leftDist < rightDist ? { x: 20, y: 45 } : { x: 120, y: 45 };
+        // Snap to nearest 20m line midpoint in the 145x85 plane: (20, 42.5) or (125, 42.5)
+        const midY = 85 / 2;
+        const left = { x: 20, y: midY };
+        const right = { x: 145 - 20, y: midY };
+        const leftDist = Math.sqrt(Math.pow(coords.x - left.x, 2) + Math.pow(coords.y - left.y, 2));
+        const rightDist = Math.sqrt(Math.pow(coords.x - right.x, 2) + Math.pow(coords.y - right.y, 2));
+        return leftDist < rightDist ? left : right;
     };
 
     const getDirForHalf = (h) => (directionByPeriod && directionByPeriod[h]) ? directionByPeriod[h] : 'right';
@@ -335,8 +338,8 @@ export default function MatchStats() {
     };
 
     const normalizeCoords = (x, y) => {
-        const PITCH_W = 140;
-        const PITCH_H = 90;
+        const PITCH_W = 145;
+        const PITCH_H = 85;
         const dir = (directionByPeriod && directionByPeriod[half]) ? directionByPeriod[half] : 'right';
         const shouldRotate = !!autoNormalizeCoords && dir === 'left';
         return shouldRotate ? { x: PITCH_W - x, y: PITCH_H - y } : { x, y };
@@ -391,6 +394,13 @@ export default function MatchStats() {
             ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
                 if (data[k]) subMenuData[k] = data[k];
             });
+
+            // Preserve original pitch plane (older logs may be 140x90).
+            try {
+                const prev = editingStat.extra_data ? JSON.parse(editingStat.extra_data) : null;
+                if (prev?.pitch?.w && prev?.pitch?.h) subMenuData.pitch = prev.pitch;
+            } catch {}
+
             subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
 
             const patch = {
@@ -462,6 +472,8 @@ export default function MatchStats() {
         ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
             if (data[k]) subMenuData[k] = data[k];
         });
+        // Stamp pitch coordinate plane so we can render/convert consistently in future.
+        subMenuData.pitch = { w: 145, h: 85 };
         subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
         statData.extra_data = JSON.stringify(subMenuData);
 
@@ -606,6 +618,17 @@ export default function MatchStats() {
     }
 
     const matchTitle = homeTeam && awayTeam ? `${homeTeam.name} vs ${awayTeam.name}` : match?.opponent ? `vs ${match.opponent}` : 'Match';
+    const scoreLine = (() => {
+        const score = { home: { goals: 0, points: 0 }, away: { goals: 0, points: 0 } };
+        for (const s of (stats || [])) {
+            const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
+            if (!side) continue;
+            if (s.stat_type === 'goal') score[side].goals += 1;
+            if (s.stat_type === 'point') score[side].points += 1;
+            if (s.stat_type === '2_point') score[side].points += 2;
+        }
+        return `${score.home.goals}:${score.home.points} - ${score.away.goals}:${score.away.points}`;
+    })();
 
     return (
         <div className="min-h-screen bg-slate-50">
@@ -627,6 +650,8 @@ export default function MatchStats() {
                     setEndPeriodPrompt({ open: true, nextHalf });
                 }}
                 statsCount={stats.length}
+                scoreLine={scoreLine}
+                statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
             />
 
             <div className="max-w-7xl mx-auto px-4 py-6">
@@ -636,11 +661,18 @@ export default function MatchStats() {
                             <ArrowLeft className="w-4 h-4" /> Back
                         </Button>
                     </Link>
-                    <Link to={createPageUrl('Settings')}>
-                        <Button variant="outline" size="sm" className="gap-2">
-                            <Settings className="w-4 h-4" /> Settings
-                        </Button>
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <Link to={createPageUrl(`MatchReport?id=${matchId}`)}>
+                            <Button variant="outline" size="sm" className="gap-2">
+                                <BarChart3 className="w-4 h-4" /> Stats
+                            </Button>
+                        </Link>
+                        <Link to={createPageUrl('Settings')}>
+                            <Button variant="outline" size="sm" className="gap-2">
+                                <Settings className="w-4 h-4" /> Settings
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
 
                 <div className="grid lg:grid-cols-3 gap-6">

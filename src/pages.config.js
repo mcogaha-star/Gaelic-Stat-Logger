@@ -48,7 +48,9 @@
  * The mainPage value must match a key in the PAGES object exactly.
  */
 import Home from './pages/Home';
+import About from './pages/About';
 import Login from './pages/Login';
+import MatchReport from './pages/MatchReport';
 import MatchStats from './pages/MatchStats';
 import Players from './pages/Players';
 import Privacy from './pages/Privacy';
@@ -57,7 +59,9 @@ import Teams from './pages/Teams';
 
 export const PAGES = {
     "Home": Home,
+    "About": About,
     "Login": Login,
+    "MatchReport": MatchReport,
     "MatchStats": MatchStats,
     "Players": Players,
     "Privacy": Privacy,

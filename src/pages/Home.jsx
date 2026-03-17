@@ -7,7 +7,7 @@ const db = globalThis.__B44_DB__ || {
 import React, { useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,13 +15,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2 } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export default function Home() {
+    const navigate = useNavigate();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
     const [newMatch, setNewMatch] = useState({
@@ -170,6 +171,11 @@ export default function Home() {
                             <Link to={createPageUrl('Settings')}>
                                 <Button variant="outline" size="icon"><Settings className="w-4 h-4" /></Button>
                             </Link>
+                            <Link to={createPageUrl('About')}>
+                                <Button variant="outline" size="icon" title="About">
+                                    <Info className="w-4 h-4" />
+                                </Button>
+                            </Link>
                             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                                 <DialogTrigger asChild>
                                     <Button className="gap-2 bg-green-600 hover:bg-green-700">
@@ -296,6 +302,20 @@ export default function Home() {
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        navigate(createPageUrl(`MatchReport?id=${match.id}`));
+                                                    }}
+                                                    title="View match stats"
+                                                >
+                                                    <BarChart3 className="w-4 h-4 text-slate-500" />
+                                                </Button>
                                                 <Button
                                                     type="button"
                                                     variant="ghost"

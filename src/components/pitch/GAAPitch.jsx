@@ -1,5 +1,7 @@
 import React, { useRef, useState, useCallback } from 'react';
-import pitchImg from '@/assets/pitch.png';
+
+const PITCH_W = 145;
+const PITCH_H = 85;
 
 export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
     const svgRef = useRef(null);
@@ -16,10 +18,10 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         
-        const x = ((clientX - rect.left) / rect.width) * 140;
-        const y = ((clientY - rect.top) / rect.height) * 90;
+        const x = ((clientX - rect.left) / rect.width) * PITCH_W;
+        const y = ((clientY - rect.top) / rect.height) * PITCH_H;
         
-        return { x: Math.max(0, Math.min(140, x)), y: Math.max(0, Math.min(90, y)) };
+        return { x: Math.max(0, Math.min(PITCH_W, x)), y: Math.max(0, Math.min(PITCH_H, y)) };
     }, []);
 
     const handleMouseDown = (e) => {
@@ -61,19 +63,10 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
     };
 
     return (
-        <div className="w-full aspect-[140/90] relative select-none">
-            {/* Background image */}
-            <img 
-                src={pitchImg}
-                alt="Gaelic Pitch"
-                // Use fill so the image aligns 1:1 with the 140x90 coordinate plane.
-                className="absolute inset-0 w-full h-full object-fill"
-            />
-            
-            {/* Interactive overlay */}
+        <div className="w-full aspect-[145/85] relative select-none">
             <svg
                 ref={svgRef}
-                viewBox="0 0 140 90"
+                viewBox={`0 0 ${PITCH_W} ${PITCH_H}`}
                 className="absolute inset-0 w-full h-full cursor-crosshair"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
@@ -83,20 +76,76 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                 onTouchMove={handleMouseMove}
                 onTouchEnd={handleMouseUp}
             >
+                {/* Pitch background (replaces hardcoded image) */}
+                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="#43c81f" />
+
+                {/* Main boundary */}
+                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+
+                {/* Key vertical lines (13m, 20m, 45m, halfway, mirrored) */}
+                {[
+                    13, 20, 45,
+                    PITCH_W / 2,
+                    PITCH_W - 45, PITCH_W - 20, PITCH_W - 13,
+                ].map((x) => (
+                    <line key={x} x1={x} y1="0" x2={x} y2={PITCH_H} stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
+                ))}
+
+                {/* Halfway dashed line */}
+                <line
+                    x1={PITCH_W / 2}
+                    y1="0"
+                    x2={PITCH_W / 2}
+                    y2={PITCH_H}
+                    stroke="#e7f6cf"
+                    strokeWidth="0.9"
+                    strokeDasharray="2.5,2.5"
+                    opacity="0.95"
+                />
+
+                {/* Large/small rectangles (approx) */}
+                {(() => {
+                    const centerY = PITCH_H / 2;
+                    const smallW = 4.5;
+                    const smallH = 14;
+                    const bigW = 13;
+                    const bigH = 28;
+                    return (
+                        <>
+                            {/* Left goal areas */}
+                            <rect x="0" y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                            <rect x="0" y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                            {/* Right goal areas */}
+                            <rect x={PITCH_W - bigW} y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                            <rect x={PITCH_W - smallW} y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#e7f6cf" strokeWidth="0.6" />
+                        </>
+                    );
+                })()}
+
+                {/* 20m arcs (approx, centered on goal) */}
+                {(() => {
+                    const cy = PITCH_H / 2;
+                    const r = 20;
+                    return (
+                        <>
+                            <path d={`M 20 ${cy - r} A ${r} ${r} 0 0 1 20 ${cy + r}`} fill="none" stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
+                            <path d={`M ${PITCH_W - 20} ${cy - r} A ${r} ${r} 0 0 0 ${PITCH_W - 20} ${cy + r}`} fill="none" stroke="#e7f6cf" strokeWidth="0.6" opacity="0.95" />
+                        </>
+                    );
+                })()}
+
                 {debug && (
                     <>
                         {/* Calibration helpers: key lines and snap points */}
-                        <line x1="70" y1="0" x2="70" y2="90" stroke="white" strokeWidth="0.3" opacity="0.6" />
-                        <line x1="0" y1="45" x2="140" y2="45" stroke="white" strokeWidth="0.3" opacity="0.6" />
-                        <line x1="20" y1="0" x2="20" y2="90" stroke="white" strokeWidth="0.25" opacity="0.35" />
-                        <line x1="120" y1="0" x2="120" y2="90" stroke="white" strokeWidth="0.25" opacity="0.35" />
-                        <circle cx="20" cy="45" r="1.2" fill="#f59e0b" opacity="0.9" />
-                        <circle cx="120" cy="45" r="1.2" fill="#f59e0b" opacity="0.9" />
+                        <line x1={PITCH_W / 2} y1="0" x2={PITCH_W / 2} y2={PITCH_H} stroke="white" strokeWidth="0.3" opacity="0.6" />
+                        <line x1="0" y1={PITCH_H / 2} x2={PITCH_W} y2={PITCH_H / 2} stroke="white" strokeWidth="0.3" opacity="0.6" />
+                        <circle cx="20" cy={PITCH_H / 2} r="1.2" fill="#f59e0b" opacity="0.9" />
+                        <circle cx={PITCH_W - 20} cy={PITCH_H / 2} r="1.2" fill="#f59e0b" opacity="0.9" />
 
                         {hoverPoint && (
                             <>
-                                <line x1={hoverPoint.x} y1="0" x2={hoverPoint.x} y2="90" stroke="#60a5fa" strokeWidth="0.25" opacity="0.5" />
-                                <line x1="0" y1={hoverPoint.y} x2="140" y2={hoverPoint.y} stroke="#60a5fa" strokeWidth="0.25" opacity="0.5" />
+                                <line x1={hoverPoint.x} y1="0" x2={hoverPoint.x} y2={PITCH_H} stroke="#60a5fa" strokeWidth="0.25" opacity="0.5" />
+                                <line x1="0" y1={hoverPoint.y} x2={PITCH_W} y2={hoverPoint.y} stroke="#60a5fa" strokeWidth="0.25" opacity="0.5" />
                                 <circle cx={hoverPoint.x} cy={hoverPoint.y} r="1.1" fill="#60a5fa" opacity="0.9" />
                                 <text x="2" y="6" fontSize="4" fill="white" opacity="0.9">
                                     {`x=${hoverPoint.x.toFixed(1)} y=${hoverPoint.y.toFixed(1)}`}

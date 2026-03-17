@@ -2,6 +2,9 @@ import React from 'react';
 
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS } from '@/components/statDefaults';
 
+const PITCH_W = 145;
+const PITCH_H = 85;
+
 const buildColorMap = (clickStats, dragStats) => {
     const map = {};
     (clickStats || DEFAULT_CLICK_STATS).forEach(s => { map[s.value] = s.color; });
@@ -18,35 +21,61 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
     const STAT_COLORS = buildColorMap(clickStats, dragStats);
     // Find the most recent pass for line display
     const mostRecentPass = [...stats].reverse().find(stat => stat.is_pass && stat.end_x_position != null);
+
+    const getPitchDimsForStat = (stat) => {
+        // New logs embed pitch dims in extra_data.pitch; older logs assume 140x90.
+        try {
+            const extra = stat?.extra_data ? JSON.parse(stat.extra_data) : null;
+            const w = extra?.pitch?.w;
+            const h = extra?.pitch?.h;
+            if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) return { w, h };
+        } catch {}
+        return { w: 140, h: 90 };
+    };
+
+    const toCurrentPlane = (stat, point) => {
+        if (!point) return null;
+        const dims = getPitchDimsForStat(stat);
+        if (dims.w === PITCH_W && dims.h === PITCH_H) return point;
+        return {
+            x: (point.x / dims.w) * PITCH_W,
+            y: (point.y / dims.h) * PITCH_H,
+        };
+    };
     
     return (
-        <svg viewBox="0 0 140 90" className="absolute inset-0 w-full h-full pointer-events-none">
+        <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="absolute inset-0 w-full h-full pointer-events-none">
             {stats.map((stat, index) => {
                 if (stat?.x_position == null || stat?.y_position == null) return null;
                 const color = STAT_COLORS[stat.stat_type] || '#ffffff';
+
+                const start = toCurrentPlane(stat, { x: stat.x_position, y: stat.y_position });
+                const end = (stat.end_x_position != null && stat.end_y_position != null)
+                    ? toCurrentPlane(stat, { x: stat.end_x_position, y: stat.end_y_position })
+                    : null;
                 
                 // Only show pass line for the most recent pass
                 if (stat.is_pass && stat.end_x_position != null && stat.id === mostRecentPass?.id) {
                     return (
                         <g key={index}>
                             <line
-                                x1={stat.x_position}
-                                y1={stat.y_position}
-                                x2={stat.end_x_position}
-                                y2={stat.end_y_position}
+                                x1={start.x}
+                                y1={start.y}
+                                x2={end.x}
+                                y2={end.y}
                                 stroke={color}
                                 strokeWidth="0.6"
                                 markerEnd="url(#arrowhead)"
                             />
                             <circle
-                                cx={stat.x_position}
-                                cy={stat.y_position}
+                                cx={start.x}
+                                cy={start.y}
                                 r="1.2"
                                 fill={color}
                             />
                             <circle
-                                cx={stat.end_x_position}
-                                cy={stat.end_y_position}
+                                cx={end.x}
+                                cy={end.y}
                                 r="1.2"
                                 fill={color}
                                 fillOpacity="0.6"
@@ -59,8 +88,8 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
                 return (
                     <circle
                         key={index}
-                        cx={stat.x_position}
-                        cy={stat.y_position}
+                        cx={start.x}
+                        cy={start.y}
                         r="1.5"
                         fill={color}
                         stroke="white"

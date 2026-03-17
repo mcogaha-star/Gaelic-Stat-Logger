@@ -2,8 +2,9 @@ import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, Clock, MapPin, Repeat2, Undo2, Users } from 'lucide-react';
+import { BarChart3, Download, Clock, MapPin, Repeat2, Undo2, Users } from 'lucide-react';
 import { format } from 'date-fns';
+import { Link } from 'react-router-dom';
 
 export default function MatchHeader({
     match,
@@ -14,7 +15,9 @@ export default function MatchHeader({
     onExport,
     onSub,
     onEndPeriod,
-    statsCount
+    statsCount,
+    scoreLine,
+    statsUrl,
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
@@ -44,6 +47,12 @@ export default function MatchHeader({
                         <Badge variant="secondary" className="text-sm">
                             {statsCount} stats logged
                         </Badge>
+
+                        {scoreLine && (
+                            <Badge variant="outline" className="text-sm font-semibold">
+                                {scoreLine}
+                            </Badge>
+                        )}
                         
                         <Select value={half} onValueChange={onHalfChange}>
                             <SelectTrigger className="w-36">
@@ -56,6 +65,19 @@ export default function MatchHeader({
                                 <SelectItem value="et_second">ET 2nd Half</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        {statsUrl && (
+                            <Link to={statsUrl}>
+                                <Button
+                                    variant="outline"
+                                    className="gap-2"
+                                    title="View match stats"
+                                >
+                                    <BarChart3 className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Stats</span>
+                                </Button>
+                            </Link>
+                        )}
 
                         <Button
                             variant="outline"
