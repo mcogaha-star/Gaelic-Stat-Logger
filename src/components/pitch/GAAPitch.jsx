@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react';
+import pitchImg from '@/assets/pitch.png';
 
 const PITCH_W = 145;
 const PITCH_H = 85;
@@ -64,6 +65,13 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
 
     return (
         <div className="w-full aspect-[145/85] relative select-none">
+            {/* Background image (replace src/assets/pitch.png with your exact pitch image) */}
+            <img
+                src={pitchImg}
+                alt="Gaelic Pitch"
+                className="absolute inset-0 w-full h-full object-fill"
+                draggable="false"
+            />
             <svg
                 ref={svgRef}
                 viewBox={`0 0 ${PITCH_W} ${PITCH_H}`}
@@ -76,68 +84,6 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                 onTouchMove={handleMouseMove}
                 onTouchEnd={handleMouseUp}
             >
-                {/* Pitch background styled to match the provided reference image */}
-                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="#49d21f" />
-
-                {/* Lighter end-zone bands (approx) */}
-                <rect x="13" y="0" width="7" height={PITCH_H} fill="#9be37a" opacity="0.65" />
-                <rect x={PITCH_W - 20} y="0" width="7" height={PITCH_H} fill="#9be37a" opacity="0.65" />
-
-                {/* Main boundary */}
-                <rect x="0" y="0" width={PITCH_W} height={PITCH_H} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
-
-                {/* Key vertical lines (13m, 20m, 45m, halfway, mirrored) */}
-                {[
-                    13, 20, 45,
-                    PITCH_W / 2,
-                    PITCH_W - 45, PITCH_W - 20, PITCH_W - 13,
-                ].map((x) => (
-                    <line key={x} x1={x} y1="0" x2={x} y2={PITCH_H} stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
-                ))}
-
-                {/* Halfway dashed line */}
-                <line
-                    x1={PITCH_W / 2}
-                    y1="0"
-                    x2={PITCH_W / 2}
-                    y2={PITCH_H}
-                    stroke="#dff3c6"
-                    strokeWidth="1.0"
-                    strokeDasharray="2.5,2.5"
-                    opacity="0.95"
-                />
-
-                {/* Large/small rectangles (approx) */}
-                {(() => {
-                    const centerY = PITCH_H / 2;
-                    const smallW = 4.5;
-                    const smallH = 14;
-                    const bigW = 13;
-                    const bigH = 28;
-                    return (
-                        <>
-                            {/* Left goal areas */}
-                            <rect x="0" y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
-                            <rect x="0" y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
-                            {/* Right goal areas */}
-                            <rect x={PITCH_W - bigW} y={centerY - bigH / 2} width={bigW} height={bigH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
-                            <rect x={PITCH_W - smallW} y={centerY - smallH / 2} width={smallW} height={smallH} fill="none" stroke="#dff3c6" strokeWidth="0.9" />
-                        </>
-                    );
-                })()}
-
-                {/* 20m arcs (approx, centered on goal) */}
-                {(() => {
-                    const cy = PITCH_H / 2;
-                    const r = 20;
-                    return (
-                        <>
-                            <path d={`M 20 ${cy - r} A ${r} ${r} 0 0 1 20 ${cy + r}`} fill="none" stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
-                            <path d={`M ${PITCH_W - 20} ${cy - r} A ${r} ${r} 0 0 0 ${PITCH_W - 20} ${cy + r}`} fill="none" stroke="#dff3c6" strokeWidth="0.9" opacity="0.95" />
-                        </>
-                    );
-                })()}
-
                 {debug && (
                     <>
                         {/* Calibration helpers: key lines and snap points */}
