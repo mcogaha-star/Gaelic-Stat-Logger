@@ -46,6 +46,11 @@ export default function Home() {
         queryFn: () => db.entities.Team.list('name')
     });
 
+    const { data: players = [] } = useQuery({
+        queryKey: ['players'],
+        queryFn: () => db.entities.Player.list('number')
+    });
+
     const { data: allStats = [] } = useQuery({
         queryKey: ['all-stats'],
         queryFn: () => db.entities.StatEntry.list('-timestamp')
@@ -68,20 +73,62 @@ export default function Home() {
         for (const s of (allStats || [])) {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
-            const t = String(s.stat_type || '').toLowerCase();
-            if (t === 'goal') add(s.match_id, side, 'goals', 1);
-            if (t === 'point') add(s.match_id, side, 'points', 1);
-            if (t === '2_point' || t === '2 point' || t === '2point') add(s.match_id, side, 'points', 2);
+            if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
+            let extra = {};
+            try { extra = s.extra_data ? JSON.parse(s.extra_data) : {}; } catch {}
+            const o = extra?.shot?.outcome || '';
+            if (o === 'goal') add(s.match_id, side, 'goals', 1);
+            if (o === 'point') add(s.match_id, side, 'points', 1);
+            if (o === '2_point') add(s.match_id, side, 'points', 2);
         }
         return map;
     }, [allStats, matches]);
 
     const createMatchMutation = useMutation({
         mutationFn: async (data) => {
+            const safeParseIds = (s) => {
+                if (!s || typeof s !== 'string') return [];
+                try {
+                    const arr = JSON.parse(s);
+                    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+                } catch {
+                    return [];
+                }
+            };
+
+            const buildSheet = (teamId) => {
+                const team = teams.find(t => t.id === teamId);
+                const teamPlayers = (players || []).filter(p => p.team_id === teamId).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+                const startersIds = safeParseIds(team?.starters);
+                const subsIds = safeParseIds(team?.subs);
+
+                // Fallback: first 15 by number are starters.
+                let starters = startersIds.length ? startersIds.filter((id) => teamPlayers.some(p => p.id === id)) : teamPlayers.slice(0, 15).map(p => p.id);
+                starters = starters.slice(0, 15);
+                const startersSet = new Set(starters);
+
+                // Subs: explicit list + remaining players.
+                const remaining = teamPlayers.map(p => p.id).filter((id) => !startersSet.has(id));
+                const subs = (subsIds.length ? subsIds.filter((id) => teamPlayers.some(p => p.id === id) && !startersSet.has(id)) : [])
+                    .concat(remaining.filter((id) => !(subsIds || []).includes(id)));
+
+                return { starters, subs, on_field: starters };
+            };
+
             const payload = {
                 ...data,
                 public_match_id: data.public_match_id || generatePublicMatchId(),
             };
+
+            // Snapshot team sheets into the match record (15 starters + subs)
+            const homeSheet = buildSheet(payload.home_team_id);
+            const awaySheet = buildSheet(payload.away_team_id);
+            payload.home_starters = JSON.stringify(homeSheet.starters);
+            payload.home_subs = JSON.stringify(homeSheet.subs);
+            payload.home_on_field = JSON.stringify(homeSheet.on_field);
+            payload.away_starters = JSON.stringify(awaySheet.starters);
+            payload.away_subs = JSON.stringify(awaySheet.subs);
+            payload.away_on_field = JSON.stringify(awaySheet.on_field);
 
             const created = await db.entities.Match.create(payload);
 

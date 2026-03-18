@@ -9,11 +9,7 @@ const buildColorMap = (clickStats, dragStats) => {
     const map = {};
     (clickStats || DEFAULT_CLICK_STATS).forEach(s => { map[s.value] = s.color; });
     (dragStats || DEFAULT_DRAG_STATS).forEach(s => { map[s.value] = s.color; });
-    // pass/carry/kickout derived types
-    map['handpass'] = '#06b6d4';
-    map['kickpass'] = '#14b8a6';
-    map['kickout'] = '#8b5cf6';
-    map['carry'] = '#14b8a6';
+    // v0.4 primary actions only (no derived handpass/kickpass types).
     return map;
 };
 

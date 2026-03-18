@@ -37,8 +37,15 @@ create table if not exists public.stat_entries (
   half text not null check (half in ('first','second','et_first','et_second')),
   timestamp timestamptz not null,
 
-  x_position double precision not null,
-  y_position double precision not null,
+  play_id integer null,
+  possession_id integer null,
+  possession_team_side text null check (possession_team_side in ('home','away','unknown')),
+  counter_attack boolean not null default false,
+  time_s double precision null,
+  normalized_time_s double precision null,
+
+  x_position double precision null,
+  y_position double precision null,
   end_x_position double precision null,
   end_y_position double precision null,
 
@@ -60,6 +67,18 @@ create table if not exists public.stat_entries (
 create index if not exists stat_entries_match_id_idx on public.stat_entries(match_id);
 create index if not exists stat_entries_user_id_idx on public.stat_entries(user_id);
 create index if not exists stat_entries_timestamp_idx on public.stat_entries(timestamp);
+create index if not exists stat_entries_play_id_idx on public.stat_entries(match_id, play_id);
+create index if not exists stat_entries_possession_id_idx on public.stat_entries(match_id, possession_id);
+
+-- v0.4 migration helpers (safe to re-run)
+alter table if exists public.stat_entries add column if not exists play_id integer null;
+alter table if exists public.stat_entries add column if not exists possession_id integer null;
+alter table if exists public.stat_entries add column if not exists possession_team_side text null;
+alter table if exists public.stat_entries add column if not exists counter_attack boolean not null default false;
+alter table if exists public.stat_entries add column if not exists time_s double precision null;
+alter table if exists public.stat_entries add column if not exists normalized_time_s double precision null;
+alter table if exists public.stat_entries alter column x_position drop not null;
+alter table if exists public.stat_entries alter column y_position drop not null;
 
 -- Consent tracking (server-side)
 create table if not exists public.user_consents (
@@ -123,4 +142,3 @@ create policy user_consents_update_own on public.user_consents
   for update to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
-

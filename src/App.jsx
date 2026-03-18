@@ -10,6 +10,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ConsentGate from '@/components/ConsentGate';
+import SchemaGate from '@/components/SchemaGate';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -78,7 +79,9 @@ function App() {
         <Router>
           <NavigationTracker />
           <ConsentGate>
-            <AuthenticatedApp />
+            <SchemaGate>
+              <AuthenticatedApp />
+            </SchemaGate>
           </ConsentGate>
         </Router>
         <Toaster />

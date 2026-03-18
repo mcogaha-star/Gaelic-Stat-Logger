@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, Plus, ChevronDown, ChevronRight, Pencil, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 const POSITIONS = [
     'Goalkeeper', 'Corner Back', 'Full Back', 'Wing Back',
@@ -30,6 +31,7 @@ export default function Teams() {
     const [playerDialog, setPlayerDialog] = useState({ open: false, player: null, teamId: null });
     const [teamForm, setTeamForm] = useState({ name: '', color: '#22c55e' });
     const [playerForm, setPlayerForm] = useState({ name: '', number: '', position: '' });
+    const [teamSheets, setTeamSheets] = useState({}); // teamId -> { starters: [playerId], subs: [playerId] }
 
     const queryClient = useQueryClient();
 
@@ -68,6 +70,45 @@ export default function Teams() {
         mutationFn: (id) => db.entities.Player.delete(id),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['players'] }); toast.success('Player deleted'); }
     });
+
+    const saveSheetMutation = useMutation({
+        mutationFn: async ({ teamId, starters, subs }) => {
+            return await db.entities.Team.update(teamId, {
+                starters: JSON.stringify(starters || []),
+                subs: JSON.stringify(subs || []),
+            });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            toast.success('Team sheet saved');
+        }
+    });
+
+    const safeParseIds = (s) => {
+        if (!s || typeof s !== 'string') return [];
+        try {
+            const arr = JSON.parse(s);
+            return Array.isArray(arr) ? arr.filter(Boolean) : [];
+        } catch {
+            return [];
+        }
+    };
+
+    const computeSheet = (team, teamPlayers) => {
+        const startersIds = safeParseIds(team?.starters);
+        const subsIds = safeParseIds(team?.subs);
+
+        // Fallback: first 15 by number.
+        let starters = startersIds.length ? startersIds.filter((id) => teamPlayers.some(p => p.id === id)) : teamPlayers.slice(0, 15).map(p => p.id);
+        starters = starters.slice(0, 15);
+        const startersSet = new Set(starters);
+        const remaining = teamPlayers.map(p => p.id).filter((id) => !startersSet.has(id));
+
+        const subs = (subsIds.length ? subsIds.filter((id) => teamPlayers.some(p => p.id === id) && !startersSet.has(id)) : [])
+            .concat(remaining.filter((id) => !(subsIds || []).includes(id)));
+
+        return { starters, subs };
+    };
 
     const openTeamDialog = (team = null) => {
         setTeamForm(team ? { name: team.name, color: team.color || '#22c55e' } : { name: '', color: '#22c55e' });
@@ -171,6 +212,103 @@ export default function Teams() {
                                                 <Plus className="w-3.5 h-3.5" /> Add Player
                                             </Button>
                                         </div>
+                                        {(() => {
+                                            const sheet = teamSheets[team.id] || computeSheet(team, teamPlayers);
+                                            const setSheet = (next) => setTeamSheets((prev) => ({ ...prev, [team.id]: next }));
+
+                                            const onDragEnd = (result) => {
+                                                const { source, destination } = result;
+                                                if (!destination) return;
+                                                const src = source.droppableId;
+                                                const dst = destination.droppableId;
+                                                const startersId = `starters-${team.id}`;
+                                                const subsId = `subs-${team.id}`;
+                                                if (![startersId, subsId].includes(src) || ![startersId, subsId].includes(dst)) return;
+
+                                                const fromKey = src === startersId ? 'starters' : 'subs';
+                                                const toKey = dst === startersId ? 'starters' : 'subs';
+                                                const from = [...sheet[fromKey]];
+                                                const to = fromKey === toKey ? from : [...sheet[toKey]];
+
+                                                const [moved] = from.splice(source.index, 1);
+                                                if (!moved) return;
+
+                                                // Enforce max 15 starters.
+                                                if (toKey === 'starters' && fromKey !== 'starters' && sheet.starters.length >= 15) {
+                                                    toast.error('Starters list is capped at 15');
+                                                    return;
+                                                }
+
+                                                to.splice(destination.index, 0, moved);
+                                                const next = {
+                                                    starters: toKey === 'starters' ? to : fromKey === 'starters' ? from : sheet.starters,
+                                                    subs: toKey === 'subs' ? to : fromKey === 'subs' ? from : sheet.subs,
+                                                };
+                                                setSheet(next);
+                                            };
+
+                                            const renderPlayerChip = (playerId, idx) => {
+                                                const p = teamPlayers.find(tp => tp.id === playerId);
+                                                const label = p ? `#${p.number} ${p.name || ''}`.trim() : String(playerId);
+                                                return (
+                                                    <Draggable key={playerId} draggableId={playerId} index={idx}>
+                                                        {(provided) => (
+                                                            <div
+                                                                ref={provided.innerRef}
+                                                                {...provided.draggableProps}
+                                                                {...provided.dragHandleProps}
+                                                                className="px-3 py-2 bg-white rounded border text-sm text-slate-800 flex items-center justify-between"
+                                                            >
+                                                                <span className="truncate">{label}</span>
+                                                                <span className="text-xs text-slate-400 ml-2">drag</span>
+                                                            </div>
+                                                        )}
+                                                    </Draggable>
+                                                );
+                                            };
+
+                                            return (
+                                                <div className="px-4 pb-4">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="text-sm font-semibold text-slate-800">Team Sheet</div>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => saveSheetMutation.mutate({ teamId: team.id, starters: sheet.starters, subs: sheet.subs })}
+                                                            disabled={saveSheetMutation.isPending}
+                                                        >
+                                                            Save Sheet
+                                                        </Button>
+                                                    </div>
+                                                    <DragDropContext onDragEnd={onDragEnd}>
+                                                        <div className="grid sm:grid-cols-2 gap-4">
+                                                            <div className="bg-white rounded-lg border p-3">
+                                                                <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Starters (15)</div>
+                                                                <Droppable droppableId={`starters-${team.id}`}>
+                                                                    {(provided) => (
+                                                                        <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2 min-h-10">
+                                                                            {sheet.starters.map(renderPlayerChip)}
+                                                                            {provided.placeholder}
+                                                                        </div>
+                                                                    )}
+                                                                </Droppable>
+                                                            </div>
+                                                            <div className="bg-white rounded-lg border p-3">
+                                                                <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Subs</div>
+                                                                <Droppable droppableId={`subs-${team.id}`}>
+                                                                    {(provided) => (
+                                                                        <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2 min-h-10">
+                                                                            {sheet.subs.map(renderPlayerChip)}
+                                                                            {provided.placeholder}
+                                                                        </div>
+                                                                    )}
+                                                                </Droppable>
+                                                            </div>
+                                                        </div>
+                                                    </DragDropContext>
+                                                </div>
+                                            );
+                                        })()}
                                         {teamPlayers.length === 0 ? (
                                             <p className="text-center text-slate-400 py-8 text-sm">No players in this team yet</p>
                                         ) : (

@@ -5,33 +5,28 @@
     "match_id": {
       "type": "string"
     },
-    "player_name": {
-      "type": "string"
-    },
-    "player_number": {
-      "type": "number"
-    },
     "stat_type": {
       "type": "string"
     },
-    "x_position": {
-      "type": "number"
-    },
-    "y_position": {
-      "type": "number"
-    },
-    "end_x_position": {
-      "type": "number"
-    },
-    "end_y_position": {
-      "type": "number"
-    },
-    "recipient_name": {
-      "type": "string"
-    },
-    "recipient_number": {
-      "type": "number"
-    },
+    "play_id": { "type": "number" },
+    "possession_id": { "type": "number" },
+    "possession_team_side": { "type": "string" },
+    "team_side": { "type": "string" },
+    "counter_attack": { "type": "boolean", "default": false },
+    "player_name": { "type": "string" },
+    "player_number": { "type": "number" },
+    "recipient_name": { "type": "string" },
+    "recipient_number": { "type": "number" },
+    "raw_x_position": { "type": "number" },
+    "raw_y_position": { "type": "number" },
+    "raw_end_x_position": { "type": "number" },
+    "raw_end_y_position": { "type": "number" },
+    "x_position": { "type": "number" },
+    "y_position": { "type": "number" },
+    "end_x_position": { "type": "number" },
+    "end_y_position": { "type": "number" },
+    "time_s": { "type": "number" },
+    "normalized_time_s": { "type": "number" },
     "is_pass": {
       "type": "boolean",
       "default": false
@@ -55,9 +50,6 @@
   },
   "required": [
     "match_id",
-    "player_name",
-    "stat_type",
-    "x_position",
-    "y_position"
+    "stat_type"
   ]
 }

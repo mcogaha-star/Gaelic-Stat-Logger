@@ -74,6 +74,15 @@ export async function insertServerStat({
     is_pass: !!stat.is_pass,
     half: stat.half,
     timestamp: stat.timestamp,
+
+    // v0.4: play/possession + time metadata
+    play_id: stat.play_id ?? null,
+    possession_id: stat.possession_id ?? null,
+    possession_team_side: stat.possession_team_side ?? null,
+    counter_attack: stat.counter_attack ?? false,
+    time_s: stat.time_s ?? null,
+    normalized_time_s: stat.normalized_time_s ?? null,
+
     x_position: stat.x_position,
     y_position: stat.y_position,
     end_x_position: stat.end_x_position ?? null,

@@ -8,6 +8,14 @@
     "color": {
       "type": "string",
       "default": "#22c55e"
+    },
+    "starters": {
+      "type": "string",
+      "description": "JSON array of Player ids (max 15) for the team sheet starters"
+    },
+    "subs": {
+      "type": "string",
+      "description": "JSON array of Player ids for the team sheet subs"
     }
   },
   "required": [

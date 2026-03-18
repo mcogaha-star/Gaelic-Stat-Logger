@@ -17,6 +17,10 @@
     "sub_menus_config": {
       "type": "string",
       "description": "JSON object of sub-menu options per dropdown"
+    },
+    "schema_version": {
+      "type": "number",
+      "description": "Local schema version gate for major stat model changes"
     }
   },
   "required": []

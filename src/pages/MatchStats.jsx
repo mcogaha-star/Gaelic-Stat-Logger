@@ -18,11 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 import GAAPitch from '@/components/pitch/GAAPitch';
-import StatModal from '@/components/pitch/StatModal';
+import StatModalV4 from '@/components/pitch/StatModalV4';
 import StatMarkers from '@/components/pitch/StatMarkers';
 import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
-import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_SUB_MENUS } from '@/components/statDefaults';
+import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 
 export default function MatchStats() {
@@ -33,7 +33,6 @@ export default function MatchStats() {
     const debugPitch = urlParams.get('debug') === '1';
 
     const [modalOpen, setModalOpen] = useState(false);
-    const [editingStat, setEditingStat] = useState(null);
     const [isPassModal, setIsPassModal] = useState(false);
     const [clickCoords, setClickCoords] = useState(null);
     const [passEndCoords, setPassEndCoords] = useState(null);
@@ -69,40 +68,9 @@ export default function MatchStats() {
     });
 
     const settingsRecord = settingsRecords[0];
-    const clickStatsRaw = settingsRecord?.click_stats_config ? (() => { try { return JSON.parse(settingsRecord.click_stats_config); } catch { return DEFAULT_CLICK_STATS; } })() : DEFAULT_CLICK_STATS;
-    const dragStats = settingsRecord?.drag_stats_config ? (() => { try { return JSON.parse(settingsRecord.drag_stats_config); } catch { return DEFAULT_DRAG_STATS; } })() : DEFAULT_DRAG_STATS;
+    const clickStats = DEFAULT_CLICK_STATS;
+    const dragStats = DEFAULT_DRAG_STATS;
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
-    const subMenus = useMemo(() => {
-        const menus = settingsRecord?.sub_menus_config
-            ? (() => { try { return JSON.parse(settingsRecord.sub_menus_config); } catch { return DEFAULT_SUB_MENUS; } })()
-            : DEFAULT_SUB_MENUS;
-
-        const arr = Array.isArray(menus) ? menus : DEFAULT_SUB_MENUS;
-
-        // Merge new default submenu sections into existing configs so upgrades "just appear".
-        const map = new Map(arr.map(m => [m.id, m]));
-        for (const def of DEFAULT_SUB_MENUS) {
-            if (!map.has(def.id)) map.set(def.id, def);
-        }
-
-        return [...map.values()];
-    }, [settingsRecord?.sub_menus_config]);
-
-    // Best-effort config migration for existing installs.
-    const clickStats = useMemo(() => {
-        const stats = Array.isArray(clickStatsRaw) ? [...clickStatsRaw] : DEFAULT_CLICK_STATS;
-
-        // Merge missing default stats (e.g. Throw Ball Won) into existing saved config.
-        const map = new Map(stats.map(s => [s.value, s]));
-        for (const def of DEFAULT_CLICK_STATS) {
-            if (!map.has(def.value)) map.set(def.value, def);
-        }
-
-        // Remove legacy types if still present.
-        ['foul_won', 'foul_against', 'turnover_won', 'turnover_against'].forEach((k) => map.delete(k));
-
-        return [...map.values()];
-    }, [settingsRecord?.click_stats_config]);
 
     const appDefaults = useMemo(() => {
         const d = (appDefaultsRaw && typeof appDefaultsRaw === 'object') ? appDefaultsRaw : DEFAULT_DEFAULTS;
@@ -115,23 +83,18 @@ export default function MatchStats() {
 
     const [half, setHalf] = useState(appDefaults.half || 'first');
 
-    const quickLogEnabled = useMemo(() => {
-        if (typeof appDefaults.quick_log_enabled === 'boolean') return appDefaults.quick_log_enabled;
-        // Backwards compat for one version: read old localStorage key.
-        try {
-            const stored = window.localStorage.getItem('gaa_quick_log_enabled');
-            if (stored === 'true') return true;
-            if (stored === 'false') return false;
-        } catch { }
-        return true;
-    }, [appDefaults]);
+    // v0.4: defaults engine for player role pickers.
+    // We track the last receiver (team-aware) and use it as the default "player"
+    // for shot/passer/carrier/foul-on/lost-by, etc.
+    const [lastReceiver, setLastReceiver] = useState({ kind: 'none' });
 
-    const autoNormalizeCoords = useMemo(() => {
-        if (typeof appDefaults.auto_normalize_coords === 'boolean') return appDefaults.auto_normalize_coords;
-        return true;
-    }, [appDefaults]);
+    // v0.4: play/possession counters (per match).
+    const [playCounter, setPlayCounter] = useState(0);
+    const [possessionCounter, setPossessionCounter] = useState(0);
+    const [currentPossessionId, setCurrentPossessionId] = useState(0);
+    const [currentPossessionTeamSide, setCurrentPossessionTeamSide] = useState('unknown');
+    const [pendingNextPossessionTeamSide, setPendingNextPossessionTeamSide] = useState(null);
 
-    const [defaultPlayerId, setDefaultPlayerId] = useState('');
     const [directionByPeriod, setDirectionByPeriod] = useState(null);
     const [halfPrompt, setHalfPrompt] = useState({ open: false, nextHalf: null });
     const [subDialogOpen, setSubDialogOpen] = useState(false);
@@ -139,22 +102,23 @@ export default function MatchStats() {
     const [subIn, setSubIn] = useState('');
     const [endPeriodPrompt, setEndPeriodPrompt] = useState({ open: false, nextHalf: null });
 
-    // Build player groups: match home/away teams, then unassigned
+    // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
     const awayTeam = teams.find(t => t.id === match?.away_team_id);
-    const matchTeamIds = [match?.home_team_id, match?.away_team_id].filter(Boolean);
-
-    let playerGroups = [];
-    if (homeTeam) {
-        playerGroups.push({ team: homeTeam, players: allPlayers.filter(p => p.team_id === homeTeam.id) });
-    }
-    if (awayTeam) {
-        playerGroups.push({ team: awayTeam, players: allPlayers.filter(p => p.team_id === awayTeam.id) });
-    }
-    const unassigned = allPlayers.filter(p => !p.team_id || !matchTeamIds.includes(p.team_id));
-    if (unassigned.length > 0 || playerGroups.length === 0) {
-        playerGroups.push({ team: null, players: unassigned });
-    }
+    const parseIds = (s) => {
+        if (!s || typeof s !== 'string') return [];
+        try { const arr = JSON.parse(s); return Array.isArray(arr) ? arr.filter(Boolean) : []; } catch { return []; }
+    };
+    const orderByOnField = (players, onFieldIds) => {
+        const set = new Set(onFieldIds || []);
+        const on = players.filter(p => set.has(p.id));
+        const off = players.filter(p => !set.has(p.id));
+        return on.concat(off);
+    };
+    const homeOnField = parseIds(match?.home_on_field);
+    const awayOnField = parseIds(match?.away_on_field);
+    const homePlayers = homeTeam ? orderByOnField(allPlayers.filter(p => p.team_id === homeTeam.id), homeOnField) : [];
+    const awayPlayers = awayTeam ? orderByOnField(allPlayers.filter(p => p.team_id === awayTeam.id), awayOnField) : [];
 
     useEffect(() => {
         if (!match?.id) return;
@@ -173,6 +137,21 @@ export default function MatchStats() {
             db.entities.Match.update(match.id, { direction_by_period: JSON.stringify(merged) }).catch(() => {});
         }
     }, [match?.id]);
+
+    // Initialize counters from existing rows (should usually be empty after v0.4 wipe).
+    useEffect(() => {
+        if (!matchId) return;
+        const maxPlay = Math.max(0, ...(stats || []).map(s => Number(s?.play_id || 0)));
+        const maxPoss = Math.max(0, ...(stats || []).map(s => Number(s?.possession_id || 0)));
+        setPlayCounter(maxPlay);
+        setPossessionCounter(maxPoss);
+
+        const ordered = [...(stats || [])].sort((a, b) => String(a?.timestamp || '').localeCompare(String(b?.timestamp || '')));
+        const last = ordered[ordered.length - 1];
+        setCurrentPossessionId(Number(last?.possession_id || 0));
+        setCurrentPossessionTeamSide(last?.possession_team_side || 'unknown');
+        setPendingNextPossessionTeamSide(null);
+    }, [matchId, stats?.length]);
 
     const ensureMatchServerId = async () => {
         if (!match) return null;
@@ -322,7 +301,6 @@ export default function MatchStats() {
     };
 
     const handlePointClick = (coords) => {
-        setEditingStat(null);
         setClickCoords(coords);
         setIsPassModal(false);
         setPassEndCoords(null);
@@ -330,270 +308,231 @@ export default function MatchStats() {
     };
 
     const handlePassDraw = (start, end) => {
-        setEditingStat(null);
         setClickCoords(start);
         setPassEndCoords(end);
         setIsPassModal(true);
         setModalOpen(true);
     };
 
-    const normalizeCoords = (x, y) => {
-        const PITCH_W = 145;
-        const PITCH_H = 85;
-        const dir = (directionByPeriod && directionByPeriod[half]) ? directionByPeriod[half] : 'right';
-        const shouldRotate = !!autoNormalizeCoords && dir === 'left';
-        return shouldRotate ? { x: PITCH_W - x, y: PITCH_H - y } : { x, y };
+    const PITCH_W = 145;
+    const PITCH_H = 85;
+    const rotate180 = (p) => ({ x: PITCH_W - p.x, y: PITCH_H - p.y });
+    const homeAttacksRightRaw = () => getDirForHalf(half) !== 'left';
+    const teamAttacksRightRaw = (teamSide) => {
+        if (teamSide === 'home') return homeAttacksRightRaw();
+        if (teamSide === 'away') return !homeAttacksRightRaw();
+        return true;
+    };
+    const normalizeForTeam = (p, teamSide) => (teamAttacksRightRaw(teamSide) ? p : rotate180(p));
+    const snapKickoutOriginRaw = (teamSide) => ({ x: teamAttacksRightRaw(teamSide) ? 20 : (PITCH_W - 20), y: PITCH_H / 2 });
+
+    const safeParse = (s) => { try { return JSON.parse(s); } catch { return {}; } };
+
+    const inferPossessionStart = ({ stat_type, extra }) => {
+        if (stat_type === 'kickout') {
+            const o = extra?.kickout?.outcome;
+            const won = extra?.kickout?.won_by;
+            if ((o === 'clean' || o === 'break') && won?.team_side && won.team_side !== 'unknown') return won.team_side;
+        }
+        if (stat_type === 'turnover') {
+            const t = extra?.turnover?.turnover_type;
+            const rec = extra?.turnover?.recovered_by;
+            if (t && t !== 'foul' && rec?.team_side && rec.team_side !== 'unknown') return rec.team_side;
+        }
+        if (stat_type === 'throw_in') {
+            const o = extra?.throw_in?.outcome;
+            const won = extra?.throw_in?.won_by;
+            if ((o === 'clean' || o === 'break') && won?.team_side && won.team_side !== 'unknown') return won.team_side;
+        }
+        return null;
     };
 
-    const computeDerived = (statType, isPass, extra) => {
-        const derived = {};
-        const passOutcome = extra?.pass_outcome || '';
-        const carryOutcome = extra?.carry_outcome || '';
-        const turnoverType = extra?.turnover_type || '';
-        const kickoutOutcome = extra?.kickout_outcome || '';
-
-        const passTurnover = passOutcome === 'free_lost' || passOutcome === 'intercepted' || passOutcome === 'sideline_against' || passOutcome === 'over_endline';
-        const carryTurnover = carryOutcome === 'free_against' || carryOutcome === 'dispossessed';
-
-        derived.is_turnover =
-            statType === 'turnover' ||
-            (isPass && (statType === 'kickpass' || statType === 'handpass') && passTurnover) ||
-            (statType === 'carry' && carryTurnover);
-
-        derived.is_foul =
-            statType === 'foul' ||
-            turnoverType === 'foul' ||
-            passOutcome === 'free_lost' ||
-            kickoutOutcome === 'foul' ||
-            carryOutcome === 'free_won' ||
-            carryOutcome === 'free_against';
-
-        if (derived.is_turnover) {
-            derived.turnover_reason =
-                statType === 'turnover' ? 'turnover'
-                    : (statType === 'carry' ? `carry:${carryOutcome}` : `pass:${passOutcome}`);
-        }
-        if (derived.is_foul) {
-            derived.foul_reason =
-                statType === 'foul' ? 'foul'
-                    : (turnoverType === 'foul' ? 'turnover:foul'
-                        : (passOutcome === 'free_lost' ? 'pass:free_lost'
-                            : (kickoutOutcome === 'foul' ? 'kickout:foul' : `carry:${carryOutcome}`)));
-        }
-
-        return derived;
+    const shouldScheduleNextPossession = ({ stat_type, team_side, extra }) => {
+        if (stat_type !== 'shot') return null;
+        const o = extra?.shot?.outcome;
+        const r = extra?.shot?.result;
+        if (!['short', 'post', 'saved', 'blocked'].includes(o)) return null;
+        if (r !== 'opposition') return null;
+        if (team_side === 'home') return 'away';
+        if (team_side === 'away') return 'home';
+        return null;
     };
 
-    const handleStatSubmit = (data) => {
-        // Edit path: update fields, keep coordinates/timestamp as originally logged.
-        if (editingStat?.id) {
-            const subMenuData = {};
-            subMenus.forEach(section => {
-                if (data[section.id]) subMenuData[section.id] = data[section.id];
-            });
-            ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
-                if (data[k]) subMenuData[k] = data[k];
-            });
-
-            // Preserve original pitch plane (older logs may be 140x90).
-            try {
-                const prev = editingStat.extra_data ? JSON.parse(editingStat.extra_data) : null;
-                if (prev?.pitch?.w && prev?.pitch?.h) subMenuData.pitch = prev.pitch;
-            } catch {}
-
-            subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
-
-            const patch = {
-                player_name: data.player?.name,
-                player_number: data.player?.number,
-                stat_type: data.stat_type,
-                recipient_name: data.recipient?.name,
-                recipient_number: data.recipient?.number,
-                is_pass: data.is_pass,
-                extra_data: JSON.stringify(subMenuData),
-            };
-
-            // Keep data model consistent if someone edits a drag stat to a type that shouldn't have an end point.
-            if (data.is_pass && data.stat_type === 'kickout') {
-                patch.end_x_position = undefined;
-                patch.end_y_position = undefined;
-                patch.raw_end_x_position = undefined;
-                patch.raw_end_y_position = undefined;
-            }
-
-            updateStatMutation.mutate({ id: editingStat.id, data: patch });
-            setEditingStat(null);
-            setModalOpen(false);
-            return;
+    const updateLastReceiverFrom = ({ stat_type, extra }) => {
+        if (stat_type === 'pass') {
+            if (extra?.pass?.outcome === 'completed' && extra?.pass?.intended_recipient?.kind === 'player') return extra.pass.intended_recipient;
         }
+        if (stat_type === 'carry') {
+            if (extra?.carry?.outcome === 'completed' && extra?.carry?.carrier?.kind === 'player') return extra.carry.carrier;
+        }
+        if (stat_type === 'kickout') {
+            const o = extra?.kickout?.outcome;
+            if ((o === 'clean' || o === 'break') && extra?.kickout?.won_by?.kind === 'player') return extra.kickout.won_by;
+        }
+        if (stat_type === 'throw_in') {
+            const o = extra?.throw_in?.outcome;
+            if ((o === 'clean' || o === 'break') && extra?.throw_in?.won_by?.kind === 'player') return extra.throw_in.won_by;
+        }
+        if (stat_type === 'turnover') {
+            const t = extra?.turnover?.turnover_type;
+            if (t && t !== 'foul' && extra?.turnover?.recovered_by?.kind === 'player') return extra.turnover.recovered_by;
+        }
+        return null;
+    };
 
-        const isKickout = data.stat_type === 'kickout';
-        let rawStart = { x: data.x_position, y: data.y_position };
-        if (isKickout) rawStart = snapKickoutOrigin(rawStart);
+    const handleStatSubmit = (payload) => {
+        const rawStartBase = clickCoords ? { x: clickCoords.x, y: clickCoords.y } : null;
+        if (!rawStartBase) return;
+        const rawEndBase = passEndCoords ? { x: passEndCoords.x, y: passEndCoords.y } : null;
 
-        const rawEnd = (data.end_x_position != null && data.end_y_position != null)
-            ? { x: data.end_x_position, y: data.end_y_position }
-            : null;
+        const teamSide = payload?.team_side || 'unknown';
+        const rawStart = payload?.stat_type === 'kickout' ? snapKickoutOriginRaw(teamSide) : rawStartBase;
+        const rawEnd = rawEndBase;
 
-        const start = normalizeCoords(rawStart.x, rawStart.y);
+        const start = normalizeForTeam(rawStart, teamSide);
         const hasEnd = !!rawEnd;
-        const end = hasEnd ? normalizeCoords(rawEnd.x, rawEnd.y) : {};
+        const end = hasEnd ? normalizeForTeam(rawEnd, teamSide) : null;
 
-        const teamSide =
-            data.player?.team_id && data.player.team_id === match?.home_team_id ? 'home'
-            : data.player?.team_id && data.player.team_id === match?.away_team_id ? 'away'
-            : 'unknown';
+        // Apply pending next-possession (from prior shot) if present.
+        let nextPossessionId = currentPossessionId;
+        let nextPossessionTeam = currentPossessionTeamSide;
+        let nextPossessionCounter = possessionCounter;
+        let pending = pendingNextPossessionTeamSide;
+
+        if (!nextPossessionId) {
+            nextPossessionId = 1;
+            nextPossessionCounter = Math.max(nextPossessionCounter, 1);
+            nextPossessionTeam = (teamSide === 'home' || teamSide === 'away') ? teamSide : 'unknown';
+        }
+
+        if (pending) {
+            nextPossessionId = nextPossessionCounter + 1;
+            nextPossessionCounter = nextPossessionId;
+            nextPossessionTeam = pending;
+            pending = null;
+        }
+
+        // Immediate possession start rules on the same row
+        const startTeam = inferPossessionStart(payload);
+        if (startTeam) {
+            nextPossessionId = nextPossessionCounter + 1;
+            nextPossessionCounter = nextPossessionId;
+            nextPossessionTeam = startTeam;
+        }
+
+        const nextPlayId = playCounter + 1;
+
+        const extra = { ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
+
+        const primary = payload.primary_player;
+        const recipientSel =
+            payload.stat_type === 'pass' ? payload.extra?.pass?.intended_recipient
+                : (payload.stat_type === 'kickout' ? payload.extra?.kickout?.intended_recipient : null);
 
         const statData = {
             match_id: matchId,
-            player_name: data.player?.name,
-            player_number: data.player?.number,
-            stat_type: data.stat_type,
-            x_position: start.x,
-            y_position: start.y,
-            end_x_position: hasEnd ? end.x : undefined,
-            end_y_position: hasEnd ? end.y : undefined,
+            stat_type: payload.stat_type,
+            is_pass: !!payload.is_pass,
+            half,
+            timestamp: new Date().toISOString(),
+
+            play_id: nextPlayId,
+            possession_id: nextPossessionId,
+            possession_team_side: nextPossessionTeam,
+            team_side: teamSide,
+            counter_attack: !!payload.counter_attack,
+
             raw_x_position: rawStart.x,
             raw_y_position: rawStart.y,
-            raw_end_x_position: hasEnd ? rawEnd.x : undefined,
-            raw_end_y_position: hasEnd ? rawEnd.y : undefined,
-            recipient_name: data.recipient?.name,
-            recipient_number: data.recipient?.number,
-            team_side: teamSide,
-            is_pass: data.is_pass,
-            half: half,
-            timestamp: new Date().toISOString()
+            raw_end_x_position: hasEnd ? rawEnd.x : null,
+            raw_end_y_position: hasEnd ? rawEnd.y : null,
+
+            x_position: start.x,
+            y_position: start.y,
+            end_x_position: hasEnd ? end.x : null,
+            end_y_position: hasEnd ? end.y : null,
+
+            time_s: null,
+            normalized_time_s: null,
+
+            player_name: primary?.kind === 'player' ? (primary.name || '') : null,
+            player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
+            recipient_name: recipientSel?.kind === 'player' ? (recipientSel.name || '') : null,
+            recipient_number: recipientSel?.kind === 'player' ? (recipientSel.number ?? null) : null,
+
+            extra_data: JSON.stringify(extra),
         };
-
-        const subMenuData = {};
-        subMenus.forEach(section => {
-            if (data[section.id]) subMenuData[section.id] = data[section.id];
-        });
-        ['foul_fouled_player', 'foul_fouler_player', 'turnover_caused_by', 'tackler', 'kickout_intended_recipient', 'throw_loser_player'].forEach((k) => {
-            if (data[k]) subMenuData[k] = data[k];
-        });
-        // Stamp pitch coordinate plane so we can render/convert consistently in future.
-        subMenuData.pitch = { w: 145, h: 85 };
-        subMenuData.derived = computeDerived(data.stat_type, data.is_pass, subMenuData);
-        statData.extra_data = JSON.stringify(subMenuData);
-
-        if (quickLogEnabled) {
-            // Quick log: carry forward the next default player.
-            const nextPlayerId = data.recipient?.id || data.player?.id || '';
-            if (nextPlayerId) setDefaultPlayerId(nextPlayerId);
-        }
 
         createStatMutation.mutate(statData);
+
+        setPlayCounter(nextPlayId);
+        setPossessionCounter(nextPossessionCounter);
+        setCurrentPossessionId(nextPossessionId);
+        setCurrentPossessionTeamSide(nextPossessionTeam);
+        setPendingNextPossessionTeamSide(shouldScheduleNextPossession({ ...payload, extra }) || pending);
+
+        const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
+        if (lr) setLastReceiver(lr);
+
+        setModalOpen(false);
+        setClickCoords(null);
+        setPassEndCoords(null);
     };
-
-    const openEditStat = (stat) => {
-        setEditingStat(stat);
-        setIsPassModal(!!stat.is_pass);
-        setClickCoords({
-            x: stat.raw_x_position ?? stat.x_position,
-            y: stat.raw_y_position ?? stat.y_position,
-        });
-        setPassEndCoords(
-            stat.raw_end_x_position != null && stat.raw_end_y_position != null
-                ? { x: stat.raw_end_x_position, y: stat.raw_end_y_position }
-                : (stat.end_x_position != null && stat.end_y_position != null ? { x: stat.end_x_position, y: stat.end_y_position } : null)
-        );
-        setModalOpen(true);
-    };
-
-    const safeParse = (s) => {
-        try { return JSON.parse(s); } catch { return {}; }
-    };
-
-    const buildInitialModalData = () => {
-        if (!editingStat) return null;
-        const player = allPlayers.find(p => p.number === editingStat.player_number && p.name === editingStat.player_name)
-            || allPlayers.find(p => p.number === editingStat.player_number)
-            || allPlayers.find(p => p.name === editingStat.player_name);
-        const recipient = allPlayers.find(p => p.number === editingStat.recipient_number && p.name === editingStat.recipient_name)
-            || allPlayers.find(p => p.number === editingStat.recipient_number)
-            || allPlayers.find(p => p.name === editingStat.recipient_name);
-
-        const subMenuValues = editingStat.extra_data ? safeParse(editingStat.extra_data) : {};
-
-        let passType = undefined;
-        if (editingStat.is_pass) {
-            passType = (editingStat.stat_type === 'kickout' || editingStat.stat_type === 'carry') ? editingStat.stat_type : 'pass';
-            if (editingStat.stat_type === 'handpass' && !subMenuValues.pass_body) subMenuValues.pass_body = 'handpass';
-        }
-
-        return {
-            playerId: player?.id || '',
-            recipientId: recipient?.id || '',
-            statType: editingStat.is_pass ? '' : (editingStat.stat_type || ''),
-            passType,
-            subMenuValues,
-        };
-    };
-
-    const initialModalData = useMemo(() => buildInitialModalData(), [editingStat, allPlayers]);
 
     const exportToCSV = () => {
         if (stats.length === 0) { toast.error('No stats to export'); return; }
 
-        // Ensure CSV rows reflect the order stats were logged.
-        // ISO timestamps sort correctly as strings.
         const orderedStats = [...stats].sort((a, b) => {
             const at = a?.timestamp || a?.created_date || '';
             const bt = b?.timestamp || b?.created_date || '';
             return String(at).localeCompare(String(bt));
         });
 
-        const idToPlayerLabel = (v) => {
-            if (!v) return '';
-            if (v === 'team') return 'Team';
-            if (v === 'unforced') return 'Unforced';
-            if (v === 'none') return 'None';
-            const p = allPlayers.find(pp => pp.id === v);
-            if (!p) return String(v);
-            return `#${p.number} ${p.name || ''}`.trim();
-        };
-
-        const extraHeaders = [
-            'Derived Turnover','Derived Foul','Turnover Reason','Foul Reason',
-            'Turnover Won By','Player Fouled','Fouler',
-            'Tackler','Kickout Intended Recipient'
+        const headers = [
+            'Match ID','Match Public ID','Match Date','Code','Level',
+            'Play ID','Possession ID','Possession Team','Acting Team','Counter Attack',
+            'Stat Type','Is Drag','Half','Timestamp',
+            'Raw X','Raw Y','Raw End X','Raw End Y',
+            'X','Y','End X','End Y',
+            'Primary Player #','Primary Player Name',
+            'Recipient #','Recipient Name',
+            'Time (s)','Normalized Time (s)',
+            'Extra JSON',
         ];
 
-        const baseHeaders = ['Match ID','Match Public ID','Match Date','Code','Level','Player Name','Player Number','Stat Type','X Position','Y Position',
-            'End X','End Y',
-            'Raw X','Raw Y','Raw End X','Raw End Y',
-            'Recipient Name','Recipient Number','Is Pass','Half','Timestamp'];
-        const subMenuHeaders = subMenus.map(s => s.label);
-        const headers = [...baseHeaders, ...extraHeaders, ...subMenuHeaders];
-
-        const rows = orderedStats.map(stat => {
-            const base = [
-                stat.match_id, match?.public_match_id || '', match?.date || '', match?.code || '', match?.level || '',
-                stat.player_name, stat.player_number, stat.stat_type,
-                stat.x_position?.toFixed(2), stat.y_position?.toFixed(2),
-                stat.end_x_position?.toFixed(2) || '', stat.end_y_position?.toFixed(2) || '',
-                stat.raw_x_position?.toFixed?.(2) ?? '', stat.raw_y_position?.toFixed?.(2) ?? '',
-                stat.raw_end_x_position?.toFixed?.(2) ?? '', stat.raw_end_y_position?.toFixed?.(2) ?? '',
-                stat.recipient_name || '', stat.recipient_number || '',
+        const rows = orderedStats.map((stat) => {
+            const extraData = stat.extra_data ? safeParse(stat.extra_data) : {};
+            return [
+                stat.match_id || '',
+                match?.public_match_id || '',
+                match?.date || '',
+                match?.code || '',
+                match?.level || '',
+                stat.play_id ?? '',
+                stat.possession_id ?? '',
+                stat.possession_team_side || '',
+                stat.team_side || '',
+                stat.counter_attack ? 'Yes' : 'No',
+                stat.stat_type || '',
                 stat.is_pass ? 'Yes' : 'No',
-                stat.half, stat.timestamp
+                stat.half || '',
+                stat.timestamp || '',
+                stat.raw_x_position ?? '',
+                stat.raw_y_position ?? '',
+                stat.raw_end_x_position ?? '',
+                stat.raw_end_y_position ?? '',
+                stat.x_position ?? '',
+                stat.y_position ?? '',
+                stat.end_x_position ?? '',
+                stat.end_y_position ?? '',
+                stat.player_number ?? '',
+                stat.player_name || '',
+                stat.recipient_number ?? '',
+                stat.recipient_name || '',
+                stat.time_s ?? '',
+                stat.normalized_time_s ?? '',
+                JSON.stringify(extraData),
             ];
-            const extraData = stat.extra_data ? (() => { try { return JSON.parse(stat.extra_data); } catch { return {}; } })() : {};
-            const derived = extraData?.derived || {};
-            const extraCols = [
-                derived.is_turnover ? 'Yes' : 'No',
-                derived.is_foul ? 'Yes' : 'No',
-                derived.turnover_reason || '',
-                derived.foul_reason || '',
-                idToPlayerLabel(extraData.turnover_caused_by),
-                idToPlayerLabel(extraData.foul_fouled_player),
-                idToPlayerLabel(extraData.foul_fouler_player),
-                idToPlayerLabel(extraData.tackler),
-                idToPlayerLabel(extraData.kickout_intended_recipient),
-            ];
-            const subMenuValues = subMenus.map(s => extraData[s.id] || stat[s.id] || '');
-            return [...base, ...extraCols, ...subMenuValues];
         });
 
         const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -601,7 +540,7 @@ export default function MatchStats() {
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `match_stats_${match?.opponent || 'match'}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `match_stats_${match?.public_match_id || 'match'}_${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
         toast.success('CSV exported');
     };
@@ -623,10 +562,12 @@ export default function MatchStats() {
         for (const s of (stats || [])) {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
-            const t = String(s.stat_type || '').toLowerCase();
-            if (t === 'goal') score[side].goals += 1;
-            if (t === 'point') score[side].points += 1;
-            if (t === '2_point' || t === '2 point' || t === '2point') score[side].points += 2;
+            if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
+            const extra = s.extra_data ? safeParse(s.extra_data) : {};
+            const o = extra?.shot?.outcome || '';
+            if (o === 'goal') score[side].goals += 1;
+            if (o === 'point') score[side].points += 1;
+            if (o === '2_point') score[side].points += 2;
         }
         return `${score.home.goals}:${score.home.points} - ${score.away.goals}:${score.away.points}`;
     })();
@@ -707,27 +648,23 @@ export default function MatchStats() {
                     <div className="space-y-6">
                         <RecentStats
                             stats={stats}
-                            onEdit={openEditStat}
+                            onEdit={null}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
                         />
                     </div>
                 </div>
             </div>
 
-            <StatModal
+            <StatModalV4
                 open={modalOpen}
-                onClose={() => { setModalOpen(false); setEditingStat(null); }}
-                playerGroups={playerGroups}
+                onClose={() => { setModalOpen(false); setClickCoords(null); setPassEndCoords(null); }}
                 onSubmit={handleStatSubmit}
-                isPass={isPassModal}
+                isDrag={isPassModal}
                 startCoords={clickCoords}
                 endCoords={passEndCoords}
-                clickStats={clickStats}
-                dragStats={dragStats}
-                subMenus={subMenus}
-                initialData={initialModalData}
-                defaultPlayerId={quickLogEnabled ? defaultPlayerId : ''}
-                submitLabel={editingStat ? 'Save' : 'Log Stat'}
+                homePlayers={homePlayers}
+                awayPlayers={awayPlayers}
+                defaultReceiver={lastReceiver}
             />
 
             {/* Half change prompt */}
@@ -809,9 +746,16 @@ export default function MatchStats() {
                             <Button
                                 className="flex-1 bg-green-600 hover:bg-green-700"
                                 disabled={!subOut || !subIn}
-                                onClick={() => {
+                                onClick={async () => {
                                     const outP = allPlayers.find(p => p.id === subOut);
                                     const inP = allPlayers.find(p => p.id === subIn);
+                                    const outSide =
+                                        outP?.team_id && outP.team_id === match?.home_team_id ? 'home'
+                                        : outP?.team_id && outP.team_id === match?.away_team_id ? 'away'
+                                        : 'unknown';
+                                    const possId = currentPossessionId || 1;
+                                    const possTeam = currentPossessionTeamSide || 'unknown';
+                                    const nextPlayId = playCounter + 1;
                                     const extra = { sub_out_id: subOut, sub_in_id: subIn };
                                     const statData = {
                                         match_id: matchId,
@@ -823,9 +767,30 @@ export default function MatchStats() {
                                         is_pass: false,
                                         half,
                                         timestamp: new Date().toISOString(),
+                                        play_id: nextPlayId,
+                                        possession_id: possId,
+                                        possession_team_side: possTeam,
+                                        team_side: outSide,
+                                        counter_attack: false,
                                         extra_data: JSON.stringify(extra),
                                     };
                                     createStatMutation.mutate(statData);
+                                    setPlayCounter(nextPlayId);
+
+                                    // Update on-field list so subsequent dropdowns reflect the sub.
+                                    try {
+                                        if (match?.id && (outSide === 'home' || outSide === 'away')) {
+                                            const cur = outSide === 'home' ? (homeOnField || []) : (awayOnField || []);
+                                            const next = cur.filter((id) => id !== subOut);
+                                            if (subIn && !next.includes(subIn)) next.push(subIn);
+                                            const patch = outSide === 'home'
+                                                ? { home_on_field: JSON.stringify(next) }
+                                                : { away_on_field: JSON.stringify(next) };
+                                            await db.entities.Match.update(match.id, patch);
+                                            queryClient.invalidateQueries({ queryKey: ['match', matchId] });
+                                        }
+                                    } catch {}
+
                                     setSubDialogOpen(false);
                                     setSubOut(''); setSubIn('');
                                 }}
@@ -852,14 +817,23 @@ export default function MatchStats() {
                             onClick={async () => {
                                 const nextHalf = endPeriodPrompt.nextHalf;
                                 if (!nextHalf) return;
+                                const possId = currentPossessionId || 1;
+                                const possTeam = currentPossessionTeamSide || 'unknown';
+                                const nextPlayId = playCounter + 1;
                                 createStatMutation.mutate({
                                     match_id: matchId,
                                     stat_type: 'period_end',
                                     is_pass: false,
                                     half,
                                     timestamp: new Date().toISOString(),
+                                    play_id: nextPlayId,
+                                    possession_id: possId,
+                                    possession_team_side: possTeam,
+                                    team_side: 'unknown',
+                                    counter_attack: false,
                                     extra_data: JSON.stringify({ period: half }),
                                 });
+                                setPlayCounter(nextPlayId);
                                 const prevDir = getDirForHalf(half);
                                 const nextDir = prevDir === 'left' ? 'right' : 'left';
                                 await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: nextDir });
@@ -874,14 +848,23 @@ export default function MatchStats() {
                             onClick={async () => {
                                 const nextHalf = endPeriodPrompt.nextHalf;
                                 if (!nextHalf) return;
+                                const possId = currentPossessionId || 1;
+                                const possTeam = currentPossessionTeamSide || 'unknown';
+                                const nextPlayId = playCounter + 1;
                                 createStatMutation.mutate({
                                     match_id: matchId,
                                     stat_type: 'period_end',
                                     is_pass: false,
                                     half,
                                     timestamp: new Date().toISOString(),
+                                    play_id: nextPlayId,
+                                    possession_id: possId,
+                                    possession_team_side: possTeam,
+                                    team_side: 'unknown',
+                                    counter_attack: false,
                                     extra_data: JSON.stringify({ period: half }),
                                 });
+                                setPlayCounter(nextPlayId);
                                 const prevDir = getDirForHalf(half);
                                 await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: prevDir });
                                 setHalf(nextHalf);

@@ -1,24 +1,14 @@
 export const DEFAULT_CLICK_STATS = [
-    { value: 'goal', label: 'Goal', color: '#22c55e', category: 'scoring', visible: true },
-    { value: 'point', label: 'Point', color: '#3b82f6', category: 'scoring', visible: true },
-    { value: '2_point', label: '2 Point', color: '#a855f7', category: 'scoring', visible: true },
-    { value: 'wide', label: 'Wide', color: '#f97316', category: 'scoring', visible: true },
-    { value: 'short', label: 'Short', color: '#eab308', category: 'scoring', visible: true },
-    { value: 'saved', label: 'Saved', color: '#ef4444', category: 'scoring', visible: true },
-    { value: 'short_retained', label: 'Short Retained', color: '#ca8a04', category: 'scoring', visible: true },
-    { value: 'blocked', label: 'Blocked', color: '#dc2626', category: 'scoring', visible: true },
-    { value: 'blocked_retained', label: 'Blocked Retained', color: '#b91c1c', category: 'scoring', visible: true },
-    { value: 'saved_retained', label: 'Saved Retained', color: '#ec4899', category: 'scoring', visible: true },
-    { value: 'saved_for_45', label: 'Saved For 45', color: '#db2777', category: 'scoring', visible: true },
-    { value: 'foul', label: 'Foul', color: '#eab308', category: 'other', visible: true },
-    { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'other', visible: true },
-    { value: 'throw_ball_won', label: 'Throw Ball Won', color: '#0ea5e9', category: 'other', visible: true },
-    { value: 'defensive_contact', label: 'Defensive Contact', color: '#64748b', category: 'other', visible: true },
+    { value: 'shot', label: 'Shot', color: '#22c55e', category: 'click', visible: true },
+    { value: 'kickout', label: 'Kickout', color: '#8b5cf6', category: 'click', visible: true },
+    { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'click', visible: true },
+    { value: 'foul', label: 'Foul', color: '#eab308', category: 'click', visible: true },
+    { value: 'defensive_contact', label: 'Defensive Contact', color: '#64748b', category: 'click', visible: true },
+    { value: 'throw_in', label: 'Throw In', color: '#0ea5e9', category: 'click', visible: true },
 ];
 
 export const DEFAULT_DRAG_STATS = [
     { value: 'pass', label: 'Pass', color: '#06b6d4', visible: true },
-    { value: 'kickout', label: 'Kickout', color: '#8b5cf6', visible: true },
     { value: 'carry', label: 'Carry', color: '#14b8a6', visible: true },
 ];
 

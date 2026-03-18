@@ -21,6 +21,34 @@
     },
     "competition": {
       "type": "string"
+    },
+    "home_on_field": {
+      "type": "string",
+      "description": "JSON array of Player ids currently on field (home)"
+    },
+    "away_on_field": {
+      "type": "string",
+      "description": "JSON array of Player ids currently on field (away)"
+    },
+    "home_starters": {
+      "type": "string",
+      "description": "JSON array of Player ids (starters) snapshot at match start (home)"
+    },
+    "away_starters": {
+      "type": "string",
+      "description": "JSON array of Player ids (starters) snapshot at match start (away)"
+    },
+    "home_subs": {
+      "type": "string",
+      "description": "JSON array of Player ids (subs) snapshot at match start (home)"
+    },
+    "away_subs": {
+      "type": "string",
+      "description": "JSON array of Player ids (subs) snapshot at match start (away)"
+    },
+    "direction_by_period": {
+      "type": "string",
+      "description": "JSON object mapping half->direction (left|right)"
     }
   },
   "required": [
