@@ -19,7 +19,7 @@ export default function MatchHeader({
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
-            <div className="max-w-7xl mx-auto px-4 py-2">
+            <div className="max-w-7xl mx-auto px-4 py-[7px]">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <div>
                         <div className="flex items-start gap-3">
@@ -40,7 +40,7 @@ export default function MatchHeader({
                                 </h1>
 
                                 {scoreLine && (
-                                    <Badge variant="outline" className="text-xs font-semibold">
+                                    <Badge variant="outline" className="text-xs font-semibold h-8 w-32 inline-flex items-center justify-center">
                                         {scoreLine}
                                     </Badge>
                                 )}
