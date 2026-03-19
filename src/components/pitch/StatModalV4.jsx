@@ -980,7 +980,7 @@ export default function StatModalV4({
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
-      <DialogContent className="!top-[88px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-96px)] overflow-hidden flex flex-col p-3">
+      <DialogContent className="!top-[8px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-3">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
@@ -1115,13 +1115,11 @@ export default function StatModalV4({
 
               {action === 'carry' && isDrag && (
                 <>
-                  {roleButton('carrier')}
                   <Buttons label="Pressure on Carrier" value={carrierPressure} onChange={setCarrierPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <YesNo label="Take On Attempted" value={takeOnAttempted} onChange={setTakeOnAttempted} />
                   {takeOnAttempted && (
                     <>
                       <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
-                      {roleButton('defender')}
                     </>
                   )}
                   <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
@@ -1141,8 +1139,6 @@ export default function StatModalV4({
 
               {action === 'pass' && isDrag && (
                 <>
-                  {roleButton('passer')}
-                  {roleButton('pass_intended')}
                   <div className="grid sm:grid-cols-2 gap-2">
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Method</Label>
@@ -1175,7 +1171,6 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  {roleButton('pass_won_by')}
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                 </>
               )}
@@ -1234,6 +1229,8 @@ export default function StatModalV4({
 
               {action === 'carry' && isDrag && (
                 <>
+                  {roleButton('carrier')}
+                  {takeOnAttempted && roleButton('defender')}
                   {carryOutcome === 'turnover' && turnoverPanel()}
                   {carryOutcome === 'foul' && foulPanel()}
                 </>
@@ -1241,6 +1238,11 @@ export default function StatModalV4({
 
               {action === 'pass' && isDrag && (
                 <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {roleButton('passer')}
+                    {roleButton('pass_intended')}
+                  </div>
+                  {roleButton('pass_won_by')}
                   {passOutcome === 'turnover' && turnoverPanel()}
                   {passOutcome === 'foul' && foulPanel()}
                 </>
