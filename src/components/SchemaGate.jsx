@@ -40,6 +40,24 @@ const schemaOk = useMemo(() => {
     return Number.isFinite(n) && n >= SCHEMA_VERSION;
   }, [settings]);
 
+  // Gate removed by request: never block usage with a destructive wipe prompt.
+  // Best-effort: mark schema version in background when missing/outdated.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (allowWithoutGate) return;
+        if (schemaOk) return;
+        await upsertSettings({ schema_version: SCHEMA_VERSION });
+        if (!alive) return;
+        setSettings((prev) => ({ ...(prev || {}), schema_version: SCHEMA_VERSION }));
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [schemaOk, allowWithoutGate]);
+
+  return children;
+
   useEffect(() => {
     let alive = true;
     (async () => {

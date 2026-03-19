@@ -742,7 +742,7 @@ export default function MatchStats() {
                                 </Button>
                             </div>
                         </div>
-                        <div className="bg-slate-900 rounded-2xl p-4 shadow-xl relative overflow-hidden">
+                        <div className="bg-slate-900 rounded-2xl p-2 shadow-xl relative overflow-hidden ml-2 mt-2">
                             <GAAPitch onPointClick={handlePointClick} onPassDraw={handlePassDraw} debug={debugPitch} />
                             <StatMarkers stats={stats} clickStats={clickStats} />
                         </div>
