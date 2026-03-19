@@ -747,12 +747,15 @@ export default function StatModalV4({
     passWonBy,
   ]);
 
-  const foulPanel = () => (
-    <div className="space-y-2 border rounded-md p-2 bg-slate-50">
-      <div className="grid grid-cols-2 gap-2">
-        {roleButton('foul_by')}
-        {roleButton('foul_on')}
-      </div>
+  const foulRolesBlock = () => (
+    <div className="grid grid-cols-2 gap-2">
+      {roleButton('foul_by')}
+      {roleButton('foul_on')}
+    </div>
+  );
+
+  const foulFieldsBlock = () => (
+    <div className="space-y-2">
       <div className="space-y-1">
         <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Foul Type</Label>
         <Select value={foulType} onValueChange={setFoulType}>
@@ -766,8 +769,25 @@ export default function StatModalV4({
     </div>
   );
 
-  const turnoverPanel = () => (
-    <div className="space-y-2 border rounded-md p-2 bg-slate-50">
+  const foulPanel = () => (
+    <div className="border rounded-md p-2 bg-slate-50">
+      <div className="grid grid-cols-2 gap-2 items-start">
+        <div>{foulFieldsBlock()}</div>
+        <div>{foulRolesBlock()}</div>
+      </div>
+    </div>
+  );
+
+  const turnoverRolesBlock = () => (
+    <div className="grid grid-cols-2 gap-2">
+      {roleButton('lost_by')}
+      {roleButton('forced_by')}
+      {roleButton('recovered_by')}
+    </div>
+  );
+
+  const turnoverFieldsBlock = () => (
+    <div className="space-y-2">
       <div className="space-y-1">
         <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Turnover Type</Label>
         <Select value={turnoverType} onValueChange={setTurnoverType}>
@@ -779,28 +799,19 @@ export default function StatModalV4({
           </SelectContent>
         </Select>
       </div>
-      {turnoverType === 'foul' ? (
-        <div className="grid grid-cols-2 gap-2 items-start">
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              {roleButton('lost_by')}
-              {roleButton('forced_by')}
-              {roleButton('recovered_by')}
-            </div>
-            <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
-          </div>
-          <div>{foulPanel()}</div>
+      <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
+    </div>
+  );
+
+  const turnoverPanel = () => (
+    <div className="border rounded-md p-2 bg-slate-50">
+      <div className="grid grid-cols-2 gap-2 items-start">
+        <div>{turnoverFieldsBlock()}</div>
+        <div className="space-y-2">
+          {turnoverRolesBlock()}
+          {turnoverType === 'foul' && foulPanel()}
         </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            {roleButton('lost_by')}
-            {roleButton('forced_by')}
-            {roleButton('recovered_by')}
-          </div>
-          <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
-        </>
-      )}
+      </div>
     </div>
   );
 
@@ -1042,7 +1053,6 @@ export default function StatModalV4({
             <div className="space-y-2">
               {action === 'shot' && !isDrag && (
                 <>
-                  {roleButton('player')}
                   <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
                   <div className="grid sm:grid-cols-2 gap-2">
                     <div className="space-y-2">
@@ -1068,13 +1078,15 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
+                  {['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
+                    <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
+                  )}
                 </>
               )}
 
               {action === 'kickout' && !isDrag && (
                 <>
                   <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
-                  {roleButton('kickout_intended')}
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
@@ -1090,9 +1102,9 @@ export default function StatModalV4({
                 </>
               )}
 
-              {action === 'foul' && !isDrag && foulPanel()}
+              {action === 'foul' && !isDrag && foulFieldsBlock()}
 
-              {action === 'turnover' && !isDrag && turnoverPanel()}
+              {action === 'turnover' && !isDrag && turnoverFieldsBlock()}
 
               {action === 'throw_in' && !isDrag && (
                 <div className="space-y-2">
@@ -1108,7 +1120,6 @@ export default function StatModalV4({
 
               {action === 'defensive_contact' && !isDrag && (
                 <>
-                  {roleButton('player')}
                   <Buttons label="Type" value={defType} onChange={setDefType} options={[{ value: 'dispossession', label: 'Dispossession' }, { value: 'contact', label: 'Contact' }]} />
                 </>
               )}
@@ -1177,12 +1188,11 @@ export default function StatModalV4({
             </div>
 
             <div className="space-y-2">
-              {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
-                <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
-              )}
+              {action === 'shot' && !isDrag && roleButton('player')}
 
               {action === 'kickout' && !isDrag && (
                 <>
+                  {roleButton('kickout_intended')}
                   {(kickoutOutcome === 'clean') && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
@@ -1225,6 +1235,17 @@ export default function StatModalV4({
                   )}
                   {throwOutcome === 'foul' && foulPanel()}
                 </>
+              )}
+
+              {action === 'defensive_contact' && !isDrag && roleButton('player')}
+
+              {action === 'foul' && !isDrag && foulRolesBlock()}
+
+              {action === 'turnover' && !isDrag && (
+                <div className="space-y-2">
+                  {turnoverRolesBlock()}
+                  {turnoverType === 'foul' && foulPanel()}
+                </div>
               )}
 
               {action === 'carry' && isDrag && (
