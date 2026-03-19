@@ -64,12 +64,6 @@ create table if not exists public.stat_entries (
   deleted_at timestamptz null
 );
 
-create index if not exists stat_entries_match_id_idx on public.stat_entries(match_id);
-create index if not exists stat_entries_user_id_idx on public.stat_entries(user_id);
-create index if not exists stat_entries_timestamp_idx on public.stat_entries(timestamp);
-create index if not exists stat_entries_play_id_idx on public.stat_entries(match_id, play_id);
-create index if not exists stat_entries_possession_id_idx on public.stat_entries(match_id, possession_id);
-
 -- v0.4 migration helpers (safe to re-run)
 alter table if exists public.stat_entries add column if not exists play_id integer null;
 alter table if exists public.stat_entries add column if not exists possession_id integer null;
@@ -79,6 +73,12 @@ alter table if exists public.stat_entries add column if not exists time_s double
 alter table if exists public.stat_entries add column if not exists normalized_time_s double precision null;
 alter table if exists public.stat_entries alter column x_position drop not null;
 alter table if exists public.stat_entries alter column y_position drop not null;
+
+create index if not exists stat_entries_match_id_idx on public.stat_entries(match_id);
+create index if not exists stat_entries_user_id_idx on public.stat_entries(user_id);
+create index if not exists stat_entries_timestamp_idx on public.stat_entries(timestamp);
+create index if not exists stat_entries_play_id_idx on public.stat_entries(match_id, play_id);
+create index if not exists stat_entries_possession_id_idx on public.stat_entries(match_id, possession_id);
 
 -- Consent tracking (server-side)
 create table if not exists public.user_consents (
