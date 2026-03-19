@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, ArrowRight, Pencil } from 'lucide-react';
+import { Trash2, ArrowRight, Pencil, Download } from 'lucide-react';
 import { format } from 'date-fns';
 
 const formatStatType = (type) => {
@@ -18,7 +18,7 @@ const formatHalf = (half) =>
             : half === 'et_second' ? 'ET 2nd'
                 : '1st';
 
-export default function RecentStats({ stats, onDelete, onEdit }) {
+export default function RecentStats({ stats, statsCount, onDelete, onEdit, onExport }) {
     if (stats.length === 0) {
         return (
             <div className="bg-white rounded-xl border p-6 text-center text-slate-400">
@@ -38,8 +38,13 @@ export default function RecentStats({ stats, onDelete, onEdit }) {
 
     return (
         <div className="bg-white rounded-xl border">
-            <div className="p-4 border-b">
+            <div className="p-4 border-b flex items-center justify-between gap-3">
                 <h3 className="font-semibold text-slate-900">Recent Stats</h3>
+                <div className="flex items-center gap-2">
+                    <div className="text-xs font-semibold text-slate-700 bg-slate-100 rounded-full px-3 py-1">
+                        {(typeof statsCount === 'number' ? statsCount : stats.length)} stats logged
+                    </div>
+                </div>
             </div>
             <ScrollArea className="h-64">
                 <div className="p-2 space-y-1">
@@ -120,6 +125,19 @@ export default function RecentStats({ stats, onDelete, onEdit }) {
                     ))}
                 </div>
             </ScrollArea>
+            <div className="p-3 border-t flex items-center justify-end">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => onExport?.()}
+                    disabled={!stats.length}
+                    title="Export CSV"
+                >
+                    <Download className="w-4 h-4" />
+                    Export CSV
+                </Button>
+            </div>
         </div>
     );
 }

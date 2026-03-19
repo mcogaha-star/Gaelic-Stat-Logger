@@ -33,9 +33,11 @@ export default function SchemaGate({ children }) {
   const [settings, setSettings] = useState(null);
   const [isWiping, setIsWiping] = useState(false);
 
-  const schemaOk = useMemo(() => {
+const schemaOk = useMemo(() => {
     const v = settings?.schema_version;
-    return typeof v === 'number' && v >= SCHEMA_VERSION;
+    // Base44 can sometimes round-trip numbers as strings.
+    const n = typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : NaN);
+    return Number.isFinite(n) && n >= SCHEMA_VERSION;
   }, [settings]);
 
   useEffect(() => {
@@ -52,6 +54,24 @@ export default function SchemaGate({ children }) {
     })();
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (schemaOk || allowWithoutGate) return;
+        const all = await db.entities.StatEntry.list('-timestamp');
+        if (!alive) return;
+        if (!all || all.length === 0) {
+          await upsertSettings({ schema_version: SCHEMA_VERSION });
+          setSettings((prev) => ({ ...(prev || {}), schema_version: SCHEMA_VERSION }));
+        }
+      } catch {
+        // Ignore: if we can't read stats, fall back to showing the gate.
+      }
+    })();
+    return () => { alive = false; };
+  }, [schemaOk, allowWithoutGate]);
 
   if (schemaOk || allowWithoutGate) return children;
 
@@ -112,4 +132,3 @@ export default function SchemaGate({ children }) {
     </div>
   );
 }
-

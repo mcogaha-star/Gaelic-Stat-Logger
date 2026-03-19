@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, BarChart3, Settings, Download, Repeat2, Undo2, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Repeat2, Undo2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -667,31 +667,13 @@ export default function MatchStats() {
                 matchTitle={matchTitle}
                 half={half}
                 onHalfChange={requestHalfChange}
-                statsCount={stats.length}
                 scoreLine={scoreLine}
+                backUrl={createPageUrl('Home')}
+                statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
+                settingsUrl={createPageUrl('Settings')}
             />
 
             <div className="max-w-7xl mx-auto px-4 py-6">
-                <div className="mb-4 flex items-center justify-between">
-                    <Link to={createPageUrl('Home')}>
-                        <Button variant="ghost" size="sm" className="gap-2">
-                            <ArrowLeft className="w-4 h-4" /> Back
-                        </Button>
-                    </Link>
-                    <div className="flex items-center gap-2">
-                        <Link to={createPageUrl(`MatchReport?id=${matchId}`)}>
-                            <Button variant="outline" size="sm" className="gap-2">
-                                <BarChart3 className="w-4 h-4" /> Stats
-                            </Button>
-                        </Link>
-                        <Link to={createPageUrl('Settings')}>
-                            <Button variant="outline" size="sm" className="gap-2">
-                                <Settings className="w-4 h-4" /> Settings
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
@@ -758,17 +740,6 @@ export default function MatchStats() {
                                     <Undo2 className="w-4 h-4" />
                                     Undo
                                 </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={exportToCSV}
-                                    className="gap-2"
-                                >
-                                    <Download className="w-4 h-4" />
-                                    Export CSV
-                                </Button>
                             </div>
                         </div>
                         <div className="bg-slate-900 rounded-2xl p-4 shadow-xl relative overflow-hidden">
@@ -783,6 +754,7 @@ export default function MatchStats() {
                     <div className="space-y-6">
                         <RecentStats
                             stats={stats}
+                            statsCount={stats.length}
                             onEdit={(stat) => {
                                 if (!stat?.id) return;
                                 if (stat.stat_type === 'period_end' || stat.stat_type === 'substitution') return;
@@ -799,6 +771,7 @@ export default function MatchStats() {
                                 setModalOpen(true);
                             }}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
+                            onExport={exportToCSV}
                         />
                     </div>
                 </div>

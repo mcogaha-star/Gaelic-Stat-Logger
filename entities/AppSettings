@@ -18,6 +18,10 @@
       "type": "string",
       "description": "JSON object of sub-menu options per dropdown"
     },
+    "custom_fields_config": {
+      "type": "string",
+      "description": "JSON object for 3 optional custom fields shown in the stat modal and exported to CSV"
+    },
     "schema_version": {
       "type": "number",
       "description": "Local schema version gate for major stat model changes"
