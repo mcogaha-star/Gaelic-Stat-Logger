@@ -443,8 +443,10 @@ export default function MatchStats() {
         const rawEndBase = passEndCoords ? { x: passEndCoords.x, y: passEndCoords.y } : null;
 
         const teamSide = payload?.team_side || 'unknown';
-        const rawStart = payload?.stat_type === 'kickout' ? snapKickoutOriginRaw(teamSide) : rawStartBase;
-        const rawEnd = rawEndBase;
+        const isKickout = payload?.stat_type === 'kickout';
+        const rawStart = isKickout ? snapKickoutOriginRaw(teamSide) : rawStartBase;
+        // Kickout start is snapped to origin; keep the user's click as the end point.
+        const rawEnd = isKickout ? rawStartBase : rawEndBase;
 
         const start = normalizeForTeam(rawStart, teamSide);
         const hasEnd = !!rawEnd;
