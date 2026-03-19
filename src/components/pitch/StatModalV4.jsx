@@ -553,6 +553,21 @@ export default function StatModalV4({
     if (recoveredBy === NONE && forcedBy !== NONE) setRecoveredBy(forcedBy);
   }, [forcedBy, action]);
 
+  // Pass turnover defaults:
+  // - lost_by defaults to passer
+  // - forced_by + recovered_by default to won_by
+  useEffect(() => {
+    if (!isDrag) return;
+    if (action !== 'pass') return;
+    if (passOutcome !== 'turnover') return;
+
+    if (lostBy === NONE && passer !== NONE) setLostBy(passer);
+    if (passWonBy !== NONE) {
+      if (forcedBy === NONE) setForcedBy(passWonBy);
+      if (recoveredBy === NONE) setRecoveredBy(passWonBy);
+    }
+  }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy]);
+
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   const rosters = useMemo(() => {

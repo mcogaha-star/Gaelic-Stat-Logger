@@ -117,8 +117,9 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
                             strokeWidth="0.8"
                             strokeDasharray="2,1"
                         />
-                        <circle cx={startPoint.x} cy={startPoint.y} r="1.5" fill="#22c55e" />
-                        <circle cx={currentPoint.x} cy={currentPoint.y} r="1.5" fill="#ef4444" />
+                        {/* Use high-contrast colors so points don't blend into the pitch. */}
+                        <circle cx={startPoint.x} cy={startPoint.y} r="1.6" fill="#38bdf8" stroke="#0f172a" strokeWidth="0.35" />
+                        <circle cx={currentPoint.x} cy={currentPoint.y} r="1.6" fill="#ef4444" stroke="#0f172a" strokeWidth="0.35" />
                     </>
                 )}
             </svg>
