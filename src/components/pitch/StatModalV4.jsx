@@ -965,7 +965,7 @@ export default function StatModalV4({
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
-      <DialogContent className="!top-[120px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-136px)] overflow-hidden flex flex-col p-4">
+      <DialogContent className="!top-[88px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-96px)] overflow-hidden flex flex-col p-3">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
@@ -1312,9 +1312,9 @@ export default function StatModalV4({
           </div>
         )}
 
-        <div className="flex gap-3 pt-3 border-t border-slate-200">
-          <Button variant="outline" onClick={onClose} className="flex-1 h-9 text-sm">Cancel</Button>
-          <Button onClick={submit} disabled={!canSubmit()} className="flex-1 h-9 bg-green-600 hover:bg-green-700 text-sm">
+        <div className="flex gap-3 pt-2 border-t border-slate-200">
+          <Button variant="outline" onClick={onClose} className="flex-1 h-8 text-xs">Cancel</Button>
+          <Button onClick={submit} disabled={!canSubmit()} className="flex-1 h-8 bg-green-600 hover:bg-green-700 text-xs">
             Log Stat
           </Button>
         </div>
