@@ -144,7 +144,6 @@ function RosterPanel({
       </div>
 
       <div className="px-3 pb-3 space-y-1">
-        <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
         {side === 'home' ? (
           <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Team</Row>
         ) : (
@@ -160,6 +159,11 @@ function RosterPanel({
             {`#${p.number ?? ''} ${p.name || ''}`.trim()}
           </Row>
         ))}
+
+        {/* Keep None at the bottom so it's less likely to be clicked accidentally. */}
+        <div className="pt-1">
+          <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
+        </div>
       </div>
     </div>
   );
