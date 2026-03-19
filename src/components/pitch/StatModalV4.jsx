@@ -964,8 +964,8 @@ export default function StatModalV4({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
-      {/* Override shadcn/Radix default centered translate-y so the modal sits just under the ribbon. */}
-      <DialogContent className="relative top-[104px] translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-120px)] overflow-hidden flex flex-col p-4">
+      {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
+      <DialogContent className="!top-[120px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-136px)] overflow-hidden flex flex-col p-4">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
@@ -1269,7 +1269,7 @@ export default function StatModalV4({
 
         {/* Bench drawer overlay */}
         {benchOpen && (
-          <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
             <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold text-slate-900">
