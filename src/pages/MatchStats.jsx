@@ -36,6 +36,7 @@ export default function MatchStats() {
     const [isPassModal, setIsPassModal] = useState(false);
     const [clickCoords, setClickCoords] = useState(null);
     const [passEndCoords, setPassEndCoords] = useState(null);
+    const [editingStat, setEditingStat] = useState(null);
 
     const queryClient = useQueryClient();
 
@@ -202,6 +203,8 @@ export default function MatchStats() {
                 await updateServerStat(updated.server_stat_id, {
                     stat_type: updated.stat_type,
                     is_pass: !!updated.is_pass,
+                    team_side: updated.team_side || 'unknown',
+                    counter_attack: !!updated.counter_attack,
                     player_number: updated.player_number ?? null,
                     recipient_number: updated.recipient_number ?? null,
                     extra_data: updated.extra_data ?? null,
@@ -381,6 +384,37 @@ export default function MatchStats() {
     };
 
     const handleStatSubmit = (payload) => {
+        // Edit mode: update the existing row's metadata (coords/IDs remain unchanged).
+        if (editingStat?.id) {
+            const primary = payload.primary_player;
+            const recipientSel =
+                payload.stat_type === 'pass' ? payload.extra?.pass?.intended_recipient
+                    : (payload.stat_type === 'kickout' ? payload.extra?.kickout?.intended_recipient : null);
+
+            const extra = { ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
+
+            updateStatMutation.mutate({
+                id: editingStat.id,
+                data: {
+                    stat_type: payload.stat_type,
+                    is_pass: !!payload.is_pass,
+                    team_side: payload?.team_side || editingStat.team_side || 'unknown',
+                    counter_attack: !!payload.counter_attack,
+                    player_name: primary?.kind === 'player' ? (primary.name || '') : null,
+                    player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
+                    recipient_name: recipientSel?.kind === 'player' ? (recipientSel.name || '') : null,
+                    recipient_number: recipientSel?.kind === 'player' ? (recipientSel.number ?? null) : null,
+                    extra_data: JSON.stringify(extra),
+                },
+            });
+
+            setModalOpen(false);
+            setClickCoords(null);
+            setPassEndCoords(null);
+            setEditingStat(null);
+            return;
+        }
+
         const rawStartBase = clickCoords ? { x: clickCoords.x, y: clickCoords.y } : null;
         if (!rawStartBase) return;
         const rawEndBase = passEndCoords ? { x: passEndCoords.x, y: passEndCoords.y } : null;
@@ -648,7 +682,21 @@ export default function MatchStats() {
                     <div className="space-y-6">
                         <RecentStats
                             stats={stats}
-                            onEdit={null}
+                            onEdit={(stat) => {
+                                if (!stat?.id) return;
+                                if (stat.stat_type === 'period_end' || stat.stat_type === 'substitution') return;
+                                if (stat.raw_x_position == null || stat.raw_y_position == null) return;
+
+                                setEditingStat(stat);
+                                setIsPassModal(!!stat.is_pass);
+                                setClickCoords({ x: stat.raw_x_position, y: stat.raw_y_position });
+                                if (stat.raw_end_x_position != null && stat.raw_end_y_position != null) {
+                                    setPassEndCoords({ x: stat.raw_end_x_position, y: stat.raw_end_y_position });
+                                } else {
+                                    setPassEndCoords(null);
+                                }
+                                setModalOpen(true);
+                            }}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
                         />
                     </div>
@@ -657,7 +705,7 @@ export default function MatchStats() {
 
             <StatModalV4
                 open={modalOpen}
-                onClose={() => { setModalOpen(false); setClickCoords(null); setPassEndCoords(null); }}
+                onClose={() => { setModalOpen(false); setClickCoords(null); setPassEndCoords(null); setEditingStat(null); }}
                 onSubmit={handleStatSubmit}
                 isDrag={isPassModal}
                 startCoords={clickCoords}
@@ -665,6 +713,7 @@ export default function MatchStats() {
                 homePlayers={homePlayers}
                 awayPlayers={awayPlayers}
                 defaultReceiver={lastReceiver}
+                initialStat={editingStat}
             />
 
             {/* Half change prompt */}

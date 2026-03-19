@@ -6,6 +6,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const NONE = 'none';
 
+function toTitleCase(s) {
+  return String(s || '')
+    .replace(/_/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 function selectionToValue(sel) {
   if (!sel) return NONE;
   if (sel.kind === 'none') return NONE;
@@ -136,6 +145,7 @@ export default function StatModalV4({
   homePlayers,
   awayPlayers,
   defaultReceiver, // selection object
+  initialStat, // full stat row for edit mode (optional)
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -205,9 +215,144 @@ export default function StatModalV4({
   const [passWonBy, setPassWonBy] = useState(NONE);
   const [deadball, setDeadball] = useState(false);
 
+  const safeParse = (s) => {
+    try { return JSON.parse(s); } catch { return {}; }
+  };
+
+  // Edit mode: seed fields from an existing row.
+  useEffect(() => {
+    if (!open) return;
+    if (!initialStat?.id) return;
+
+    const extra = initialStat?.extra_data ? safeParse(initialStat.extra_data) : {};
+
+    const findPlayerByNumber = (side, number) => {
+      const n = Number(number);
+      if (!Number.isFinite(n)) return NONE;
+      const list = side === 'away' ? awayPlayers : homePlayers;
+      const p = (list || []).find((x) => Number(x.number) === n);
+      return p ? `player:${p.id}` : NONE;
+    };
+
+    const primaryFromStat = (() => {
+      const side = initialStat.team_side === 'away' ? 'away' : 'home';
+      if (initialStat?.player_number == null) return NONE;
+      return findPlayerByNumber(side, initialStat.player_number);
+    })();
+
+    setAction(initialStat.stat_type || (isDrag ? 'pass' : 'shot'));
+    setCounterAttack(!!initialStat.counter_attack);
+
+    // Reset common fields before re-seeding.
+    setPrimaryPlayer(NONE);
+    setFoulBy(NONE);
+    setFoulOn(NONE);
+    setFoulType('');
+    setCard('none');
+    setTurnoverType('');
+    setLostBy(NONE);
+    setForcedBy(NONE);
+    setRecoveredBy(NONE);
+    setUnforced(false);
+    setThrowOutcome('');
+    setWonBy(NONE);
+    setThrowLostBy(NONE);
+    setBrokenBy(NONE);
+    setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || 'home');
+    setKickoutOutcome('');
+    setIntendedRecipient(NONE);
+    setKickoutWonBy(NONE);
+    setKickoutLostBy(NONE);
+    setKickoutBrokenBy(NONE);
+    setKickoutMark(false);
+    setShotType('');
+    setShotSituation('');
+    setShotMethod('');
+    setShotPressure('');
+    setShotOutcome('');
+    setShotResult('');
+    setDefType('');
+    setCarrier(NONE);
+    setCarrierPressure('');
+    setTakeOnAttempted(false);
+    setTakeOnCompleted(false);
+    setDefender(NONE);
+    setCarryOutcome('');
+    setSoloPlusGo(false);
+    setPasser(NONE);
+    setPassIntendedRecipient(NONE);
+    setPassMethod('');
+    setPassStyle('');
+    setPassPressure('');
+    setPassOutcome('');
+    setPassWonBy(NONE);
+    setDeadball(false);
+
+    // Shared foul section (if present).
+    if (extra?.foul) {
+      setFoulBy(selectionToValue(extra.foul.foul_by));
+      setFoulOn(selectionToValue(extra.foul.foul_on));
+      setFoulType(extra.foul.foul_type || '');
+      setCard(extra.foul.card || 'none');
+    }
+
+    const type = initialStat.stat_type;
+    if (type === 'shot') {
+      setPrimaryPlayer(primaryFromStat);
+      setShotType(extra?.shot?.shot_type || '');
+      setShotSituation(extra?.shot?.situation || '');
+      setShotMethod(extra?.shot?.method || '');
+      setShotPressure(extra?.shot?.pressure || '');
+      setShotOutcome(extra?.shot?.outcome || '');
+      setShotResult(extra?.shot?.result || '');
+    } else if (type === 'kickout') {
+      setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || 'home');
+      setKickoutOutcome(extra?.kickout?.outcome || '');
+      setIntendedRecipient(selectionToValue(extra?.kickout?.intended_recipient));
+      setKickoutWonBy(selectionToValue(extra?.kickout?.won_by));
+      setKickoutLostBy(selectionToValue(extra?.kickout?.lost_by));
+      setKickoutBrokenBy(selectionToValue(extra?.kickout?.broken_by));
+      setKickoutMark(!!extra?.kickout?.mark);
+    } else if (type === 'foul') {
+      setPrimaryPlayer(selectionToValue(extra?.foul?.foul_by));
+    } else if (type === 'turnover') {
+      setTurnoverType(extra?.turnover?.turnover_type || '');
+      setLostBy(selectionToValue(extra?.turnover?.lost_by));
+      setForcedBy(selectionToValue(extra?.turnover?.forced_by));
+      setRecoveredBy(selectionToValue(extra?.turnover?.recovered_by));
+      setUnforced(!!extra?.turnover?.unforced);
+    } else if (type === 'throw_in') {
+      setThrowOutcome(extra?.throw_in?.outcome || '');
+      setWonBy(selectionToValue(extra?.throw_in?.won_by));
+      setThrowLostBy(selectionToValue(extra?.throw_in?.lost_by));
+      setBrokenBy(selectionToValue(extra?.throw_in?.broken_by));
+    } else if (type === 'defensive_contact') {
+      setPrimaryPlayer(primaryFromStat);
+      setDefType(extra?.defensive_contact?.type || '');
+    } else if (type === 'carry') {
+      setCarrier(selectionToValue(extra?.carry?.carrier));
+      setCarrierPressure(extra?.carry?.pressure_on_carrier || '');
+      setTakeOnAttempted(!!extra?.carry?.take_on_attempted);
+      setTakeOnCompleted(!!extra?.carry?.take_on_completed);
+      setDefender(selectionToValue(extra?.carry?.defender));
+      setCarryOutcome(extra?.carry?.outcome || '');
+      setSoloPlusGo(!!extra?.carry?.solo_plus_go);
+    } else if (type === 'pass') {
+      setPasser(selectionToValue(extra?.pass?.passer));
+      setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
+      setPassMethod(extra?.pass?.method || '');
+      setPassStyle(extra?.pass?.style || '');
+      setPassPressure(extra?.pass?.pressure_on_passer || '');
+      setPassOutcome(extra?.pass?.outcome || '');
+      setPassWonBy(selectionToValue(extra?.pass?.won_by));
+      setDeadball(!!extra?.pass?.deadball);
+    }
+  }, [open, initialStat?.id]);
+
   // Defaulting to last receiver on open.
   useEffect(() => {
     if (!open) return;
+    if (initialStat?.id) return;
     const def = selectionToValue(defaultReceiver);
     if (!isDrag) {
       // Defaults for click-based actors.
@@ -252,7 +397,7 @@ export default function StatModalV4({
           <SelectTrigger><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
           <SelectContent>
             {['foul', 'tackle', 'group_tackle', 'broken', 'interception', 'sidelineagainst'].map((v) => (
-              <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>
+              <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -427,30 +572,38 @@ export default function StatModalV4({
         </DialogHeader>
 
         <div className="space-y-5 py-4 flex-1 overflow-y-auto pr-1">
-          <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
 
-          {/* Action selector */}
-          {isDrag ? (
-            <Buttons
-              label="Action"
-              value={action}
-              onChange={setAction}
-              options={[{ value: 'pass', label: 'Pass' }, { value: 'carry', label: 'Carry' }]}
-            />
+          {/* Action selector (locked in edit mode) */}
+          {initialStat?.id ? (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700">Action</Label>
+              <div className="text-sm font-semibold text-slate-900">{toTitleCase(action)}</div>
+            </div>
           ) : (
-            <Buttons
-              label="Action"
-              value={action}
-              onChange={setAction}
-              options={[
-                { value: 'shot', label: 'Shot' },
-                { value: 'kickout', label: 'Kickout' },
-                { value: 'turnover', label: 'Turnover' },
-                { value: 'foul', label: 'Foul' },
-                { value: 'defensive_contact', label: 'Defensive' },
-                { value: 'throw_in', label: 'Throw In' },
-              ]}
-            />
+            <>
+              {isDrag ? (
+                <Buttons
+                  label="Action"
+                  value={action}
+                  onChange={setAction}
+                  options={[{ value: 'pass', label: 'Pass' }, { value: 'carry', label: 'Carry' }]}
+                />
+              ) : (
+                <Buttons
+                  label="Action"
+                  value={action}
+                  onChange={setAction}
+                  options={[
+                    { value: 'shot', label: 'Shot' },
+                    { value: 'kickout', label: 'Kickout' },
+                    { value: 'turnover', label: 'Turnover' },
+                    { value: 'foul', label: 'Foul' },
+                    { value: 'defensive_contact', label: 'Defensive' },
+                    { value: 'throw_in', label: 'Throw In' },
+                  ]}
+                />
+              )}
+            </>
           )}
 
           {/* Forms */}
@@ -464,7 +617,7 @@ export default function StatModalV4({
                   <Select value={shotSituation} onValueChange={setShotSituation}>
                     <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
                     <SelectContent>
-                      {['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>)}
+                      {['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -477,7 +630,7 @@ export default function StatModalV4({
                   <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                   <SelectContent className="max-h-72">
                     {['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => (
-                      <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>
+                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -506,7 +659,7 @@ export default function StatModalV4({
                   <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                   <SelectContent>
                     {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
-                      <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>
+                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -540,7 +693,7 @@ export default function StatModalV4({
                 <Select value={throwOutcome} onValueChange={setThrowOutcome}>
                   <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                   <SelectContent>
-                    {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                    {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -586,7 +739,7 @@ export default function StatModalV4({
                   <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                   <SelectContent>
                     {['completed', 'turnover', 'foul', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
-                      <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>
+                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -612,21 +765,21 @@ export default function StatModalV4({
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">Method</Label>
                   <Select value={passMethod} onValueChange={setPassMethod}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                    <SelectContent>
-                      {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>
+                      {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">Style</Label>
                   <Select value={passStyle} onValueChange={setPassStyle}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                    <SelectContent>
-                      {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>
+                      {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               </div>
               <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
               <div className="space-y-2">
@@ -635,7 +788,7 @@ export default function StatModalV4({
                   <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                   <SelectContent>
                     {['completed', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
-                      <SelectItem key={v} value={v}>{v.replace(/_/g, ' ')}</SelectItem>
+                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -646,6 +799,10 @@ export default function StatModalV4({
               {passOutcome === 'foul' && foulPanel()}
             </>
           )}
+
+          <div className="pt-4 border-t">
+            <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+          </div>
         </div>
 
         <div className="flex gap-3 pt-4 border-t">

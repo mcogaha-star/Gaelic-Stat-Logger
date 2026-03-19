@@ -15,8 +15,15 @@ const buildColorMap = (clickStats, dragStats) => {
 
 export default function StatMarkers({ stats, clickStats, dragStats }) {
     const STAT_COLORS = buildColorMap(clickStats, dragStats);
-    // Find the most recent pass for line display
-    const mostRecentPass = [...stats].reverse().find(stat => stat.is_pass && stat.end_x_position != null);
+
+    const mostRecent = (() => {
+        if (!stats?.length) return null;
+        return [...stats].sort((a, b) => {
+            const at = a?.timestamp || a?.created_date || '';
+            const bt = b?.timestamp || b?.created_date || '';
+            return String(bt).localeCompare(String(at));
+        })[0];
+    })();
 
     const getPitchDimsForStat = (stat) => {
         // New logs embed pitch dims in extra_data.pitch; older logs assume 140x90.
@@ -42,6 +49,7 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
     return (
         <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="absolute inset-0 w-full h-full pointer-events-none">
             {stats.map((stat, index) => {
+                if (!mostRecent || stat.id !== mostRecent.id) return null;
                 if (stat?.x_position == null || stat?.y_position == null) return null;
                 const color = STAT_COLORS[stat.stat_type] || '#ffffff';
 
@@ -50,8 +58,8 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
                     ? toCurrentPlane(stat, { x: stat.end_x_position, y: stat.end_y_position })
                     : null;
                 
-                // Only show pass line for the most recent pass
-                if (stat.is_pass && stat.end_x_position != null && stat.id === mostRecentPass?.id) {
+                // Only show a line for the most recent drag stat when an end point is present.
+                if (stat.is_pass && end) {
                     return (
                         <g key={index}>
                             <line
@@ -80,7 +88,7 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
                     );
                 }
                 
-                // Show all non-pass markers (or pass markers without lines)
+                // Show only the most recent marker as a dot.
                 return (
                     <circle
                         key={index}

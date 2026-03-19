@@ -14,9 +14,6 @@ export const DEFAULT_DRAG_STATS = [
 
 export const DEFAULT_DEFAULTS = {
     half: 'first',
-    // When true, logged stats are rotated 180 degrees as needed so the Home team
-    // always attacks left -> right (based on the per-period direction arrow).
-    auto_normalize_coords: true,
     // When true, the player picker defaults to the last-used recipient/player.
     quick_log_enabled: true,
 };

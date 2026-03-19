@@ -100,7 +100,7 @@ export default function RecentStats({ stats, onDelete, onEdit }) {
                                     className="h-8 w-8"
                                     onClick={() => onEdit?.(stat)}
                                     title="Edit stat"
-                                    disabled={isPeriodEnd}
+                                    disabled={isPeriodEnd || isSub}
                                 >
                                     <Pencil className="w-4 h-4" />
                                 </Button>
