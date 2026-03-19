@@ -735,7 +735,8 @@ export default function StatModalV4({
       return ['kickout_intended'];
     }
     if (action === 'pass') {
-      const base = ['passer', 'pass_intended', 'pass_won_by'];
+      // For turnover, "won by" is not required/used.
+      const base = passOutcome === 'turnover' ? ['passer', 'pass_intended'] : ['passer', 'pass_intended', 'pass_won_by'];
       if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
@@ -1285,7 +1286,16 @@ export default function StatModalV4({
 
               {action === 'defensive_contact' && !isDrag && (
                 <>
-                  <Buttons label="Type" value={defType} onChange={setDefType} options={[{ value: 'dispossession', label: 'Dispossession' }, { value: 'contact', label: 'Contact' }]} />
+                  <Buttons
+                    label="Type"
+                    value={defType}
+                    onChange={setDefType}
+                    options={[
+                      { value: 'dispossession', label: 'Dispossession' },
+                      { value: 'contact', label: 'Contact' },
+                      { value: 'block', label: 'Block' },
+                    ]}
+                  />
                 </>
               )}
 
@@ -1299,6 +1309,8 @@ export default function StatModalV4({
                     </>
                   )}
                   <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
+                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>
@@ -1348,6 +1360,8 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
+                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
                 </>
               )}
             </div>
@@ -1427,8 +1441,14 @@ export default function StatModalV4({
 
               {action === 'carry' && isDrag && (
                 <>
-                  {roleButton('carrier')}
-                  {takeOnAttempted && roleButton('defender')}
+                  {takeOnAttempted ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {roleButton('carrier')}
+                      {roleButton('defender')}
+                    </div>
+                  ) : (
+                    roleButton('carrier')
+                  )}
                   {carryOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {carryOutcome === 'foul' && foulPanel()}
                 </>
@@ -1440,7 +1460,7 @@ export default function StatModalV4({
                     {roleButton('passer')}
                     {roleButton('pass_intended')}
                   </div>
-                  {roleButton('pass_won_by')}
+                  {passOutcome !== 'turnover' && roleButton('pass_won_by')}
                   {passOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {passOutcome === 'foul' && foulPanel()}
                 </>
@@ -1454,15 +1474,8 @@ export default function StatModalV4({
               <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
-            {/* Counter attack stays at the bottom. For pass/carry, keep it only on the left-center column. */}
-            {(action === 'pass' || action === 'carry') ? (
-              <div className="pt-2 grid grid-cols-2 gap-2">
-                <div>
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
-                </div>
-                <div />
-              </div>
-            ) : (
+            {/* Counter attack lives within pass/carry forms; keep bottom slot for other actions only. */}
+            {(action !== 'pass' && action !== 'carry') && (
               <div className="pt-2">
                 <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
               </div>
