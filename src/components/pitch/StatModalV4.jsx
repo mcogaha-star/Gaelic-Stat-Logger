@@ -111,7 +111,8 @@ function RosterPanel({
       onClick={onClick}
       className={[
         // Keep font size, reduce height via padding/leading.
-        'w-full text-left px-2 h-6 flex items-center rounded-md border text-xs leading-none transition-colors',
+        // Slightly shorter than h-6 (~5%) without changing font size.
+        'w-full text-left px-2 h-[23px] flex items-center rounded-md border text-xs leading-none transition-colors',
         isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
         'border-white/60 bg-white/80',
       ].join(' ')}
@@ -385,6 +386,7 @@ export default function StatModalV4({
   const [shotMethod, setShotMethod] = useState('');
   const [shotPressure, setShotPressure] = useState('');
   const [shotOutcome, setShotOutcome] = useState('');
+  const [shotOutcomeTouched, setShotOutcomeTouched] = useState(false);
   const [shotResult, setShotResult] = useState('');
   const [shotRecoveredBy, setShotRecoveredBy] = useState(NONE);
   const [shotBlockedBy, setShotBlockedBy] = useState(NONE);
@@ -467,6 +469,7 @@ export default function StatModalV4({
     setShotMethod('');
     setShotPressure('');
     setShotOutcome('');
+    setShotOutcomeTouched(false);
     setShotResult('');
     setShotRecoveredBy(NONE);
     setShotBlockedBy(NONE);
@@ -522,6 +525,7 @@ export default function StatModalV4({
       setShotMethod(extra?.shot?.method || '');
       setShotPressure(extra?.shot?.pressure || '');
       setShotOutcome(extra?.shot?.outcome || '');
+      setShotOutcomeTouched(true);
       setShotResult(extra?.shot?.result || '');
       setShotRecoveredBy(selectionToValue(extra?.shot?.recovered_by));
       setShotBlockedBy(selectionToValue(extra?.shot?.blocked_by));
@@ -613,7 +617,19 @@ export default function StatModalV4({
     }
     setActiveRole(null);
     setTouchedRoles({});
+    setShotOutcomeTouched(false);
   }, [open]); // intentionally only on open
+
+  // Shot: default outcome to match shot type (unless user manually picked a different outcome).
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action !== 'shot') return;
+    if (!shotType) return;
+    if (shotOutcomeTouched) return;
+    // Only auto-set when the type is one of the score types.
+    if (['point', '2_point', 'goal'].includes(shotType)) setShotOutcome(shotType);
+  }, [open, initialStat?.id, action, shotType, shotOutcomeTouched]);
 
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {
@@ -719,7 +735,7 @@ export default function StatModalV4({
     if (action === 'defensive_contact') return ['player'];
     if (action === 'foul') return ['foul_by', 'foul_on'];
     if (action === 'turnover') {
-      if (turnoverType === 'foul') return ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'];
+      if (turnoverType === 'foul') return ['lost_by', 'forced_by', 'foul_by', 'foul_on'];
       return ['lost_by', 'forced_by', 'recovered_by'];
     }
     if (action === 'throw_in') {
@@ -737,13 +753,13 @@ export default function StatModalV4({
     if (action === 'pass') {
       // For turnover, "won by" is not required/used.
       const base = passOutcome === 'turnover' ? ['passer', 'pass_intended'] : ['passer', 'pass_intended', 'pass_won_by'];
-      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
     }
     if (action === 'carry') {
       const base = ['carrier'].concat(takeOnAttempted ? ['defender'] : []);
-      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (carryOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
     }
@@ -925,7 +941,7 @@ export default function StatModalV4({
     <div className="grid grid-cols-2 gap-2">
       {roleButton('lost_by')}
       {roleButton('forced_by')}
-      {roleButton('recovered_by')}
+      {turnoverType !== 'foul' && roleButton('recovered_by')}
     </div>
   );
 
@@ -985,7 +1001,6 @@ export default function StatModalV4({
       if (turnoverType === 'foul') {
         return isRoleFilled('lost_by', lostBy)
           && isRoleFilled('forced_by', forcedBy)
-          && isRoleFilled('recovered_by', recoveredBy)
           && isRoleFilled('foul_by', foulBy)
           && isRoleFilled('foul_on', foulOn)
           && !!foulType;
@@ -1077,7 +1092,8 @@ export default function StatModalV4({
         turnover_type: turnoverType,
         lost_by: sel(lostBy),
         forced_by: sel(forcedBy),
-        recovered_by: sel(recoveredBy),
+        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
+        recovered_by: sel(turnoverType === 'foul' ? forcedBy : recoveredBy),
         unforced: !!unforced,
       };
       if (turnoverType === 'foul') {
@@ -1125,7 +1141,11 @@ export default function StatModalV4({
         solo_plus_go: !!soloPlusGo,
         outcome: carryOutcome,
       };
-      if (carryOutcome === 'turnover') extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recoveredBy), unforced: !!unforced };
+      if (carryOutcome === 'turnover') {
+        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
+        const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
+        extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+      }
       if (carryOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     } else if (action === 'pass') {
       const passerSel = sel(passer);
@@ -1141,7 +1161,11 @@ export default function StatModalV4({
         won_by: sel(passWonBy),
         deadball: !!deadball,
       };
-      if (passOutcome === 'turnover') extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recoveredBy), unforced: !!unforced };
+      if (passOutcome === 'turnover') {
+        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
+        const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
+        extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+      }
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     }
 
@@ -1238,7 +1262,13 @@ export default function StatModalV4({
                   <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
-                    <Select value={shotOutcome} onValueChange={setShotOutcome}>
+                    <Select
+                      value={shotOutcome}
+                      onValueChange={(v) => {
+                        setShotOutcomeTouched(true);
+                        setShotOutcome(v);
+                      }}
+                    >
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent className="max-h-72">
                         {['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => (
