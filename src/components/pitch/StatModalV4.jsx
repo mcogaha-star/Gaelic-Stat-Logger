@@ -165,17 +165,23 @@ function RosterPanel({
 }
 
 function Buttons({ label, value, onChange, options }) {
+  const gridCols =
+    options.length === 3
+      ? 'grid-cols-3'
+      : options.length >= 4
+        ? 'grid-cols-2 sm:grid-cols-4'
+        : 'grid-cols-2';
   return (
     <div className="space-y-1">
       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</Label>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className={['grid gap-2', gridCols].join(' ')}>
         {options.map((opt) => (
           <Button
             key={opt.value}
             type="button"
             variant={value === opt.value ? 'default' : 'outline'}
             size="sm"
-            className="h-8 px-2 text-xs"
+            className="h-8 px-2 text-xs whitespace-nowrap"
             onClick={() => onChange(opt.value)}
           >
             {opt.label}
@@ -771,9 +777,22 @@ export default function StatModalV4({
 
   const foulPanel = () => (
     <div className="border rounded-md p-2 bg-slate-50">
-      <div className="grid grid-cols-2 gap-2 items-start">
-        <div>{foulFieldsBlock()}</div>
-        <div>{foulRolesBlock()}</div>
+      {/* Match mockup: Foul Type + Foul By + Foul On on one row, Card below */}
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,180px)_minmax(0,210px)] gap-2 items-start">
+        <div className="space-y-1">
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Foul Type</Label>
+          <Select value={foulType} onValueChange={setFoulType}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select foul type..." /></SelectTrigger>
+            <SelectContent className="max-h-72">
+              {FOUL_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>{roleButton('foul_by')}</div>
+        <div>{roleButton('foul_on')}</div>
+      </div>
+      <div className="pt-2">
+        <Buttons label="Card" value={card} onChange={setCard} options={CARD_OPTIONS} />
       </div>
     </div>
   );
@@ -793,8 +812,15 @@ export default function StatModalV4({
         <Select value={turnoverType} onValueChange={setTurnoverType}>
           <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
           <SelectContent>
-            {['foul', 'tackle', 'group_tackle', 'broken', 'interception', 'sidelineagainst'].map((v) => (
-              <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+            {[
+              { value: 'foul', label: 'Foul' },
+              { value: 'tackle', label: 'Tackle' },
+              { value: 'group_tackle', label: 'Group Tackle' },
+              { value: 'broken', label: 'Broken' },
+              { value: 'interception', label: 'Interception' },
+              { value: 'sidelineagainst', label: 'Sideline Against' },
+            ].map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -803,15 +829,23 @@ export default function StatModalV4({
     </div>
   );
 
-  const turnoverPanel = () => (
+  const turnoverPanel = ({ foulLayout = 'side' } = {}) => (
     <div className="border rounded-md p-2 bg-slate-50">
-      <div className="grid grid-cols-2 gap-2 items-start">
-        <div>{turnoverFieldsBlock()}</div>
+      {turnoverType === 'foul' && foulLayout === 'stack' ? (
         <div className="space-y-2">
+          {turnoverFieldsBlock()}
           {turnoverRolesBlock()}
-          {turnoverType === 'foul' && foulPanel()}
+          {foulPanel()}
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 items-start">
+          <div>{turnoverFieldsBlock()}</div>
+          <div className="space-y-2">
+            {turnoverRolesBlock()}
+            {turnoverType === 'foul' && foulPanel()}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1040,7 +1074,7 @@ export default function StatModalV4({
                     { value: 'kickout', label: 'Kickout' },
                     { value: 'turnover', label: 'Turnover' },
                     { value: 'foul', label: 'Foul' },
-                    { value: 'defensive_contact', label: 'Defensive' },
+                    { value: 'defensive_contact', label: 'Def. Action' },
                     { value: 'throw_in', label: 'Throw In' },
                   ]}
                 />
@@ -1078,9 +1112,6 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  {['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
-                    <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
-                  )}
                 </>
               )}
 
@@ -1189,6 +1220,9 @@ export default function StatModalV4({
 
             <div className="space-y-2">
               {action === 'shot' && !isDrag && roleButton('player')}
+              {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
+                <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
+              )}
 
               {action === 'kickout' && !isDrag && (
                 <>
@@ -1252,7 +1286,7 @@ export default function StatModalV4({
                 <>
                   {roleButton('carrier')}
                   {takeOnAttempted && roleButton('defender')}
-                  {carryOutcome === 'turnover' && turnoverPanel()}
+                  {carryOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {carryOutcome === 'foul' && foulPanel()}
                 </>
               )}
@@ -1264,7 +1298,7 @@ export default function StatModalV4({
                     {roleButton('pass_intended')}
                   </div>
                   {roleButton('pass_won_by')}
-                  {passOutcome === 'turnover' && turnoverPanel()}
+                  {passOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {passOutcome === 'foul' && foulPanel()}
                 </>
               )}
