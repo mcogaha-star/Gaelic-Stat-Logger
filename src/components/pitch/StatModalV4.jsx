@@ -105,7 +105,8 @@ function RosterPanel({
       disabled={isDisabled || disabled}
       onClick={onClick}
       className={[
-        'w-full text-left px-2 py-1.5 rounded-md border text-xs transition-colors',
+        // Keep font size, reduce height via padding/leading.
+        'w-full text-left px-2 py-1 rounded-md border text-xs leading-tight transition-colors',
         isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
         'border-white/60 bg-white/80',
       ].join(' ')}
@@ -118,7 +119,7 @@ function RosterPanel({
 
   return (
     <div className="h-full flex flex-col rounded-[28px] overflow-hidden" style={{ background: tint }}>
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-2.5 pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="font-semibold text-white text-sm drop-shadow-sm">{title}</div>
           <Button
@@ -136,7 +137,7 @@ function RosterPanel({
         )}
       </div>
 
-      <div className="px-3 pb-3 space-y-2">
+      <div className="px-3 pb-3 space-y-1.5">
         <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
         {side === 'home' ? (
           <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Team</Row>
@@ -695,7 +696,51 @@ export default function StatModalV4({
     />
   );
 
-  const pickingForLabel = activeRole ? (roleDefs?.[activeRole]?.label || toTitleCase(activeRole)) : (nextUnfilledRole() ? (roleDefs?.[nextUnfilledRole()]?.label || '') : '');
+  // Always keep an "armed" role so the UI can highlight what the next click will fill.
+  useEffect(() => {
+    if (!open) return;
+    const next = nextUnfilledRole();
+    if (!next) {
+      if (activeRole !== null) setActiveRole(null);
+      return;
+    }
+    if (!activeRole) {
+      setActiveRole(next);
+      return;
+    }
+    const currentVal = getRoleValue(activeRole);
+    if (currentVal && currentVal !== NONE) {
+      setActiveRole(next);
+    }
+  }, [
+    open,
+    action,
+    turnoverType,
+    throwOutcome,
+    kickoutOutcome,
+    passOutcome,
+    carryOutcome,
+    takeOnAttempted,
+    // Role values that can satisfy activeRole
+    primaryPlayer,
+    foulBy,
+    foulOn,
+    lostBy,
+    forcedBy,
+    recoveredBy,
+    wonBy,
+    throwLostBy,
+    brokenBy,
+    intendedRecipient,
+    kickoutWonBy,
+    kickoutLostBy,
+    kickoutBrokenBy,
+    carrier,
+    defender,
+    passer,
+    passIntendedRecipient,
+    passWonBy,
+  ]);
 
   const foulPanel = () => (
     <div className="space-y-2 border rounded-md p-2 bg-slate-50">
@@ -913,7 +958,8 @@ export default function StatModalV4({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
-      <DialogContent className="relative w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-4">
+      {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
+      <DialogContent className="relative w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-64px)] overflow-hidden flex flex-col p-4">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
@@ -937,12 +983,6 @@ export default function StatModalV4({
             />
 
             <div className="space-y-2">
-              {pickingForLabel && (
-                <div className="text-[11px] text-slate-600 leading-tight">
-                  Picking for: <span className="font-semibold text-slate-900">{pickingForLabel}</span>
-                </div>
-              )}
-
           {/* Action selector (locked in edit mode) */}
           {initialStat?.id ? (
             <div className="space-y-1">
