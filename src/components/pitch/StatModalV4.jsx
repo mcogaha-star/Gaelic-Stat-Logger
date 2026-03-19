@@ -64,11 +64,16 @@ function RoleButton({ label, valueText, active, onClick, disabled = false }) {
       className={[
         'w-full text-left rounded-md border px-2 py-1.5 transition-colors',
         disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50',
-        active ? 'border-slate-900 ring-2 ring-slate-900/10 bg-slate-50' : 'border-slate-200 bg-white',
+        // Stronger active state so it's obvious what the next roster click will fill.
+        active ? 'border-slate-900 ring-2 ring-slate-900/20 bg-slate-900 text-white' : 'border-slate-200 bg-white',
       ].join(' ')}
     >
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</div>
-      <div className="text-xs font-semibold text-slate-900 truncate leading-tight">{valueText}</div>
+      <div className={['text-[10px] font-semibold uppercase tracking-wide leading-tight', active ? 'text-white/70' : 'text-slate-500'].join(' ')}>
+        {label}
+      </div>
+      <div className={['text-xs font-semibold truncate leading-tight', active ? 'text-white' : 'text-slate-900'].join(' ')}>
+        {valueText}
+      </div>
     </button>
   );
 }
@@ -106,7 +111,7 @@ function RosterPanel({
       onClick={onClick}
       className={[
         // Keep font size, reduce height via padding/leading.
-        'w-full text-left px-2 py-1 rounded-md border text-xs leading-tight transition-colors',
+        'w-full text-left px-2 py-0.5 rounded-md border text-xs leading-tight transition-colors',
         isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
         'border-white/60 bg-white/80',
       ].join(' ')}
@@ -137,7 +142,7 @@ function RosterPanel({
         )}
       </div>
 
-      <div className="px-3 pb-3 space-y-1.5">
+      <div className="px-3 pb-3 space-y-1">
         <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
         {side === 'home' ? (
           <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Team</Row>
@@ -959,7 +964,7 @@ export default function StatModalV4({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
-      <DialogContent className="relative w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-64px)] overflow-hidden flex flex-col p-4">
+      <DialogContent className="relative top-[46%] w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-64px)] overflow-hidden flex flex-col p-4">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
