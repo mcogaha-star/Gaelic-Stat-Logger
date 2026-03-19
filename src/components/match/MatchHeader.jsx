@@ -19,14 +19,14 @@ export default function MatchHeader({
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
-            <div className="max-w-7xl mx-auto px-4 py-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="max-w-7xl mx-auto px-4 py-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <div>
                         <div className="flex items-start gap-3">
                             {backUrl && (
                                 <div className="pt-0.5">
                                     <Link to={backUrl}>
-                                        <Button variant="ghost" size="sm" className="gap-2 px-2">
+                                        <Button variant="ghost" size="sm" className="gap-2 px-2 h-8">
                                             <ArrowLeft className="w-4 h-4" /> Back
                                         </Button>
                                     </Link>
@@ -35,18 +35,18 @@ export default function MatchHeader({
 
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-3">
-                                <h1 className="text-xl font-bold text-slate-900">
+                                <h1 className="text-lg font-bold text-slate-900">
                                     {matchTitle || (match?.opponent ? `vs ${match.opponent}` : 'Match')}
                                 </h1>
 
                                 {scoreLine && (
-                                    <Badge variant="outline" className="text-sm font-semibold">
+                                    <Badge variant="outline" className="text-xs font-semibold">
                                         {scoreLine}
                                     </Badge>
                                 )}
 
                                 <Select value={half} onValueChange={onHalfChange}>
-                                    <SelectTrigger className="w-36">
+                                    <SelectTrigger className="w-32 h-8">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -58,7 +58,7 @@ export default function MatchHeader({
                                 </Select>
                             </div>
 
-                                <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                                <div className="flex items-center gap-4 mt-0.5 text-sm text-slate-500">
                                     {match?.date && (
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3.5 h-3.5" />
@@ -79,14 +79,14 @@ export default function MatchHeader({
                     <div className="flex items-center gap-2 justify-end">
                         {statsUrl && (
                             <Link to={statsUrl}>
-                                <Button variant="outline" size="sm" className="gap-2">
+                                <Button variant="outline" size="sm" className="gap-2 h-8">
                                     <BarChart3 className="w-4 h-4" /> Stats
                                 </Button>
                             </Link>
                         )}
                         {settingsUrl && (
                             <Link to={settingsUrl}>
-                                <Button variant="outline" size="sm" className="gap-2">
+                                <Button variant="outline" size="sm" className="gap-2 h-8">
                                     <Settings className="w-4 h-4" /> Settings
                                 </Button>
                             </Link>
