@@ -192,6 +192,41 @@ function Buttons({ label, value, onChange, options }) {
   );
 }
 
+function CardSwatches({ value, onChange }) {
+  const opts = [
+    { value: 'none', aria: 'No card', label: 'NA', className: 'bg-white text-slate-900' },
+    { value: 'yellow', aria: 'Yellow card', label: '', className: 'bg-yellow-400' },
+    { value: 'black', aria: 'Black card', label: '', className: 'bg-slate-900' },
+    { value: 'red', aria: 'Red card', label: '', className: 'bg-red-500' },
+  ];
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Card</Label>
+      <div className="grid grid-cols-4 gap-2">
+        {opts.map((o) => {
+          const selected = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-label={o.aria}
+              onClick={() => onChange(o.value)}
+              className={[
+                'h-8 rounded-md border flex items-center justify-center',
+                selected ? 'ring-2 ring-slate-900/20 border-slate-900' : 'border-slate-200',
+                o.className,
+              ].join(' ')}
+            >
+              {o.label ? <span className="text-xs font-semibold">{o.label}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function YesNo({ label, value, onChange }) {
   return (
     <Buttons
@@ -277,13 +312,6 @@ const FOUL_TYPES = [
   { value: 'technical', label: 'Technical' },
   { value: 'charge', label: 'Charge' },
   { value: 'footblock', label: 'Footblock' },
-];
-
-const CARD_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'yellow', label: 'Yellow' },
-  { value: 'black', label: 'Black' },
-  { value: 'red', label: 'Red' },
 ];
 
 export default function StatModalV4({
@@ -786,7 +814,7 @@ export default function StatModalV4({
           </SelectContent>
         </Select>
       </div>
-      <Buttons label="Card" value={card} onChange={setCard} options={CARD_OPTIONS} />
+      <CardSwatches value={card} onChange={setCard} />
     </div>
   );
 
@@ -807,7 +835,7 @@ export default function StatModalV4({
         <div>{roleButton('foul_on')}</div>
       </div>
       <div className="pt-2">
-        <Buttons label="Card" value={card} onChange={setCard} options={CARD_OPTIONS} />
+        <CardSwatches value={card} onChange={setCard} />
       </div>
     </div>
   );
