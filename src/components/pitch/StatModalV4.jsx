@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -61,13 +62,13 @@ function RoleButton({ label, valueText, active, onClick, disabled = false }) {
       disabled={disabled}
       onClick={onClick}
       className={[
-        'w-full text-left rounded-lg border px-3 py-2 transition-colors',
+        'w-full text-left rounded-md border px-2 py-1.5 transition-colors',
         disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50',
         active ? 'border-slate-900 ring-2 ring-slate-900/10 bg-slate-50' : 'border-slate-200 bg-white',
       ].join(' ')}
     >
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-sm font-semibold text-slate-900 truncate">{valueText}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</div>
+      <div className="text-xs font-semibold text-slate-900 truncate leading-tight">{valueText}</div>
     </button>
   );
 }
@@ -82,20 +83,19 @@ function RosterPanel({
   disabledReason = '',
   canPickSide,
   onPickValue,
+  onOpenBench,
 }) {
-  const set = useMemo(() => new Set(onFieldIds || []), [onFieldIds]);
   const byId = useMemo(() => new Map((players || []).map((p) => [p.id, p])), [players]);
   // Keep on-field order stable using the onFieldIds array (match lineup order).
   const onField = useMemo(
-    () => (onFieldIds || []).map((id) => byId.get(id)).filter(Boolean),
+    () => (onFieldIds || []).map((id) => byId.get(id)).filter(Boolean).slice(0, 15),
     [onFieldIds, byId]
   );
-  const bench = useMemo(() => (players || []).filter((p) => !set.has(p.id)), [players, set]);
 
   const tint = (() => {
-    // best-effort tint: append alpha to hex if possible
+    // Solid team colour background (match mockup); rows are white pills for readability.
     const c = String(color || '').trim();
-    if (/^#([0-9a-f]{6})$/i.test(c)) return `${c}14`; // ~8% alpha
+    if (/^#([0-9a-f]{6})$/i.test(c)) return c;
     return 'rgba(15, 23, 42, 0.04)';
   })();
 
@@ -105,9 +105,9 @@ function RosterPanel({
       disabled={isDisabled || disabled}
       onClick={onClick}
       className={[
-        'w-full text-left px-3 py-2 rounded-md border text-sm transition-colors',
+        'w-full text-left px-2 py-1.5 rounded-md border text-xs transition-colors',
         isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
-        'border-slate-200 bg-white/30',
+        'border-white/60 bg-white/80',
       ].join(' ')}
     >
       {children}
@@ -117,51 +117,42 @@ function RosterPanel({
   const disallowOtherTeamRow = (rowSide) => (canPickSide && rowSide && canPickSide !== rowSide);
 
   return (
-    <div className="h-full flex flex-col rounded-xl border border-slate-200 overflow-hidden bg-white">
-      <div className="px-3 py-2 border-b" style={{ background: tint }}>
+    <div className="h-full flex flex-col rounded-[28px] overflow-hidden" style={{ background: tint }}>
+      <div className="px-3 pt-3 pb-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="font-semibold text-slate-900 text-sm">{title}</div>
-          <div className="h-2 w-10 rounded-full" style={{ backgroundColor: color || (side === 'home' ? '#22c55e' : '#ef4444') }} />
+          <div className="font-semibold text-white text-sm drop-shadow-sm">{title}</div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onOpenBench}
+          >
+            Bench
+          </Button>
         </div>
         {disabledReason && (
-          <div className="text-xs text-slate-600 mt-1">{disabledReason}</div>
+          <div className="text-[10px] text-white/80 mt-1 leading-tight">{disabledReason}</div>
         )}
       </div>
 
-      <div className="p-3 space-y-2 overflow-y-auto">
+      <div className="px-3 pb-3 space-y-2">
         <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
-        <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Home Team</Row>
-        <Row onClick={() => onPickValue(TEAM_AWAY)} isDisabled={disallowOtherTeamRow('away')}>Away Team</Row>
-
-        {onField.length > 0 && (
-          <>
-            <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">On Field</div>
-            {onField.map((p) => (
-              <Row
-                key={p.id}
-                onClick={() => onPickValue(`player:${p.id}`)}
-                isDisabled={disallowOtherTeamRow(side)}
-              >
-                {`#${p.number ?? ''} ${p.name || ''}`.trim()}
-              </Row>
-            ))}
-          </>
+        {side === 'home' ? (
+          <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Team</Row>
+        ) : (
+          <Row onClick={() => onPickValue(TEAM_AWAY)} isDisabled={disallowOtherTeamRow('away')}>Team</Row>
         )}
 
-        {bench.length > 0 && (
-          <>
-            <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bench</div>
-            {bench.map((p) => (
-              <Row
-                key={p.id}
-                onClick={() => onPickValue(`player:${p.id}`)}
-                isDisabled={disallowOtherTeamRow(side)}
-              >
-                {`#${p.number ?? ''} ${p.name || ''}`.trim()}
-              </Row>
-            ))}
-          </>
-        )}
+        {onField.map((p) => (
+          <Row
+            key={p.id}
+            onClick={() => onPickValue(`player:${p.id}`)}
+            isDisabled={disallowOtherTeamRow(side)}
+          >
+            {`#${p.number ?? ''} ${p.name || ''}`.trim()}
+          </Row>
+        ))}
       </div>
     </div>
   );
@@ -169,8 +160,8 @@ function RosterPanel({
 
 function Buttons({ label, value, onChange, options }) {
   return (
-    <div className="space-y-2">
-      <Label className="text-sm font-medium text-slate-700">{label}</Label>
+    <div className="space-y-1">
+      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</Label>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {options.map((opt) => (
           <Button
@@ -178,6 +169,7 @@ function Buttons({ label, value, onChange, options }) {
             type="button"
             variant={value === opt.value ? 'default' : 'outline'}
             size="sm"
+            className="h-8 px-2 text-xs"
             onClick={() => onChange(opt.value)}
           >
             {opt.label}
@@ -211,11 +203,11 @@ function CustomFieldInput({ label, config, value, onChange }) {
 
   if (opts.length > 0 && opts.length <= 4) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-sm font-medium text-slate-700">{name}</Label>
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{name}</Label>
           {!!value && (
-            <Button type="button" variant="ghost" size="sm" onClick={() => onChange('')}>
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange('')}>
               Clear
             </Button>
           )}
@@ -227,6 +219,7 @@ function CustomFieldInput({ label, config, value, onChange }) {
               type="button"
               variant={value === opt.value ? 'default' : 'outline'}
               size="sm"
+              className="h-8 px-2 text-xs"
               onClick={() => onChange(opt.value)}
             >
               {opt.label || opt.value}
@@ -238,10 +231,10 @@ function CustomFieldInput({ label, config, value, onChange }) {
   }
 
   return (
-    <div className="space-y-2">
-      <Label className="text-sm font-medium text-slate-700">{name}</Label>
+    <div className="space-y-1">
+      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{name}</Label>
       <Select value={value || ''} onValueChange={onChange}>
-        <SelectTrigger>
+        <SelectTrigger className="h-8 text-xs">
           <SelectValue placeholder="Select..." />
         </SelectTrigger>
         <SelectContent className="max-h-72">
@@ -303,6 +296,8 @@ export default function StatModalV4({
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
   const [counterAttack, setCounterAttack] = useState(false);
   const [activeRole, setActiveRole] = useState(null);
+  const [benchOpen, setBenchOpen] = useState(null); // 'home' | 'away' | null
+  const [benchQuery, setBenchQuery] = useState('');
 
   // Custom field selections store option.value (string). Empty string => unset.
   const [custom1, setCustom1] = useState('');
@@ -556,6 +551,27 @@ export default function StatModalV4({
     };
   }, [homeRoster, awayRoster, homePlayers, awayPlayers]);
 
+  const benchPlayersBySide = useMemo(() => {
+    const build = (side) => {
+      const all = side === 'home' ? rosters.home : rosters.away;
+      const onFieldSet = new Set((side === 'home' ? homeOnFieldIds : awayOnFieldIds) || []);
+      return (all || []).filter((p) => p && !onFieldSet.has(p.id));
+    };
+    return { home: build('home'), away: build('away') };
+  }, [rosters, homeOnFieldIds, awayOnFieldIds]);
+
+  const benchFiltered = useMemo(() => {
+    const side = benchOpen;
+    if (!side) return [];
+    const q = String(benchQuery || '').trim().toLowerCase();
+    const list = benchPlayersBySide[side] || [];
+    if (!q) return list;
+    return list.filter((p) => {
+      const s = `${p.number ?? ''} ${p.name || ''}`.toLowerCase();
+      return s.includes(q);
+    });
+  }, [benchOpen, benchQuery, benchPlayersBySide]);
+
   const formatValue = (v) => formatSelectionValue(v, { homePlayers: rosters.home, awayPlayers: rosters.away });
 
   const roleDefs = useMemo(() => ({
@@ -591,7 +607,7 @@ export default function StatModalV4({
     if (action === 'defensive_contact') return ['player'];
     if (action === 'foul') return ['foul_by', 'foul_on'];
     if (action === 'turnover') {
-      if (turnoverType === 'foul') return ['foul_by', 'foul_on'];
+      if (turnoverType === 'foul') return ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'];
       return ['lost_by', 'forced_by', 'recovered_by'];
     }
     if (action === 'throw_in') {
@@ -608,13 +624,13 @@ export default function StatModalV4({
     }
     if (action === 'pass') {
       const base = ['passer', 'pass_intended', 'pass_won_by'];
-      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
     }
     if (action === 'carry') {
       const base = ['carrier'].concat(takeOnAttempted ? ['defender'] : []);
-      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'recovered_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (carryOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
     }
@@ -682,15 +698,15 @@ export default function StatModalV4({
   const pickingForLabel = activeRole ? (roleDefs?.[activeRole]?.label || toTitleCase(activeRole)) : (nextUnfilledRole() ? (roleDefs?.[nextUnfilledRole()]?.label || '') : '');
 
   const foulPanel = () => (
-    <div className="space-y-3 border rounded-lg p-3 bg-slate-50">
+    <div className="space-y-2 border rounded-md p-2 bg-slate-50">
       <div className="grid grid-cols-2 gap-2">
         {roleButton('foul_by')}
         {roleButton('foul_on')}
       </div>
-      <div className="space-y-2">
-        <Label className="text-sm font-medium text-slate-700">Foul Type</Label>
+      <div className="space-y-1">
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Foul Type</Label>
         <Select value={foulType} onValueChange={setFoulType}>
-          <SelectTrigger><SelectValue placeholder="Select foul type..." /></SelectTrigger>
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select foul type..." /></SelectTrigger>
           <SelectContent className="max-h-72">
             {FOUL_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
           </SelectContent>
@@ -701,11 +717,11 @@ export default function StatModalV4({
   );
 
   const turnoverPanel = () => (
-    <div className="space-y-3 border rounded-lg p-3 bg-slate-50">
-      <div className="space-y-2">
-        <Label className="text-sm font-medium text-slate-700">Turnover Type</Label>
+    <div className="space-y-2 border rounded-md p-2 bg-slate-50">
+      <div className="space-y-1">
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Turnover Type</Label>
         <Select value={turnoverType} onValueChange={setTurnoverType}>
-          <SelectTrigger><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
           <SelectContent>
             {['foul', 'tackle', 'group_tackle', 'broken', 'interception', 'sidelineagainst'].map((v) => (
               <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
@@ -713,18 +729,13 @@ export default function StatModalV4({
           </SelectContent>
         </Select>
       </div>
-      {turnoverType === 'foul' ? (
-        foulPanel()
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            {roleButton('lost_by')}
-            {roleButton('forced_by')}
-            {roleButton('recovered_by')}
-          </div>
-          <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
-        </>
-      )}
+      <div className="grid grid-cols-2 gap-2">
+        {roleButton('lost_by')}
+        {roleButton('forced_by')}
+        {roleButton('recovered_by')}
+      </div>
+      <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
+      {turnoverType === 'foul' && foulPanel()}
     </div>
   );
 
@@ -737,7 +748,7 @@ export default function StatModalV4({
     if (action === 'foul') return foulBy !== NONE && foulOn !== NONE && foulType;
     if (action === 'turnover') {
       if (!turnoverType) return false;
-      if (turnoverType === 'foul') return foulBy !== NONE && foulOn !== NONE && foulType;
+      if (turnoverType === 'foul') return lostBy !== NONE && forcedBy !== NONE && recoveredBy !== NONE && foulBy !== NONE && foulOn !== NONE && foulType;
       return lostBy !== NONE && forcedBy !== NONE && recoveredBy !== NONE;
     }
     if (action === 'throw_in') {
@@ -902,15 +913,9 @@ export default function StatModalV4({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
-      <DialogContent className="w-full sm:max-w-xl md:max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">
-            {isDrag ? 'Log Pass / Carry' : 'Log Stat'}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="py-3 flex-1 overflow-y-auto pr-1">
-          <div className="grid md:grid-cols-[260px_1fr_260px] gap-4">
+      <DialogContent className="relative w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-4">
+        <div className="flex-1 min-h-0">
+          <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
               title="Home"
               side="home"
@@ -928,20 +933,21 @@ export default function StatModalV4({
                 })()
               }
               onPickValue={handlePickValue}
+              onOpenBench={() => { setBenchQuery(''); setBenchOpen('home'); }}
             />
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {pickingForLabel && (
-                <div className="text-xs text-slate-600">
+                <div className="text-[11px] text-slate-600 leading-tight">
                   Picking for: <span className="font-semibold text-slate-900">{pickingForLabel}</span>
                 </div>
               )}
 
           {/* Action selector (locked in edit mode) */}
           {initialStat?.id ? (
-            <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Action</Label>
-              <div className="text-sm font-semibold text-slate-900">{toTitleCase(action)}</div>
+            <div className="space-y-1">
+              <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Action</Label>
+              <div className="text-xs font-semibold text-slate-900">{toTitleCase(action)}</div>
             </div>
           ) : (
             <>
@@ -971,17 +977,17 @@ export default function StatModalV4({
           )}
 
           {/* Forms */}
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2">
               {action === 'shot' && !isDrag && (
                 <>
                   {roleButton('player')}
                   <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-                  <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="grid sm:grid-cols-2 gap-2">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-slate-700">Situation</Label>
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Situation</Label>
                       <Select value={shotSituation} onValueChange={setShotSituation}>
-                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
                         <SelectContent>
                           {['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                         </SelectContent>
@@ -991,9 +997,9 @@ export default function StatModalV4({
                   </div>
                   <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={shotOutcome} onValueChange={setShotOutcome}>
-                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent className="max-h-72">
                         {['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
@@ -1009,9 +1015,9 @@ export default function StatModalV4({
                   <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
                   {roleButton('kickout_intended')}
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
-                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
                         {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
@@ -1029,9 +1035,9 @@ export default function StatModalV4({
 
               {action === 'throw_in' && !isDrag && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                  <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                   <Select value={throwOutcome} onValueChange={setThrowOutcome}>
-                    <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                     <SelectContent>
                       {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
@@ -1059,9 +1065,9 @@ export default function StatModalV4({
                   )}
                   <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>
-                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
                         {['completed', 'turnover', 'foul', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
@@ -1076,20 +1082,20 @@ export default function StatModalV4({
                 <>
                   {roleButton('passer')}
                   {roleButton('pass_intended')}
-                  <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="grid sm:grid-cols-2 gap-2">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-slate-700">Method</Label>
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Method</Label>
                       <Select value={passMethod} onValueChange={setPassMethod}>
-                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
                         <SelectContent>
                           {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-slate-700">Style</Label>
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Style</Label>
                       <Select value={passStyle} onValueChange={setPassStyle}>
-                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
                         <SelectContent>
                           {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                         </SelectContent>
@@ -1098,23 +1104,23 @@ export default function StatModalV4({
                   </div>
                   <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={passOutcome} onValueChange={setPassOutcome}>
-                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
                         {['completed', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
-                </Select>
-              </div>
+                    </Select>
+                  </div>
                   {roleButton('pass_won_by')}
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                 </>
               )}
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
               )}
@@ -1181,13 +1187,15 @@ export default function StatModalV4({
             </div>
           </div>
 
-          <div className="pt-4 border-t">
-            <div className="space-y-4 pb-4">
+          <div className="pt-2 border-t border-slate-200">
+            <div className="grid grid-cols-3 gap-2">
               <CustomFieldInput label="Custom 1" config={customFields?.custom_1} value={custom1} onChange={setCustom1} />
               <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
-            <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+            <div className="pt-2">
+              <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+            </div>
           </div>
             </div>
 
@@ -1208,13 +1216,59 @@ export default function StatModalV4({
                 })()
               }
               onPickValue={handlePickValue}
+              onOpenBench={() => { setBenchQuery(''); setBenchOpen('away'); }}
             />
           </div>
         </div>
 
-        <div className="flex gap-3 pt-4 border-t">
-          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={submit} disabled={!canSubmit()} className="flex-1 bg-green-600 hover:bg-green-700">
+        {/* Bench drawer overlay */}
+        {benchOpen && (
+          <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-900">
+                  {benchOpen === 'home' ? 'Home Bench' : 'Away Bench'}
+                </div>
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setBenchOpen(null)}>
+                  Close
+                </Button>
+              </div>
+              <div className="pt-2">
+                <Input
+                  value={benchQuery}
+                  onChange={(e) => setBenchQuery(e.target.value)}
+                  placeholder="Search..."
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="pt-2 max-h-80 overflow-y-auto space-y-1">
+                {benchFiltered.length === 0 ? (
+                  <div className="text-xs text-slate-500 py-2">No bench players found.</div>
+                ) : (
+                  benchFiltered.map((p) => (
+                    <Button
+                      key={p.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start h-8 text-xs"
+                      onClick={() => {
+                        handlePickValue(`player:${p.id}`);
+                        setBenchOpen(null);
+                      }}
+                    >
+                      {`#${p.number ?? ''} ${p.name || ''}`.trim()}
+                    </Button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-3 border-t border-slate-200">
+          <Button variant="outline" onClick={onClose} className="flex-1 h-9 text-sm">Cancel</Button>
+          <Button onClick={submit} disabled={!canSubmit()} className="flex-1 h-9 bg-green-600 hover:bg-green-700 text-sm">
             Log Stat
           </Button>
         </div>
