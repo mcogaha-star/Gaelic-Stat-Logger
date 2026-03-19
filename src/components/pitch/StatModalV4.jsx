@@ -117,21 +117,36 @@ function CustomFieldInput({ label, config, value, onChange }) {
   const opts = Array.isArray(config.options) ? config.options : [];
   const name = String(config.label || label || '').trim() || label;
 
-  const normalized = [{ value: '', label: 'None' }].concat(
-    opts
-      .filter((o) => o && typeof o === 'object')
-      .map((o) => ({ value: String(o.value || ''), label: String(o.label || o.value || '') }))
-      .filter((o) => o.value || o.label) // keep user options even if value empty? best effort
-  );
+  const normalized = opts
+    .filter((o) => o && typeof o === 'object')
+    .map((o) => ({ value: String(o.value || ''), label: String(o.label || o.value || '') }))
+    .filter((o) => o.value || o.label);
 
   if (opts.length > 0 && opts.length <= 4) {
     return (
-      <Buttons
-        label={name}
-        value={value || ''}
-        onChange={onChange}
-        options={normalized}
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-sm font-medium text-slate-700">{name}</Label>
+          {!!value && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => onChange('')}>
+              Clear
+            </Button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {normalized.map((opt) => (
+            <Button
+              key={opt.value}
+              type="button"
+              variant={value === opt.value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onChange(opt.value)}
+            >
+              {opt.label || opt.value}
+            </Button>
+          ))}
+        </div>
+      </div>
     );
   }
 
@@ -143,6 +158,7 @@ function CustomFieldInput({ label, config, value, onChange }) {
           <SelectValue placeholder="Select..." />
         </SelectTrigger>
         <SelectContent className="max-h-72">
+          <SelectItem value="">None</SelectItem>
           {normalized.map((o) => (
             <SelectItem key={`${name}-${o.value}-${o.label}`} value={o.value}>
               {o.label || o.value}
