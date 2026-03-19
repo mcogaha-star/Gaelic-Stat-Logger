@@ -19,18 +19,22 @@ export default function MatchHeader({
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
-            <div className="max-w-7xl mx-auto px-4 py-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="max-w-7xl mx-auto px-4 py-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-start gap-3">
                             {backUrl && (
-                                <Link to={backUrl}>
-                                    <Button variant="ghost" size="sm" className="gap-2 px-2">
-                                        <ArrowLeft className="w-4 h-4" /> Back
-                                    </Button>
-                                </Link>
+                                <div className="pt-0.5">
+                                    <Link to={backUrl}>
+                                        <Button variant="ghost" size="sm" className="gap-2 px-2">
+                                            <ArrowLeft className="w-4 h-4" /> Back
+                                        </Button>
+                                    </Link>
+                                </div>
                             )}
-                            <div className="flex flex-wrap items-center gap-3">
+
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-3">
                                 <h1 className="text-xl font-bold text-slate-900">
                                     {matchTitle || (match?.opponent ? `vs ${match.opponent}` : 'Match')}
                                 </h1>
@@ -53,20 +57,22 @@ export default function MatchHeader({
                                     </SelectContent>
                                 </Select>
                             </div>
-                        </div>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
-                            {match?.date && (
-                                <span className="flex items-center gap-1">
-                                    <Clock className="w-3.5 h-3.5" />
-                                    {format(new Date(match.date), 'dd MMM yyyy')}
-                                </span>
-                            )}
-                            {match?.venue && (
-                                <span className="flex items-center gap-1">
-                                    <MapPin className="w-3.5 h-3.5" />
-                                    {match.venue}
-                                </span>
-                            )}
+
+                                <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                                    {match?.date && (
+                                        <span className="flex items-center gap-1">
+                                            <Clock className="w-3.5 h-3.5" />
+                                            {format(new Date(match.date), 'dd MMM yyyy')}
+                                        </span>
+                                    )}
+                                    {match?.venue && (
+                                        <span className="flex items-center gap-1">
+                                            <MapPin className="w-3.5 h-3.5" />
+                                            {match.venue}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
