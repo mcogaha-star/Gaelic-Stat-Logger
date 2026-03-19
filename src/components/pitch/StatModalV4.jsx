@@ -964,7 +964,8 @@ export default function StatModalV4({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
-      <DialogContent className="relative top-[46%] w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-64px)] overflow-hidden flex flex-col p-4">
+      {/* Override shadcn/Radix default centered translate-y so the modal sits just under the ribbon. */}
+      <DialogContent className="relative top-[104px] translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-120px)] overflow-hidden flex flex-col p-4">
         <div className="flex-1 min-h-0">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
