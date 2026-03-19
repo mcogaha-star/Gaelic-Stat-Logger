@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, BarChart3, Settings } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -654,11 +654,20 @@ export default function MatchStats() {
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <div className="flex items-center justify-between mb-3">
-                            <div className="text-2xl text-slate-800 flex items-center gap-2">
-                                <span className="font-semibold">Home attacking</span>
-                                <span className="font-extrabold font-mono tracking-tight">
-                                    {getDirForHalf(half) === 'left' ? '<-' : '->'}
+                            <div className="flex items-center gap-3">
+                                <span className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+                                    Home Attacking
                                 </span>
+                                <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 text-white px-3 py-1 shadow-sm">
+                                    {getDirForHalf(half) === 'left' ? (
+                                        <ArrowLeft className="w-4 h-4" />
+                                    ) : (
+                                        <ArrowRight className="w-4 h-4" />
+                                    )}
+                                    <span className="font-mono text-sm tracking-tight">
+                                        {getDirForHalf(half) === 'left' ? 'Left' : 'Right'}
+                                    </span>
+                                </div>
                             </div>
                             <Button
                                 type="button"
