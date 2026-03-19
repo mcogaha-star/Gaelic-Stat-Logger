@@ -111,7 +111,7 @@ function RosterPanel({
       onClick={onClick}
       className={[
         // Keep font size, reduce height via padding/leading.
-        'w-full text-left px-2 py-0.5 rounded-md border text-xs leading-tight transition-colors',
+        'w-full text-left px-2 h-6 flex items-center rounded-md border text-xs leading-none transition-colors',
         isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
         'border-white/60 bg-white/80',
       ].join(' ')}
@@ -336,6 +336,7 @@ export default function StatModalV4({
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
   const [counterAttack, setCounterAttack] = useState(false);
   const [activeRole, setActiveRole] = useState(null);
+  const [touchedRoles, setTouchedRoles] = useState(() => ({})); // { [roleKey]: true } when user explicitly picks (including None)
   const [benchOpen, setBenchOpen] = useState(null); // 'home' | 'away' | null
   const [benchQuery, setBenchQuery] = useState('');
 
@@ -385,6 +386,9 @@ export default function StatModalV4({
   const [shotPressure, setShotPressure] = useState('');
   const [shotOutcome, setShotOutcome] = useState('');
   const [shotResult, setShotResult] = useState('');
+  const [shotRecoveredBy, setShotRecoveredBy] = useState(NONE);
+  const [shotBlockedBy, setShotBlockedBy] = useState(NONE);
+  const [shotSavedBy, setShotSavedBy] = useState(NONE);
 
   // Defensive contact
   const [defType, setDefType] = useState('');
@@ -464,6 +468,9 @@ export default function StatModalV4({
     setShotPressure('');
     setShotOutcome('');
     setShotResult('');
+    setShotRecoveredBy(NONE);
+    setShotBlockedBy(NONE);
+    setShotSavedBy(NONE);
     setDefType('');
     setCarrier(NONE);
     setCarrierPressure('');
@@ -483,6 +490,7 @@ export default function StatModalV4({
     setCustom1('');
     setCustom2('');
     setCustom3('');
+    setTouchedRoles({});
 
     // Shared foul section (if present).
     if (extra?.foul) {
@@ -515,6 +523,9 @@ export default function StatModalV4({
       setShotPressure(extra?.shot?.pressure || '');
       setShotOutcome(extra?.shot?.outcome || '');
       setShotResult(extra?.shot?.result || '');
+      setShotRecoveredBy(selectionToValue(extra?.shot?.recovered_by));
+      setShotBlockedBy(selectionToValue(extra?.shot?.blocked_by));
+      setShotSavedBy(selectionToValue(extra?.shot?.saved_by));
     } else if (type === 'kickout') {
       setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || 'home');
       setKickoutOutcome(extra?.kickout?.outcome || '');
@@ -557,6 +568,34 @@ export default function StatModalV4({
       setPassWonBy(selectionToValue(extra?.pass?.won_by));
       setDeadball(!!extra?.pass?.deadball);
     }
+
+    // Seed "touched" from what's present in the saved row so explicit None remains a valid selection in edit mode.
+    // Note: submit stores selection objects for role keys it knows about, so "kind:none" implies explicit.
+    const touched = {};
+    const markSel = (k, selObj) => {
+      if (selObj && typeof selObj === 'object' && 'kind' in selObj) touched[k] = true;
+    };
+    markSel('foul_by', extra?.foul?.foul_by);
+    markSel('foul_on', extra?.foul?.foul_on);
+    markSel('lost_by', extra?.turnover?.lost_by);
+    markSel('forced_by', extra?.turnover?.forced_by);
+    markSel('recovered_by', extra?.turnover?.recovered_by);
+    markSel('throw_won_by', extra?.throw_in?.won_by);
+    markSel('throw_lost_by', extra?.throw_in?.lost_by);
+    markSel('broken_by', extra?.throw_in?.broken_by);
+    markSel('kickout_intended', extra?.kickout?.intended_recipient);
+    markSel('kickout_won_by', extra?.kickout?.won_by);
+    markSel('kickout_lost_by', extra?.kickout?.lost_by);
+    markSel('kickout_broken_by', extra?.kickout?.broken_by);
+    markSel('carrier', extra?.carry?.carrier);
+    markSel('defender', extra?.carry?.defender);
+    markSel('passer', extra?.pass?.passer);
+    markSel('pass_intended', extra?.pass?.intended_recipient);
+    markSel('pass_won_by', extra?.pass?.won_by);
+    markSel('shot_recovered_by', extra?.shot?.recovered_by);
+    markSel('shot_blocked_by', extra?.shot?.blocked_by);
+    markSel('shot_saved_by', extra?.shot?.saved_by);
+    setTouchedRoles(touched);
   }, [open, initialStat?.id]);
 
   // Defaulting to last receiver on open.
@@ -573,6 +612,7 @@ export default function StatModalV4({
       setCarrier(def);
     }
     setActiveRole(null);
+    setTouchedRoles({});
   }, [open]); // intentionally only on open
 
   // Turnover: recovered_by defaults to forced_by when untouched
@@ -597,6 +637,13 @@ export default function StatModalV4({
   }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy]);
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
+
+  const isRoleFilled = (roleKey, value) => {
+    if (!roleKey) return false;
+    if (value && value !== NONE) return true;
+    if (value === NONE) return !!touchedRoles?.[roleKey];
+    return false;
+  };
 
   const rosters = useMemo(() => {
     // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
@@ -648,17 +695,27 @@ export default function StatModalV4({
     passer: { label: 'Passer', get: () => passer, set: setPasser },
     pass_intended: { label: 'Intended Recipient', get: () => passIntendedRecipient, set: setPassIntendedRecipient },
     pass_won_by: { label: 'Won By', get: () => passWonBy, set: setPassWonBy },
+    shot_recovered_by: { label: 'Recovered By', get: () => shotRecoveredBy, set: setShotRecoveredBy },
+    shot_blocked_by: { label: 'Blocked By', get: () => shotBlockedBy, set: setShotBlockedBy },
+    shot_saved_by: { label: 'Saved By', get: () => shotSavedBy, set: setShotSavedBy },
   }), [
     primaryPlayer, foulBy, foulOn, lostBy, forcedBy, recoveredBy,
     wonBy, throwLostBy, brokenBy,
     intendedRecipient, kickoutWonBy, kickoutLostBy, kickoutBrokenBy,
     carrier, defender, passer, passIntendedRecipient, passWonBy,
+    shotRecoveredBy, shotBlockedBy, shotSavedBy,
   ]);
 
   const getRoleValue = (k) => roleDefs?.[k]?.get?.() ?? NONE;
 
   const roleOrder = useMemo(() => {
-    if (action === 'shot') return ['player'];
+    if (action === 'shot') {
+      const base = ['player'];
+      if (shotOutcome === 'saved') base.push('shot_saved_by');
+      if (shotOutcome === 'blocked') base.push('shot_blocked_by');
+      if (shotResult === 'retained' || shotResult === 'opposition') base.push('shot_recovered_by');
+      return base;
+    }
     if (action === 'defensive_contact') return ['player'];
     if (action === 'foul') return ['foul_by', 'foul_on'];
     if (action === 'turnover') {
@@ -703,7 +760,7 @@ export default function StatModalV4({
   const nextUnfilledRole = (override = {}) => {
     for (const k of roleOrder) {
       const v = Object.prototype.hasOwnProperty.call(override, k) ? override[k] : getRoleValue(k);
-      if (!v || v === NONE) return k;
+      if (!isRoleFilled(k, v)) return k;
     }
     return null;
   };
@@ -728,6 +785,7 @@ export default function StatModalV4({
   const handlePickValue = (value) => {
     const targetRole = activeRole || nextUnfilledRole();
     if (!targetRole) return;
+    setTouchedRoles((prev) => ({ ...(prev || {}), [targetRole]: true }));
     const restrict = getRestrictSideForRole(targetRole);
     if (restrict) {
       if (value === TEAM_HOME && restrict !== 'home') return;
@@ -763,7 +821,7 @@ export default function StatModalV4({
       return;
     }
     const currentVal = getRoleValue(activeRole);
-    if (currentVal && currentVal !== NONE) {
+    if (isRoleFilled(activeRole, currentVal)) {
       setActiveRole(next);
     }
   }, [
@@ -775,6 +833,8 @@ export default function StatModalV4({
     passOutcome,
     carryOutcome,
     takeOnAttempted,
+    shotOutcome,
+    shotResult,
     // Role values that can satisfy activeRole
     primaryPlayer,
     foulBy,
@@ -794,12 +854,30 @@ export default function StatModalV4({
     passer,
     passIntendedRecipient,
     passWonBy,
+    shotRecoveredBy,
+    shotBlockedBy,
+    shotSavedBy,
+    touchedRoles,
   ]);
 
+  // Shot saved-by defaults to opposition #1 (goalkeeper) unless user explicitly set it.
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'shot') return;
+    if (shotOutcome !== 'saved') return;
+    if (isRoleFilled('shot_saved_by', shotSavedBy)) return;
+
+    const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
+    const keeperSide = shooterSide === 'home' ? 'away' : shooterSide === 'away' ? 'home' : null;
+    const list = keeperSide === 'away' ? awayPlayers : keeperSide === 'home' ? homePlayers : [];
+    const keeper = (list || []).find((p) => Number(p?.number) === 1);
+    if (keeper?.id) setShotSavedBy(`player:${keeper.id}`);
+  }, [open, action, shotOutcome, primaryPlayer, shotSavedBy, homePlayers, awayPlayers, touchedRoles]);
+
   const foulRolesBlock = () => (
-    <div className="grid grid-cols-2 gap-2">
-      {roleButton('foul_by')}
+    <div className="grid grid-cols-1 gap-2">
       {roleButton('foul_on')}
+      {roleButton('foul_by')}
     </div>
   );
 
@@ -820,8 +898,8 @@ export default function StatModalV4({
 
   const foulPanel = () => (
     <div className="border rounded-md p-2 bg-slate-50">
-      {/* Match mockup: Foul Type + Foul By + Foul On on one row, Card below */}
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,180px)_minmax(0,210px)] gap-2 items-start">
+      {/* Compact + stable: Foul type on the left, Foul On then Foul By stacked on the right. */}
+      <div className="grid grid-cols-2 gap-2 items-start">
         <div className="space-y-1">
           <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Foul Type</Label>
           <Select value={foulType} onValueChange={setFoulType}>
@@ -831,8 +909,10 @@ export default function StatModalV4({
             </SelectContent>
           </Select>
         </div>
-        <div>{roleButton('foul_by')}</div>
-        <div>{roleButton('foul_on')}</div>
+        <div className="space-y-2">
+          {roleButton('foul_on')}
+          {roleButton('foul_by')}
+        </div>
       </div>
       <div className="pt-2">
         <CardSwatches value={card} onChange={setCard} />
@@ -897,30 +977,37 @@ export default function StatModalV4({
     if (isDrag && !endCoords) return false;
     if (!action) return false;
     // Minimal validation per action.
-    if (action === 'shot') return shotOutcome && primaryPlayer !== NONE;
-    if (action === 'foul') return foulBy !== NONE && foulOn !== NONE && foulType;
+    if (action === 'shot') return !!shotOutcome && isRoleFilled('player', primaryPlayer);
+    if (action === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
     if (action === 'turnover') {
       if (!turnoverType) return false;
-      if (turnoverType === 'foul') return lostBy !== NONE && forcedBy !== NONE && recoveredBy !== NONE && foulBy !== NONE && foulOn !== NONE && foulType;
-      return lostBy !== NONE && forcedBy !== NONE && recoveredBy !== NONE;
+      if (turnoverType === 'foul') {
+        return isRoleFilled('lost_by', lostBy)
+          && isRoleFilled('forced_by', forcedBy)
+          && isRoleFilled('recovered_by', recoveredBy)
+          && isRoleFilled('foul_by', foulBy)
+          && isRoleFilled('foul_on', foulOn)
+          && !!foulType;
+      }
+      return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
     }
     if (action === 'throw_in') {
       if (!throwOutcome) return false;
-      if (throwOutcome === 'foul') return foulBy !== NONE && foulOn !== NONE && foulType;
-      if (throwOutcome === 'clean') return wonBy !== NONE && throwLostBy !== NONE;
-      if (throwOutcome === 'break') return brokenBy !== NONE && wonBy !== NONE && throwLostBy !== NONE;
+      if (throwOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      if (throwOutcome === 'clean') return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
+      if (throwOutcome === 'break') return isRoleFilled('broken_by', brokenBy) && isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       return false;
     }
     if (action === 'kickout') {
       if (!kickoutOutcome) return false;
-      if (kickoutOutcome === 'foul') return foulBy !== NONE && foulOn !== NONE && foulType;
-      if (kickoutOutcome === 'clean') return kickoutWonBy !== NONE && kickoutLostBy !== NONE;
-      if (kickoutOutcome === 'break') return kickoutBrokenBy !== NONE && kickoutWonBy !== NONE && kickoutLostBy !== NONE;
+      if (kickoutOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      if (kickoutOutcome === 'clean') return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
+      if (kickoutOutcome === 'break') return isRoleFilled('kickout_broken_by', kickoutBrokenBy) && isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       return true; // sideline outcomes
     }
-    if (action === 'defensive_contact') return defType && primaryPlayer !== NONE;
-    if (action === 'carry') return carrier !== NONE && carryOutcome;
-    if (action === 'pass') return passer !== NONE && passOutcome;
+    if (action === 'defensive_contact') return !!defType && isRoleFilled('player', primaryPlayer);
+    if (action === 'carry') return isRoleFilled('carrier', carrier) && !!carryOutcome;
+    if (action === 'pass') return isRoleFilled('passer', passer) && !!passOutcome;
     return false;
   };
 
@@ -1017,6 +1104,9 @@ export default function StatModalV4({
         pressure: shotPressure,
         outcome: shotOutcome,
         result: shotResult,
+        recovered_by: sel(shotRecoveredBy),
+        blocked_by: sel(shotBlockedBy),
+        saved_by: sel(shotSavedBy),
       };
     } else if (action === 'defensive_contact') {
       actingSide = makeSelection(primaryPlayer, ctx).team_side || 'unknown';
@@ -1069,7 +1159,8 @@ export default function StatModalV4({
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
       <DialogContent className="!top-[8px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-3">
-        <div className="flex-1 min-h-0">
+        {/* Only scroll if viewport is too small; otherwise stays fixed (no-scroll). */}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
             <RosterPanel
               title="Home"
@@ -1266,6 +1357,15 @@ export default function StatModalV4({
               {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
               )}
+              {action === 'shot' && !isDrag && (shotResult === 'retained' || shotResult === 'opposition') && (
+                roleButton('shot_recovered_by')
+              )}
+              {action === 'shot' && !isDrag && shotOutcome === 'blocked' && (
+                roleButton('shot_blocked_by')
+              )}
+              {action === 'shot' && !isDrag && shotOutcome === 'saved' && (
+                roleButton('shot_saved_by')
+              )}
 
               {action === 'kickout' && !isDrag && (
                 <>
@@ -1354,9 +1454,19 @@ export default function StatModalV4({
               <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
-            <div className="pt-2">
-              <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
-            </div>
+            {/* Counter attack stays at the bottom. For pass/carry, keep it only on the left-center column. */}
+            {(action === 'pass' || action === 'carry') ? (
+              <div className="pt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                </div>
+                <div />
+              </div>
+            ) : (
+              <div className="pt-2">
+                <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+              </div>
+            )}
           </div>
             </div>
 
