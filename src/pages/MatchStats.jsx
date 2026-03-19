@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, BarChart3, Settings } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Settings, Download, Repeat2, Undo2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -22,7 +22,7 @@ import StatModalV4 from '@/components/pitch/StatModalV4';
 import StatMarkers from '@/components/pitch/StatMarkers';
 import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
-import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS } from '@/components/statDefaults';
+import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 
 export default function MatchStats() {
@@ -72,6 +72,7 @@ export default function MatchStats() {
     const clickStats = DEFAULT_CLICK_STATS;
     const dragStats = DEFAULT_DRAG_STATS;
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
+    const customFieldsRaw = settingsRecord?.custom_fields_config ? (() => { try { return JSON.parse(settingsRecord.custom_fields_config); } catch { return DEFAULT_CUSTOM_FIELDS; } })() : DEFAULT_CUSTOM_FIELDS;
 
     const appDefaults = useMemo(() => {
         const d = (appDefaultsRaw && typeof appDefaultsRaw === 'object') ? appDefaultsRaw : DEFAULT_DEFAULTS;
@@ -81,6 +82,17 @@ export default function MatchStats() {
             // Legacy keys are ignored; keep for older saves.
         };
     }, [settingsRecord?.defaults_config]);
+
+    const customFields = useMemo(() => {
+        const base = (customFieldsRaw && typeof customFieldsRaw === 'object') ? customFieldsRaw : DEFAULT_CUSTOM_FIELDS;
+        return {
+            ...DEFAULT_CUSTOM_FIELDS,
+            ...base,
+            custom_1: { ...DEFAULT_CUSTOM_FIELDS.custom_1, ...(base.custom_1 || {}) },
+            custom_2: { ...DEFAULT_CUSTOM_FIELDS.custom_2, ...(base.custom_2 || {}) },
+            custom_3: { ...DEFAULT_CUSTOM_FIELDS.custom_3, ...(base.custom_3 || {}) },
+        };
+    }, [settingsRecord?.custom_fields_config]);
 
     const [half, setHalf] = useState(appDefaults.half || 'first');
 
@@ -249,6 +261,16 @@ export default function MatchStats() {
         toast.message('Undid last stat');
     };
 
+    const openEndHalfPrompt = () => {
+        const nextMap = { first: 'second', second: 'et_first', et_first: 'et_second', et_second: null };
+        const nextHalf = nextMap[half] || null;
+        if (!nextHalf) {
+            toast.message('No next period');
+            return;
+        }
+        setEndPeriodPrompt({ open: true, nextHalf });
+    };
+
     useEffect(() => {
         const onKeyDown = (e) => {
             const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z');
@@ -391,7 +413,8 @@ export default function MatchStats() {
                 payload.stat_type === 'pass' ? payload.extra?.pass?.intended_recipient
                     : (payload.stat_type === 'kickout' ? payload.extra?.kickout?.intended_recipient : null);
 
-            const extra = { ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
+            const prevExtra = editingStat?.extra_data ? safeParse(editingStat.extra_data) : {};
+            const extra = { ...prevExtra, ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
 
             updateStatMutation.mutate({
                 id: editingStat.id,
@@ -516,6 +539,33 @@ export default function MatchStats() {
     const exportToCSV = () => {
         if (stats.length === 0) { toast.error('No stats to export'); return; }
 
+        const buildCustomHeaderNames = () => {
+            const base = [
+                { key: 'custom_1', fallback: 'Custom 1' },
+                { key: 'custom_2', fallback: 'Custom 2' },
+                { key: 'custom_3', fallback: 'Custom 3' },
+            ].map(({ key, fallback }) => {
+                const label = String(customFields?.[key]?.label || '').trim();
+                return label || fallback;
+            });
+
+            const seen = new Map();
+            return base.map((name) => {
+                const n = String(name);
+                const count = (seen.get(n) || 0) + 1;
+                seen.set(n, count);
+                return count === 1 ? n : `${n} (${count})`;
+            });
+        };
+
+        const customHeaders = buildCustomHeaderNames();
+        const getCustomValueLabel = (extraData, key) => {
+            const v = extraData?.custom_fields?.[key];
+            if (!v) return '';
+            if (typeof v === 'string') return v;
+            return v.label || '';
+        };
+
         const orderedStats = [...stats].sort((a, b) => {
             const at = a?.timestamp || a?.created_date || '';
             const bt = b?.timestamp || b?.created_date || '';
@@ -531,6 +581,7 @@ export default function MatchStats() {
             'Primary Player #','Primary Player Name',
             'Recipient #','Recipient Name',
             'Time (s)','Normalized Time (s)',
+            ...customHeaders,
             'Extra JSON',
         ];
 
@@ -565,6 +616,9 @@ export default function MatchStats() {
                 stat.recipient_name || '',
                 stat.time_s ?? '',
                 stat.normalized_time_s ?? '',
+                getCustomValueLabel(extraData, 'custom_1'),
+                getCustomValueLabel(extraData, 'custom_2'),
+                getCustomValueLabel(extraData, 'custom_3'),
                 JSON.stringify(extraData),
             ];
         });
@@ -613,21 +667,8 @@ export default function MatchStats() {
                 matchTitle={matchTitle}
                 half={half}
                 onHalfChange={requestHalfChange}
-                onUndo={handleUndoLast}
-                onExport={exportToCSV}
-                onSub={() => setSubDialogOpen(true)}
-                onEndPeriod={() => {
-                    const nextMap = { first: 'second', second: 'et_first', et_first: 'et_second', et_second: null };
-                    const nextHalf = nextMap[half] || null;
-                    if (!nextHalf) {
-                        toast.message('No next period');
-                        return;
-                    }
-                    setEndPeriodPrompt({ open: true, nextHalf });
-                }}
                 statsCount={stats.length}
                 scoreLine={scoreLine}
-                statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
             />
 
             <div className="max-w-7xl mx-auto px-4 py-6">
@@ -653,7 +694,7 @@ export default function MatchStats() {
 
                 <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
-                        <div className="flex items-center justify-between mb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
                             <div className="flex items-center gap-3">
                                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-600">
                                     Home Attacking
@@ -669,15 +710,66 @@ export default function MatchStats() {
                                     </span>
                                 </div>
                             </div>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => flipDirectionForHalf(half)}
-                                title="Flip home attacking direction (affects new stats only)"
-                            >
-                                Flip
-                            </Button>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => flipDirectionForHalf(half)}
+                                    title="Flip home attacking direction (affects new stats only)"
+                                >
+                                    Flip
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={openEndHalfPrompt}
+                                    title="Log end of half and switch"
+                                    className="gap-2"
+                                >
+                                    <Repeat2 className="w-4 h-4" />
+                                    End Half
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSubDialogOpen(true)}
+                                    title="Log a substitution"
+                                    className="gap-2"
+                                >
+                                    <Users className="w-4 h-4" />
+                                    Sub
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleUndoLast}
+                                    disabled={!stats.length}
+                                    title="Undo last stat (Ctrl/Cmd+Z)"
+                                    className="gap-2"
+                                >
+                                    <Undo2 className="w-4 h-4" />
+                                    Undo
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={exportToCSV}
+                                    className="gap-2"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    Export CSV
+                                </Button>
+                            </div>
                         </div>
                         <div className="bg-slate-900 rounded-2xl p-4 shadow-xl relative overflow-hidden">
                             <GAAPitch onPointClick={handlePointClick} onPassDraw={handlePassDraw} debug={debugPitch} />
@@ -723,6 +815,7 @@ export default function MatchStats() {
                 awayPlayers={awayPlayers}
                 defaultReceiver={lastReceiver}
                 initialStat={editingStat}
+                customFields={customFields}
             />
 
             {/* Half change prompt */}

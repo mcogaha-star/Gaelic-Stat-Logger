@@ -1,23 +1,16 @@
 import React from 'react';
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart3, Download, Clock, MapPin, Repeat2, Undo2, Users } from 'lucide-react';
+import { Clock, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
 
 export default function MatchHeader({
     match,
     matchTitle,
     half,
     onHalfChange,
-    onUndo,
-    onExport,
-    onSub,
-    onEndPeriod,
     statsCount,
     scoreLine,
-    statsUrl,
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
@@ -65,59 +58,6 @@ export default function MatchHeader({
                                 <SelectItem value="et_second">ET 2nd Half</SelectItem>
                             </SelectContent>
                         </Select>
-
-                        {statsUrl && (
-                            <Link to={statsUrl}>
-                                <Button
-                                    variant="outline"
-                                    className="gap-2"
-                                    title="View match stats"
-                                >
-                                    <BarChart3 className="w-4 h-4" />
-                                    <span className="hidden sm:inline">Stats</span>
-                                </Button>
-                            </Link>
-                        )}
-
-                        <Button
-                            variant="outline"
-                            onClick={onEndPeriod}
-                            className="gap-2"
-                            title="Log end of half and switch"
-                        >
-                            <Repeat2 className="w-4 h-4" />
-                            <span className="hidden sm:inline">End Half</span>
-                        </Button>
-
-                        <Button
-                            variant="outline"
-                            onClick={onSub}
-                            className="gap-2"
-                            title="Log a substitution"
-                        >
-                            <Users className="w-4 h-4" />
-                            <span className="hidden sm:inline">Sub</span>
-                        </Button>
-
-                        <Button
-                            variant="outline"
-                            onClick={onUndo}
-                            className="gap-2"
-                            disabled={!statsCount}
-                            title="Undo last stat (Ctrl/Cmd+Z)"
-                        >
-                            <Undo2 className="w-4 h-4" />
-                            <span className="hidden sm:inline">Undo</span>
-                        </Button>
-                        
-                        <Button 
-                            variant="outline" 
-                            onClick={onExport}
-                            className="gap-2"
-                        >
-                            <Download className="w-4 h-4" />
-                            <span className="hidden sm:inline">Export CSV</span>
-                        </Button>
                     </div>
                 </div>
             </div>

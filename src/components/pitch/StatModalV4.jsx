@@ -112,6 +112,48 @@ function YesNo({ label, value, onChange }) {
   );
 }
 
+function CustomFieldInput({ label, config, value, onChange }) {
+  if (!config?.enabled) return null;
+  const opts = Array.isArray(config.options) ? config.options : [];
+  const name = String(config.label || label || '').trim() || label;
+
+  const normalized = [{ value: '', label: 'None' }].concat(
+    opts
+      .filter((o) => o && typeof o === 'object')
+      .map((o) => ({ value: String(o.value || ''), label: String(o.label || o.value || '') }))
+      .filter((o) => o.value || o.label) // keep user options even if value empty? best effort
+  );
+
+  if (opts.length > 0 && opts.length <= 4) {
+    return (
+      <Buttons
+        label={name}
+        value={value || ''}
+        onChange={onChange}
+        options={normalized}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm font-medium text-slate-700">{name}</Label>
+      <Select value={value || ''} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="Select..." />
+        </SelectTrigger>
+        <SelectContent className="max-h-72">
+          {normalized.map((o) => (
+            <SelectItem key={`${name}-${o.value}-${o.label}`} value={o.value}>
+              {o.label || o.value}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 const FOUL_TYPES = [
   { value: 'push', label: 'Push' },
   { value: 'pull', label: 'Pull' },
@@ -146,10 +188,16 @@ export default function StatModalV4({
   awayPlayers,
   defaultReceiver, // selection object
   initialStat, // full stat row for edit mode (optional)
+  customFields, // { custom_1..custom_3: { enabled, label, options[] } }
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
   const [counterAttack, setCounterAttack] = useState(false);
+
+  // Custom field selections store option.value (string). Empty string => unset.
+  const [custom1, setCustom1] = useState('');
+  const [custom2, setCustom2] = useState('');
+  const [custom3, setCustom3] = useState('');
 
   // Common: primary acting team side (for kickout we select explicitly; otherwise inferred from primary player).
   const [teamSide, setTeamSide] = useState('home');
@@ -287,6 +335,9 @@ export default function StatModalV4({
     setPassOutcome('');
     setPassWonBy(NONE);
     setDeadball(false);
+    setCustom1('');
+    setCustom2('');
+    setCustom3('');
 
     // Shared foul section (if present).
     if (extra?.foul) {
@@ -295,6 +346,18 @@ export default function StatModalV4({
       setFoulType(extra.foul.foul_type || '');
       setCard(extra.foul.card || 'none');
     }
+
+    // Custom fields (if present).
+    const cf = extra?.custom_fields || {};
+    const getCustomValue = (k) => {
+      const v = cf?.[k];
+      if (!v) return '';
+      if (typeof v === 'string') return v;
+      return v.value || '';
+    };
+    setCustom1(getCustomValue('custom_1'));
+    setCustom2(getCustomValue('custom_2'));
+    setCustom3(getCustomValue('custom_3'));
 
     const type = initialStat.stat_type;
     if (type === 'shot') {
@@ -454,6 +517,31 @@ export default function StatModalV4({
       counter_attack: !!counterAttack,
     };
 
+    const normalizedCustomFields = (() => {
+      const cfg = customFields && typeof customFields === 'object' ? customFields : {};
+      const build = (k, selected) => {
+        const f = cfg?.[k];
+        if (!f?.enabled) return null;
+        const opts = Array.isArray(f.options) ? f.options : [];
+        if (!selected) return { value: '', label: '' };
+        const match = opts.find((o) => String(o.value) === String(selected));
+        return { value: String(selected), label: String(match?.label || selected) };
+      };
+      const out = {};
+      const c1 = build('custom_1', custom1);
+      const c2 = build('custom_2', custom2);
+      const c3 = build('custom_3', custom3);
+      if (c1) out.custom_1 = c1;
+      if (c2) out.custom_2 = c2;
+      if (c3) out.custom_3 = c3;
+      // Only include the object when at least one field is enabled.
+      return Object.keys(out).length ? out : null;
+    })();
+
+    if (normalizedCustomFields) {
+      extra.custom_fields = normalizedCustomFields;
+    }
+
     // Helper to put structured selections in extra_data
     const sel = (v) => makeSelection(v, ctx);
 
@@ -607,200 +695,230 @@ export default function StatModalV4({
           )}
 
           {/* Forms */}
-          {action === 'shot' && !isDrag && (
-            <>
-              <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-              <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-              <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-5">
+              {action === 'shot' && !isDrag && (
+                <>
+                  <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-slate-700">Situation</Label>
+                      <Select value={shotSituation} onValueChange={setShotSituation}>
+                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectContent>
+                          {['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Buttons label="Method" value={shotMethod} onChange={setShotMethod} options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'hand', label: 'Hand' }]} />
+                  </div>
+                  <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Select value={shotOutcome} onValueChange={setShotOutcome}>
+                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => (
+                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+
+              {action === 'kickout' && !isDrag && (
+                <>
+                  <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
+                  <TeamAwarePlayerSelect
+                    label="Intended Recipient"
+                    value={intendedRecipient}
+                    onChange={setIntendedRecipient}
+                    homePlayers={homePlayers}
+                    awayPlayers={awayPlayers}
+                    restrictTeamSide={kickoutTeam}
+                    includeTeamOptions={true}
+                  />
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
+                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectContent>
+                        {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
+                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />
+                </>
+              )}
+
+              {action === 'foul' && !isDrag && foulPanel()}
+
+              {action === 'turnover' && !isDrag && turnoverPanel()}
+
+              {action === 'throw_in' && !isDrag && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Situation</Label>
-                  <Select value={shotSituation} onValueChange={setShotSituation}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                  <Select value={throwOutcome} onValueChange={setThrowOutcome}>
+                    <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                     <SelectContent>
-                      {['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                      {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-                <Buttons label="Method" value={shotMethod} onChange={setShotMethod} options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'hand', label: 'Hand' }]} />
-              </div>
-              <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Outcome</Label>
-                <Select value={shotOutcome} onValueChange={setShotOutcome}>
-                  <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => (
-                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
+              )}
+
+              {action === 'defensive_contact' && !isDrag && (
+                <>
+                  <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  <Buttons label="Type" value={defType} onChange={setDefType} options={[{ value: 'dispossession', label: 'Dispossession' }, { value: 'contact', label: 'Contact' }]} />
+                </>
+              )}
+
+              {action === 'carry' && isDrag && (
+                <>
+                  <TeamAwarePlayerSelect label="Carrier" value={carrier} onChange={setCarrier} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  <Buttons label="Pressure on Carrier" value={carrierPressure} onChange={setCarrierPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
+                  <YesNo label="Take On Attempted" value={takeOnAttempted} onChange={setTakeOnAttempted} />
+                  {takeOnAttempted && (
+                    <>
+                      <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
+                      <TeamAwarePlayerSelect label="Defender" value={defender} onChange={setDefender} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                    </>
+                  )}
+                  <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Select value={carryOutcome} onValueChange={setCarryOutcome}>
+                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectContent>
+                        {['completed', 'turnover', 'foul', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
+                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+
+              {action === 'pass' && isDrag && (
+                <>
+                  <TeamAwarePlayerSelect label="Passer" value={passer} onChange={setPasser} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  <TeamAwarePlayerSelect
+                    label="Intended Recipient"
+                    value={passIntendedRecipient}
+                    onChange={setPassIntendedRecipient}
+                    homePlayers={homePlayers}
+                    awayPlayers={awayPlayers}
+                    restrictTeamSide={makeSelection(passer, ctx).team_side || null}
+                    includeTeamOptions={true}
+                  />
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-slate-700">Method</Label>
+                      <Select value={passMethod} onValueChange={setPassMethod}>
+                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectContent>
+                          {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-slate-700">Style</Label>
+                      <Select value={passStyle} onValueChange={setPassStyle}>
+                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectContent>
+                          {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-slate-700">Outcome</Label>
+                    <Select value={passOutcome} onValueChange={setPassOutcome}>
+                      <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
+                      <SelectContent>
+                        {['completed', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
+                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <TeamAwarePlayerSelect label="Won By" value={passWonBy} onChange={setPassWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
+                </>
+              )}
+            </div>
+
+            <div className="space-y-5">
+              {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
               )}
-            </>
-          )}
 
-          {action === 'kickout' && !isDrag && (
-            <>
-              <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
-              <TeamAwarePlayerSelect
-                label="Intended Recipient"
-                value={intendedRecipient}
-                onChange={setIntendedRecipient}
-                homePlayers={homePlayers}
-                awayPlayers={awayPlayers}
-                restrictTeamSide={kickoutTeam}
-                includeTeamOptions={true}
-              />
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Outcome</Label>
-                <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
-                  <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                  <SelectContent>
-                    {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
-                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {(kickoutOutcome === 'clean') && (
+              {action === 'kickout' && !isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {(kickoutOutcome === 'clean') && (
+                    <>
+                      <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                    </>
+                  )}
+                  {(kickoutOutcome === 'break') && (
+                    <>
+                      <TeamAwarePlayerSelect label="Broken By" value={kickoutBrokenBy} onChange={setKickoutBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                    </>
+                  )}
+                  {(kickoutOutcome === 'foul') && foulPanel()}
                 </>
               )}
-              {(kickoutOutcome === 'break') && (
+
+              {action === 'throw_in' && !isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Broken By" value={kickoutBrokenBy} onChange={setKickoutBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {throwOutcome === 'clean' && (
+                    <>
+                      <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                    </>
+                  )}
+                  {throwOutcome === 'break' && (
+                    <>
+                      <TeamAwarePlayerSelect label="Broken By" value={brokenBy} onChange={setBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                    </>
+                  )}
+                  {throwOutcome === 'foul' && foulPanel()}
                 </>
               )}
-              {(kickoutOutcome === 'foul') && foulPanel()}
-              <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />
-            </>
-          )}
 
-          {action === 'foul' && !isDrag && foulPanel()}
-
-          {action === 'turnover' && !isDrag && turnoverPanel()}
-
-          {action === 'throw_in' && !isDrag && (
-            <>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Outcome</Label>
-                <Select value={throwOutcome} onValueChange={setThrowOutcome}>
-                  <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                  <SelectContent>
-                    {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              {throwOutcome === 'clean' && (
+              {action === 'carry' && isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {carryOutcome === 'turnover' && turnoverPanel()}
+                  {carryOutcome === 'foul' && foulPanel()}
                 </>
               )}
-              {throwOutcome === 'break' && (
+
+              {action === 'pass' && isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Broken By" value={brokenBy} onChange={setBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {passOutcome === 'turnover' && turnoverPanel()}
+                  {passOutcome === 'foul' && foulPanel()}
                 </>
               )}
-              {throwOutcome === 'foul' && foulPanel()}
-            </>
-          )}
-
-          {action === 'defensive_contact' && !isDrag && (
-            <>
-              <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-              <Buttons label="Type" value={defType} onChange={setDefType} options={[{ value: 'dispossession', label: 'Dispossession' }, { value: 'contact', label: 'Contact' }]} />
-            </>
-          )}
-
-          {action === 'carry' && isDrag && (
-            <>
-              <TeamAwarePlayerSelect label="Carrier" value={carrier} onChange={setCarrier} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-              <Buttons label="Pressure on Carrier" value={carrierPressure} onChange={setCarrierPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
-              <YesNo label="Take On Attempted" value={takeOnAttempted} onChange={setTakeOnAttempted} />
-              {takeOnAttempted && (
-                <>
-                  <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
-                  <TeamAwarePlayerSelect label="Defender" value={defender} onChange={setDefender} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                </>
-              )}
-              <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Outcome</Label>
-                <Select value={carryOutcome} onValueChange={setCarryOutcome}>
-                  <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                  <SelectContent>
-                    {['completed', 'turnover', 'foul', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
-                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {carryOutcome === 'turnover' && turnoverPanel()}
-              {carryOutcome === 'foul' && foulPanel()}
-            </>
-          )}
-
-          {action === 'pass' && isDrag && (
-            <>
-              <TeamAwarePlayerSelect label="Passer" value={passer} onChange={setPasser} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-              <TeamAwarePlayerSelect
-                label="Intended Recipient"
-                value={passIntendedRecipient}
-                onChange={setPassIntendedRecipient}
-                homePlayers={homePlayers}
-                awayPlayers={awayPlayers}
-                restrictTeamSide={makeSelection(passer, ctx).team_side || null}
-                includeTeamOptions={true}
-              />
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Method</Label>
-                  <Select value={passMethod} onValueChange={setPassMethod}>
-                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                  <SelectContent>
-                      {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Style</Label>
-                  <Select value={passStyle} onValueChange={setPassStyle}>
-                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                  <SelectContent>
-                      {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              </div>
-              <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Outcome</Label>
-                <Select value={passOutcome} onValueChange={setPassOutcome}>
-                  <SelectTrigger><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                  <SelectContent>
-                    {['completed', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
-                      <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <TeamAwarePlayerSelect label="Won By" value={passWonBy} onChange={setPassWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-              <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
-              {passOutcome === 'turnover' && turnoverPanel()}
-              {passOutcome === 'foul' && foulPanel()}
-            </>
-          )}
+            </div>
+          </div>
 
           <div className="pt-4 border-t">
+            <div className="space-y-4 pb-4">
+              <CustomFieldInput label="Custom 1" config={customFields?.custom_1} value={custom1} onChange={setCustom1} />
+              <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />
+              <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
+            </div>
             <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
           </div>
         </div>

@@ -10,9 +10,10 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { createPageUrl } from '@/utils';
-import { DEFAULT_DEFAULTS } from '@/components/statDefaults';
+import { DEFAULT_CUSTOM_FIELDS, DEFAULT_DEFAULTS } from '@/components/statDefaults';
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +34,7 @@ export default function Settings() {
 
   const settingsRecord = settingsRecords[0];
   const [defaults, setDefaults] = useState(DEFAULT_DEFAULTS);
+  const [customFields, setCustomFields] = useState(DEFAULT_CUSTOM_FIELDS);
 
   useEffect(() => {
     if (!settingsRecord) return;
@@ -46,9 +48,33 @@ export default function Settings() {
     }
   }, [settingsRecord?.id]);
 
+  useEffect(() => {
+    if (!settingsRecord) return;
+    if (!settingsRecord.custom_fields_config) {
+      setCustomFields(DEFAULT_CUSTOM_FIELDS);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(settingsRecord.custom_fields_config);
+      const base = (parsed && typeof parsed === 'object') ? parsed : {};
+      setCustomFields({
+        ...DEFAULT_CUSTOM_FIELDS,
+        ...base,
+        custom_1: { ...DEFAULT_CUSTOM_FIELDS.custom_1, ...(base.custom_1 || {}) },
+        custom_2: { ...DEFAULT_CUSTOM_FIELDS.custom_2, ...(base.custom_2 || {}) },
+        custom_3: { ...DEFAULT_CUSTOM_FIELDS.custom_3, ...(base.custom_3 || {}) },
+      });
+    } catch {
+      setCustomFields(DEFAULT_CUSTOM_FIELDS);
+    }
+  }, [settingsRecord?.id]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const data = { defaults_config: JSON.stringify(defaults) };
+      const data = {
+        defaults_config: JSON.stringify(defaults),
+        custom_fields_config: JSON.stringify(customFields),
+      };
       if (settingsRecord?.id) return await db.entities.AppSettings.update(settingsRecord.id, data);
       return await db.entities.AppSettings.create(data);
     },
@@ -80,8 +106,9 @@ export default function Settings() {
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="custom">Custom Fields</TabsTrigger>
             <TabsTrigger value="privacy">Privacy</TabsTrigger>
           </TabsList>
 
@@ -106,6 +133,108 @@ export default function Settings() {
                   <span className="font-mono text-slate-900">{settingsRecord?.schema_version ?? 'Unknown'}</span>
                 </div>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="custom">
+            <div className="bg-white border rounded-xl p-6 space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Custom Fields</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  Add up to 3 optional fields to every stat. These do not affect play or possession logic.
+                </p>
+              </div>
+
+              {(['custom_1', 'custom_2', 'custom_3']).map((key) => {
+                const f = customFields?.[key] || {};
+                const setField = (patch) => {
+                  setCustomFields((prev) => ({ ...(prev || DEFAULT_CUSTOM_FIELDS), [key]: { ...(prev?.[key] || DEFAULT_CUSTOM_FIELDS[key]), ...patch } }));
+                };
+                const opts = Array.isArray(f.options) ? f.options : [];
+
+                return (
+                  <div key={key} className="border rounded-xl p-4 space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-base">{f.label?.trim() ? f.label : (key === 'custom_1' ? 'Custom 1' : key === 'custom_2' ? 'Custom 2' : 'Custom 3')}</Label>
+                        <p className="text-xs text-slate-500">Enable to show this field on the stat logging screen.</p>
+                      </div>
+                      <Switch checked={!!f.enabled} onCheckedChange={(v) => setField({ enabled: !!v })} />
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Field Name (CSV Header)</Label>
+                        <Input
+                          value={f.label || ''}
+                          onChange={(e) => setField({ label: e.target.value })}
+                          placeholder="e.g. Weather"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Option Count</Label>
+                        <div className="text-sm text-slate-700">{opts.length}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label>Options</Label>
+                      <div className="space-y-2">
+                        {opts.map((opt, idx) => (
+                          <div key={`${key}-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input
+                              value={opt.label || ''}
+                              onChange={(e) => {
+                                const next = [...opts];
+                                next[idx] = { ...(next[idx] || {}), label: e.target.value };
+                                setField({ options: next });
+                              }}
+                              placeholder="Label (shown to users)"
+                            />
+                            <div className="flex gap-2">
+                              <Input
+                                value={opt.value || ''}
+                                onChange={(e) => {
+                                  const next = [...opts];
+                                  next[idx] = { ...(next[idx] || {}), value: e.target.value };
+                                  setField({ options: next });
+                                }}
+                                placeholder="value (stored)"
+                                className="font-mono"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  const next = opts.filter((_, i) => i !== idx);
+                                  setField({ options: next });
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const next = [...opts, { label: '', value: '' }];
+                          setField({ options: next });
+                        }}
+                      >
+                        Add Option
+                      </Button>
+
+                      <p className="text-xs text-slate-500">
+                        Tip: If a field has 4 or fewer options, it will appear as buttons in the stat modal. Otherwise it will appear as a dropdown.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </TabsContent>
 
@@ -170,4 +299,3 @@ export default function Settings() {
     </div>
   );
 }
-

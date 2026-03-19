@@ -18,6 +18,12 @@ export const DEFAULT_DEFAULTS = {
     quick_log_enabled: true,
 };
 
+export const DEFAULT_CUSTOM_FIELDS = {
+    custom_1: { enabled: false, label: '', options: [] },
+    custom_2: { enabled: false, label: '', options: [] },
+    custom_3: { enabled: false, label: '', options: [] },
+};
+
 // Sub-menus are now a dynamic array of section objects.
 // Each section: { id, label, applies_to[], display_type, condition, group, default_value, options[] }
 //   id: unique key (also used as the stat field name in StatEntry)

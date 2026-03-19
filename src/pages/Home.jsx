@@ -213,17 +213,6 @@ export default function Home() {
                             <p className="text-slate-500 mt-1">Match analysis & performance tracking</p>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Link to={createPageUrl('Teams')}>
-                                <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
-                            </Link>
-                            <Link to={createPageUrl('Settings')}>
-                                <Button variant="outline" size="icon"><Settings className="w-4 h-4" /></Button>
-                            </Link>
-                            <Link to={createPageUrl('About')}>
-                                <Button variant="outline" size="icon" title="About">
-                                    <Info className="w-4 h-4" />
-                                </Button>
-                            </Link>
                             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                                 <DialogTrigger asChild>
                                     <Button className="gap-2 bg-green-600 hover:bg-green-700">
@@ -311,6 +300,17 @@ export default function Home() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
+                            <Link to={createPageUrl('Teams')}>
+                                <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
+                            </Link>
+                            <Link to={createPageUrl('Settings')}>
+                                <Button variant="outline" size="icon"><Settings className="w-4 h-4" /></Button>
+                            </Link>
+                            <Link to={createPageUrl('About')}>
+                                <Button variant="outline" size="icon" title="About">
+                                    <Info className="w-4 h-4" />
+                                </Button>
+                            </Link>
                         </div>
                     </div>
                 </div>
