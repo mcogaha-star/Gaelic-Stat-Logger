@@ -779,13 +779,28 @@ export default function StatModalV4({
           </SelectContent>
         </Select>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {roleButton('lost_by')}
-        {roleButton('forced_by')}
-        {roleButton('recovered_by')}
-      </div>
-      <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
-      {turnoverType === 'foul' && foulPanel()}
+      {turnoverType === 'foul' ? (
+        <div className="grid grid-cols-2 gap-2 items-start">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {roleButton('lost_by')}
+              {roleButton('forced_by')}
+              {roleButton('recovered_by')}
+            </div>
+            <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
+          </div>
+          <div>{foulPanel()}</div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {roleButton('lost_by')}
+            {roleButton('forced_by')}
+            {roleButton('recovered_by')}
+          </div>
+          <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
+        </>
+      )}
     </div>
   );
 
