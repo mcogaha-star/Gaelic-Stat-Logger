@@ -673,10 +673,10 @@ export default function MatchStats() {
                 settingsUrl={createPageUrl('Settings')}
             />
 
-            <div className="max-w-7xl mx-auto px-4 pt-3 pb-6">
-                <div className="grid lg:grid-cols-3 gap-6">
+            <div className="max-w-7xl mx-auto px-4 pt-1 pb-5">
+                <div className="grid lg:grid-cols-3 gap-5">
                     <div className="lg:col-span-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-0.5">
                             <div className="flex items-center gap-3">
                                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-600">
                                     Home Attacking
@@ -742,11 +742,11 @@ export default function MatchStats() {
                                 </Button>
                             </div>
                         </div>
-                        <div className="bg-slate-900 rounded-2xl p-2 shadow-xl relative overflow-hidden ml-2 mt-2">
+                        <div className="bg-slate-900 rounded-2xl p-1 shadow-xl relative overflow-hidden ml-2 mt-0.5">
                             <GAAPitch onPointClick={handlePointClick} onPassDraw={handlePassDraw} debug={debugPitch} />
                             <StatMarkers stats={stats} clickStats={clickStats} />
                         </div>
-                        <p className="text-center text-sm text-slate-500 mt-3">
+                        <p className="text-center text-sm text-slate-500 mt-2">
                             Click to log a stat. Click and drag to log a pass / carry.
                         </p>
                     </div>
@@ -786,6 +786,12 @@ export default function MatchStats() {
                 endCoords={passEndCoords}
                 homePlayers={homePlayers}
                 awayPlayers={awayPlayers}
+                homeRoster={homePlayers}
+                awayRoster={awayPlayers}
+                homeOnFieldIds={homeOnField}
+                awayOnFieldIds={awayOnField}
+                homeTeamColor={homeTeam?.color || '#22c55e'}
+                awayTeamColor={awayTeam?.color || '#ef4444'}
                 defaultReceiver={lastReceiver}
                 initialStat={editingStat}
                 customFields={customFields}

@@ -5,6 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const NONE = 'none';
+const TEAM_HOME = 'team:home';
+const TEAM_AWAY = 'team:away';
 
 function toTitleCase(s) {
   return String(s || '')
@@ -39,43 +41,128 @@ function makeSelection(value, { homePlayers, awayPlayers }) {
   return { kind: 'none' };
 }
 
-function TeamAwarePlayerSelect({
-  label,
-  value,
-  onChange,
-  homePlayers,
-  awayPlayers,
-  restrictTeamSide = null,
-  includeTeamOptions = true,
+function formatSelectionValue(value, { homePlayers, awayPlayers }) {
+  if (!value || value === NONE) return 'None';
+  if (value === TEAM_HOME) return 'Home Team';
+  if (value === TEAM_AWAY) return 'Away Team';
+  if (value.startsWith('player:')) {
+    const id = value.slice('player:'.length);
+    const p = [...homePlayers, ...awayPlayers].find((x) => x.id === id);
+    if (!p) return 'Player';
+    return `#${p.number ?? ''} ${p.name || ''}`.trim();
+  }
+  return String(value);
+}
+
+function RoleButton({ label, valueText, active, onClick, disabled = false }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={[
+        'w-full text-left rounded-lg border px-3 py-2 transition-colors',
+        disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50',
+        active ? 'border-slate-900 ring-2 ring-slate-900/10 bg-slate-50' : 'border-slate-200 bg-white',
+      ].join(' ')}
+    >
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-sm font-semibold text-slate-900 truncate">{valueText}</div>
+    </button>
+  );
+}
+
+function RosterPanel({
+  title,
+  side,
+  color,
+  players,
+  onFieldIds,
+  disabled = false,
+  disabledReason = '',
+  canPickSide,
+  onPickValue,
 }) {
-  const options = useMemo(() => {
-    const build = (players, side) => {
-      const list = [];
-      if (!restrictTeamSide || restrictTeamSide === side) {
-        if (includeTeamOptions) list.push({ value: `team:${side}`, label: side === 'home' ? 'Home Team' : 'Away Team' });
-        for (const p of players) {
-          list.push({ value: `player:${p.id}`, label: `#${p.number} ${p.name || ''}`.trim() });
-        }
-      }
-      return list;
-    };
-    const base = [{ value: NONE, label: 'None' }];
-    return base.concat(build(homePlayers, 'home')).concat(build(awayPlayers, 'away'));
-  }, [homePlayers, awayPlayers, restrictTeamSide, includeTeamOptions]);
+  const set = useMemo(() => new Set(onFieldIds || []), [onFieldIds]);
+  const byId = useMemo(() => new Map((players || []).map((p) => [p.id, p])), [players]);
+  // Keep on-field order stable using the onFieldIds array (match lineup order).
+  const onField = useMemo(
+    () => (onFieldIds || []).map((id) => byId.get(id)).filter(Boolean),
+    [onFieldIds, byId]
+  );
+  const bench = useMemo(() => (players || []).filter((p) => !set.has(p.id)), [players, set]);
+
+  const tint = (() => {
+    // best-effort tint: append alpha to hex if possible
+    const c = String(color || '').trim();
+    if (/^#([0-9a-f]{6})$/i.test(c)) return `${c}14`; // ~8% alpha
+    return 'rgba(15, 23, 42, 0.04)';
+  })();
+
+  const Row = ({ children, onClick, isDisabled }) => (
+    <button
+      type="button"
+      disabled={isDisabled || disabled}
+      onClick={onClick}
+      className={[
+        'w-full text-left px-3 py-2 rounded-md border text-sm transition-colors',
+        isDisabled || disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/70',
+        'border-slate-200 bg-white/30',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  );
+
+  const disallowOtherTeamRow = (rowSide) => (canPickSide && rowSide && canPickSide !== rowSide);
 
   return (
-    <div className="space-y-2">
-      <Label className="text-sm font-medium text-slate-700">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder={`Select ${label.toLowerCase()}...`} />
-        </SelectTrigger>
-        <SelectContent className="max-h-72">
-          {options.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="h-full flex flex-col rounded-xl border border-slate-200 overflow-hidden bg-white">
+      <div className="px-3 py-2 border-b" style={{ background: tint }}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-slate-900 text-sm">{title}</div>
+          <div className="h-2 w-10 rounded-full" style={{ backgroundColor: color || (side === 'home' ? '#22c55e' : '#ef4444') }} />
+        </div>
+        {disabledReason && (
+          <div className="text-xs text-slate-600 mt-1">{disabledReason}</div>
+        )}
+      </div>
+
+      <div className="p-3 space-y-2 overflow-y-auto">
+        <Row onClick={() => onPickValue(NONE)} isDisabled={false}>None</Row>
+        <Row onClick={() => onPickValue(TEAM_HOME)} isDisabled={disallowOtherTeamRow('home')}>Home Team</Row>
+        <Row onClick={() => onPickValue(TEAM_AWAY)} isDisabled={disallowOtherTeamRow('away')}>Away Team</Row>
+
+        {onField.length > 0 && (
+          <>
+            <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">On Field</div>
+            {onField.map((p) => (
+              <Row
+                key={p.id}
+                onClick={() => onPickValue(`player:${p.id}`)}
+                isDisabled={disallowOtherTeamRow(side)}
+              >
+                {`#${p.number ?? ''} ${p.name || ''}`.trim()}
+              </Row>
+            ))}
+          </>
+        )}
+
+        {bench.length > 0 && (
+          <>
+            <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bench</div>
+            {bench.map((p) => (
+              <Row
+                key={p.id}
+                onClick={() => onPickValue(`player:${p.id}`)}
+                isDisabled={disallowOtherTeamRow(side)}
+              >
+                {`#${p.number ?? ''} ${p.name || ''}`.trim()}
+              </Row>
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -202,6 +289,12 @@ export default function StatModalV4({
   endCoords,
   homePlayers,
   awayPlayers,
+  homeRoster,
+  awayRoster,
+  homeOnFieldIds,
+  awayOnFieldIds,
+  homeTeamColor,
+  awayTeamColor,
   defaultReceiver, // selection object
   initialStat, // full stat row for edit mode (optional)
   customFields, // { custom_1..custom_3: { enabled, label, options[] } }
@@ -209,6 +302,7 @@ export default function StatModalV4({
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
   const [counterAttack, setCounterAttack] = useState(false);
+  const [activeRole, setActiveRole] = useState(null);
 
   // Custom field selections store option.value (string). Empty string => unset.
   const [custom1, setCustom1] = useState('');
@@ -375,6 +469,8 @@ export default function StatModalV4({
     setCustom2(getCustomValue('custom_2'));
     setCustom3(getCustomValue('custom_3'));
 
+    setActiveRole(null);
+
     const type = initialStat.stat_type;
     if (type === 'shot') {
       setPrimaryPlayer(primaryFromStat);
@@ -441,6 +537,7 @@ export default function StatModalV4({
       setPasser(def);
       setCarrier(def);
     }
+    setActiveRole(null);
   }, [open]); // intentionally only on open
 
   // Turnover: recovered_by defaults to forced_by when untouched
@@ -451,10 +548,145 @@ export default function StatModalV4({
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
+  const rosters = useMemo(() => {
+    // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
+    return {
+      home: (homeRoster && Array.isArray(homeRoster)) ? homeRoster : homePlayers,
+      away: (awayRoster && Array.isArray(awayRoster)) ? awayRoster : awayPlayers,
+    };
+  }, [homeRoster, awayRoster, homePlayers, awayPlayers]);
+
+  const formatValue = (v) => formatSelectionValue(v, { homePlayers: rosters.home, awayPlayers: rosters.away });
+
+  const roleDefs = useMemo(() => ({
+    player: { label: 'Player', get: () => primaryPlayer, set: setPrimaryPlayer },
+    foul_by: { label: 'Foul By', get: () => foulBy, set: setFoulBy },
+    foul_on: { label: 'Foul On / Forced By', get: () => foulOn, set: setFoulOn },
+    lost_by: { label: 'Lost By', get: () => lostBy, set: setLostBy },
+    forced_by: { label: 'Forced By', get: () => forcedBy, set: setForcedBy },
+    recovered_by: { label: 'Recovered By', get: () => recoveredBy, set: setRecoveredBy },
+    throw_won_by: { label: 'Won By', get: () => wonBy, set: setWonBy },
+    throw_lost_by: { label: 'Lost By', get: () => throwLostBy, set: setThrowLostBy },
+    broken_by: { label: 'Broken By', get: () => brokenBy, set: setBrokenBy },
+    kickout_intended: { label: 'Intended Recipient', get: () => intendedRecipient, set: setIntendedRecipient },
+    kickout_won_by: { label: 'Won By', get: () => kickoutWonBy, set: setKickoutWonBy },
+    kickout_lost_by: { label: 'Lost By', get: () => kickoutLostBy, set: setKickoutLostBy },
+    kickout_broken_by: { label: 'Broken By', get: () => kickoutBrokenBy, set: setKickoutBrokenBy },
+    carrier: { label: 'Carrier', get: () => carrier, set: setCarrier },
+    defender: { label: 'Defender', get: () => defender, set: setDefender },
+    passer: { label: 'Passer', get: () => passer, set: setPasser },
+    pass_intended: { label: 'Intended Recipient', get: () => passIntendedRecipient, set: setPassIntendedRecipient },
+    pass_won_by: { label: 'Won By', get: () => passWonBy, set: setPassWonBy },
+  }), [
+    primaryPlayer, foulBy, foulOn, lostBy, forcedBy, recoveredBy,
+    wonBy, throwLostBy, brokenBy,
+    intendedRecipient, kickoutWonBy, kickoutLostBy, kickoutBrokenBy,
+    carrier, defender, passer, passIntendedRecipient, passWonBy,
+  ]);
+
+  const getRoleValue = (k) => roleDefs?.[k]?.get?.() ?? NONE;
+
+  const roleOrder = useMemo(() => {
+    if (action === 'shot') return ['player'];
+    if (action === 'defensive_contact') return ['player'];
+    if (action === 'foul') return ['foul_by', 'foul_on'];
+    if (action === 'turnover') {
+      if (turnoverType === 'foul') return ['foul_by', 'foul_on'];
+      return ['lost_by', 'forced_by', 'recovered_by'];
+    }
+    if (action === 'throw_in') {
+      if (throwOutcome === 'clean') return ['throw_won_by', 'throw_lost_by'];
+      if (throwOutcome === 'break') return ['broken_by', 'throw_won_by', 'throw_lost_by'];
+      if (throwOutcome === 'foul') return ['foul_by', 'foul_on'];
+      return [];
+    }
+    if (action === 'kickout') {
+      if (kickoutOutcome === 'clean') return ['kickout_intended', 'kickout_won_by', 'kickout_lost_by'];
+      if (kickoutOutcome === 'break') return ['kickout_intended', 'kickout_broken_by', 'kickout_won_by', 'kickout_lost_by'];
+      if (kickoutOutcome === 'foul') return ['kickout_intended', 'foul_by', 'foul_on'];
+      return ['kickout_intended'];
+    }
+    if (action === 'pass') {
+      const base = ['passer', 'pass_intended', 'pass_won_by'];
+      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
+      return base;
+    }
+    if (action === 'carry') {
+      const base = ['carrier'].concat(takeOnAttempted ? ['defender'] : []);
+      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (carryOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
+      return base;
+    }
+    return [];
+  }, [
+    action,
+    turnoverType,
+    throwOutcome,
+    kickoutOutcome,
+    passOutcome,
+    carryOutcome,
+    takeOnAttempted,
+  ]);
+
+  const nextUnfilledRole = (override = {}) => {
+    for (const k of roleOrder) {
+      const v = Object.prototype.hasOwnProperty.call(override, k) ? override[k] : getRoleValue(k);
+      if (!v || v === NONE) return k;
+    }
+    return null;
+  };
+
+  const getRestrictSideForRole = (k) => {
+    if (k === 'pass_intended') {
+      const side = makeSelection(passer, ctx).team_side;
+      return side === 'home' || side === 'away' ? side : null;
+    }
+    if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
+    return null;
+  };
+
+  const assignRole = (roleKey, value) => {
+    const def = roleDefs?.[roleKey];
+    if (!def?.set) return;
+    def.set(value);
+    const next = nextUnfilledRole({ [roleKey]: value });
+    setActiveRole(next);
+  };
+
+  const handlePickValue = (value) => {
+    const targetRole = activeRole || nextUnfilledRole();
+    if (!targetRole) return;
+    const restrict = getRestrictSideForRole(targetRole);
+    if (restrict) {
+      if (value === TEAM_HOME && restrict !== 'home') return;
+      if (value === TEAM_AWAY && restrict !== 'away') return;
+      if (value.startsWith('player:')) {
+        const side = makeSelection(value, ctx).team_side;
+        if (side && side !== restrict) return;
+      }
+    }
+    assignRole(targetRole, value);
+  };
+
+  const roleButton = (k, { disabled = false } = {}) => (
+    <RoleButton
+      label={roleDefs?.[k]?.label || k}
+      valueText={formatValue(getRoleValue(k))}
+      active={activeRole === k}
+      disabled={disabled}
+      onClick={() => setActiveRole(k)}
+    />
+  );
+
+  const pickingForLabel = activeRole ? (roleDefs?.[activeRole]?.label || toTitleCase(activeRole)) : (nextUnfilledRole() ? (roleDefs?.[nextUnfilledRole()]?.label || '') : '');
+
   const foulPanel = () => (
-    <div className="space-y-4 border rounded-lg p-3 bg-slate-50">
-      <TeamAwarePlayerSelect label="Foul By" value={foulBy} onChange={setFoulBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-      <TeamAwarePlayerSelect label="Foul On / Forced By" value={foulOn} onChange={setFoulOn} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+    <div className="space-y-3 border rounded-lg p-3 bg-slate-50">
+      <div className="grid grid-cols-2 gap-2">
+        {roleButton('foul_by')}
+        {roleButton('foul_on')}
+      </div>
       <div className="space-y-2">
         <Label className="text-sm font-medium text-slate-700">Foul Type</Label>
         <Select value={foulType} onValueChange={setFoulType}>
@@ -469,7 +701,7 @@ export default function StatModalV4({
   );
 
   const turnoverPanel = () => (
-    <div className="space-y-4 border rounded-lg p-3 bg-slate-50">
+    <div className="space-y-3 border rounded-lg p-3 bg-slate-50">
       <div className="space-y-2">
         <Label className="text-sm font-medium text-slate-700">Turnover Type</Label>
         <Select value={turnoverType} onValueChange={setTurnoverType}>
@@ -485,9 +717,11 @@ export default function StatModalV4({
         foulPanel()
       ) : (
         <>
-          <TeamAwarePlayerSelect label="Lost By" value={lostBy} onChange={setLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-          <TeamAwarePlayerSelect label="Forced By" value={forcedBy} onChange={setForcedBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-          <TeamAwarePlayerSelect label="Recovered By" value={recoveredBy} onChange={setRecoveredBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+          <div className="grid grid-cols-2 gap-2">
+            {roleButton('lost_by')}
+            {roleButton('forced_by')}
+            {roleButton('recovered_by')}
+          </div>
           <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
         </>
       )}
@@ -668,14 +902,40 @@ export default function StatModalV4({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
-      <DialogContent className="w-full sm:max-w-xl md:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-full sm:max-w-xl md:max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
             {isDrag ? 'Log Pass / Carry' : 'Log Stat'}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 py-4 flex-1 overflow-y-auto pr-1">
+        <div className="py-3 flex-1 overflow-y-auto pr-1">
+          <div className="grid md:grid-cols-[260px_1fr_260px] gap-4">
+            <RosterPanel
+              title="Home"
+              side="home"
+              color={homeTeamColor || '#22c55e'}
+              players={rosters.home}
+              onFieldIds={homeOnFieldIds}
+              canPickSide={getRestrictSideForRole(activeRole || nextUnfilledRole())}
+              disabledReason={
+                (() => {
+                  const r = activeRole || nextUnfilledRole();
+                  const restrict = getRestrictSideForRole(r);
+                  if (r === 'pass_intended' && restrict) return "Recipient must be on passer's team";
+                  if (r === 'kickout_intended' && restrict) return 'Recipient must be on kickout team';
+                  return '';
+                })()
+              }
+              onPickValue={handlePickValue}
+            />
+
+            <div className="space-y-3">
+              {pickingForLabel && (
+                <div className="text-xs text-slate-600">
+                  Picking for: <span className="font-semibold text-slate-900">{pickingForLabel}</span>
+                </div>
+              )}
 
           {/* Action selector (locked in edit mode) */}
           {initialStat?.id ? (
@@ -711,11 +971,11 @@ export default function StatModalV4({
           )}
 
           {/* Forms */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-5">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-3">
               {action === 'shot' && !isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {roleButton('player')}
                   <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
                   <div className="grid sm:grid-cols-2 gap-3">
                     <div className="space-y-2">
@@ -747,15 +1007,7 @@ export default function StatModalV4({
               {action === 'kickout' && !isDrag && (
                 <>
                   <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
-                  <TeamAwarePlayerSelect
-                    label="Intended Recipient"
-                    value={intendedRecipient}
-                    onChange={setIntendedRecipient}
-                    homePlayers={homePlayers}
-                    awayPlayers={awayPlayers}
-                    restrictTeamSide={kickoutTeam}
-                    includeTeamOptions={true}
-                  />
+                  {roleButton('kickout_intended')}
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-slate-700">Outcome</Label>
                     <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
@@ -789,20 +1041,20 @@ export default function StatModalV4({
 
               {action === 'defensive_contact' && !isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Player" value={primaryPlayer} onChange={setPrimaryPlayer} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {roleButton('player')}
                   <Buttons label="Type" value={defType} onChange={setDefType} options={[{ value: 'dispossession', label: 'Dispossession' }, { value: 'contact', label: 'Contact' }]} />
                 </>
               )}
 
               {action === 'carry' && isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Carrier" value={carrier} onChange={setCarrier} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                  {roleButton('carrier')}
                   <Buttons label="Pressure on Carrier" value={carrierPressure} onChange={setCarrierPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <YesNo label="Take On Attempted" value={takeOnAttempted} onChange={setTakeOnAttempted} />
                   {takeOnAttempted && (
                     <>
                       <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
-                      <TeamAwarePlayerSelect label="Defender" value={defender} onChange={setDefender} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      {roleButton('defender')}
                     </>
                   )}
                   <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
@@ -822,16 +1074,8 @@ export default function StatModalV4({
 
               {action === 'pass' && isDrag && (
                 <>
-                  <TeamAwarePlayerSelect label="Passer" value={passer} onChange={setPasser} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                  <TeamAwarePlayerSelect
-                    label="Intended Recipient"
-                    value={passIntendedRecipient}
-                    onChange={setPassIntendedRecipient}
-                    homePlayers={homePlayers}
-                    awayPlayers={awayPlayers}
-                    restrictTeamSide={makeSelection(passer, ctx).team_side || null}
-                    includeTeamOptions={true}
-                  />
+                  {roleButton('passer')}
+                  {roleButton('pass_intended')}
                   <div className="grid sm:grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label className="text-sm font-medium text-slate-700">Method</Label>
@@ -862,15 +1106,15 @@ export default function StatModalV4({
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
-                    </Select>
-                  </div>
-                  <TeamAwarePlayerSelect label="Won By" value={passWonBy} onChange={setPassWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                </Select>
+              </div>
+                  {roleButton('pass_won_by')}
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                 </>
               )}
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-3">
               {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
               )}
@@ -879,15 +1123,19 @@ export default function StatModalV4({
                 <>
                   {(kickoutOutcome === 'clean') && (
                     <>
-                      <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <div className="grid grid-cols-2 gap-2">
+                        {roleButton('kickout_won_by')}
+                        {roleButton('kickout_lost_by')}
+                      </div>
                     </>
                   )}
                   {(kickoutOutcome === 'break') && (
                     <>
-                      <TeamAwarePlayerSelect label="Broken By" value={kickoutBrokenBy} onChange={setKickoutBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Won By" value={kickoutWonBy} onChange={setKickoutWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Lost By" value={kickoutLostBy} onChange={setKickoutLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <div className="grid grid-cols-2 gap-2">
+                        {roleButton('kickout_broken_by')}
+                        {roleButton('kickout_won_by')}
+                        {roleButton('kickout_lost_by')}
+                      </div>
                     </>
                   )}
                   {(kickoutOutcome === 'foul') && foulPanel()}
@@ -898,15 +1146,19 @@ export default function StatModalV4({
                 <>
                   {throwOutcome === 'clean' && (
                     <>
-                      <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <div className="grid grid-cols-2 gap-2">
+                        {roleButton('throw_won_by')}
+                        {roleButton('throw_lost_by')}
+                      </div>
                     </>
                   )}
                   {throwOutcome === 'break' && (
                     <>
-                      <TeamAwarePlayerSelect label="Broken By" value={brokenBy} onChange={setBrokenBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Won By" value={wonBy} onChange={setWonBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
-                      <TeamAwarePlayerSelect label="Lost By" value={throwLostBy} onChange={setThrowLostBy} homePlayers={homePlayers} awayPlayers={awayPlayers} />
+                      <div className="grid grid-cols-2 gap-2">
+                        {roleButton('broken_by')}
+                        {roleButton('throw_won_by')}
+                        {roleButton('throw_lost_by')}
+                      </div>
                     </>
                   )}
                   {throwOutcome === 'foul' && foulPanel()}
@@ -936,6 +1188,27 @@ export default function StatModalV4({
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
             <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+          </div>
+            </div>
+
+            <RosterPanel
+              title="Away"
+              side="away"
+              color={awayTeamColor || '#ef4444'}
+              players={rosters.away}
+              onFieldIds={awayOnFieldIds}
+              canPickSide={getRestrictSideForRole(activeRole || nextUnfilledRole())}
+              disabledReason={
+                (() => {
+                  const r = activeRole || nextUnfilledRole();
+                  const restrict = getRestrictSideForRole(r);
+                  if (r === 'pass_intended' && restrict) return "Recipient must be on passer's team";
+                  if (r === 'kickout_intended' && restrict) return 'Recipient must be on kickout team';
+                  return '';
+                })()
+              }
+              onPickValue={handlePickValue}
+            />
           </div>
         </div>
 
