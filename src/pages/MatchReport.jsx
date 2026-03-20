@@ -339,6 +339,121 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
   );
 }
 
+function PassNetwork({ passes, side, minCount, teamColor }) {
+  // Build undirected edges between passer and intended recipient for completed passes.
+  const edges = new Map(); // key "a|b" -> { a, b, count }
+  const touches = new Map(); // playerId -> touch count
+  const pos = new Map(); // playerId -> { sumX, sumY, n }
+
+  const addPos = (id, x, y) => {
+    if (!id || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    const cur = pos.get(id) || { sumX: 0, sumY: 0, n: 0 };
+    cur.sumX += x;
+    cur.sumY += y;
+    cur.n += 1;
+    pos.set(id, cur);
+  };
+
+  for (const s of passes) {
+    const extra = safeParseJSON(s.extra_data || '{}', {});
+    const p = extra?.pass?.passer;
+    const r = extra?.pass?.intended_recipient;
+    const outcome = extra?.pass?.outcome;
+
+    if (outcome !== 'completed') continue;
+    if (p?.kind !== 'player' || r?.kind !== 'player') continue;
+    if (p.team_side !== side || r.team_side !== side) continue;
+
+    const a = p.id;
+    const b = r.id;
+    if (!a || !b || a === b) continue;
+
+    // Touches: passer start + recipient end
+    touches.set(a, (touches.get(a) || 0) + 1);
+    touches.set(b, (touches.get(b) || 0) + 1);
+
+    // Positions (normalized): passer start, recipient end.
+    addPos(a, Number(s.x_position), Number(s.y_position));
+    addPos(b, Number(s.end_x_position), Number(s.end_y_position));
+
+    const [u, v] = a < b ? [a, b] : [b, a];
+    const key = `${u}|${v}`;
+    const cur = edges.get(key) || { a: u, b: v, count: 0 };
+    cur.count += 1;
+    edges.set(key, cur);
+  }
+
+  const edgeList = Array.from(edges.values()).filter((e) => e.count >= minCount);
+  const nodeIds = new Set();
+  edgeList.forEach((e) => { nodeIds.add(e.a); nodeIds.add(e.b); });
+
+  const nodes = Array.from(nodeIds).map((id) => {
+    const p = pos.get(id) || { sumX: 0, sumY: 0, n: 0 };
+    const n = Math.max(p.n, 1);
+    return {
+      id,
+      x: p.n ? (p.sumX / n) : 0,
+      y: p.n ? (p.sumY / n) : 0,
+      touches: touches.get(id) || 0,
+    };
+  });
+
+  const maxEdge = edgeList.reduce((m, e) => Math.max(m, e.count), 1);
+  const maxTouch = nodes.reduce((m, n) => Math.max(m, n.touches), 1);
+
+  const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
+
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  return (
+    <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div
+        className="relative w-full"
+        style={{
+          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+          backgroundImage: `url(${pitchImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+          {edgeList.map((e) => {
+            const a = nodeById.get(e.a);
+            const b = nodeById.get(e.b);
+            if (!a || !b) return null;
+            const w = 0.35 + (e.count / maxEdge) * 2.4;
+            return (
+              <g key={`${e.a}|${e.b}`}>
+                <title>{`Passes: ${e.count}`}</title>
+                <line
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                  stroke={strokeBase}
+                  strokeOpacity="0.5"
+                  strokeWidth={w}
+                />
+              </g>
+            );
+          })}
+
+          {nodes.map((n) => {
+            // Radius scaled by touches (clamped).
+            const r = Math.min(5.2, 1.8 + (n.touches / maxTouch) * 3.4);
+            return (
+              <g key={n.id}>
+                <title>{`Touches: ${n.touches}`}</title>
+                <circle cx={n.x} cy={n.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export default function MatchReport() {
   const location = useLocation();
   const urlParams = new URLSearchParams(location?.search || '');
@@ -391,6 +506,9 @@ export default function MatchReport() {
   const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise ['yes','no']
   const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
+
+  const [pnSide, setPnSide] = useState('home'); // home|away
+  const [pnMin, setPnMin] = useState(3);
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -572,6 +690,7 @@ export default function MatchReport() {
             <TabsList>
               <TabsTrigger value="summary">Summary</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
+              <TabsTrigger value="pass_network">Pass Network</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
             </TabsList>
           </div>
@@ -711,6 +830,57 @@ export default function MatchReport() {
               </Card>
 
               <PitchViz stats={filteredForViz} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={vizColorBy} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="pass_network">
+            <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Pass Network</div>
+                  <div className="text-xs text-slate-500">
+                    Built from completed passes (passer to intended recipient). Inspired by the Soccermatics pass network style.
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Team</Label>
+                    <Select value={pnSide} onValueChange={setPnSide}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="h-8 text-xs"
+                      value={pnMin}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        setPnMin(Math.max(1, Math.floor(v)));
+                      }}
+                    />
+                  </div>
+
+                  <div className="text-xs text-slate-500 pt-2">
+                    Tip: set a higher threshold (e.g. 4 to 8) to reduce clutter.
+                  </div>
+                </CardContent>
+              </Card>
+
+              <PassNetwork
+                passes={(Array.isArray(stats) ? stats : []).filter((s) => s?.stat_type === 'pass')}
+                side={pnSide}
+                minCount={pnMin}
+                teamColor={pnSide === 'away' ? awayTeam?.color : homeTeam?.color}
+              />
             </div>
           </TabsContent>
 
