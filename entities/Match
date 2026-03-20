@@ -49,6 +49,14 @@
     "direction_by_period": {
       "type": "string",
       "description": "JSON object mapping half->direction (left|right)"
+    },
+    "video_config": {
+      "type": "string",
+      "description": "Local-only JSON config for the video popout (source type, URL metadata)"
+    },
+    "video_half_start_time_s": {
+      "type": "string",
+      "description": "Local-only JSON mapping half->video start time (seconds) used to normalize stat timestamps"
     }
   },
   "required": [

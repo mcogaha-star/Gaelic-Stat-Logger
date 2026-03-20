@@ -18,6 +18,34 @@ function toTitleCase(s) {
     .join(' ');
 }
 
+function formatMMSS(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  const s = Math.floor(seconds);
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+function parseMMSS(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  // Accept MM:SS or M:SS
+  const m = t.match(/^(\d+)\s*:\s*([0-5]?\d)$/);
+  if (!m) return NaN;
+  const mm = Number(m[1]);
+  const ss = Number(m[2]);
+  if (!Number.isFinite(mm) || !Number.isFinite(ss)) return NaN;
+  return mm * 60 + ss;
+}
+
+function formatSignedMMSS(seconds) {
+  if (!Number.isFinite(seconds)) return '--:--';
+  const sign = seconds < 0 ? '-' : '';
+  const abs = Math.abs(seconds);
+  const base = formatMMSS(abs);
+  return base ? `${sign}${base}` : '--:--';
+}
+
 function selectionToValue(sel) {
   if (!sel) return NONE;
   if (sel.kind === 'none') return NONE;
@@ -325,6 +353,8 @@ export default function StatModalV4({
   isDrag,
   startCoords,
   endCoords,
+  currentVideoTimeS,
+  halfStartTimeS,
   homePlayers,
   awayPlayers,
   homeRoster,
@@ -344,6 +374,10 @@ export default function StatModalV4({
   const [touchedRoles, setTouchedRoles] = useState(() => ({})); // { [roleKey]: true } when user explicitly picks (including None)
   const [benchOpen, setBenchOpen] = useState(null); // 'home' | 'away' | null
   const [benchQuery, setBenchQuery] = useState('');
+
+  // v0.5: video timestamps
+  const [videoTimeText, setVideoTimeText] = useState('');
+  const [videoTimeTouched, setVideoTimeTouched] = useState(false);
 
   // Custom field selections store option.value (string). Empty string => unset.
   const [custom1, setCustom1] = useState('');
@@ -395,6 +429,15 @@ export default function StatModalV4({
   const [shotRecoveredBy, setShotRecoveredBy] = useState(NONE);
   const [shotBlockedBy, setShotBlockedBy] = useState(NONE);
   const [shotSavedBy, setShotSavedBy] = useState(NONE);
+
+  const parsedVideoTimeS = useMemo(() => parseMMSS(videoTimeText), [videoTimeText]);
+  const videoTimeInvalid = !!String(videoTimeText || '').trim() && !Number.isFinite(parsedVideoTimeS);
+  const normalizedVideoTimeS = useMemo(() => {
+    if (!Number.isFinite(parsedVideoTimeS)) return null;
+    const hs = Number(halfStartTimeS);
+    if (!Number.isFinite(hs)) return null;
+    return parsedVideoTimeS - hs;
+  }, [parsedVideoTimeS, halfStartTimeS]);
 
   // Defensive contact
   const [defType, setDefType] = useState('');
@@ -498,6 +541,8 @@ export default function StatModalV4({
     setCustom2('');
     setCustom3('');
     setTouchedRoles({});
+    setVideoTimeText('');
+    setVideoTimeTouched(false);
 
     // Shared foul section (if present).
     if (extra?.foul) {
@@ -604,6 +649,16 @@ export default function StatModalV4({
     markSel('shot_blocked_by', extra?.shot?.blocked_by);
     markSel('shot_saved_by', extra?.shot?.saved_by);
     setTouchedRoles(touched);
+
+    // Seed video time from the existing row (edit mode).
+    const ts = Number(initialStat?.time_s);
+    if (Number.isFinite(ts)) {
+      setVideoTimeText(formatMMSS(ts));
+      setVideoTimeTouched(true);
+    } else {
+      setVideoTimeText('');
+      setVideoTimeTouched(false);
+    }
   }, [open, initialStat?.id]);
 
   // Defaulting to last receiver on open.
@@ -622,6 +677,12 @@ export default function StatModalV4({
     setActiveRole(null);
     setTouchedRoles({});
     setShotOutcomeTouched(false);
+    setVideoTimeTouched(false);
+    if (Number.isFinite(Number(currentVideoTimeS))) {
+      setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
+    } else {
+      setVideoTimeText('');
+    }
   }, [open]); // intentionally only on open
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
@@ -997,6 +1058,7 @@ export default function StatModalV4({
     if (!startCoords) return false;
     if (isDrag && !endCoords) return false;
     if (!action) return false;
+    if (videoTimeInvalid) return false;
     // Minimal validation per action.
     if (action === 'shot') return !!shotOutcome && isRoleFilled('player', primaryPlayer);
     if (action === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
@@ -1178,6 +1240,8 @@ export default function StatModalV4({
       is_pass: isDrag,
       team_side: actingSide,
       counter_attack: !!counterAttack,
+      time_s: Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null,
+      normalized_time_s: Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null,
       primary_player: primary,
       extra,
     });
@@ -1503,6 +1567,43 @@ export default function StatModalV4({
           </div>
 
           <div className="pt-2 border-t border-slate-200">
+            <div className="space-y-1 pb-2">
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">
+                    Video Time (MM:SS)
+                  </Label>
+                  <Input
+                    value={videoTimeText}
+                    onChange={(e) => { setVideoTimeTouched(true); setVideoTimeText(e.target.value); }}
+                    placeholder="--:--"
+                    className="h-8 text-xs font-mono"
+                    inputMode="numeric"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  disabled={!Number.isFinite(Number(currentVideoTimeS))}
+                  onClick={() => {
+                    if (!Number.isFinite(Number(currentVideoTimeS))) return;
+                    setVideoTimeTouched(true);
+                    setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
+                  }}
+                  title={Number.isFinite(Number(currentVideoTimeS)) ? 'Set to current video time' : 'Open the video window to use current time'}
+                >
+                  Use Current
+                </Button>
+              </div>
+              <div className="text-[11px] text-slate-500 leading-tight">
+                Normalized: {Number.isFinite(normalizedVideoTimeS) ? formatSignedMMSS(normalizedVideoTimeS) : '—'}
+              </div>
+              {videoTimeInvalid && (
+                <div className="text-[11px] text-red-600 leading-tight">Invalid format. Use MM:SS.</div>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <CustomFieldInput label="Custom 1" config={customFields?.custom_1} value={custom1} onChange={setCustom1} />
               <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />

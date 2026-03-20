@@ -56,6 +56,7 @@ import Players from './pages/Players';
 import Privacy from './pages/Privacy';
 import Settings from './pages/Settings';
 import Teams from './pages/Teams';
+import Video from './pages/Video';
 
 export const PAGES = {
     "Home": Home,
@@ -67,6 +68,7 @@ export const PAGES = {
     "Privacy": Privacy,
     "Settings": Settings,
     "Teams": Teams,
+    "Video": Video,
 }
 
 export const pagesConfig = {

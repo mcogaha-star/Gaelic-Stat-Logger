@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, Repeat2, Undo2, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, Repeat2, Undo2, Users, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,17 @@ import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+
+const VIDEO_CHANNEL = 'gstl_video';
+
+function safeParseJSON(s, fallback) {
+    try {
+        const v = JSON.parse(s);
+        return v && typeof v === 'object' ? v : fallback;
+    } catch {
+        return fallback;
+    }
+}
 
 export default function MatchStats() {
     // With HashRouter, query params live in the hash segment, so use react-router's location.
@@ -115,6 +126,11 @@ export default function MatchStats() {
     const [subIn, setSubIn] = useState('');
     const [endPeriodPrompt, setEndPeriodPrompt] = useState({ open: false, nextHalf: null });
 
+    // v0.5: video timestamp support (local-only)
+    const [currentVideoTimeS, setCurrentVideoTimeS] = useState(null);
+    const [videoReady, setVideoReady] = useState(false);
+    const [videoPlaying, setVideoPlaying] = useState(false);
+
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
     const awayTeam = teams.find(t => t.id === match?.away_team_id);
@@ -132,6 +148,60 @@ export default function MatchStats() {
     const awayOnField = parseIds(match?.away_on_field);
     const homePlayers = homeTeam ? orderByOnField(allPlayers.filter(p => p.team_id === homeTeam.id), homeOnField) : [];
     const awayPlayers = awayTeam ? orderByOnField(allPlayers.filter(p => p.team_id === awayTeam.id), awayOnField) : [];
+
+    const halfStartByHalf = useMemo(() => {
+        return safeParseJSON(match?.video_half_start_time_s || '{}', {});
+    }, [match?.video_half_start_time_s]);
+
+    const halfStartTimeS = useMemo(() => {
+        const v = halfStartByHalf?.[half];
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }, [halfStartByHalf, half]);
+
+    useEffect(() => {
+        if (!matchId) return;
+        const ch = new BroadcastChannel(VIDEO_CHANNEL);
+        const onMsg = (e) => {
+            const msg = e?.data;
+            if (!msg || msg.matchId !== matchId) return;
+            if (msg.type === 'TIME_UPDATE') {
+                const t = Number(msg.time_s);
+                if (Number.isFinite(t)) setCurrentVideoTimeS(t);
+                setVideoPlaying(!!msg.playing);
+                setVideoReady(!!msg.ready);
+            }
+            if (msg.type === 'VIDEO_READY') {
+                setVideoReady(!!msg.ready);
+            }
+        };
+        ch.addEventListener('message', onMsg);
+        // Best-effort request (if a window is already open).
+        ch.postMessage({ matchId, type: 'REQUEST_TIME' });
+        return () => {
+            ch.removeEventListener('message', onMsg);
+            ch.close();
+        };
+    }, [matchId]);
+
+    const openVideoPopout = () => {
+        if (!matchId) return;
+        const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
+        window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
+    };
+
+    const setHalfStartFromVideo = async () => {
+        if (!match?.id) return;
+        if (!Number.isFinite(Number(currentVideoTimeS))) {
+            toast.error('Open video window first');
+            return;
+        }
+        const next = { ...(halfStartByHalf || {}) };
+        next[half] = Math.floor(Number(currentVideoTimeS));
+        await db.entities.Match.update(match.id, { video_half_start_time_s: JSON.stringify(next) });
+        queryClient.invalidateQueries({ queryKey: ['match', matchId] });
+        toast.success('Half start set');
+    };
 
     useEffect(() => {
         if (!match?.id) return;
@@ -217,6 +287,8 @@ export default function MatchStats() {
                     is_pass: !!updated.is_pass,
                     team_side: updated.team_side || 'unknown',
                     counter_attack: !!updated.counter_attack,
+                    time_s: updated.time_s ?? null,
+                    normalized_time_s: updated.normalized_time_s ?? null,
                     player_number: updated.player_number ?? null,
                     recipient_number: updated.recipient_number ?? null,
                     extra_data: updated.extra_data ?? null,
@@ -423,6 +495,8 @@ export default function MatchStats() {
                     is_pass: !!payload.is_pass,
                     team_side: payload?.team_side || editingStat.team_side || 'unknown',
                     counter_attack: !!payload.counter_attack,
+            time_s: payload.time_s ?? null,
+            normalized_time_s: payload.normalized_time_s ?? null,
                     player_name: primary?.kind === 'player' ? (primary.name || '') : null,
                     player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
                     recipient_name: recipientSel?.kind === 'player' ? (recipientSel.name || '') : null,
@@ -511,8 +585,8 @@ export default function MatchStats() {
             end_x_position: hasEnd ? end.x : null,
             end_y_position: hasEnd ? end.y : null,
 
-            time_s: null,
-            normalized_time_s: null,
+            time_s: payload.time_s ?? null,
+            normalized_time_s: payload.normalized_time_s ?? null,
 
             player_name: primary?.kind === 'player' ? (primary.name || '') : null,
             player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
@@ -700,6 +774,18 @@ export default function MatchStats() {
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    onClick={setHalfStartFromVideo}
+                                    title={videoReady ? 'Set the start time for this half from the current video time' : 'Open the video window to set half start'}
+                                    className="gap-2"
+                                >
+                                    <Clock className="w-4 h-4" />
+                                    Set Half Start
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
                                     onClick={() => flipDirectionForHalf(half)}
                                     title="Flip home attacking direction (affects new stats only)"
                                 >
@@ -741,6 +827,18 @@ export default function MatchStats() {
                                 >
                                     <Undo2 className="w-4 h-4" />
                                     Undo
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={openVideoPopout}
+                                    title="Open video window"
+                                    className="gap-2"
+                                >
+                                    <Video className="w-4 h-4" />
+                                    Video
                                 </Button>
                             </div>
                         </div>
@@ -786,6 +884,8 @@ export default function MatchStats() {
                 isDrag={isPassModal}
                 startCoords={clickCoords}
                 endCoords={passEndCoords}
+                currentVideoTimeS={currentVideoTimeS}
+                halfStartTimeS={halfStartTimeS}
                 homePlayers={homePlayers}
                 awayPlayers={awayPlayers}
                 homeRoster={homePlayers}
