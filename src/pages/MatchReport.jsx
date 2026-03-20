@@ -154,6 +154,56 @@ function collectPlayerIds(extra) {
 }
 
 function PitchViz({ stats, homeColor, awayColor, colorBy }) {
+  const defaultActionPalette = {
+    shot: '#111827',
+    kickout: '#0f766e',
+    pass: '#2563eb',
+    carry: '#7c3aed',
+    turnover: '#dc2626',
+    foul: '#d97706',
+    throw_in: '#0891b2',
+    defensive_contact: '#334155',
+  };
+
+  const defaultOutcomePalette = {
+    // "positive" outcomes (blue by default; not green so it doesn't blend with pitch)
+    completed: '#2563eb',
+    clean: '#2563eb',
+    point: '#2563eb',
+    '2_point': '#2563eb',
+    goal: '#2563eb',
+
+    // "negative" outcomes
+    turnover: '#dc2626',
+    foul: '#dc2626',
+    sideline_against: '#dc2626',
+
+    // shot misc
+    wide: '#334155',
+    short: '#334155',
+    post: '#334155',
+    saved: '#334155',
+    blocked: '#334155',
+  };
+
+  const loadPalette = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const v = JSON.parse(raw);
+      return v && typeof v === 'object' ? { ...fallback, ...v } : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const [actionPalette, setActionPalette] = React.useState(() => loadPalette('gstl_viz_action_palette_v1', defaultActionPalette));
+  const [outcomePalette, setOutcomePalette] = React.useState(() => loadPalette('gstl_viz_outcome_palette_v1', defaultOutcomePalette));
+
+  const persist = (key, obj) => {
+    try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
+  };
+
   const tooltipText = (s, extra) => {
     const lines = [];
     const team = s.team_side === 'away' ? 'Away' : 'Home';
@@ -172,25 +222,12 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
 
   const getColor = (s, extra) => {
     if (colorBy === 'action') {
-      // Deterministic palette by stat type.
-      const map = {
-        shot: '#111827',
-        kickout: '#0f766e',
-        pass: '#2563eb',
-        carry: '#7c3aed',
-        turnover: '#dc2626',
-        foul: '#d97706',
-        throw_in: '#0891b2',
-        defensive_contact: '#334155',
-      };
-      return map[s.stat_type] || '#111827';
+      return actionPalette?.[s.stat_type] || defaultActionPalette[s.stat_type] || '#111827';
     }
     if (colorBy === 'outcome') {
       const o = deriveOutcome(s, extra);
       if (!o) return '#111827';
-      if (o === 'completed' || o === 'clean' || o === 'point' || o === '2_point' || o === 'goal') return '#16a34a';
-      if (o === 'turnover' || o === 'foul' || o === 'sideline_against') return '#dc2626';
-      return '#111827';
+      return outcomePalette?.[o] || defaultOutcomePalette[o] || '#111827';
     }
     // default: team
     return s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#22c55e');
@@ -198,6 +235,64 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
 
   return (
     <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {(colorBy === 'action' || colorBy === 'outcome') && (
+        <div className="border-b bg-slate-50 px-3 py-2">
+          <div className="text-xs font-semibold text-slate-700">Colors</div>
+          <div className="pt-2 grid grid-cols-2 gap-2">
+            {(colorBy === 'action'
+              ? ['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in', 'defensive_contact'].map((k) => ({ key: k, label: toTitleCase(k) }))
+              : Array.from(new Set(stats.map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
+                .sort((a, b) => String(a).localeCompare(String(b)))
+                .map((k) => ({ key: k, label: toTitleCase(k) }))
+            ).map((item) => {
+              const key = item.key;
+              const value = colorBy === 'action' ? (actionPalette?.[key] || defaultActionPalette[key] || '#111827') : (outcomePalette?.[key] || defaultOutcomePalette[key] || '#111827');
+              return (
+                <div key={key} className="flex items-center justify-between gap-2 rounded-md bg-white border border-slate-200 px-2 py-1">
+                  <div className="text-xs text-slate-700 truncate">{item.label}</div>
+                  <input
+                    type="color"
+                    value={value}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (colorBy === 'action') {
+                        const updated = { ...(actionPalette || {}), [key]: next };
+                        setActionPalette(updated);
+                        persist('gstl_viz_action_palette_v1', updated);
+                      } else {
+                        const updated = { ...(outcomePalette || {}), [key]: next };
+                        setOutcomePalette(updated);
+                        persist('gstl_viz_outcome_palette_v1', updated);
+                      }
+                    }}
+                    className="h-6 w-8 border-0 bg-transparent p-0"
+                    title="Pick color"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                if (colorBy === 'action') {
+                  setActionPalette(defaultActionPalette);
+                  persist('gstl_viz_action_palette_v1', defaultActionPalette);
+                } else {
+                  setOutcomePalette(defaultOutcomePalette);
+                  persist('gstl_viz_outcome_palette_v1', defaultOutcomePalette);
+                }
+              }}
+            >
+              Reset Colors
+            </Button>
+          </div>
+        </div>
+      )}
       <div
         className="relative w-full"
         style={{
@@ -482,67 +577,69 @@ export default function MatchReport() {
           </div>
 
           <TabsContent value="summary">
-            <Card>
-              <CardContent className="p-4">
-                <div className="font-semibold text-slate-900 mb-3">Summary (Per Team)</div>
+            <div className="max-w-5xl mx-auto">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="font-semibold text-slate-900 mb-3 text-center">Summary (Per Team)</div>
 
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>
-                        <span className="inline-flex items-center gap-2">
-                          <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
-                          {homeTeam?.name || 'Home'}
-                        </span>
-                      </TableHead>
-                      <TableHead className="text-center">Metric</TableHead>
-                      <TableHead>
-                        <span className="inline-flex items-center gap-2">
-                          <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
-                          {awayTeam?.name || 'Away'}
-                        </span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(() => {
-                      const homePts = summary.home.points1 + summary.home.points2 * 2;
-                      const awayPts = summary.away.points1 + summary.away.points2 * 2;
-                      return (
-                        <TableRow key="score">
-                          <TableCell className="font-semibold">{`${summary.home.goals}:${homePts}`}</TableCell>
-                          <TableCell className="font-medium text-center">Score</TableCell>
-                          <TableCell className="font-semibold">{`${summary.away.goals}:${awayPts}`}</TableCell>
-                        </TableRow>
-                      );
-                    })()}
-                    {[
-                      ['Shots', summary.home.shots, summary.away.shots],
-                      ['Goals', summary.home.goals, summary.away.goals],
-                      ['1 Pointers', summary.home.points1, summary.away.points1],
-                      ['2 Pointers', summary.home.points2, summary.away.points2],
-                      ['Total Points', summary.home.totalPoints, summary.away.totalPoints],
-                      ['Passes', summary.home.passes, summary.away.passes],
-                      ['Turnovers (Lost)', summary.home.turnovers, summary.away.turnovers],
-                      ['Kickouts Taken', summary.home.kickoutsTaken, summary.away.kickoutsTaken],
-                      ['Kickouts Won', summary.home.kickoutsWon, summary.away.kickoutsWon],
-                      ['Carries', summary.home.carries, summary.away.carries],
-                      ['Take Ons Attempted', summary.home.takeOnsAttempted, summary.away.takeOnsAttempted],
-                      ['Take Ons Completed', summary.home.takeOnsCompleted, summary.away.takeOnsCompleted],
-                      ['Defensive Actions', summary.home.defensiveActions, summary.away.defensiveActions],
-                      ['Possessions', summary.home.possessions, summary.away.possessions],
-                      ['Attacks (Entered Opp 45)', summary.home.attacks, summary.away.attacks],
-                    ].map(([label, h, a]) => (
-                      <TableRow key={label}>
-                        <TableCell>{h}</TableCell>
-                        <TableCell className="font-medium text-center">{label}</TableCell>
-                        <TableCell>{a}</TableCell>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-center">
+                          <span className="inline-flex items-center justify-center gap-2 w-full">
+                            <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
+                            {homeTeam?.name || 'Home'}
+                          </span>
+                        </TableHead>
+                        <TableHead className="text-center">Metric</TableHead>
+                        <TableHead className="text-center">
+                          <span className="inline-flex items-center justify-center gap-2 w-full">
+                            <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
+                            {awayTeam?.name || 'Away'}
+                          </span>
+                        </TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        const homePts = summary.home.points1 + summary.home.points2 * 2;
+                        const awayPts = summary.away.points1 + summary.away.points2 * 2;
+                        return (
+                          <TableRow key="score">
+                            <TableCell className="font-semibold text-center">{`${summary.home.goals}:${homePts}`}</TableCell>
+                            <TableCell className="font-medium text-center">Score</TableCell>
+                            <TableCell className="font-semibold text-center">{`${summary.away.goals}:${awayPts}`}</TableCell>
+                          </TableRow>
+                        );
+                      })()}
+                      {[
+                        ['Shots', summary.home.shots, summary.away.shots],
+                        ['Goals', summary.home.goals, summary.away.goals],
+                        ['1 Pointers', summary.home.points1, summary.away.points1],
+                        ['2 Pointers', summary.home.points2, summary.away.points2],
+                        ['Total Points', summary.home.totalPoints, summary.away.totalPoints],
+                        ['Passes', summary.home.passes, summary.away.passes],
+                        ['Turnovers (Lost)', summary.home.turnovers, summary.away.turnovers],
+                        ['Kickouts Taken', summary.home.kickoutsTaken, summary.away.kickoutsTaken],
+                        ['Kickouts Won', summary.home.kickoutsWon, summary.away.kickoutsWon],
+                        ['Carries', summary.home.carries, summary.away.carries],
+                        ['Take Ons Attempted', summary.home.takeOnsAttempted, summary.away.takeOnsAttempted],
+                        ['Take Ons Completed', summary.home.takeOnsCompleted, summary.away.takeOnsCompleted],
+                        ['Defensive Actions', summary.home.defensiveActions, summary.away.defensiveActions],
+                        ['Possessions', summary.home.possessions, summary.away.possessions],
+                        ['Attacks (Entered Opp 45)', summary.home.attacks, summary.away.attacks],
+                      ].map(([label, h, a]) => (
+                        <TableRow key={label}>
+                          <TableCell className="text-center">{h}</TableCell>
+                          <TableCell className="font-medium text-center">{label}</TableCell>
+                          <TableCell className="text-center">{a}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="visualiser">
