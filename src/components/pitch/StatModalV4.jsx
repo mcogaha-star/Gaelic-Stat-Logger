@@ -46,6 +46,55 @@ function formatSignedMMSS(seconds) {
   return base ? `${sign}${base}` : '--:--';
 }
 
+function VideoTimeBlock({
+  currentVideoTimeS,
+  videoTimeText,
+  setVideoTimeText,
+  setVideoTimeTouched,
+  normalizedVideoTimeS,
+  videoTimeInvalid,
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-end gap-2">
+        <div className="flex-1 space-y-1">
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">
+            Video Time (MM:SS)
+          </Label>
+          <Input
+            value={videoTimeText}
+            onChange={(e) => { setVideoTimeTouched(true); setVideoTimeText(e.target.value); }}
+            placeholder="--:--"
+            className="h-8 text-xs font-mono"
+            inputMode="numeric"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          disabled={!Number.isFinite(Number(currentVideoTimeS))}
+          onClick={() => {
+            if (!Number.isFinite(Number(currentVideoTimeS))) return;
+            setVideoTimeTouched(true);
+            setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
+          }}
+          title={Number.isFinite(Number(currentVideoTimeS)) ? 'Set to current video time' : 'Open the video window to use current time'}
+        >
+          Use Current
+        </Button>
+      </div>
+      <div className="text-[11px] text-slate-500 leading-tight">
+        Normalized: {Number.isFinite(normalizedVideoTimeS) ? formatSignedMMSS(normalizedVideoTimeS) : '--'}
+      </div>
+      {videoTimeInvalid && (
+        <div className="text-[11px] text-red-600 leading-tight">Invalid format. Use MM:SS.</div>
+      )}
+    </div>
+  );
+}
+
 function selectionToValue(sel) {
   if (!sel) return NONE;
   if (sel.kind === 'none') return NONE;
@@ -1345,6 +1394,15 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </>
               )}
 
@@ -1363,12 +1421,47 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </>
               )}
 
-              {action === 'foul' && !isDrag && foulFieldsBlock()}
+              {action === 'foul' && !isDrag && (
+                <>
+                  {foulFieldsBlock()}
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
+                </>
+              )}
 
-              {action === 'turnover' && !isDrag && turnoverFieldsBlock()}
+              {action === 'turnover' && !isDrag && (
+                <>
+                  {turnoverFieldsBlock()}
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
+                </>
+              )}
 
               {action === 'throw_in' && !isDrag && (
                 <div className="space-y-2">
@@ -1379,6 +1472,15 @@ export default function StatModalV4({
                       {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </div>
               )}
 
@@ -1394,6 +1496,15 @@ export default function StatModalV4({
                       { value: 'block', label: 'Block' },
                     ]}
                   />
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </>
               )}
 
@@ -1407,8 +1518,6 @@ export default function StatModalV4({
                     </>
                   )}
                   <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
-                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>
@@ -1420,6 +1529,16 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
+                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
+                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </>
               )}
 
@@ -1460,6 +1579,14 @@ export default function StatModalV4({
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                   {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
                   <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <VideoTimeBlock
+                    currentVideoTimeS={currentVideoTimeS}
+                    videoTimeText={videoTimeText}
+                    setVideoTimeText={setVideoTimeText}
+                    setVideoTimeTouched={setVideoTimeTouched}
+                    normalizedVideoTimeS={normalizedVideoTimeS}
+                    videoTimeInvalid={videoTimeInvalid}
+                  />
                 </>
               )}
             </div>
@@ -1567,54 +1694,11 @@ export default function StatModalV4({
           </div>
 
           <div className="pt-2 border-t border-slate-200">
-            <div className="space-y-1 pb-2">
-              <div className="flex items-end gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">
-                    Video Time (MM:SS)
-                  </Label>
-                  <Input
-                    value={videoTimeText}
-                    onChange={(e) => { setVideoTimeTouched(true); setVideoTimeText(e.target.value); }}
-                    placeholder="--:--"
-                    className="h-8 text-xs font-mono"
-                    inputMode="numeric"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2 text-xs"
-                  disabled={!Number.isFinite(Number(currentVideoTimeS))}
-                  onClick={() => {
-                    if (!Number.isFinite(Number(currentVideoTimeS))) return;
-                    setVideoTimeTouched(true);
-                    setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
-                  }}
-                  title={Number.isFinite(Number(currentVideoTimeS)) ? 'Set to current video time' : 'Open the video window to use current time'}
-                >
-                  Use Current
-                </Button>
-              </div>
-              <div className="text-[11px] text-slate-500 leading-tight">
-                Normalized: {Number.isFinite(normalizedVideoTimeS) ? formatSignedMMSS(normalizedVideoTimeS) : '—'}
-              </div>
-              {videoTimeInvalid && (
-                <div className="text-[11px] text-red-600 leading-tight">Invalid format. Use MM:SS.</div>
-              )}
-            </div>
             <div className="grid grid-cols-3 gap-2">
               <CustomFieldInput label="Custom 1" config={customFields?.custom_1} value={custom1} onChange={setCustom1} />
               <CustomFieldInput label="Custom 2" config={customFields?.custom_2} value={custom2} onChange={setCustom2} />
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
-            {/* Counter attack lives within pass/carry forms; keep bottom slot for other actions only. */}
-            {(action !== 'pass' && action !== 'carry') && (
-              <div className="pt-2">
-                <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
-              </div>
-            )}
           </div>
             </div>
 

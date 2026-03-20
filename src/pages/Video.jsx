@@ -85,6 +85,23 @@ export default function Video() {
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [timeS, setTimeS] = useState(0);
+  const [pipActive, setPipActive] = useState(false);
+
+  const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+
+  const enterPiP = async () => {
+    try {
+      const v = localVideoRef.current;
+      if (!v) return;
+      if (!pipSupported || !v.requestPictureInPicture) {
+        toast.error('Picture-in-Picture not supported in this browser');
+        return;
+      }
+      await v.requestPictureInPicture();
+    } catch (e) {
+      toast.error('Could not start Picture-in-Picture');
+    }
+  };
 
   // Load/save local-only config on the match record.
   useEffect(() => {
@@ -177,12 +194,19 @@ export default function Video() {
     v.addEventListener('pause', onPause);
     v.addEventListener('seeking', onTime);
     v.addEventListener('seeked', onTime);
+
+    const onEnterPiP = () => setPipActive(true);
+    const onLeavePiP = () => setPipActive(false);
+    v.addEventListener('enterpictureinpicture', onEnterPiP);
+    v.addEventListener('leavepictureinpicture', onLeavePiP);
     return () => {
       v.removeEventListener('timeupdate', onTime);
       v.removeEventListener('play', onPlay);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('seeking', onTime);
       v.removeEventListener('seeked', onTime);
+      v.removeEventListener('enterpictureinpicture', onEnterPiP);
+      v.removeEventListener('leavepictureinpicture', onLeavePiP);
     };
   }, [sourceType]);
 
@@ -255,6 +279,19 @@ export default function Video() {
       </div>
       <div className="flex items-center gap-2">
         <div className="font-mono text-sm">{formatTimeMMSS(timeS)}</div>
+        {sourceType === 'local' && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={!pipSupported || !localVideoRef.current}
+            onClick={enterPiP}
+            title={pipSupported ? 'Keeps the video above the logger while you click around' : 'Picture-in-Picture not supported'}
+          >
+            {pipActive ? 'PiP On' : 'PiP'}
+          </Button>
+        )}
         <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => window.close()}>
           Close
         </Button>
@@ -303,6 +340,9 @@ export default function Video() {
                 placeholder="https://www.youtube.com/watch?v=..."
               />
               <div className="text-xs text-slate-500">Tip: press play, then return to the match window to log stats.</div>
+              <div className="text-xs text-slate-500">
+                Note: browsers cannot keep a normal popup "always on top". If your browser/OS supports Picture-in-Picture for YouTube, use that to keep the video visible.
+              </div>
             </div>
             <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
               <div className="aspect-video bg-black">
@@ -336,6 +376,9 @@ export default function Video() {
                 }}
               />
               {fileName ? <div className="text-xs text-slate-500">Loaded: {fileName}</div> : <div className="text-xs text-slate-500">Select a file (local-only).</div>}
+              <div className="text-xs text-slate-500">
+                Tip: use the <span className="font-semibold">PiP</span> button in the header to keep the video above the logger while you click the pitch.
+              </div>
             </div>
             <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
               <video ref={localVideoRef} className="w-full" controls />
