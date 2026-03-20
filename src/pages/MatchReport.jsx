@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { createPageUrl } from '@/utils';
 import pitchImg from '@/assets/pitch.png';
 
@@ -65,6 +67,73 @@ function deriveOutcome(stat, extra) {
   return '';
 }
 
+function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '' }) {
+  const valuesSet = useMemo(() => new Set(Array.isArray(values) ? values : []), [values]);
+
+  const toggle = (v) => {
+    const next = new Set(valuesSet);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onChange(Array.from(next));
+  };
+
+  const summaryText = (() => {
+    if (!valuesSet.size) return placeholder;
+    if (valuesSet.size === 1) {
+      const only = Array.from(valuesSet)[0];
+      const match = options.find((o) => String(o.value) === String(only));
+      return match?.label || String(only);
+    }
+    return `${valuesSet.size} Selected`;
+  })();
+
+  return (
+    <div className={'space-y-1 ' + className}>
+      <Label className="text-xs text-slate-600">{label}</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between text-xs">
+            <span className="truncate">{summaryText}</span>
+            <span className="text-slate-400">▾</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 p-2">
+          <div className="max-h-72 overflow-y-auto space-y-1">
+            {options.map((opt) => {
+              const checked = valuesSet.has(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className="w-full flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50 text-left"
+                  onClick={() => toggle(opt.value)}
+                >
+                  <Checkbox checked={checked} onCheckedChange={() => toggle(opt.value)} />
+                  <div className="text-xs text-slate-900 truncate">{opt.label}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="pt-2 flex items-center justify-between gap-2">
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange([])}>
+              Clear
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => onChange(options.map((o) => o.value))}
+            >
+              Select All
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function statHasEnteredOpp45(stat) {
   // Normalized coords are stored so that the acting team is always L->R.
   const sx = Number(stat?.x_position);
@@ -85,6 +154,22 @@ function collectPlayerIds(extra) {
 }
 
 function PitchViz({ stats, homeColor, awayColor, colorBy }) {
+  const tooltipText = (s, extra) => {
+    const lines = [];
+    const team = s.team_side === 'away' ? 'Away' : 'Home';
+    lines.push(`Team: ${team}`);
+    lines.push(`Half: ${toTitleCase(s.half)}`);
+    lines.push(`Action: ${toTitleCase(s.stat_type)}`);
+    const out = deriveOutcome(s, extra);
+    if (out) lines.push(`Outcome: ${toTitleCase(out)}`);
+    if (s.player_number) lines.push(`Player: #${s.player_number}`);
+    if (Number.isFinite(Number(s.time_s))) lines.push(`Time: ${formatMMSS(Number(s.time_s))}`);
+    if (Number.isFinite(Number(s.normalized_time_s))) lines.push(`Norm: ${formatMMSS(Number(s.normalized_time_s))}`);
+    if (Number.isFinite(Number(s.play_id))) lines.push(`Play: ${Number(s.play_id)}`);
+    if (Number.isFinite(Number(s.possession_id))) lines.push(`Poss: ${Number(s.possession_id)}`);
+    return lines.join('\n');
+  };
+
   const getColor = (s, extra) => {
     if (colorBy === 'action') {
       // Deterministic palette by stat type.
@@ -126,6 +211,7 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
           {stats.map((s) => {
             const extra = safeParseJSON(s.extra_data || '{}', {});
             const col = getColor(s, extra);
+            const tip = tooltipText(s, extra);
             const x1 = Number(s.x_position);
             const y1 = Number(s.y_position);
             const x2 = Number(s.end_x_position);
@@ -138,13 +224,19 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
             if ((s.stat_type === 'pass' || s.stat_type === 'carry') && hasEnd) {
               return (
                 <g key={s.id}>
+                  <title>{tip}</title>
                   <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={col} strokeWidth="0.7" opacity="0.95" />
                   <circle cx={x1} cy={y1} r="1.25" fill={col} />
                   <circle cx={x2} cy={y2} r="1.25" fill={col} />
                 </g>
               );
             }
-            return <circle key={s.id} cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />;
+            return (
+              <g key={s.id}>
+                <title>{tip}</title>
+                <circle cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />
+              </g>
+            );
           })}
         </svg>
       </div>
@@ -199,10 +291,10 @@ export default function MatchReport() {
   });
 
   const [vizTeam, setVizTeam] = useState('both'); // home|away|both
-  const [vizAction, setVizAction] = useState('all');
-  const [vizHalf, setVizHalf] = useState('all');
-  const [vizCounter, setVizCounter] = useState('any'); // any|yes|no
-  const [vizPlayerId, setVizPlayerId] = useState('all');
+  const [vizActions, setVizActions] = useState([]); // [] means all
+  const [vizHalves, setVizHalves] = useState([]); // [] means all
+  const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise ['yes','no']
+  const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
 
   const playerOptions = useMemo(() => {
@@ -222,17 +314,22 @@ export default function MatchReport() {
     return list.filter((s) => {
       if (!s) return false;
       if (vizTeam !== 'both' && s.team_side !== vizTeam) return false;
-      if (vizAction !== 'all' && s.stat_type !== vizAction) return false;
-      if (vizHalf !== 'all' && s.half !== vizHalf) return false;
-      if (vizCounter !== 'any' && !!s.counter_attack !== (vizCounter === 'yes')) return false;
-      if (vizPlayerId !== 'all') {
+      if (vizActions.length && !vizActions.includes(s.stat_type)) return false;
+      if (vizHalves.length && !vizHalves.includes(s.half)) return false;
+      if (vizCounters.length) {
+        const isYes = !!s.counter_attack;
+        if (isYes && !vizCounters.includes('yes')) return false;
+        if (!isYes && !vizCounters.includes('no')) return false;
+      }
+      if (vizPlayerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const ids = collectPlayerIds(extra);
-        if (!ids.has(vizPlayerId)) return false;
+        const any = vizPlayerIds.some((id) => ids.has(id));
+        if (!any) return false;
       }
       return true;
     });
-  }, [stats, vizTeam, vizAction, vizHalf, vizCounter, vizPlayerId]);
+  }, [stats, vizTeam, vizActions, vizHalves, vizCounters, vizPlayerIds]);
 
   const summary = useMemo(() => {
     const empty = {
@@ -387,21 +484,18 @@ export default function MatchReport() {
           <TabsContent value="summary">
             <Card>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="font-semibold text-slate-900">Summary (Per Team)</div>
-                  <div className="text-xs text-slate-500">{(stats || []).length} stats</div>
-                </div>
+                <div className="font-semibold text-slate-900 mb-3">Summary (Per Team)</div>
 
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Metric</TableHead>
                       <TableHead>
                         <span className="inline-flex items-center gap-2">
                           <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
                           {homeTeam?.name || 'Home'}
                         </span>
                       </TableHead>
+                      <TableHead className="text-center">Metric</TableHead>
                       <TableHead>
                         <span className="inline-flex items-center gap-2">
                           <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
@@ -411,12 +505,23 @@ export default function MatchReport() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {(() => {
+                      const homePts = summary.home.points1 + summary.home.points2 * 2;
+                      const awayPts = summary.away.points1 + summary.away.points2 * 2;
+                      return (
+                        <TableRow key="score">
+                          <TableCell className="font-semibold">{`${summary.home.goals}:${homePts}`}</TableCell>
+                          <TableCell className="font-medium text-center">Score</TableCell>
+                          <TableCell className="font-semibold">{`${summary.away.goals}:${awayPts}`}</TableCell>
+                        </TableRow>
+                      );
+                    })()}
                     {[
                       ['Shots', summary.home.shots, summary.away.shots],
                       ['Goals', summary.home.goals, summary.away.goals],
                       ['1 Pointers', summary.home.points1, summary.away.points1],
                       ['2 Pointers', summary.home.points2, summary.away.points2],
-                      ['Total Points (G=3)', summary.home.totalPoints, summary.away.totalPoints],
+                      ['Total Points', summary.home.totalPoints, summary.away.totalPoints],
                       ['Passes', summary.home.passes, summary.away.passes],
                       ['Turnovers (Lost)', summary.home.turnovers, summary.away.turnovers],
                       ['Kickouts Taken', summary.home.kickoutsTaken, summary.away.kickoutsTaken],
@@ -429,8 +534,8 @@ export default function MatchReport() {
                       ['Attacks (Entered Opp 45)', summary.home.attacks, summary.away.attacks],
                     ].map(([label, h, a]) => (
                       <TableRow key={label}>
-                        <TableCell className="font-medium">{label}</TableCell>
                         <TableCell>{h}</TableCell>
+                        <TableCell className="font-medium text-center">{label}</TableCell>
                         <TableCell>{a}</TableCell>
                       </TableRow>
                     ))}
@@ -458,58 +563,37 @@ export default function MatchReport() {
                     </Select>
                   </div>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Action</Label>
-                    <Select value={vizAction} onValueChange={setVizAction}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        {['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => (
-                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Action"
+                    values={vizActions}
+                    onChange={setVizActions}
+                    options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                  />
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Half</Label>
-                    <Select value={vizHalf} onValueChange={setVizHalf}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        {['first', 'second', 'et_first', 'et_second'].map((v) => (
-                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Half"
+                    values={vizHalves}
+                    onChange={setVizHalves}
+                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                  />
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Counter Attack</Label>
-                    <Select value={vizCounter} onValueChange={setVizCounter}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="any">Any</SelectItem>
-                        <SelectItem value="yes">Yes</SelectItem>
-                        <SelectItem value="no">No</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Counter Attack"
+                    placeholder="Any"
+                    values={vizCounters}
+                    onChange={setVizCounters}
+                    options={[
+                      { value: 'yes', label: 'Yes' },
+                      { value: 'no', label: 'No' },
+                    ]}
+                  />
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Player</Label>
-                    <Select value={vizPlayerId} onValueChange={setVizPlayerId}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        <SelectItem value="all">All</SelectItem>
-                        {playerOptions.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Player"
+                    values={vizPlayerIds}
+                    onChange={setVizPlayerIds}
+                    options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+                  />
 
                   <div className="space-y-1">
                     <Label className="text-xs text-slate-600">Color By</Label>
@@ -550,9 +634,9 @@ export default function MatchReport() {
 
 function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
   const [team, setTeam] = useState('both');
-  const [action, setAction] = useState('all');
-  const [half, setHalf] = useState('all');
-  const [counter, setCounter] = useState('any');
+  const [actions, setActions] = useState([]); // [] means all
+  const [halves, setHalves] = useState([]); // [] means all
+  const [counters, setCounters] = useState([]); // [] means any
   const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome
 
   const playerOptions = useMemo(() => {
@@ -572,12 +656,16 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
     return list.filter((s) => {
       if (!s) return false;
       if (team !== 'both' && s.team_side !== team) return false;
-      if (action !== 'all' && s.stat_type !== action) return false;
-      if (half !== 'all' && s.half !== half) return false;
-      if (counter !== 'any' && !!s.counter_attack !== (counter === 'yes')) return false;
+      if (actions.length && !actions.includes(s.stat_type)) return false;
+      if (halves.length && !halves.includes(s.half)) return false;
+      if (counters.length) {
+        const isYes = !!s.counter_attack;
+        if (isYes && !counters.includes('yes')) return false;
+        if (!isYes && !counters.includes('no')) return false;
+      }
       return true;
     });
-  }, [stats, team, action, half, counter]);
+  }, [stats, team, actions, halves, counters]);
 
   const pivot = useMemo(() => {
     if (groupBy === 'none') return null;
@@ -630,41 +718,28 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Action</Label>
-              <Select value={action} onValueChange={setAction}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => (
-                    <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Half</Label>
-              <Select value={half} onValueChange={setHalf}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {['first', 'second', 'et_first', 'et_second'].map((v) => (
-                    <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Counter Attack</Label>
-              <Select value={counter} onValueChange={setCounter}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="yes">Yes</SelectItem>
-                  <SelectItem value="no">No</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <MultiSelect
+              label="Action"
+              values={actions}
+              onChange={setActions}
+              options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+            />
+            <MultiSelect
+              label="Half"
+              values={halves}
+              onChange={setHalves}
+              options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+            />
+            <MultiSelect
+              label="Counter Attack"
+              placeholder="Any"
+              values={counters}
+              onChange={setCounters}
+              options={[
+                { value: 'yes', label: 'Yes' },
+                { value: 'no', label: 'No' },
+              ]}
+            />
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Group By</Label>
               <Select value={groupBy} onValueChange={setGroupBy}>
