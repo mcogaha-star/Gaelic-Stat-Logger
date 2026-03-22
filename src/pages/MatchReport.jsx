@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createPageUrl } from '@/utils';
 import pitchImg from '@/assets/pitch.png';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
@@ -1143,8 +1144,9 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
   const [halves, setHalves] = useState([]); // [] means all
   const [counters, setCounters] = useState([]); // [] means any
   const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome
-  const [previewTitle, setPreviewTitle] = useState('');
-  const [previewStats, setPreviewStats] = useState([]);
+  const [vizOpen, setVizOpen] = useState(false);
+  const [vizTitle, setVizTitle] = useState('');
+  const [vizStats, setVizStats] = useState([]);
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -1286,39 +1288,22 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-semibold text-slate-900">Preview</div>
-            <div className="flex items-center gap-2">
-              {previewTitle ? <div className="text-xs text-slate-500 truncate max-w-[40ch]">{previewTitle}</div> : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                disabled={!previewStats?.length}
-                onClick={() => { setPreviewStats([]); setPreviewTitle(''); }}
-              >
-                Clear
-              </Button>
-            </div>
-          </div>
-          {!previewStats?.length ? (
-            <div className="text-xs text-slate-500">
-              Click a row (or a pivot group) to visualise it on the pitch.
-            </div>
-          ) : (
+      <Dialog open={vizOpen} onOpenChange={setVizOpen}>
+        <DialogContent className="sm:max-w-4xl p-4">
+          <DialogHeader>
+            <DialogTitle className="text-base">{vizTitle || 'Visualise'}</DialogTitle>
+          </DialogHeader>
+          <div className="pt-2">
             <PitchViz
-              stats={previewStats}
+              stats={vizStats}
               homeColor={homeTeam?.color}
               awayColor={awayTeam?.color}
               colorBy="team"
               showColorControls={false}
             />
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {pivot ? (
         <Card>
@@ -1339,8 +1324,9 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                     className="cursor-pointer"
                     onClick={() => {
                       const groupStats = filtered.filter((s) => keyForGroup(s) === r.key);
-                      setPreviewStats(groupStats);
-                      setPreviewTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                      setVizStats(groupStats);
+                      setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                      setVizOpen(true);
                     }}
                   >
                     <TableCell className="font-medium">{toTitleCase(r.key)}</TableCell>
@@ -1368,6 +1354,7 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                   <TableHead>Outcome</TableHead>
                   <TableHead>Player</TableHead>
                   <TableHead>Time</TableHead>
+                  <TableHead className="w-[90px]"> </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1376,11 +1363,6 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                   return (
                     <TableRow
                       key={s.id}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setPreviewStats([s]);
-                        setPreviewTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
-                      }}
                     >
                       <TableCell>{toTitleCase(s.half)}</TableCell>
                       <TableCell>{s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
@@ -1389,6 +1371,21 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                       <TableCell>{s.player_number ? `#${s.player_number}` : ''}</TableCell>
                       <TableCell className="font-mono text-xs">
                         {Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '--:--'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => {
+                            setVizStats([s]);
+                            setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+                            setVizOpen(true);
+                          }}
+                        >
+                          Visualise
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
