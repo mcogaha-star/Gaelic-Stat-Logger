@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3 } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -731,7 +731,16 @@ export default function MatchReport() {
 
     const allHaveTime = scoring.every((e) => Number.isFinite(Number(e.s.time_s)));
     const mode = allHaveTime ? 'time' : 'play';
-    const t0 = Number.isFinite(Number(halfAnchors?.first)) ? Number(halfAnchors.first) : 0;
+    // When the user filters to a specific half, use that half's anchor so the chart "starts at 00:00".
+    // In "All Halves" mode, we anchor from the first-half start.
+    const preferAnchorKey = overviewHalf === 'second' ? 'second' : 'first';
+    const t0 = (() => {
+      const v = Number(halfAnchors?.[preferAnchorKey]);
+      if (Number.isFinite(v)) return v;
+      const v1 = Number(halfAnchors?.first);
+      if (Number.isFinite(v1)) return v1;
+      return 0;
+    })();
 
     const getX = (e) => {
       if (mode === 'time') return Math.max(0, Number(e.s.time_s) - t0);
@@ -784,13 +793,14 @@ export default function MatchReport() {
 
     const htX = (() => {
       if (mode !== 'time') return null;
+      if (overviewHalf !== 'all') return null;
       const second = Number(halfAnchors?.second);
       if (!Number.isFinite(second)) return null;
       return Math.max(0, second - t0);
     })();
 
     return { mode, points, htX };
-  }, [overviewStats, halfAnchors]);
+  }, [overviewStats, halfAnchors, overviewHalf]);
 
   if (!matchId) {
     return (
@@ -943,77 +953,78 @@ export default function MatchReport() {
                     )}
                   </div>
 
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-center">
-                          <span className="inline-flex items-center justify-center gap-2 w-full">
-                            <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
-                            {homeTeam?.name || 'Home'}
-                          </span>
-                        </TableHead>
-                        <TableHead className="text-center">Metric</TableHead>
-                        <TableHead className="text-center">
-                          <span className="inline-flex items-center justify-center gap-2 w-full">
-                            <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
-                            {awayTeam?.name || 'Away'}
-                          </span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(() => {
-                        const homePts = summary.home.points1 + summary.home.points2 * 2;
-                        const awayPts = summary.away.points1 + summary.away.points2 * 2;
-                        return (
-                          <TableRow key="score">
-                            <TableCell className="font-semibold text-center">{`${summary.home.goals}:${homePts} (${summary.home.totalPoints})`}</TableCell>
-                            <TableCell className="font-medium text-center">Score</TableCell>
-                            <TableCell className="font-semibold text-center">{`${summary.away.goals}:${awayPts} (${summary.away.totalPoints})`}</TableCell>
-                          </TableRow>
-                        );
-                      })()}
-                      {[
-                        ['Shots', summary.home.shots, summary.away.shots],
-                        ['Points Per Shot', (() => {
-                          const shots = summary.home.shots;
-                          if (!shots) return '—';
-                          return (summary.home.totalPoints / shots).toFixed(2);
-                        })(), (() => {
-                          const shots = summary.away.shots;
-                          if (!shots) return '—';
-                          return (summary.away.totalPoints / shots).toFixed(2);
-                        })()],
-                        ['Own Kickout Win %', (() => {
-                          const taken = summary.home.ownKickoutsTaken;
-                          const won = summary.home.ownKickoutsWon;
-                          const pct = taken ? (won / taken) * 100 : NaN;
-                          return `${won} / ${taken} (${formatPct(pct)})`;
-                        })(), (() => {
-                          const taken = summary.away.ownKickoutsTaken;
-                          const won = summary.away.ownKickoutsWon;
-                          const pct = taken ? (won / taken) * 100 : NaN;
-                          return `${won} / ${taken} (${formatPct(pct)})`;
-                        })()],
-                        ['Turnovers Lost', summary.home.turnovers, summary.away.turnovers],
-                        ['Points Per Possession', (() => {
-                          const poss = summary.home.possessions;
-                          if (!poss) return '—';
-                          return (summary.home.totalPoints / poss).toFixed(2);
-                        })(), (() => {
-                          const poss = summary.away.possessions;
-                          if (!poss) return '—';
-                          return (summary.away.totalPoints / poss).toFixed(2);
-                        })()],
-                      ].map(([label, h, a]) => (
-                        <TableRow key={label}>
-                          <TableCell className="text-center">{h}</TableCell>
-                          <TableCell className="font-medium text-center">{label}</TableCell>
-                          <TableCell className="text-center">{a}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <div className="flex items-center justify-between gap-3 text-xs text-slate-600 pt-2">
+                    <div className="inline-flex items-center gap-2 min-w-0">
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
+                      <span className="truncate">{homeTeam?.name || 'Home'}</span>
+                    </div>
+                    <div className="font-medium">Metric</div>
+                    <div className="inline-flex items-center gap-2 min-w-0 justify-end">
+                      <span className="truncate">{awayTeam?.name || 'Away'}</span>
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 pt-2">
+                    {(() => {
+                      const homePts = summary.home.points1 + summary.home.points2 * 2;
+                      const awayPts = summary.away.points1 + summary.away.points2 * 2;
+                      const metrics = [
+                        {
+                          label: 'Score',
+                          home: `${summary.home.goals}:${homePts} (${summary.home.totalPoints})`,
+                          away: `${summary.away.goals}:${awayPts} (${summary.away.totalPoints})`,
+                          strong: true,
+                        },
+                        { label: 'Shots', home: summary.home.shots, away: summary.away.shots },
+                        {
+                          label: 'Points Per Shot',
+                          home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : '—',
+                          away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : '—',
+                        },
+                        {
+                          label: 'Own Kickout Win %',
+                          home: (() => {
+                            const taken = summary.home.ownKickoutsTaken;
+                            const won = summary.home.ownKickoutsWon;
+                            const pct = taken ? (won / taken) * 100 : NaN;
+                            return `${won} / ${taken} (${formatPct(pct)})`;
+                          })(),
+                          away: (() => {
+                            const taken = summary.away.ownKickoutsTaken;
+                            const won = summary.away.ownKickoutsWon;
+                            const pct = taken ? (won / taken) * 100 : NaN;
+                            return `${won} / ${taken} (${formatPct(pct)})`;
+                          })(),
+                        },
+                        { label: 'Turnovers Lost', home: summary.home.turnovers, away: summary.away.turnovers },
+                        {
+                          label: 'Points Per Possession',
+                          home: summary.home.possessions ? (summary.home.totalPoints / summary.home.possessions).toFixed(2) : '—',
+                          away: summary.away.possessions ? (summary.away.totalPoints / summary.away.possessions).toFixed(2) : '—',
+                        },
+                      ];
+
+                      return metrics.map((m) => (
+                        <div
+                          key={m.label}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                        >
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                            <div className={`text-left tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
+                              {m.home}
+                            </div>
+                            <div className="text-center text-xs font-medium text-slate-600">
+                              {m.label}
+                            </div>
+                            <div className={`text-right tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
+                              {m.away}
+                            </div>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -1167,6 +1178,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   const VIDEO_PRE_ROLL_S = 7;
 
@@ -1222,6 +1234,8 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const filteredSorted = useMemo(() => {
     const list = Array.isArray(filtered) ? [...filtered] : [];
     const timeKey = (s) => {
+      const tn = Number(s?.normalized_time_s);
+      if (Number.isFinite(tn)) return { kind: 0, v: tn };
       const t = Number(s?.time_s);
       if (Number.isFinite(t)) return { kind: 0, v: t };
       const pid = Number(s?.play_id);
@@ -1410,6 +1424,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[36px]"> </TableHead>
                   <TableHead>Half</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Action</TableHead>
@@ -1424,47 +1439,128 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                   const extra = safeParseJSON(s.extra_data || '{}', {});
                   const t = Number(s?.time_s);
                   const hasTime = Number.isFinite(t);
+                  const isOpen = expandedRowId === s.id;
                   return (
-                    <TableRow
-                      key={s.id}
-                    >
-                      <TableCell>{toTitleCase(s.half)}</TableCell>
-                      <TableCell>{s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
-                      <TableCell>{toTitleCase(s.stat_type)}</TableCell>
-                      <TableCell>{toTitleCase(deriveOutcome(s, extra))}</TableCell>
-                      <TableCell>{s.player_number ? `#${s.player_number}` : ''}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '--:--'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
+                    <React.Fragment key={s.id}>
+                      <TableRow>
+                        <TableCell className="align-middle">
                           <Button
                             type="button"
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={!hasTime}
-                            title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'}
-                            onClick={() => hasTime && openVideoAt(t)}
-                          >
-                            Open Video
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => {
-                              setVizStats([s]);
-                              setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
-                              setVizOpen(true);
+                            className="h-7 w-7 p-0"
+                            aria-label={isOpen ? 'Collapse row' : 'Expand row'}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setExpandedRowId((cur) => (cur === s.id ? null : s.id));
                             }}
                           >
-                            Visualise
+                            <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                           </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                        </TableCell>
+                        <TableCell>{toTitleCase(s.half)}</TableCell>
+                        <TableCell>{s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                        <TableCell>{toTitleCase(s.stat_type)}</TableCell>
+                        <TableCell>{toTitleCase(deriveOutcome(s, extra))}</TableCell>
+                        <TableCell>{s.player_number ? `#${s.player_number}` : ''}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '--:--'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={!hasTime}
+                              title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'}
+                              onClick={() => hasTime && openVideoAt(t)}
+                            >
+                              Open Video
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                setVizStats([s]);
+                                setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+                                setVizOpen(true);
+                              }}
+                            >
+                              Visualise
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+
+                      {isOpen && (
+                        <TableRow className="bg-slate-50/60">
+                          <TableCell colSpan={8} className="p-3">
+                            <div className="grid md:grid-cols-3 gap-3">
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs font-semibold text-slate-900 mb-2">Core</div>
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                  <div className="text-slate-500">Play</div>
+                                  <div className="font-mono">{Number.isFinite(Number(s.play_id)) ? Number(s.play_id) : '—'}</div>
+                                  <div className="text-slate-500">Possession</div>
+                                  <div className="font-mono">{Number.isFinite(Number(s.possession_id)) ? Number(s.possession_id) : '—'}</div>
+                                  <div className="text-slate-500">Counter</div>
+                                  <div className="font-mono">{s.counter_attack ? 'Yes' : 'No'}</div>
+                                  <div className="text-slate-500">Video</div>
+                                  <div className="font-mono">{Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '—'}</div>
+                                  <div className="text-slate-500">Time</div>
+                                  <div className="font-mono">{Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '—'}</div>
+                                </div>
+                              </div>
+
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs font-semibold text-slate-900 mb-2">Coordinates</div>
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                  <div className="text-slate-500">X, Y</div>
+                                  <div className="font-mono">
+                                    {Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position))
+                                      ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}`
+                                      : '—'}
+                                  </div>
+                                  <div className="text-slate-500">End X, Y</div>
+                                  <div className="font-mono">
+                                    {Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position))
+                                      ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}`
+                                      : '—'}
+                                  </div>
+                                  <div className="text-slate-500">Raw X, Y</div>
+                                  <div className="font-mono">
+                                    {Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position))
+                                      ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}`
+                                      : '—'}
+                                  </div>
+                                  <div className="text-slate-500">Raw End</div>
+                                  <div className="font-mono">
+                                    {Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position))
+                                      ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}`
+                                      : '—'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs font-semibold text-slate-900 mb-2">Details</div>
+                                <details>
+                                  <summary className="text-xs text-slate-600 cursor-pointer select-none">Show extra data</summary>
+                                  <pre className="mt-2 text-[11px] leading-snug bg-slate-950 text-slate-50 rounded-md p-2 overflow-auto max-h-40">
+                                    {JSON.stringify(extra, null, 2)}
+                                  </pre>
+                                </details>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </TableBody>
