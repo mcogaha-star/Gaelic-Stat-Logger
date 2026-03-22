@@ -1132,6 +1132,7 @@ export default function MatchReport() {
 
           <TabsContent value="data">
             <DataTab
+              matchId={matchId}
               stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
@@ -1145,7 +1146,7 @@ export default function MatchReport() {
   );
 }
 
-function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
+function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
   const [team, setTeam] = useState('both');
   const [actions, setActions] = useState([]); // [] means all
   const [halves, setHalves] = useState([]); // [] means all
@@ -1154,6 +1155,26 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
+
+  const openVideoAt = (timeS) => {
+    const t = Number(timeS);
+    if (!matchId || !Number.isFinite(t)) return;
+
+    // Reuse the existing video popout window (recommended) so users don't end up with multiple players.
+    const url = createPageUrl(`Video?matchId=${matchId}`);
+    window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
+
+    // Ask the video popout to seek. Send a few times in case the window is still initializing.
+    try {
+      const ch = new BroadcastChannel('gstl_video');
+      const msg = { matchId, type: 'SEEK_TO', time_s: t };
+      ch.postMessage(msg);
+      setTimeout(() => ch.postMessage(msg), 350);
+      setTimeout(() => { ch.postMessage(msg); ch.close(); }, 900);
+    } catch {
+      // ignore (browser/channel not available)
+    }
+  };
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -1298,7 +1319,26 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
       <Dialog open={vizOpen} onOpenChange={setVizOpen}>
         <DialogContent className="sm:max-w-4xl p-4">
           <DialogHeader>
-            <DialogTitle className="text-base">{vizTitle || 'Visualise'}</DialogTitle>
+            <div className="flex items-center justify-between gap-2">
+              <DialogTitle className="text-base">{vizTitle || 'Visualise'}</DialogTitle>
+              {(() => {
+                const firstWithTime = (vizStats || []).find((s) => Number.isFinite(Number(s?.time_s)));
+                if (!firstWithTime) return null;
+                const t = Number(firstWithTime.time_s);
+                return (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => openVideoAt(t)}
+                    title="Open the video popout and jump to this timestamp"
+                  >
+                    Open Video @ {formatMMSS(t)}
+                  </Button>
+                );
+              })()}
+            </div>
           </DialogHeader>
           <div className="pt-2">
             <PitchViz
