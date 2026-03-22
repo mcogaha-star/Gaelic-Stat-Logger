@@ -371,11 +371,18 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
   for (const s of passes) {
     const extra = safeParseJSON(s.extra_data || '{}', {});
     const p = extra?.pass?.passer;
-    const r = extra?.pass?.intended_recipient;
     const outcome = extra?.pass?.outcome;
 
     if (outcome !== 'completed') continue;
-    if (p?.kind !== 'player' || r?.kind !== 'player') continue;
+    if (p?.kind !== 'player') continue;
+
+    // Receiver for pass networks should represent who actually won/received the pass.
+    // Prefer won_by when it's a player; fall back to intended_recipient as a best-effort.
+    const r = (extra?.pass?.won_by?.kind === 'player')
+      ? extra.pass.won_by
+      : extra?.pass?.intended_recipient;
+
+    if (r?.kind !== 'player') continue;
     if (p.team_side !== side || r.team_side !== side) continue;
 
     const a = p.id;
@@ -1078,7 +1085,7 @@ export default function MatchReport() {
                 <CardContent className="p-4 space-y-3">
                   <div className="font-semibold text-slate-900">Pass Network</div>
                   <div className="text-xs text-slate-500">
-                    Built from completed passes (passer to intended recipient). Inspired by the Soccermatics pass network style.
+                    Built from completed passes (passer to receiver).
                   </div>
 
                   <div className="space-y-1">
