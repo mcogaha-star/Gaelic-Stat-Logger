@@ -766,6 +766,18 @@ export default function StatModalV4({
     }
   }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy]);
 
+  // Pass default: "Won By" should default to the intended recipient (when it's a player) if not set.
+  useEffect(() => {
+    if (!open) return;
+    if (!isDrag) return;
+    if (action !== 'pass') return;
+    if (passOutcome === 'turnover') return; // "won_by" is not used for turnover passes
+    if (passWonBy !== NONE) return;
+    if (!passIntendedRecipient || passIntendedRecipient === NONE) return;
+    if (!String(passIntendedRecipient).startsWith('player:')) return;
+    setPassWonBy(passIntendedRecipient);
+  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient]);
+
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   const isRoleFilled = (roleKey, value) => {
