@@ -16,7 +16,21 @@ import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createPageUrl } from '@/utils';
 import pitchImg from '@/assets/pitch.png';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from 'recharts';
 
 const PITCH_W = 145;
 const PITCH_H = 85;
@@ -620,6 +634,1195 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
   );
 }
 
+function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">Filters</div>
+
+        <div className="space-y-1">
+          <Label className="text-xs text-slate-600">Team</Label>
+          <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="both">Both</SelectItem>
+              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <MultiSelect
+          label="Half"
+          placeholder="All"
+          values={reportFilters.halves}
+          onChange={reportFilters.setHalves}
+          options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+        />
+
+        <MultiSelect
+          label="Player"
+          placeholder="Any"
+          values={reportFilters.playerIds}
+          onChange={reportFilters.setPlayerIds}
+          options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+        />
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Time Min (min)</Label>
+            <Input
+              className="h-8 text-xs"
+              inputMode="numeric"
+              value={reportFilters.timeMin}
+              onChange={(e) => reportFilters.setTimeMin(e.target.value)}
+              placeholder="e.g. 0"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Time Max (min)</Label>
+            <Input
+              className="h-8 text-xs"
+              inputMode="numeric"
+              value={reportFilters.timeMax}
+              onChange={(e) => reportFilters.setTimeMax(e.target.value)}
+              placeholder="e.g. 35"
+            />
+          </div>
+        </div>
+
+        <div className="text-[11px] leading-snug text-slate-500">
+          Time range uses normalized match time. If a row has no time, it is excluded when a time range is set.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function calcDistanceToGoal(x, y) {
+  const gx = PITCH_W;
+  const gy = PITCH_H / 2;
+  const dx = gx - Number(x);
+  const dy = gy - Number(y);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return NaN;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function calcAngleToGoal(x, y) {
+  // Approximate goal mouth as 6.5m wide in this 145x85 plane (meters).
+  const gx = PITCH_W;
+  const gy = PITCH_H / 2;
+  const halfW = 3.25;
+  const p1 = { x: gx, y: gy - halfW };
+  const p2 = { x: gx, y: gy + halfW };
+  const vx1 = p1.x - Number(x);
+  const vy1 = p1.y - Number(y);
+  const vx2 = p2.x - Number(x);
+  const vy2 = p2.y - Number(y);
+  if (![vx1, vy1, vx2, vy2].every(Number.isFinite)) return NaN;
+  const a1 = Math.atan2(vy1, vx1);
+  const a2 = Math.atan2(vy2, vx2);
+  let ang = Math.abs(a2 - a1);
+  if (ang > Math.PI) ang = 2 * Math.PI - ang;
+  return (ang * 180) / Math.PI;
+}
+
+function shotSideFromY(y) {
+  const yy = Number(y);
+  if (!Number.isFinite(yy)) return '';
+  if (yy < PITCH_H / 3) return 'left';
+  if (yy > (2 * PITCH_H) / 3) return 'right';
+  return 'centre';
+}
+
+function shotZoneFromDistance(d) {
+  const dist = Number(d);
+  if (!Number.isFinite(dist)) return '';
+  if (dist <= 21) return 'inside_21';
+  if (dist <= 45) return '21_45';
+  if (dist <= 65) return '45_65';
+  return '65_plus';
+}
+
+function shotOutcomeGroup(outcome) {
+  const o = String(outcome || '');
+  if (['goal', 'point', '2_point'].includes(o)) return 'score';
+  if (o === 'wide') return 'wide';
+  if (o === 'short') return 'short';
+  if (o === 'saved') return 'saved';
+  if (o === 'blocked') return 'blocked';
+  if (o === 'post') return 'post';
+  return 'other';
+}
+
+function shotPointsForOutcome(outcome) {
+  if (outcome === 'goal') return 3;
+  if (outcome === '2_point') return 2;
+  if (outcome === 'point') return 1;
+  return 0;
+}
+
+function ShotMap({ shots, mode, setMode }) {
+  const list = Array.isArray(shots) ? shots : [];
+
+  const colors = {
+    score: '#2563eb',
+    wide: '#334155',
+    short: '#64748b',
+    saved: '#f59e0b',
+    blocked: '#dc2626',
+    post: '#7c3aed',
+    other: '#111827',
+  };
+
+  const visible = list.filter((s) => {
+    if (mode === 'all') return true;
+    const g = shotOutcomeGroup(s.outcome);
+    if (mode === 'scores') return g === 'score';
+    if (mode === 'misses') return g !== 'score';
+    if (mode === 'blocked_saved') return g === 'blocked' || g === 'saved';
+    return true;
+  });
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-slate-900">Shot Map</div>
+          <div className="inline-flex items-center gap-2">
+            {[
+              ['all', 'All Shots'],
+              ['scores', 'Scores Only'],
+              ['misses', 'Misses Only'],
+              ['blocked_saved', 'Blocked/Saved'],
+            ].map(([v, label]) => (
+              <Button
+                key={v}
+                type="button"
+                variant={mode === v ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setMode(v)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className="relative w-full rounded-xl border border-slate-200 overflow-hidden"
+          style={{
+            aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+            backgroundImage: `url(${pitchImg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+            {visible.map((s) => {
+              const x = Number(s.x);
+              const y = Number(s.y);
+              if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+              const g = shotOutcomeGroup(s.outcome);
+              const col = colors[g] || colors.other;
+              const shape = s.shotType; // point|2_point|goal
+              const size = 2.2;
+              const tip = [
+                `Player: ${s.playerLabel || 'NA'}`,
+                `Time: ${s.timeLabel || 'NA'}`,
+                `Shot Type: ${toTitleCase(shape)}`,
+                `Situation: ${toTitleCase(s.situation)}`,
+                `Pressure: ${toTitleCase(s.pressure)}`,
+                `Outcome: ${toTitleCase(s.outcome)}`,
+                Number.isFinite(s.distance) ? `Distance: ${s.distance.toFixed(1)}` : null,
+                s.attackId ? `Attack: ${s.attackId}` : null,
+              ].filter(Boolean).join('\n');
+
+              if (shape === 'goal') {
+                return (
+                  <rect key={s.id} x={x - size} y={y - size} width={size * 2} height={size * 2} fill={col} opacity="0.9">
+                    <title>{tip}</title>
+                  </rect>
+                );
+              }
+              if (shape === '2_point') {
+                return (
+                  <rect
+                    key={s.id}
+                    x={x - size}
+                    y={y - size}
+                    width={size * 2}
+                    height={size * 2}
+                    fill={col}
+                    opacity="0.9"
+                    transform={`rotate(45 ${x} ${y})`}
+                  >
+                    <title>{tip}</title>
+                  </rect>
+                );
+              }
+              return (
+                <circle key={s.id} cx={x} cy={y} r={size} fill={col} opacity="0.9">
+                  <title>{tip}</title>
+                </circle>
+              );
+            })}
+          </svg>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          Shape: circle = 1 point, diamond = 2 point, square = goal. Colour: outcome group.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const [shotType, setShotType] = useState([]); // [] all
+  const [situation, setSituation] = useState([]); // [] all
+  const [pressure, setPressure] = useState([]); // [] all
+  const [outcome, setOutcome] = useState([]); // [] all
+  const [zone, setZone] = useState([]); // [] all
+  const [shotMapMode, setShotMapMode] = useState('all');
+
+  const shots = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    const out = [];
+    for (const s of list) {
+      if (!s || s.stat_type !== 'shot') continue;
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const sh = extra?.shot || {};
+
+      const x = Number(s.x_position);
+      const y = Number(s.y_position);
+      const o = String(sh.outcome || '');
+      const st = String(sh.type || sh.shot_type || sh.shotType || '');
+      const stNorm = st === '2 point' ? '2_point' : st;
+      const sit = String(sh.situation || '');
+      const pr = String(sh.pressure || '');
+
+      const dist = calcDistanceToGoal(x, y);
+      const z = shotZoneFromDistance(dist);
+
+      const playerSel = sh.player && typeof sh.player === 'object' ? sh.player : null;
+      const playerLabel = (() => {
+        if (playerSel?.kind === 'player') {
+          const n = playerSel.number ? `#${playerSel.number}` : '';
+          const name = playerSel.name ? String(playerSel.name) : '';
+          return `${n} ${name}`.trim() || 'Player';
+        }
+        if (s.player_number) return `#${s.player_number}`;
+        return 'NA';
+      })();
+
+      const tNorm = Number(s.normalized_time_s);
+      const timeLabel = Number.isFinite(tNorm) ? formatMMSS(tNorm) : 'NA';
+
+      const attackId = (s.possession_team_side && Number.isFinite(Number(s.possession_id)))
+        ? `${s.possession_team_side}-${Number(s.possession_id)}`
+        : '';
+
+      out.push({
+        id: s.id,
+        raw: s,
+        extra,
+        team_side: s.team_side === 'away' ? 'away' : 'home',
+        half: s.half,
+        possession_id: s.possession_id,
+        attackId,
+        x,
+        y,
+        shotType: stNorm || 'point',
+        situation: sit,
+        method: String(sh.method || ''),
+        pressure: pr,
+        outcome: o,
+        distance: dist,
+        angle: calcAngleToGoal(x, y),
+        zone: z,
+        side: shotSideFromY(y),
+        isScore: shotOutcomeGroup(o) === 'score',
+        points: shotPointsForOutcome(o),
+        isFromPlay: sit === 'play',
+        isPlacedBall: sit && sit !== 'play',
+        playerLabel,
+        playerId: playerSel?.id || null,
+        timeLabel,
+      });
+    }
+    return out;
+  }, [stats]);
+
+  const filteredShots = useMemo(() => {
+    return shots.filter((s) => {
+      if (shotType.length && !shotType.includes(s.shotType)) return false;
+      if (situation.length && !situation.includes(s.situation)) return false;
+      if (pressure.length && !pressure.includes(s.pressure)) return false;
+      if (outcome.length && !outcome.includes(s.outcome)) return false;
+      if (zone.length && !zone.includes(s.zone)) return false;
+      return true;
+    });
+  }, [shots, shotType, situation, pressure, outcome, zone]);
+
+  const kpis = useMemo(() => {
+    const sh = filteredShots;
+    const shotsN = sh.length;
+    const scoresN = sh.filter((s) => s.isScore).length;
+    const totalPts = sh.reduce((a, s) => a + (s.points || 0), 0);
+    const conv = shotsN ? (scoresN / shotsN) * 100 : NaN;
+    const pps = shotsN ? totalPts / shotsN : NaN;
+    const dists = sh.map((s) => s.distance).filter(Number.isFinite);
+    const avgDist = dists.length ? dists.reduce((a, d) => a + d, 0) / dists.length : NaN;
+
+    const play = sh.filter((s) => s.isFromPlay);
+    const playScores = play.filter((s) => s.isScore).length;
+    const playConv = play.length ? (playScores / play.length) * 100 : NaN;
+
+    const placed = sh.filter((s) => s.isPlacedBall);
+    const placedScores = placed.filter((s) => s.isScore).length;
+    const placedConv = placed.length ? (placedScores / placed.length) * 100 : NaN;
+
+    const high = sh.filter((s) => String(s.pressure) === 'high');
+    const highScores = high.filter((s) => s.isScore).length;
+    const highConv = high.length ? (highScores / high.length) * 100 : NaN;
+
+    return { shotsN, scoresN, conv, pps, avgDist, playConv, placedConv, highConv };
+  }, [filteredShots]);
+
+  const zoneSummary = useMemo(() => {
+    const order = ['inside_21', '21_45', '45_65', '65_plus'];
+    const label = {
+      inside_21: 'Inside 21',
+      '21_45': '21-45',
+      '45_65': '45-65',
+      '65_plus': '65+',
+    };
+    const m = new Map();
+    for (const s of filteredShots) {
+      const z = s.zone || 'NA';
+      const cur = m.get(z) || { zone: z, attempts: 0, scores: 0, points: 0 };
+      cur.attempts += 1;
+      if (s.isScore) cur.scores += 1;
+      cur.points += s.points || 0;
+      m.set(z, cur);
+    }
+    const rows = Array.from(m.values()).map((r) => ({
+      ...r,
+      label: label[r.zone] || toTitleCase(r.zone),
+      conv: r.attempts ? (r.scores / r.attempts) * 100 : NaN,
+      pps: r.attempts ? r.points / r.attempts : NaN,
+    }));
+    rows.sort((a, b) => order.indexOf(a.zone) - order.indexOf(b.zone));
+    return rows;
+  }, [filteredShots]);
+
+  const pressureSummary = useMemo(() => {
+    const levels = ['low', 'medium', 'high'];
+    return levels.map((p) => {
+      const list = filteredShots.filter((s) => String(s.pressure) === p);
+      const attempts = list.length;
+      const scores = list.filter((s) => s.isScore).length;
+      const points = list.reduce((a, s) => a + (s.points || 0), 0);
+      return {
+        pressure: toTitleCase(p),
+        attempts,
+        scores,
+        conv: attempts ? (scores / attempts) * 100 : NaN,
+        pps: attempts ? points / attempts : NaN,
+      };
+    });
+  }, [filteredShots]);
+
+  const outcomeSummary = useMemo(() => {
+    const groups = ['score', 'wide', 'short', 'saved', 'blocked', 'post'];
+    return groups.map((g) => ({
+      key: g,
+      label: toTitleCase(g),
+      count: filteredShots.filter((s) => shotOutcomeGroup(s.outcome) === g).length,
+    }));
+  }, [filteredShots]);
+
+  const situationSummary = useMemo(() => {
+    const cats = ['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'];
+    return cats.map((c) => {
+      const list = filteredShots.filter((s) => String(s.situation) === c);
+      const attempts = list.length;
+      const scores = list.filter((s) => s.isScore).length;
+      const points = list.reduce((a, s) => a + (s.points || 0), 0);
+      return {
+        situation: toTitleCase(c),
+        attempts,
+        conv: attempts ? (scores / attempts) * 100 : NaN,
+        pps: attempts ? points / attempts : NaN,
+      };
+    });
+  }, [filteredShots]);
+
+  const playerSummary = useMemo(() => {
+    const rows = new Map();
+    for (const s of filteredShots) {
+      const key = s.playerId || s.playerLabel || 'NA';
+      const cur = rows.get(key) || {
+        key,
+        player: s.playerLabel || 'NA',
+        shots: 0,
+        scores: 0,
+        points: 0,
+        distSum: 0,
+        distN: 0,
+        highShots: 0,
+        highScores: 0,
+        playShots: 0,
+        placedShots: 0,
+      };
+      cur.shots += 1;
+      if (s.isScore) cur.scores += 1;
+      cur.points += s.points || 0;
+      if (Number.isFinite(s.distance)) { cur.distSum += s.distance; cur.distN += 1; }
+      if (String(s.pressure) === 'high') {
+        cur.highShots += 1;
+        if (s.isScore) cur.highScores += 1;
+      }
+      if (s.isFromPlay) cur.playShots += 1;
+      if (s.isPlacedBall) cur.placedShots += 1;
+      rows.set(key, cur);
+    }
+    const out = Array.from(rows.values()).map((r) => ({
+      ...r,
+      conv: r.shots ? (r.scores / r.shots) * 100 : NaN,
+      pps: r.shots ? r.points / r.shots : NaN,
+      avgDist: r.distN ? r.distSum / r.distN : NaN,
+      highConv: r.highShots ? (r.highScores / r.highShots) * 100 : NaN,
+    }));
+    out.sort((a, b) => b.points - a.points);
+    return out;
+  }, [filteredShots]);
+
+  const pieColors = {
+    score: '#2563eb',
+    wide: '#334155',
+    short: '#64748b',
+    saved: '#f59e0b',
+    blocked: '#dc2626',
+    post: '#7c3aed',
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Local Filters</div>
+            <MultiSelect
+              label="Shot Type"
+              placeholder="All"
+              values={shotType}
+              onChange={setShotType}
+              options={[
+                { value: 'point', label: '1 Point' },
+                { value: '2_point', label: '2 Point' },
+                { value: 'goal', label: 'Goal' },
+              ]}
+            />
+            <MultiSelect
+              label="Situation"
+              placeholder="All"
+              values={situation}
+              onChange={setSituation}
+              options={['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+            />
+            <MultiSelect
+              label="Pressure"
+              placeholder="All"
+              values={pressure}
+              onChange={setPressure}
+              options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+            />
+            <MultiSelect
+              label="Outcome"
+              placeholder="All"
+              values={outcome}
+              onChange={setOutcome}
+              options={['goal', 'point', '2_point', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+            />
+            <MultiSelect
+              label="Shot Zone"
+              placeholder="All"
+              values={zone}
+              onChange={setZone}
+              options={[
+                { value: 'inside_21', label: 'Inside 21' },
+                { value: '21_45', label: '21-45' },
+                { value: '45_65', label: '45-65' },
+                { value: '65_plus', label: '65+' },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Shots', value: kpis.shotsN },
+            { label: 'Scores', value: kpis.scoresN },
+            { label: 'Shot Conversion %', value: formatPct(kpis.conv) },
+            { label: 'Points Per Shot', value: Number.isFinite(kpis.pps) ? kpis.pps.toFixed(2) : 'NA' },
+            { label: 'Average Shot Distance', value: Number.isFinite(kpis.avgDist) ? kpis.avgDist.toFixed(1) : 'NA' },
+            { label: 'Play-Shot Conversion %', value: formatPct(kpis.playConv) },
+            { label: 'Placed-Ball Conversion %', value: formatPct(kpis.placedConv) },
+            { label: 'High-Pressure Conversion %', value: formatPct(kpis.highConv) },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {filteredShots.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">
+              No shots available for current filters.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} />
+
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Shot Zone Efficiency</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Zone</TableHead>
+                        <TableHead className="text-right">Attempts</TableHead>
+                        <TableHead className="text-right">Scores</TableHead>
+                        <TableHead className="text-right">Conv %</TableHead>
+                        <TableHead className="text-right">Pts/Shot</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {zoneSummary.map((r) => (
+                        <TableRow key={r.zone}>
+                          <TableCell className="font-medium">{r.label}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Pressure vs Conversion</div>
+                  <ChartContainer
+                    id="pressure-conv"
+                    className="h-[220px] w-full"
+                    config={{
+                      attempts: { label: 'Attempts', color: '#94a3b8' },
+                    }}
+                  >
+                    <BarChart data={pressureSummary} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="pressure" className="text-xs" />
+                      <YAxis allowDecimals={false} className="text-xs" />
+                      <Tooltip
+                        content={
+                          <ChartTooltipContent
+                            formatter={(value, name, item) => {
+                              const row = item?.payload;
+                              if (!row) return null;
+                              return (
+                                <div className="text-xs space-y-1">
+                                  <div>Attempts: <span className="font-mono">{row.attempts}</span></div>
+                                  <div>Scores: <span className="font-mono">{row.scores}</span></div>
+                                  <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
+                                  <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
+                                </div>
+                              );
+                            }}
+                            labelFormatter={(_, payload) => payload?.[0]?.payload?.pressure || 'Pressure'}
+                          />
+                        }
+                      />
+                      <Bar dataKey="attempts" fill="var(--color-attempts)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Shot Outcome Breakdown</div>
+                  <ChartContainer
+                    id="shot-outcomes"
+                    className="h-[240px] w-full"
+                    config={{
+                      score: { label: 'Score', color: pieColors.score },
+                      wide: { label: 'Wide', color: pieColors.wide },
+                      short: { label: 'Short', color: pieColors.short },
+                      saved: { label: 'Saved', color: pieColors.saved },
+                      blocked: { label: 'Blocked', color: pieColors.blocked },
+                      post: { label: 'Post', color: pieColors.post },
+                    }}
+                  >
+                    <PieChart>
+                      <Tooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      <Pie data={outcomeSummary} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={85}>
+                        {outcomeSummary.map((r) => (
+                          <Cell key={r.key} fill={pieColors[r.key] || '#111827'} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Shot Situation Breakdown</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Situation</TableHead>
+                        <TableHead className="text-right">Attempts</TableHead>
+                        <TableHead className="text-right">Conv %</TableHead>
+                        <TableHead className="text-right">Pts/Shot</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {situationSummary.map((r) => (
+                        <TableRow key={r.situation}>
+                          <TableCell className="font-medium">{r.situation}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Player Shooting</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Player</TableHead>
+                      <TableHead className="text-right">Shots</TableHead>
+                      <TableHead className="text-right">Scores</TableHead>
+                      <TableHead className="text-right">Conv %</TableHead>
+                      <TableHead className="text-right">Points</TableHead>
+                      <TableHead className="text-right">Pts/Shot</TableHead>
+                      <TableHead className="text-right">Avg Dist</TableHead>
+                      <TableHead className="text-right">High Shots</TableHead>
+                      <TableHead className="text-right">High Conv %</TableHead>
+                      <TableHead className="text-right">Play Shots</TableHead>
+                      <TableHead className="text-right">Placed Shots</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {playerSummary.map((r) => (
+                      <TableRow key={r.key}>
+                        <TableCell className="font-medium">{r.player}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.points}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.highShots}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatPct(r.highConv)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.playShots}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.placedShots}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const [phase, setPhase] = useState([]); // [] all
+  const [outcome, setOutcome] = useState([]); // [] all
+  const [startSource, setStartSource] = useState([]); // [] all
+
+  // First-pass implementation:
+  // - Treat attack_id as the possession instance (possession_team_side + possession_id).
+  // - Derive phase/outcome using simple rules so we have a stable baseline.
+  const attacksAll = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    const groups = new Map();
+
+    const timeKey = (s) => {
+      const tn = Number(s?.normalized_time_s);
+      if (Number.isFinite(tn)) return { k: 0, v: tn };
+      const pid = Number(s?.play_id);
+      if (Number.isFinite(pid)) return { k: 1, v: pid };
+      return { k: 9, v: 0 };
+    };
+
+    for (const s of list) {
+      const pid = Number(s?.possession_id);
+      const pside = s?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) continue;
+      const attackId = `${pside}-${pid}`;
+      const arr = groups.get(attackId) || [];
+      arr.push(s);
+      groups.set(attackId, arr);
+    }
+
+    const out = [];
+    for (const [attackId, evs] of groups.entries()) {
+      evs.sort((a, b) => {
+        const ka = timeKey(a);
+        const kb = timeKey(b);
+        if (ka.k !== kb.k) return ka.k - kb.k;
+        return ka.v - kb.v;
+      });
+      const first = evs[0];
+      const teamSide = first.possession_team_side;
+
+      const acting = evs.filter((e) => e.team_side === teamSide);
+      const points = acting.reduce((a, e) => {
+        if (e.stat_type !== 'shot') return a;
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        return a + shotPointsForOutcome(ex?.shot?.outcome);
+      }, 0);
+
+      const hasScore = acting.some((e) => {
+        if (e.stat_type !== 'shot') return false;
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
+      });
+      const hasShot = acting.some((e) => e.stat_type === 'shot');
+
+      const times = evs.map((e) => Number(e.normalized_time_s)).filter(Number.isFinite);
+      const startT = times.length ? Math.min(...times) : NaN;
+      const endT = times.length ? Math.max(...times) : NaN;
+      const duration = Number.isFinite(startT) && Number.isFinite(endT) ? Math.max(0, endT - startT) : NaN;
+
+      const startSource = (() => {
+        const f = first;
+        const ex = safeParseJSON(f.extra_data || '{}', {});
+        if (f.stat_type === 'kickout') return 'Kickout Won';
+        if (f.stat_type === 'turnover') return 'Turnover Won';
+        if (f.stat_type === 'throw_in') return 'Throw In Won';
+        if (f.stat_type === 'foul') return 'Foul Won';
+        if (ex?.pass?.deadball) return 'Restart';
+        return 'Other';
+      })();
+
+      const last = acting[acting.length - 1] || first;
+      const lastExtra = safeParseJSON(last.extra_data || '{}', {});
+      const lastOutcome = String(deriveOutcome(last, lastExtra) || '');
+      const outcome = (() => {
+        if (hasScore) return 'Score';
+        if (hasShot) return 'Missed Shot';
+        if (last.stat_type === 'turnover' || lastOutcome === 'turnover') return 'Turnover';
+        if (last.stat_type === 'foul' || lastOutcome === 'foul') return 'Foul Won';
+        if (lastOutcome.includes('sideline')) return 'Sideline';
+        if (lastOutcome.includes('45')) return '45';
+        if (lastOutcome.includes('goal_kick')) return 'Goal Kick';
+        return 'Other';
+      })();
+
+      const phase = (() => {
+        const isTransition = ['Kickout Won', 'Turnover Won', 'Throw In Won'].includes(startSource)
+          && ((Number.isFinite(duration) && duration <= 15) || acting.length <= 4);
+        if (isTransition) return 'Transition';
+        if (['Kickout Won', 'Throw In Won', 'Foul Won', 'Restart'].includes(startSource)) return 'Restart';
+        return 'Settled';
+      })();
+
+      out.push({
+        attackId,
+        teamSide,
+        half: first.half,
+        startTime: startT,
+        duration,
+        startSource,
+        phase,
+        outcome,
+        actions: acting.length,
+        passes: acting.filter((e) => e.stat_type === 'pass').length,
+        carries: acting.filter((e) => e.stat_type === 'carry').length,
+        shots: acting.filter((e) => e.stat_type === 'shot').length,
+        points,
+        isScoring: outcome === 'Score',
+        isShot: hasShot,
+        isEmpty: !hasShot,
+      });
+    }
+
+    out.sort((a, b) => {
+      if (Number.isFinite(a.startTime) && Number.isFinite(b.startTime)) return a.startTime - b.startTime;
+      return String(a.attackId).localeCompare(String(b.attackId));
+    });
+    return out;
+  }, [stats]);
+
+  const attacks = useMemo(() => {
+    return attacksAll.filter((a) => {
+      if (phase.length && !phase.includes(a.phase)) return false;
+      if (outcome.length && !outcome.includes(a.outcome)) return false;
+      if (startSource.length && !startSource.includes(a.startSource)) return false;
+      return true;
+    });
+  }, [attacksAll, phase, outcome, startSource]);
+
+  const kpis = useMemo(() => {
+    const list = attacks;
+    const n = list.length;
+    const ds = list.map((a) => a.duration).filter(Number.isFinite);
+    const avgDur = ds.length ? ds.reduce((x, y) => x + y, 0) / ds.length : NaN;
+    const scoringPct = n ? (list.filter((a) => a.isScoring).length / n) * 100 : NaN;
+    const shotPct = n ? (list.filter((a) => a.isShot).length / n) * 100 : NaN;
+    const emptyPct = n ? (list.filter((a) => a.isEmpty).length / n) * 100 : NaN;
+    const avgActions = n ? list.reduce((x, a) => x + a.actions, 0) / n : NaN;
+    const totalPts = list.reduce((x, a) => x + a.points, 0);
+    const ppa = n ? totalPts / n : NaN;
+    return { possessions: n, attacks: n, avgDur, scoringPct, shotPct, emptyPct, avgActions, ppa };
+  }, [attacks]);
+
+  const outcomeRows = useMemo(() => {
+    const cats = ['Score', 'Missed Shot', 'Turnover', 'Foul Won', 'Sideline', '45', 'Goal Kick', 'Other'];
+    return cats.map((c) => ({ outcome: c, count: attacks.filter((a) => a.outcome === c).length }));
+  }, [attacks]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Local Filters</div>
+            <MultiSelect
+              label="Phase"
+              placeholder="All"
+              values={phase}
+              onChange={setPhase}
+              options={['Transition', 'Settled', 'Restart'].map((v) => ({ value: v, label: v }))}
+            />
+            <MultiSelect
+              label="Start Source"
+              placeholder="All"
+              values={startSource}
+              onChange={setStartSource}
+              options={['Kickout Won', 'Turnover Won', 'Throw In Won', 'Foul Won', 'Restart', 'Other'].map((v) => ({ value: v, label: v }))}
+            />
+            <MultiSelect
+              label="Outcome"
+              placeholder="All"
+              values={outcome}
+              onChange={setOutcome}
+              options={['Score', 'Missed Shot', 'Turnover', 'Foul Won', 'Sideline', '45', 'Goal Kick', 'Other'].map((v) => ({ value: v, label: v }))}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Possessions', value: kpis.possessions },
+            { label: 'Attacks', value: kpis.attacks },
+            { label: 'Average Attack Duration', value: Number.isFinite(kpis.avgDur) ? `${kpis.avgDur.toFixed(1)}s` : 'NA' },
+            { label: 'Scoring Attack %', value: formatPct(kpis.scoringPct) },
+            { label: 'Shot Attack %', value: formatPct(kpis.shotPct) },
+            { label: 'Empty Attack %', value: formatPct(kpis.emptyPct) },
+            { label: 'Avg Actions / Attack', value: Number.isFinite(kpis.avgActions) ? kpis.avgActions.toFixed(2) : 'NA' },
+            { label: 'Points / Attack', value: Number.isFinite(kpis.ppa) ? kpis.ppa.toFixed(2) : 'NA' },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {attacks.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">
+              No attacks available for current filters.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Attack Outcome Summary</div>
+                <ChartContainer
+                  id="attack-outcome-summary"
+                  className="h-[240px] w-full"
+                  config={{ count: { label: 'Attacks', color: '#94a3b8' } }}
+                >
+                  <BarChart data={outcomeRows} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="outcome" className="text-xs" interval={0} angle={-20} textAnchor="end" height={50} />
+                    <YAxis allowDecimals={false} className="text-xs" />
+                    <Tooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Attack Table</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Attack</TableHead>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Half</TableHead>
+                      <TableHead className="text-right">Start</TableHead>
+                      <TableHead className="text-right">Dur</TableHead>
+                      <TableHead>Start Source</TableHead>
+                      <TableHead>Phase</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="text-right">Shots</TableHead>
+                      <TableHead>Outcome</TableHead>
+                      <TableHead className="text-right">Pts</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {attacks.slice(0, 200).map((a) => (
+                      <TableRow key={a.attackId} title="Click-to-drilldown can be added next">
+                        <TableCell className="font-mono text-xs">{a.attackId}</TableCell>
+                        <TableCell>{a.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                        <TableCell>{toTitleCase(a.half)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{Number.isFinite(a.startTime) ? formatMMSS(a.startTime) : 'NA'}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{Number.isFinite(a.duration) ? `${a.duration.toFixed(1)}s` : 'NA'}</TableCell>
+                        <TableCell>{a.startSource}</TableCell>
+                        <TableCell>{a.phase}</TableCell>
+                        <TableCell className="text-right tabular-nums">{a.actions}</TableCell>
+                        <TableCell className="text-right tabular-nums">{a.shots}</TableCell>
+                        <TableCell>{a.outcome}</TableCell>
+                        <TableCell className="text-right tabular-nums">{a.points}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const [eventTypes, setEventTypes] = useState([]); // [] both
+  const [pressure, setPressure] = useState([]); // [] any
+  const [outcome, setOutcome] = useState([]); // [] any
+  const [progressiveOnly, setProgressiveOnly] = useState(false);
+
+  const events = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    return list.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry'));
+  }, [stats]);
+
+  const deriveProgression = (s) => {
+    const sx = Number(s.x_position);
+    const ex = Number(s.end_x_position);
+    if (!Number.isFinite(sx) || !Number.isFinite(ex)) return 0;
+    return Math.max(0, ex - sx);
+  };
+
+  const isProgressive = (s) => {
+    const prog = deriveProgression(s);
+    const sx = Number(s.x_position);
+    const advanced = Number.isFinite(sx) ? sx >= OPP_45_X : false;
+    const threshold = advanced ? 5 : 10;
+    if (prog >= threshold) return true;
+    const ex = Number(s.end_x_position);
+    return Number.isFinite(ex) && ex >= OPP_45_X;
+  };
+
+  const filtered = useMemo(() => {
+    return events.filter((s) => {
+      if (eventTypes.length && !eventTypes.includes(s.stat_type)) return false;
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const p = s.stat_type === 'pass' ? extra?.pass?.pressure_on_passer : extra?.carry?.pressure_on_carrier;
+      const o = deriveOutcome(s, extra);
+      if (pressure.length && !pressure.includes(String(p || ''))) return false;
+      if (outcome.length && !outcome.includes(String(o || ''))) return false;
+      if (progressiveOnly && !isProgressive(s)) return false;
+      return true;
+    });
+  }, [events, eventTypes, pressure, outcome, progressiveOnly]);
+
+  const kpis = useMemo(() => {
+    const pass = events.filter((s) => s.stat_type === 'pass');
+    const carry = events.filter((s) => s.stat_type === 'carry');
+    const passComp = pass.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
+    const carryComp = carry.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
+    const passPct = pass.length ? (passComp / pass.length) * 100 : NaN;
+    const carryPct = carry.length ? (carryComp / carry.length) * 100 : NaN;
+    const progPass = pass.filter((s) => isProgressive(s)).length;
+    const progCarry = carry.filter((s) => isProgressive(s)).length;
+    const entries = events.filter((s) => {
+      const sx = Number(s.x_position);
+      const ex = Number(s.end_x_position);
+      return Number.isFinite(sx) && Number.isFinite(ex) && sx < OPP_45_X && ex >= OPP_45_X;
+    }).length;
+    const turnovers = events.filter((s) => {
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const o = deriveOutcome(s, extra);
+      return o === 'turnover' || o === 'foul' || (extra?.turnover && typeof extra.turnover === 'object');
+    }).length;
+    return {
+      passes: pass.length,
+      passPct,
+      carries: carry.length,
+      carryPct,
+      progPass,
+      progCarry,
+      entries,
+      turnovers,
+    };
+  }, [events]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Local Filters</div>
+            <MultiSelect
+              label="Event Type"
+              placeholder="Both"
+              values={eventTypes}
+              onChange={setEventTypes}
+              options={[
+                { value: 'pass', label: 'Pass' },
+                { value: 'carry', label: 'Carry' },
+              ]}
+            />
+            <MultiSelect
+              label="Pressure"
+              placeholder="Any"
+              values={pressure}
+              onChange={setPressure}
+              options={[
+                { value: 'low', label: 'Low' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'high', label: 'High' },
+              ]}
+            />
+            <MultiSelect
+              label="Outcome"
+              placeholder="Any"
+              values={outcome}
+              onChange={setOutcome}
+              options={[
+                { value: 'completed', label: 'Completed' },
+                { value: 'turnover', label: 'Turnover' },
+                { value: 'foul', label: 'Foul' },
+                { value: 'sideline_for', label: 'Sideline For' },
+                { value: 'sideline_against', label: 'Sideline Against' },
+                { value: '45_for', label: '45 For' },
+                { value: 'goal_kick_for', label: 'Goal Kick For' },
+                { value: 'goal_kick_against', label: 'Goal Kick Against' },
+              ]}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-600">Progressive Only</div>
+              <Checkbox checked={progressiveOnly} onCheckedChange={(v) => setProgressiveOnly(!!v)} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Passes Attempted', value: kpis.passes },
+            { label: 'Pass Completion %', value: formatPct(kpis.passPct) },
+            { label: 'Carries', value: kpis.carries },
+            { label: 'Carry Completion %', value: formatPct(kpis.carryPct) },
+            { label: 'Progressive Passes', value: kpis.progPass },
+            { label: 'Progressive Carries', value: kpis.progCarry },
+            { label: 'Dangerous-Zone Entries', value: kpis.entries },
+            { label: 'Build-Up Turnovers', value: kpis.turnovers },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {filtered.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">
+              No passes or carries available for current filters.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Pass / Carry Map</div>
+                <PitchViz stats={filtered} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Pass Network (Completed Passes)</div>
+                <PassNetwork
+                  passes={events.filter((s) => s.stat_type === 'pass')}
+                  side={reportFilters.team === 'away' ? 'away' : 'home'}
+                  minCount={3}
+                  teamColor={(reportFilters.team === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+                />
+                <div className="text-[11px] text-slate-500">
+                  Pass network currently shows one side at a time (based on the Team filter).
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MatchReport() {
   const location = useLocation();
   const urlParams = new URLSearchParams(location?.search || '');
@@ -679,6 +1882,13 @@ export default function MatchReport() {
 
   const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
 
+  // Shared "report" filters for the Scoring / Build-Up / Possessions tabs.
+  const [reportTeam, setReportTeam] = useState('both'); // both|home|away
+  const [reportHalves, setReportHalves] = useState([]); // [] means all
+  const [reportPlayerIds, setReportPlayerIds] = useState([]); // [] means any
+  const [reportTimeMin, setReportTimeMin] = useState(''); // minutes (string)
+  const [reportTimeMax, setReportTimeMax] = useState(''); // minutes (string)
+
   const overviewStats = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
     if (overviewHalf === 'first') return list.filter((s) => s?.half === 'first');
@@ -697,6 +1907,46 @@ export default function MatchReport() {
       .sort((a, b) => (a.team_side === b.team_side ? (a.number || 0) - (b.number || 0) : (a.team_side === 'home' ? -1 : 1)))
       .map((p) => ({ id: p.id, team_side: p.team_side, label: label(p) || p.id }));
   }, [homePlayers, awayPlayers]);
+
+  const reportFilters = useMemo(() => ({
+    team: reportTeam,
+    setTeam: setReportTeam,
+    halves: reportHalves,
+    setHalves: setReportHalves,
+    playerIds: reportPlayerIds,
+    setPlayerIds: setReportPlayerIds,
+    timeMin: reportTimeMin,
+    setTimeMin: setReportTimeMin,
+    timeMax: reportTimeMax,
+    setTimeMax: setReportTimeMax,
+  }), [reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax]);
+
+  const filteredForReport = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    const minM = Number(reportTimeMin);
+    const maxM = Number(reportTimeMax);
+    const minS = Number.isFinite(minM) && reportTimeMin !== '' ? minM * 60 : null;
+    const maxS = Number.isFinite(maxM) && reportTimeMax !== '' ? maxM * 60 : null;
+
+    return list.filter((s) => {
+      if (!s) return false;
+      if (reportTeam !== 'both' && s.team_side !== reportTeam) return false;
+      if (reportHalves.length && !reportHalves.includes(s.half)) return false;
+      if (reportPlayerIds.length) {
+        const extra = safeParseJSON(s.extra_data || '{}', {});
+        const ids = collectPlayerIds(extra);
+        const any = reportPlayerIds.some((id) => ids.has(id));
+        if (!any) return false;
+      }
+      if (minS != null || maxS != null) {
+        const t = Number(s.normalized_time_s);
+        if (!Number.isFinite(t)) return false;
+        if (minS != null && t < minS) return false;
+        if (maxS != null && t > maxS) return false;
+      }
+      return true;
+    });
+  }, [stats, reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax]);
 
   const filteredForViz = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -963,6 +2213,9 @@ export default function MatchReport() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <TabsList>
               <TabsTrigger value="summary">Overview</TabsTrigger>
+              <TabsTrigger value="scoring">Scoring</TabsTrigger>
+              <TabsTrigger value="possessions">Possessions / Attacks</TabsTrigger>
+              <TabsTrigger value="build_up">Build-Up</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="pass_network">Pass Network</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
@@ -1216,6 +2469,36 @@ export default function MatchReport() {
 
               <PitchViz stats={filteredForViz} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={vizColorBy} />
             </div>
+          </TabsContent>
+
+          <TabsContent value="scoring">
+            <ScoringTab
+              stats={filteredForReport}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="possessions">
+            <PossessionsTab
+              stats={filteredForReport}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="build_up">
+            <BuildUpTab
+              stats={filteredForReport}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
           </TabsContent>
 
           <TabsContent value="pass_network">
