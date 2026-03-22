@@ -1164,7 +1164,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
     const seekTo = Math.max(0, Math.floor(t - VIDEO_PRE_ROLL_S));
 
     // Reuse the existing video popout window (recommended) so users don't end up with multiple players.
-    const url = createPageUrl(`Video?matchId=${matchId}`);
+    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
     window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
 
     // Ask the video popout to seek. Send a few times in case the window is still initializing.
