@@ -62,6 +62,74 @@ function formatPct(n) {
   return `${n.toFixed(1)}%`;
 }
 
+function formatTeamLabel(side) {
+  if (side === 'home') return 'Home';
+  if (side === 'away') return 'Away';
+  return 'â€”';
+}
+
+function formatExtraValue(v) {
+  if (v == null) return 'â€”';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'â€”';
+  if (typeof v === 'string') return v ? toTitleCase(v) : 'â€”';
+  if (Array.isArray(v)) {
+    if (!v.length) return 'â€”';
+    if (v.length <= 6) return v.map((x) => formatExtraValue(x)).join(', ');
+    return `${v.length} items`;
+  }
+  if (typeof v === 'object') {
+    // Common team/player selection objects we store in extra_data.
+    if ('kind' in v) {
+      if (v.kind === 'none') return 'None';
+      if (v.kind === 'team') return `${formatTeamLabel(v.team_side)} Team`;
+      if (v.kind === 'player') {
+        const n = v.number ? `#${v.number}` : '';
+        const name = v.name ? String(v.name) : '';
+        const label = `${n} ${name}`.trim() || 'Player';
+        const side = v.team_side ? ` (${formatTeamLabel(v.team_side)})` : '';
+        return `${label}${side}`;
+      }
+    }
+
+    // Fallback: compact object summary.
+    const keys = Object.keys(v);
+    if (!keys.length) return 'â€”';
+    if (keys.length <= 4) {
+      return keys.map((k) => `${toTitleCase(k)}: ${formatExtraValue(v[k])}`).join(' â€¢ ');
+    }
+    return `${keys.length} fields`;
+  }
+  return String(v);
+}
+
+function flattenExtra(extra) {
+  const rows = [];
+  const walk = (obj, prefix, depth) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (depth > 3) return;
+    for (const [k, v] of Object.entries(obj)) {
+      const key = prefix ? `${prefix}.${k}` : k;
+      if (v == null) {
+        rows.push({ key, value: v });
+        continue;
+      }
+      if (typeof v === 'object' && !Array.isArray(v)) {
+        // Stop descending into selection objects; render them as values.
+        if ('kind' in v) {
+          rows.push({ key, value: v });
+          continue;
+        }
+        walk(v, key, depth + 1);
+        continue;
+      }
+      rows.push({ key, value: v });
+    }
+  };
+  walk(extra, '', 0);
+  return rows;
+}
+
 function deriveOutcome(stat, extra) {
   if (!stat) return '';
   const t = stat.stat_type;
@@ -1549,12 +1617,36 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
 
                               <div className="rounded-lg border border-slate-200 bg-white p-3">
                                 <div className="text-xs font-semibold text-slate-900 mb-2">Details</div>
-                                <details>
-                                  <summary className="text-xs text-slate-600 cursor-pointer select-none">Show extra data</summary>
-                                  <pre className="mt-2 text-[11px] leading-snug bg-slate-950 text-slate-50 rounded-md p-2 overflow-auto max-h-40">
-                                    {JSON.stringify(extra, null, 2)}
-                                  </pre>
-                                </details>
+                                {(() => {
+                                  const rows = flattenExtra(extra);
+                                  return (
+                                    <div className="max-h-40 overflow-auto rounded-md border border-slate-200">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead className="h-8 text-xs">Field</TableHead>
+                                            <TableHead className="h-8 text-xs">Value</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {rows.slice(0, 60).map((r) => (
+                                            <TableRow key={r.key}>
+                                              <TableCell className="py-1 text-xs text-slate-600 font-mono">{r.key}</TableCell>
+                                              <TableCell className="py-1 text-xs">{formatExtraValue(r.value)}</TableCell>
+                                            </TableRow>
+                                          ))}
+                                          {rows.length > 60 && (
+                                            <TableRow>
+                                              <TableCell colSpan={2} className="py-2 text-xs text-slate-500">
+                                                Showing first 60 fields.
+                                              </TableCell>
+                                            </TableRow>
+                                          )}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </TableCell>
