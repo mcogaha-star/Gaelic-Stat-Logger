@@ -68,6 +68,54 @@ function formatTeamLabel(side) {
   return 'â€”';
 }
 
+function humanizeKey(k) {
+  const key = String(k || '');
+  const map = {
+    // common
+    counter_attack: 'Counter Attack',
+    team_side: 'Team',
+    // selections / roles
+    intended_recipient: 'Intended Recipient',
+    won_by: 'Won By',
+    lost_by: 'Lost By',
+    broken_by: 'Broken By',
+    recovered_by: 'Recovered By',
+    forced_by: 'Forced By',
+    foul_by: 'Foul By',
+    foul_on_or_forced_by: 'Foul On / Forced By',
+    // shot
+    shot_type: 'Shot Type',
+    // carry / pass
+    take_on_attempted: 'Take On Attempted',
+    take_on_completed: 'Take On Completed',
+    pressure_on_carrier: 'Pressure',
+    pressure_on_passer: 'Pressure',
+    // turnover / foul
+    turnover_type: 'Turnover Type',
+    foul_type: 'Foul Type',
+    // misc
+    raw_x_position: 'Raw X',
+    raw_y_position: 'Raw Y',
+    raw_end_x_position: 'Raw End X',
+    raw_end_y_position: 'Raw End Y',
+    end_x_position: 'End X',
+    end_y_position: 'End Y',
+    x_position: 'X',
+    y_position: 'Y',
+  };
+  if (map[key]) return map[key];
+  return toTitleCase(key);
+}
+
+function presentablePathLabel(path) {
+  const parts = String(path || '').split('.').filter(Boolean);
+  if (!parts.length) return 'â€”';
+  if (parts.length === 1) return humanizeKey(parts[0]);
+  const [section, ...rest] = parts;
+  const right = rest.map(humanizeKey).join(' ');
+  return `${toTitleCase(section)} ${right}`.trim();
+}
+
 function formatExtraValue(v) {
   if (v == null) return 'â€”';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
@@ -1241,7 +1289,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const [team, setTeam] = useState('both');
   const [actions, setActions] = useState([]); // [] means all
   const [halves, setHalves] = useState([]); // [] means all
-  const [counters, setCounters] = useState([]); // [] means any
+  const [playerIds, setPlayerIds] = useState([]); // [] means any
   const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
@@ -1290,14 +1338,15 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
       if (team !== 'both' && s.team_side !== team) return false;
       if (actions.length && !actions.includes(s.stat_type)) return false;
       if (halves.length && !halves.includes(s.half)) return false;
-      if (counters.length) {
-        const isYes = !!s.counter_attack;
-        if (isYes && !counters.includes('yes')) return false;
-        if (!isYes && !counters.includes('no')) return false;
+      if (playerIds.length) {
+        const extra = safeParseJSON(s.extra_data || '{}', {});
+        const ids = collectPlayerIds(extra);
+        const any = playerIds.some((id) => ids.has(id));
+        if (!any) return false;
       }
       return true;
     });
-  }, [stats, team, actions, halves, counters]);
+  }, [stats, team, actions, halves, playerIds]);
 
   const filteredSorted = useMemo(() => {
     const list = Array.isArray(filtered) ? [...filtered] : [];
@@ -1386,14 +1435,12 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
               options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
             />
             <MultiSelect
-              label="Counter Attack"
+              label="Player"
               placeholder="Any"
-              values={counters}
-              onChange={setCounters}
-              options={[
-                { value: 'yes', label: 'Yes' },
-                { value: 'no', label: 'No' },
-              ]}
+              values={playerIds}
+              onChange={setPlayerIds}
+              options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+              className="md:col-span-2"
             />
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Group By</Label>
@@ -1568,87 +1615,58 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                       {isOpen && (
                         <TableRow className="bg-slate-50/60">
                           <TableCell colSpan={8} className="p-3">
-                            <div className="grid md:grid-cols-3 gap-3">
-                              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                <div className="text-xs font-semibold text-slate-900 mb-2">Core</div>
-                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                                  <div className="text-slate-500">Play</div>
-                                  <div className="font-mono">{Number.isFinite(Number(s.play_id)) ? Number(s.play_id) : '—'}</div>
-                                  <div className="text-slate-500">Possession</div>
-                                  <div className="font-mono">{Number.isFinite(Number(s.possession_id)) ? Number(s.possession_id) : '—'}</div>
-                                  <div className="text-slate-500">Counter</div>
-                                  <div className="font-mono">{s.counter_attack ? 'Yes' : 'No'}</div>
-                                  <div className="text-slate-500">Video</div>
-                                  <div className="font-mono">{Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '—'}</div>
-                                  <div className="text-slate-500">Time</div>
-                                  <div className="font-mono">{Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '—'}</div>
-                                </div>
-                              </div>
+                            {(() => {
+                              const baseItems = [
+                                { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : '—' },
+                                { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : '—' },
+                                { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : '—') },
+                                { label: 'Counter Attack', value: s.counter_attack ? 'Yes' : 'No' },
+                                { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '—' },
+                                { label: 'Time', value: Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '—' },
+                                { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : '—' },
+                                { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : '—' },
+                                { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : '—' },
+                                { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : '—' },
+                              ];
 
-                              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                <div className="text-xs font-semibold text-slate-900 mb-2">Coordinates</div>
-                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                                  <div className="text-slate-500">X, Y</div>
-                                  <div className="font-mono">
-                                    {Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position))
-                                      ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}`
-                                      : '—'}
-                                  </div>
-                                  <div className="text-slate-500">End X, Y</div>
-                                  <div className="font-mono">
-                                    {Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position))
-                                      ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}`
-                                      : '—'}
-                                  </div>
-                                  <div className="text-slate-500">Raw X, Y</div>
-                                  <div className="font-mono">
-                                    {Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position))
-                                      ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}`
-                                      : '—'}
-                                  </div>
-                                  <div className="text-slate-500">Raw End</div>
-                                  <div className="font-mono">
-                                    {Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position))
-                                      ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}`
-                                      : '—'}
-                                  </div>
-                                </div>
-                              </div>
+                              const extraItems = flattenExtra(extra)
+                                .filter((r) => r.key !== 'counter_attack') // already shown above
+                                .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
 
-                              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                <div className="text-xs font-semibold text-slate-900 mb-2">Details</div>
-                                {(() => {
-                                  const rows = flattenExtra(extra);
-                                  return (
-                                    <div className="max-h-40 overflow-auto rounded-md border border-slate-200">
-                                      <Table>
-                                        <TableHeader>
-                                          <TableRow>
-                                            <TableHead className="h-8 text-xs">Field</TableHead>
-                                            <TableHead className="h-8 text-xs">Value</TableHead>
+                              const seen = new Set();
+                              const items = [];
+                              for (const it of [...baseItems, ...extraItems]) {
+                                const k = String(it.label || '');
+                                if (!k || seen.has(k)) continue;
+                                seen.add(k);
+                                items.push(it);
+                              }
+
+                              const pairs = [];
+                              for (let i = 0; i < items.length; i += 2) {
+                                pairs.push([items[i], items[i + 1] || null]);
+                              }
+
+                              return (
+                                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-slate-900 mb-2">Details</div>
+                                  <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
+                                    <Table>
+                                      <TableBody>
+                                        {pairs.map(([a, b], idx) => (
+                                          <TableRow key={idx}>
+                                            <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{a.label}</TableCell>
+                                            <TableCell className="py-1 text-xs font-mono tabular-nums">{a.value}</TableCell>
+                                            <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{b ? b.label : ''}</TableCell>
+                                            <TableCell className="py-1 text-xs font-mono tabular-nums">{b ? b.value : ''}</TableCell>
                                           </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {rows.slice(0, 60).map((r) => (
-                                            <TableRow key={r.key}>
-                                              <TableCell className="py-1 text-xs text-slate-600 font-mono">{r.key}</TableCell>
-                                              <TableCell className="py-1 text-xs">{formatExtraValue(r.value)}</TableCell>
-                                            </TableRow>
-                                          ))}
-                                          {rows.length > 60 && (
-                                            <TableRow>
-                                              <TableCell colSpan={2} className="py-2 text-xs text-slate-500">
-                                                Showing first 60 fields.
-                                              </TableCell>
-                                            </TableRow>
-                                          )}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </div>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                         </TableRow>
                       )}
