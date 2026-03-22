@@ -12,8 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { createPageUrl } from '@/utils';
 import pitchImg from '@/assets/pitch.png';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
 
 const PITCH_W = 145;
 const PITCH_H = 85;
@@ -52,6 +54,11 @@ function formatMMSS(seconds) {
   const mm = Math.floor(s / 60);
   const ss = s % 60;
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+function formatPct(n) {
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toFixed(1)}%`;
 }
 
 function deriveOutcome(stat, extra) {
@@ -467,6 +474,7 @@ export default function MatchReport() {
   });
 
   const match = matchArr?.[0] || null;
+  const halfAnchors = useMemo(() => safeParseJSON(match?.video_half_start_time_s || '{}', {}), [match?.video_half_start_time_s]);
 
   const { data: homeTeamArr = [] } = useQuery({
     queryKey: ['team', match?.home_team_id],
@@ -510,6 +518,15 @@ export default function MatchReport() {
 
   const [pnSide, setPnSide] = useState('home'); // home|away
   const [pnMin, setPnMin] = useState(3);
+
+  const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
+
+  const overviewStats = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    if (overviewHalf === 'first') return list.filter((s) => s?.half === 'first');
+    if (overviewHalf === 'second') return list.filter((s) => s?.half === 'second');
+    return list;
+  }, [stats, overviewHalf]);
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -556,6 +573,8 @@ export default function MatchReport() {
       turnovers: 0,
       kickoutsTaken: 0,
       kickoutsWon: 0,
+      ownKickoutsTaken: 0,
+      ownKickoutsWon: 0,
       carries: 0,
       takeOnsAttempted: 0,
       takeOnsCompleted: 0,
@@ -564,7 +583,7 @@ export default function MatchReport() {
       attacks: 0,
     };
     const out = { home: { ...empty }, away: { ...empty } };
-    const list = Array.isArray(stats) ? stats : [];
+    const list = Array.isArray(overviewStats) ? overviewStats : [];
 
     const possessionIdsBySide = {
       home: new Set(),
@@ -618,6 +637,13 @@ export default function MatchReport() {
         if ((o === 'clean' || o === 'break') && won?.team_side && (won.team_side === 'home' || won.team_side === 'away')) {
           out[won.team_side].kickoutsWon += 1;
         }
+
+        // "Own" kickouts: taken by the team that is restarting (extra.kickout.team_side).
+        const koTeam = extra?.kickout?.team_side;
+        if (koTeam === 'home' || koTeam === 'away') {
+          out[koTeam].ownKickoutsTaken += 1;
+          if ((o === 'clean' || o === 'break') && won?.team_side === koTeam) out[koTeam].ownKickoutsWon += 1;
+        }
       }
 
       // Turnovers: count as "lost" by the lost_by selection when present.
@@ -643,7 +669,86 @@ export default function MatchReport() {
     out.away.attacks = attacksBySide.away.size;
 
     return out;
-  }, [stats]);
+  }, [overviewStats]);
+
+  const scoreTimeline = useMemo(() => {
+    const list = Array.isArray(overviewStats) ? overviewStats : [];
+    const scoring = [];
+
+    for (const s of list) {
+      if (!s || s.stat_type !== 'shot') continue;
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const o = extra?.shot?.outcome;
+      if (!['point', '2_point', 'goal'].includes(o)) continue;
+      scoring.push({ s, extra, outcome: o });
+    }
+
+    if (!scoring.length) {
+      return { mode: 'none', points: [] };
+    }
+
+    const allHaveTime = scoring.every((e) => Number.isFinite(Number(e.s.time_s)));
+    const mode = allHaveTime ? 'time' : 'play';
+    const t0 = Number.isFinite(Number(halfAnchors?.first)) ? Number(halfAnchors.first) : 0;
+
+    const getX = (e) => {
+      if (mode === 'time') return Math.max(0, Number(e.s.time_s) - t0);
+      return Number.isFinite(Number(e.s.play_id)) ? Number(e.s.play_id) : 0;
+    };
+
+    scoring.sort((a, b) => getX(a) - getX(b));
+
+    let homeTotal = 0, awayTotal = 0;
+    let homeGoals = 0, awayGoals = 0;
+    let homePts = 0, awayPts = 0; // points (1p + 2p*2), excludes goals
+
+    const points = [];
+    points.push({
+      x: 0,
+      home_total: 0,
+      away_total: 0,
+      home_goals: 0,
+      away_goals: 0,
+      home_points: 0,
+      away_points: 0,
+      label: mode === 'time' ? '00:00' : '0',
+    });
+
+    for (const e of scoring) {
+      const side = e.s.team_side === 'away' ? 'away' : 'home';
+      const add = e.outcome === 'goal' ? 3 : (e.outcome === '2_point' ? 2 : 1);
+      if (side === 'home') {
+        homeTotal += add;
+        if (e.outcome === 'goal') homeGoals += 1;
+        else homePts += add;
+      } else {
+        awayTotal += add;
+        if (e.outcome === 'goal') awayGoals += 1;
+        else awayPts += add;
+      }
+
+      const x = getX(e);
+      points.push({
+        x,
+        home_total: homeTotal,
+        away_total: awayTotal,
+        home_goals: homeGoals,
+        away_goals: awayGoals,
+        home_points: homePts,
+        away_points: awayPts,
+        label: mode === 'time' ? formatMMSS(x) : String(x),
+      });
+    }
+
+    const htX = (() => {
+      if (mode !== 'time') return null;
+      const second = Number(halfAnchors?.second);
+      if (!Number.isFinite(second)) return null;
+      return Math.max(0, second - t0);
+    })();
+
+    return { mode, points, htX };
+  }, [overviewStats, halfAnchors]);
 
   if (!matchId) {
     return (
@@ -689,7 +794,7 @@ export default function MatchReport() {
         <Tabs defaultValue="summary">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <TabsList>
-              <TabsTrigger value="summary">Summary</TabsTrigger>
+              <TabsTrigger value="summary">Overview</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="pass_network">Pass Network</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
@@ -700,7 +805,101 @@ export default function MatchReport() {
             <div className="max-w-5xl mx-auto">
               <Card>
                 <CardContent className="p-4">
-                  <div className="font-semibold text-slate-900 mb-3 text-center">Summary (Per Team)</div>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="w-40" />
+                    <div className="font-semibold text-slate-900 text-center flex-1">Overview (Per Team)</div>
+                    <div className="w-40">
+                      <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Halves</SelectItem>
+                          <SelectItem value="first">1st Half</SelectItem>
+                          <SelectItem value="second">2nd Half</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="pb-4">
+                    <div className="flex items-center justify-between gap-2 pb-2">
+                      <div className="text-sm font-semibold text-slate-900">Score Timeline</div>
+                      <div className="text-xs text-slate-500">
+                        {scoreTimeline.mode === 'time' ? 'Time' : (scoreTimeline.mode === 'play' ? 'Play Order' : '')}
+                      </div>
+                    </div>
+
+                    {scoreTimeline.mode === 'none' ? (
+                      <div className="text-xs text-slate-500">No scoring events yet.</div>
+                    ) : (
+                      <ChartContainer
+                        id="score-timeline"
+                        className="h-[220px] w-full"
+                        config={{
+                          home: { label: homeTeam?.name || 'Home', color: homeTeam?.color || '#22c55e' },
+                          away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
+                        }}
+                      >
+                        <LineChart data={scoreTimeline.points} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
+                          <CartesianGrid vertical={false} />
+                          <XAxis
+                            dataKey="x"
+                            tickFormatter={(v) => (scoreTimeline.mode === 'time' ? formatMMSS(Number(v)) : String(v))}
+                            className="text-xs"
+                          />
+                          <YAxis allowDecimals={false} className="text-xs" />
+                          <Tooltip
+                            cursor={{ stroke: '#cbd5e1' }}
+                            content={
+                              <ChartTooltipContent
+                                indicator="line"
+                                formatter={(value, name, item) => {
+                                  const isHome = name === 'home_total' || name === 'home';
+                                  const row = item?.payload;
+                                  const goals = isHome ? row?.home_goals : row?.away_goals;
+                                  const pts = isHome ? row?.home_points : row?.away_points;
+                                  const label = isHome ? (homeTeam?.name || 'Home') : (awayTeam?.name || 'Away');
+                                  return (
+                                    <div className="flex w-full justify-between gap-4">
+                                      <span className="text-muted-foreground">{label}</span>
+                                      <span className="font-mono font-medium tabular-nums text-foreground">
+                                        {Number(value)} ({goals}:{pts})
+                                      </span>
+                                    </div>
+                                  );
+                                }}
+                                labelFormatter={(_, payload) => {
+                                  const row = payload?.[0]?.payload;
+                                  const x = Number(row?.x);
+                                  return scoreTimeline.mode === 'time' ? `Time: ${formatMMSS(x)}` : `Play: ${String(x)}`;
+                                }}
+                              />
+                            }
+                          />
+                          {Number.isFinite(Number(scoreTimeline.htX)) && (
+                            <ReferenceLine x={Number(scoreTimeline.htX)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'HT', position: 'insideTop', fill: '#475569', fontSize: 10 }} />
+                          )}
+                          <Line
+                            type="stepAfter"
+                            dataKey="home_total"
+                            name="home_total"
+                            stroke="var(--color-home)"
+                            strokeWidth={2}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                          <Line
+                            type="stepAfter"
+                            dataKey="away_total"
+                            name="away_total"
+                            stroke="var(--color-away)"
+                            strokeWidth={2}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ChartContainer>
+                    )}
+                  </div>
 
                   <Table>
                     <TableHeader>
@@ -734,12 +933,32 @@ export default function MatchReport() {
                       })()}
                       {[
                         ['Shots', summary.home.shots, summary.away.shots],
+                        ['Own Kickout Win %', (() => {
+                          const taken = summary.home.ownKickoutsTaken;
+                          const won = summary.home.ownKickoutsWon;
+                          const pct = taken ? (won / taken) * 100 : NaN;
+                          return `${won} / ${taken} (${formatPct(pct)})`;
+                        })(), (() => {
+                          const taken = summary.away.ownKickoutsTaken;
+                          const won = summary.away.ownKickoutsWon;
+                          const pct = taken ? (won / taken) * 100 : NaN;
+                          return `${won} / ${taken} (${formatPct(pct)})`;
+                        })()],
+                        ['Turnovers Lost', summary.home.turnovers, summary.away.turnovers],
+                        ['Points Per Possession', (() => {
+                          const poss = summary.home.possessions;
+                          if (!poss) return '—';
+                          return (summary.home.totalPoints / poss).toFixed(2);
+                        })(), (() => {
+                          const poss = summary.away.possessions;
+                          if (!poss) return '—';
+                          return (summary.away.totalPoints / poss).toFixed(2);
+                        })()],
                         ['Goals', summary.home.goals, summary.away.goals],
                         ['1 Pointers', summary.home.points1, summary.away.points1],
                         ['2 Pointers', summary.home.points2, summary.away.points2],
                         ['Total Points', summary.home.totalPoints, summary.away.totalPoints],
                         ['Passes', summary.home.passes, summary.away.passes],
-                        ['Turnovers (Lost)', summary.home.turnovers, summary.away.turnovers],
                         ['Kickouts Taken', summary.home.kickoutsTaken, summary.away.kickoutsTaken],
                         ['Kickouts Won', summary.home.kickoutsWon, summary.away.kickoutsWon],
                         ['Carries', summary.home.carries, summary.away.carries],
