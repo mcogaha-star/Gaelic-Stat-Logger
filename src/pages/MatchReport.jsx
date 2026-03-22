@@ -161,7 +161,7 @@ function collectPlayerIds(extra) {
   return ids;
 }
 
-function PitchViz({ stats, homeColor, awayColor, colorBy }) {
+function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true }) {
   const defaultActionPalette = {
     shot: '#111827',
     kickout: '#0f766e',
@@ -243,8 +243,51 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
 
   return (
     <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
-      {(colorBy === 'action' || colorBy === 'outcome') && (
-        <div className="border-b bg-slate-50 px-3 py-2">
+      <div
+        className="relative w-full"
+        style={{
+          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+          backgroundImage: `url(${pitchImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+          {stats.map((s) => {
+            const extra = safeParseJSON(s.extra_data || '{}', {});
+            const col = getColor(s, extra);
+            const tip = tooltipText(s, extra);
+            const x1 = Number(s.x_position);
+            const y1 = Number(s.y_position);
+            const x2 = Number(s.end_x_position);
+            const y2 = Number(s.end_y_position);
+
+            if (!Number.isFinite(x1) || !Number.isFinite(y1)) return null;
+
+            // Lines for passes/carries with end coords; dots otherwise.
+            const hasEnd = Number.isFinite(x2) && Number.isFinite(y2);
+            if ((s.stat_type === 'pass' || s.stat_type === 'carry') && hasEnd) {
+              return (
+                <g key={s.id}>
+                  <title>{tip}</title>
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={col} strokeWidth="0.7" opacity="0.95" />
+                  <circle cx={x1} cy={y1} r="1.25" fill={col} />
+                  <circle cx={x2} cy={y2} r="1.25" fill={col} />
+                </g>
+              );
+            }
+            return (
+              <g key={s.id}>
+                <title>{tip}</title>
+                <circle cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {showColorControls && (colorBy === 'action' || colorBy === 'outcome') && (
+        <div className="border-t bg-slate-50 px-3 py-2">
           <div className="text-xs font-semibold text-slate-700">Colors</div>
           <div className="pt-2 grid grid-cols-2 gap-2">
             {(colorBy === 'action'
@@ -254,7 +297,9 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
                 .map((k) => ({ key: k, label: toTitleCase(k) }))
             ).map((item) => {
               const key = item.key;
-              const value = colorBy === 'action' ? (actionPalette?.[key] || defaultActionPalette[key] || '#111827') : (outcomePalette?.[key] || defaultOutcomePalette[key] || '#111827');
+              const value = colorBy === 'action'
+                ? (actionPalette?.[key] || defaultActionPalette[key] || '#111827')
+                : (outcomePalette?.[key] || defaultOutcomePalette[key] || '#111827');
               return (
                 <div key={key} className="flex items-center justify-between gap-2 rounded-md bg-white border border-slate-200 px-2 py-1">
                   <div className="text-xs text-slate-700 truncate">{item.label}</div>
@@ -301,57 +346,17 @@ function PitchViz({ stats, homeColor, awayColor, colorBy }) {
           </div>
         </div>
       )}
-      <div
-        className="relative w-full"
-        style={{
-          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
-          backgroundImage: `url(${pitchImg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
-          {stats.map((s) => {
-            const extra = safeParseJSON(s.extra_data || '{}', {});
-            const col = getColor(s, extra);
-            const tip = tooltipText(s, extra);
-            const x1 = Number(s.x_position);
-            const y1 = Number(s.y_position);
-            const x2 = Number(s.end_x_position);
-            const y2 = Number(s.end_y_position);
-
-            if (!Number.isFinite(x1) || !Number.isFinite(y1)) return null;
-
-            // Lines for passes/carries with end coords; dots otherwise.
-            const hasEnd = Number.isFinite(x2) && Number.isFinite(y2);
-            if ((s.stat_type === 'pass' || s.stat_type === 'carry') && hasEnd) {
-              return (
-                <g key={s.id}>
-                  <title>{tip}</title>
-                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={col} strokeWidth="0.7" opacity="0.95" />
-                  <circle cx={x1} cy={y1} r="1.25" fill={col} />
-                  <circle cx={x2} cy={y2} r="1.25" fill={col} />
-                </g>
-              );
-            }
-            return (
-              <g key={s.id}>
-                <title>{tip}</title>
-                <circle cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />
-              </g>
-            );
-          })}
-        </svg>
-      </div>
     </div>
   );
 }
 
 function PassNetwork({ passes, side, minCount, teamColor }) {
   // Build undirected edges between passer and intended recipient for completed passes.
-  const edges = new Map(); // key "a|b" -> { a, b, count }
-  const touches = new Map(); // playerId -> touch count
+  const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
+  const passesMade = new Map(); // playerId -> count
+  const passesReceived = new Map(); // playerId -> count
   const pos = new Map(); // playerId -> { sumX, sumY, n }
+  const meta = new Map(); // playerId -> { number, name }
 
   const addPos = (id, x, y) => {
     if (!id || !Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -376,9 +381,13 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
     const b = r.id;
     if (!a || !b || a === b) continue;
 
-    // Touches: passer start + recipient end
-    touches.set(a, (touches.get(a) || 0) + 1);
-    touches.set(b, (touches.get(b) || 0) + 1);
+    // Meta (best effort; names may be blank).
+    if (!meta.has(a)) meta.set(a, { number: p.number ?? null, name: p.name || '' });
+    if (!meta.has(b)) meta.set(b, { number: r.number ?? null, name: r.name || '' });
+
+    // Directional counts.
+    passesMade.set(a, (passesMade.get(a) || 0) + 1);
+    passesReceived.set(b, (passesReceived.get(b) || 0) + 1);
 
     // Positions (normalized): passer start, recipient end.
     addPos(a, Number(s.x_position), Number(s.y_position));
@@ -386,12 +395,14 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
 
     const [u, v] = a < b ? [a, b] : [b, a];
     const key = `${u}|${v}`;
-    const cur = edges.get(key) || { a: u, b: v, count: 0 };
-    cur.count += 1;
+    const cur = edges.get(key) || { a: u, b: v, count_ab: 0, count_ba: 0, total: 0 };
+    if (a === u && b === v) cur.count_ab += 1;
+    else cur.count_ba += 1;
+    cur.total += 1;
     edges.set(key, cur);
   }
 
-  const edgeList = Array.from(edges.values()).filter((e) => e.count >= minCount);
+  const edgeList = Array.from(edges.values()).filter((e) => e.total >= minCount);
   const nodeIds = new Set();
   edgeList.forEach((e) => { nodeIds.add(e.a); nodeIds.add(e.b); });
 
@@ -402,12 +413,15 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
       id,
       x: p.n ? (p.sumX / n) : 0,
       y: p.n ? (p.sumY / n) : 0,
-      touches: touches.get(id) || 0,
+      made: passesMade.get(id) || 0,
+      received: passesReceived.get(id) || 0,
+      number: meta.get(id)?.number ?? null,
+      name: meta.get(id)?.name || '',
     };
   });
 
-  const maxEdge = edgeList.reduce((m, e) => Math.max(m, e.count), 1);
-  const maxTouch = nodes.reduce((m, n) => Math.max(m, n.touches), 1);
+  const maxEdge = edgeList.reduce((m, e) => Math.max(m, e.total), 1);
+  const maxTouches = nodes.reduce((m, n) => Math.max(m, n.made + n.received), 1);
 
   const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
 
@@ -429,10 +443,12 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
             const a = nodeById.get(e.a);
             const b = nodeById.get(e.b);
             if (!a || !b) return null;
-            const w = 0.35 + (e.count / maxEdge) * 2.4;
+            const w = 0.35 + (e.total / maxEdge) * 2.4;
+            const aLabel = (a.number != null ? `#${a.number}` : 'Player') + (a.name ? ` ${a.name}` : '');
+            const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
             return (
               <g key={`${e.a}|${e.b}`}>
-                <title>{`Passes: ${e.count}`}</title>
+                <title>{`${aLabel} → ${bLabel}: ${e.count_ab}\n${bLabel} → ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
                 <line
                   x1={a.x}
                   y1={a.y}
@@ -447,12 +463,27 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
           })}
 
           {nodes.map((n) => {
+            const touches = n.made + n.received;
             // Radius scaled by touches (clamped).
-            const r = Math.min(5.2, 1.8 + (n.touches / maxTouch) * 3.4);
+            const r = Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
+            const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
             return (
               <g key={n.id}>
-                <title>{`Touches: ${n.touches}`}</title>
+                <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}`}</title>
                 <circle cx={n.x} cy={n.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
+                {n.number != null && (
+                  <text
+                    x={n.x}
+                    y={n.y}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize="2.8"
+                    fontWeight="700"
+                    fill="#ffffff"
+                  >
+                    {String(n.number)}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -807,7 +838,7 @@ export default function MatchReport() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="w-40" />
-                    <div className="font-semibold text-slate-900 text-center flex-1">Overview (Per Team)</div>
+                    <div className="font-semibold text-slate-900 text-center flex-1">Overview</div>
                     <div className="w-40">
                       <Select value={overviewHalf} onValueChange={setOverviewHalf}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -1112,6 +1143,8 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
   const [halves, setHalves] = useState([]); // [] means all
   const [counters, setCounters] = useState([]); // [] means any
   const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome
+  const [previewTitle, setPreviewTitle] = useState('');
+  const [previewStats, setPreviewStats] = useState([]);
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -1141,26 +1174,47 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
     });
   }, [stats, team, actions, halves, counters]);
 
+  const filteredSorted = useMemo(() => {
+    const list = Array.isArray(filtered) ? [...filtered] : [];
+    const timeKey = (s) => {
+      const t = Number(s?.time_s);
+      if (Number.isFinite(t)) return { kind: 0, v: t };
+      const pid = Number(s?.play_id);
+      if (Number.isFinite(pid)) return { kind: 1, v: pid };
+      const ts = Date.parse(String(s?.timestamp || ''));
+      if (Number.isFinite(ts)) return { kind: 2, v: ts };
+      return { kind: 9, v: 0 };
+    };
+    list.sort((a, b) => {
+      const ka = timeKey(a);
+      const kb = timeKey(b);
+      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+      if (ka.v !== kb.v) return ka.v - kb.v;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    return list;
+  }, [filtered]);
+
+  const keyForGroup = (s) => {
+    const extra = safeParseJSON(s?.extra_data || '{}', {});
+    if (groupBy === 'team') return s?.team_side || 'unknown';
+    if (groupBy === 'action') return s?.stat_type || 'unknown';
+    if (groupBy === 'half') return s?.half || 'unknown';
+    if (groupBy === 'outcome') return deriveOutcome(s, extra) || 'unknown';
+    if (groupBy === 'player') {
+      if (s?.player_number) return `#${s.player_number}`;
+      return 'None';
+    }
+    return 'unknown';
+  };
+
   const pivot = useMemo(() => {
     if (groupBy === 'none') return null;
     const rows = new Map();
 
-    const getKey = (s, extra) => {
-      if (groupBy === 'team') return s.team_side || 'unknown';
-      if (groupBy === 'action') return s.stat_type || 'unknown';
-      if (groupBy === 'half') return s.half || 'unknown';
-      if (groupBy === 'outcome') return deriveOutcome(s, extra) || 'unknown';
-      if (groupBy === 'player') {
-        // Primary player only for now (fast + reliable).
-        if (s.player_number) return `#${s.player_number}`;
-        return 'None';
-      }
-      return 'unknown';
-    };
-
     for (const s of filtered) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
-      const key = getKey(s, extra);
+      const key = keyForGroup(s);
       const cur = rows.get(key) || { key, count: 0, shotPoints: 0 };
       cur.count += 1;
       if (s.stat_type === 'shot') {
@@ -1232,6 +1286,40 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold text-slate-900">Preview</div>
+            <div className="flex items-center gap-2">
+              {previewTitle ? <div className="text-xs text-slate-500 truncate max-w-[40ch]">{previewTitle}</div> : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={!previewStats?.length}
+                onClick={() => { setPreviewStats([]); setPreviewTitle(''); }}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          {!previewStats?.length ? (
+            <div className="text-xs text-slate-500">
+              Click a row (or a pivot group) to visualise it on the pitch.
+            </div>
+          ) : (
+            <PitchViz
+              stats={previewStats}
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+              colorBy="team"
+              showColorControls={false}
+            />
+          )}
+        </CardContent>
+      </Card>
+
       {pivot ? (
         <Card>
           <CardContent className="p-4">
@@ -1246,7 +1334,15 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
               </TableHeader>
               <TableBody>
                 {pivot.map((r) => (
-                  <TableRow key={r.key}>
+                  <TableRow
+                    key={r.key}
+                    className="cursor-pointer"
+                    onClick={() => {
+                      const groupStats = filtered.filter((s) => keyForGroup(s) === r.key);
+                      setPreviewStats(groupStats);
+                      setPreviewTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                    }}
+                  >
                     <TableCell className="font-medium">{toTitleCase(r.key)}</TableCell>
                     <TableCell>{r.count}</TableCell>
                     <TableCell>{r.shotPoints}</TableCell>
@@ -1261,7 +1357,7 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div className="font-semibold text-slate-900">Rows</div>
-              <div className="text-xs text-slate-500">{filtered.length} rows</div>
+              <div className="text-xs text-slate-500">{filteredSorted.length} rows</div>
             </div>
             <Table>
               <TableHeader>
@@ -1275,10 +1371,17 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.slice(0, 200).map((s) => {
+                {filteredSorted.slice(0, 200).map((s) => {
                   const extra = safeParseJSON(s.extra_data || '{}', {});
                   return (
-                    <TableRow key={s.id}>
+                    <TableRow
+                      key={s.id}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setPreviewStats([s]);
+                        setPreviewTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+                      }}
+                    >
                       <TableCell>{toTitleCase(s.half)}</TableCell>
                       <TableCell>{s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
                       <TableCell>{toTitleCase(s.stat_type)}</TableCell>
@@ -1292,7 +1395,7 @@ function DataTab({ stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
                 })}
               </TableBody>
             </Table>
-            {filtered.length > 200 && (
+            {filteredSorted.length > 200 && (
               <div className="text-xs text-slate-500 pt-2">Showing first 200 rows. Add a group-by to summarise.</div>
             )}
           </CardContent>
