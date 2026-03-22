@@ -1156,9 +1156,12 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
 
+  const VIDEO_PRE_ROLL_S = 7;
+
   const openVideoAt = (timeS) => {
     const t = Number(timeS);
     if (!matchId || !Number.isFinite(t)) return;
+    const seekTo = Math.max(0, Math.floor(t - VIDEO_PRE_ROLL_S));
 
     // Reuse the existing video popout window (recommended) so users don't end up with multiple players.
     const url = createPageUrl(`Video?matchId=${matchId}`);
@@ -1167,7 +1170,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
     // Ask the video popout to seek. Send a few times in case the window is still initializing.
     try {
       const ch = new BroadcastChannel('gstl_video');
-      const msg = { matchId, type: 'SEEK_TO', time_s: t };
+      const msg = { matchId, type: 'SEEK_TO', time_s: seekTo };
       ch.postMessage(msg);
       setTimeout(() => ch.postMessage(msg), 350);
       setTimeout(() => { ch.postMessage(msg); ch.close(); }, 900);
@@ -1334,7 +1337,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                     onClick={() => openVideoAt(t)}
                     title="Open the video popout and jump to this timestamp"
                   >
-                    Open Video @ {formatMMSS(t)}
+                    Open Video @ {formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}
                   </Button>
                 );
               })()}
@@ -1407,6 +1410,8 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
               <TableBody>
                 {filteredSorted.slice(0, 200).map((s) => {
                   const extra = safeParseJSON(s.extra_data || '{}', {});
+                  const t = Number(s?.time_s);
+                  const hasTime = Number.isFinite(t);
                   return (
                     <TableRow
                       key={s.id}
@@ -1420,19 +1425,32 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                         {Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '--:--'}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => {
-                            setVizStats([s]);
-                            setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
-                            setVizOpen(true);
-                          }}
-                        >
-                          Visualise
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={!hasTime}
+                            title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'}
+                            onClick={() => hasTime && openVideoAt(t)}
+                          >
+                            Open Video
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => {
+                              setVizStats([s]);
+                              setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+                              setVizOpen(true);
+                            }}
+                          >
+                            Visualise
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
