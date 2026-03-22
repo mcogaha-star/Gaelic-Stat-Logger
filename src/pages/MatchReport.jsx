@@ -222,8 +222,11 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
     const out = deriveOutcome(s, extra);
     if (out) lines.push(`Outcome: ${toTitleCase(out)}`);
     if (s.player_number) lines.push(`Player: #${s.player_number}`);
-    if (Number.isFinite(Number(s.time_s))) lines.push(`Time: ${formatMMSS(Number(s.time_s))}`);
-    if (Number.isFinite(Number(s.normalized_time_s))) lines.push(`Norm: ${formatMMSS(Number(s.normalized_time_s))}`);
+    // Prefer normalized match time for display across the Stats pages.
+    const normT = Number(s.normalized_time_s);
+    const rawT = Number(s.time_s);
+    if (Number.isFinite(normT)) lines.push(`Time: ${formatMMSS(normT)}`);
+    else if (Number.isFinite(rawT)) lines.push(`Time: ${formatMMSS(rawT)}`);
     if (Number.isFinite(Number(s.play_id))) lines.push(`Play: ${Number(s.play_id)}`);
     if (Number.isFinite(Number(s.possession_id))) lines.push(`Poss: ${Number(s.possession_id)}`);
     return lines.join('\n');
