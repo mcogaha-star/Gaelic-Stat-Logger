@@ -126,6 +126,14 @@ function presentablePathLabel(path) {
   if (!parts.length) return 'NA';
   if (parts.length === 1) return humanizeKey(parts[0]);
   const [section, ...rest] = parts;
+  // Avoid labels like "Foul Foul Type" when the inner key already includes the section prefix.
+  if (rest.length === 1) {
+    const r0 = String(rest[0] || '');
+    const sec = String(section || '');
+    if (r0 === sec) return toTitleCase(section);
+    if (r0.startsWith(sec + '_')) return `${toTitleCase(section)} ${humanizeKey(r0.slice(sec.length + 1))}`.trim();
+    if (r0.startsWith(sec)) return `${toTitleCase(section)} ${humanizeKey(r0.slice(sec.length))}`.trim();
+  }
   const right = rest.map(humanizeKey).join(' ');
   return `${toTitleCase(section)} ${right}`.trim();
 }
@@ -2573,7 +2581,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const [actions, setActions] = useState([]); // [] means all
   const [halves, setHalves] = useState([]); // [] means all
   const [playerIds, setPlayerIds] = useState([]); // [] means any
-  const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome
+  const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome|possession
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
@@ -2660,6 +2668,12 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
     if (groupBy === 'action') return s?.stat_type || 'unknown';
     if (groupBy === 'half') return s?.half || 'unknown';
     if (groupBy === 'outcome') return deriveOutcome(s, extra) || 'unknown';
+    if (groupBy === 'possession') {
+      const pid = Number(s?.possession_id);
+      const pside = s?.possession_team_side;
+      if (Number.isFinite(pid) && (pside === 'home' || pside === 'away')) return `${pside}-${pid}`;
+      return 'unknown';
+    }
     if (groupBy === 'player') {
       if (s?.player_number) return `#${s.player_number}`;
       return 'None';
@@ -2674,7 +2688,22 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
     for (const s of filtered) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const key = keyForGroup(s);
-      const cur = rows.get(key) || { key, count: 0, shotPoints: 0 };
+      const cur = rows.get(key) || {
+        key,
+        count: 0,
+        shotPoints: 0,
+        // possession summary fields (only used when grouping by possession)
+        start_time_s: null,
+        end_time_s: null,
+        start_time_norm_s: null,
+        end_time_norm_s: null,
+        start_action: '',
+        end_action: '',
+        start_half: '',
+        end_half: '',
+        start_source: '',
+        end_outcome: '',
+      };
       cur.count += 1;
       if (s.stat_type === 'shot') {
         const o = extra?.shot?.outcome;
@@ -2682,10 +2711,62 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
         if (o === 'point') cur.shotPoints += 1;
         if (o === '2_point') cur.shotPoints += 2;
       }
+
+      if (groupBy === 'possession') {
+        const t = Number(s?.time_s);
+        if (Number.isFinite(t)) {
+          cur.start_time_s = cur.start_time_s == null ? t : Math.min(cur.start_time_s, t);
+          cur.end_time_s = cur.end_time_s == null ? t : Math.max(cur.end_time_s, t);
+        }
+        const tn = Number(s?.normalized_time_s);
+        if (Number.isFinite(tn)) {
+          cur.start_time_norm_s = cur.start_time_norm_s == null ? tn : Math.min(cur.start_time_norm_s, tn);
+          cur.end_time_norm_s = cur.end_time_norm_s == null ? tn : Math.max(cur.end_time_norm_s, tn);
+        }
+        const act = s?.stat_type || '';
+        const out = deriveOutcome(s, extra) || '';
+
+        // start/end action heuristics based on play order when time is missing
+        const pid = Number(s?.play_id);
+        if (Number.isFinite(pid)) {
+          if (cur._minPlay == null || pid < cur._minPlay) {
+            cur._minPlay = pid;
+            cur.start_action = act;
+            cur.start_half = s?.half || '';
+            cur.start_source = (() => {
+              if (act === 'kickout') return 'Kickout Won';
+              if (act === 'turnover') return 'Turnover Won';
+              if (act === 'throw_in') return 'Throw In Won';
+              if (act === 'foul') return 'Foul Won';
+              if (extra?.pass?.deadball) return 'Restart';
+              return toTitleCase(act);
+            })();
+          }
+          if (cur._maxPlay == null || pid > cur._maxPlay) {
+            cur._maxPlay = pid;
+            cur.end_action = act;
+            cur.end_half = s?.half || '';
+            cur.end_outcome = out;
+          }
+        }
+      }
+
       rows.set(key, cur);
     }
 
-    return Array.from(rows.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)));
+    const arr = Array.from(rows.values());
+    if (groupBy === 'possession') {
+      // Sort by start time (if available), otherwise by play order.
+      arr.sort((a, b) => {
+        const ta = a.start_time_s;
+        const tb = b.start_time_s;
+        if (ta != null && tb != null && ta !== tb) return ta - tb;
+        if (a._minPlay != null && b._minPlay != null && a._minPlay !== b._minPlay) return a._minPlay - b._minPlay;
+        return String(a.key).localeCompare(String(b.key));
+      });
+      return arr;
+    }
+    return arr.sort((a, b) => String(a.key).localeCompare(String(b.key)));
   }, [filtered, groupBy]);
 
   return (
@@ -2723,7 +2804,6 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
               values={playerIds}
               onChange={setPlayerIds}
               options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-              className="md:col-span-2"
             />
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Group By</Label>
@@ -2736,6 +2816,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                   <SelectItem value="half">Half</SelectItem>
                   <SelectItem value="outcome">Outcome</SelectItem>
                   <SelectItem value="player">Player (Primary)</SelectItem>
+                  <SelectItem value="possession">Possession</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2749,9 +2830,9 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
             <div className="flex items-center justify-between gap-2">
               <DialogTitle className="text-base">{vizTitle || 'Visualise'}</DialogTitle>
               {(() => {
-                const firstWithTime = (vizStats || []).find((s) => Number.isFinite(Number(s?.time_s)));
-                if (!firstWithTime) return null;
-                const t = Number(firstWithTime.time_s);
+                const times = (vizStats || []).map((s) => Number(s?.time_s)).filter(Number.isFinite);
+                if (!times.length) return null;
+                const t = Math.min(...times);
                 return (
                   <Button
                     type="button"
@@ -2786,9 +2867,26 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{toTitleCase(groupBy)}</TableHead>
-                  <TableHead>Count</TableHead>
-                  <TableHead>Shot Points</TableHead>
+                  {groupBy === 'possession' ? (
+                    <>
+                      <TableHead>Possession</TableHead>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Half</TableHead>
+                      <TableHead className="text-right">Start</TableHead>
+                      <TableHead className="text-right">End</TableHead>
+                      <TableHead className="text-right">Dur</TableHead>
+                      <TableHead>Start Source</TableHead>
+                      <TableHead>End</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="text-right">Shot Pts</TableHead>
+                    </>
+                  ) : (
+                    <>
+                      <TableHead>{toTitleCase(groupBy)}</TableHead>
+                      <TableHead>Count</TableHead>
+                      <TableHead>Shot Points</TableHead>
+                    </>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2799,13 +2897,48 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                     onClick={() => {
                       const groupStats = filtered.filter((s) => keyForGroup(s) === r.key);
                       setVizStats(groupStats);
-                      setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                      if (groupBy === 'possession') {
+                        const [side, num] = String(r.key || '').split('-');
+                        const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                        setVizTitle(`Possession ${num || ''} â€¢ ${teamName} â€¢ ${groupStats.length} events`);
+                      } else {
+                        setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                      }
                       setVizOpen(true);
                     }}
                   >
-                    <TableCell className="font-medium">{toTitleCase(r.key)}</TableCell>
-                    <TableCell>{r.count}</TableCell>
-                    <TableCell>{r.shotPoints}</TableCell>
+                    {groupBy === 'possession' ? (
+                      (() => {
+                        const [side, num] = String(r.key || '').split('-');
+                        const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                        const start = Number.isFinite(Number(r.start_time_norm_s)) ? formatMMSS(Number(r.start_time_norm_s)) : 'NA';
+                        const end = Number.isFinite(Number(r.end_time_norm_s)) ? formatMMSS(Number(r.end_time_norm_s)) : 'NA';
+                        const dur = (Number.isFinite(Number(r.start_time_norm_s)) && Number.isFinite(Number(r.end_time_norm_s)))
+                          ? `${Math.max(0, Number(r.end_time_norm_s) - Number(r.start_time_norm_s)).toFixed(1)}s`
+                          : 'NA';
+                        const endLabel = [toTitleCase(r.end_action), r.end_outcome ? `(${toTitleCase(r.end_outcome)})` : ''].filter(Boolean).join(' ');
+                        return (
+                          <>
+                            <TableCell className="font-mono text-xs">#{num || 'NA'}</TableCell>
+                            <TableCell className="font-medium">{teamName}</TableCell>
+                            <TableCell>{toTitleCase(r.start_half || '')}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{start}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{end}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{dur}</TableCell>
+                            <TableCell>{r.start_source || 'NA'}</TableCell>
+                            <TableCell>{endLabel || 'NA'}</TableCell>
+                            <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                            <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <TableCell className="font-medium">{toTitleCase(r.key)}</TableCell>
+                        <TableCell>{r.count}</TableCell>
+                        <TableCell>{r.shotPoints}</TableCell>
+                      </>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
