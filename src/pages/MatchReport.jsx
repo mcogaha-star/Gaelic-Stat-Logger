@@ -972,6 +972,15 @@ export default function MatchReport() {
                       })()}
                       {[
                         ['Shots', summary.home.shots, summary.away.shots],
+                        ['Points Per Shot', (() => {
+                          const shots = summary.home.shots;
+                          if (!shots) return '—';
+                          return (summary.home.totalPoints / shots).toFixed(2);
+                        })(), (() => {
+                          const shots = summary.away.shots;
+                          if (!shots) return '—';
+                          return (summary.away.totalPoints / shots).toFixed(2);
+                        })()],
                         ['Own Kickout Win %', (() => {
                           const taken = summary.home.ownKickoutsTaken;
                           const won = summary.home.ownKickoutsWon;
@@ -1422,7 +1431,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                       <TableCell>{toTitleCase(deriveOutcome(s, extra))}</TableCell>
                       <TableCell>{s.player_number ? `#${s.player_number}` : ''}</TableCell>
                       <TableCell className="font-mono text-xs">
-                        {Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '--:--'}
+                        {Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '--:--'}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
