@@ -88,6 +88,7 @@ export default function Video() {
   const [pipActive, setPipActive] = useState(false);
 
   const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+  const canCloseWindow = typeof window !== 'undefined' && !!window.opener;
 
   const enterPiP = async () => {
     try {
@@ -97,10 +98,29 @@ export default function Video() {
         toast.error('Picture-in-Picture not supported in this browser');
         return;
       }
+      if (!ready) {
+        toast.error('Load a local video first');
+        return;
+      }
       await v.requestPictureInPicture();
     } catch (e) {
       toast.error('Could not start Picture-in-Picture');
     }
+  };
+
+  const handleCloseOrBack = () => {
+    // Some browsers block window.close() unless the window was opened by script.
+    if (canCloseWindow) {
+      try { window.close(); } catch { /* ignore */ }
+      // If the close is blocked, fall back to navigation.
+      setTimeout(() => {
+        try {
+          window.location.href = createPageUrl(`MatchStats?id=${matchId}`);
+        } catch { /* ignore */ }
+      }, 80);
+      return;
+    }
+    window.location.href = createPageUrl(`MatchStats?id=${matchId}`);
   };
 
   // Load/save local-only config on the match record.
@@ -285,15 +305,15 @@ export default function Video() {
             variant="outline"
             size="sm"
             className="h-8"
-            disabled={!pipSupported || !localVideoRef.current}
+            disabled={!pipSupported || !ready}
             onClick={enterPiP}
             title={pipSupported ? 'Keeps the video above the logger while you click around' : 'Picture-in-Picture not supported'}
           >
             {pipActive ? 'PiP On' : 'PiP'}
           </Button>
         )}
-        <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => window.close()}>
-          Close
+        <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleCloseOrBack}>
+          {canCloseWindow ? 'Close' : 'Back'}
         </Button>
       </div>
     </div>
