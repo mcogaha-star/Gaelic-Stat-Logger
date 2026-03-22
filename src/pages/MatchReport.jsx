@@ -925,9 +925,9 @@ export default function MatchReport() {
                         const awayPts = summary.away.points1 + summary.away.points2 * 2;
                         return (
                           <TableRow key="score">
-                            <TableCell className="font-semibold text-center">{`${summary.home.goals}:${homePts}`}</TableCell>
+                            <TableCell className="font-semibold text-center">{`${summary.home.goals}:${homePts} (${summary.home.totalPoints})`}</TableCell>
                             <TableCell className="font-medium text-center">Score</TableCell>
-                            <TableCell className="font-semibold text-center">{`${summary.away.goals}:${awayPts}`}</TableCell>
+                            <TableCell className="font-semibold text-center">{`${summary.away.goals}:${awayPts} (${summary.away.totalPoints})`}</TableCell>
                           </TableRow>
                         );
                       })()}
@@ -954,19 +954,6 @@ export default function MatchReport() {
                           if (!poss) return '—';
                           return (summary.away.totalPoints / poss).toFixed(2);
                         })()],
-                        ['Goals', summary.home.goals, summary.away.goals],
-                        ['1 Pointers', summary.home.points1, summary.away.points1],
-                        ['2 Pointers', summary.home.points2, summary.away.points2],
-                        ['Total Points', summary.home.totalPoints, summary.away.totalPoints],
-                        ['Passes', summary.home.passes, summary.away.passes],
-                        ['Kickouts Taken', summary.home.kickoutsTaken, summary.away.kickoutsTaken],
-                        ['Kickouts Won', summary.home.kickoutsWon, summary.away.kickoutsWon],
-                        ['Carries', summary.home.carries, summary.away.carries],
-                        ['Take Ons Attempted', summary.home.takeOnsAttempted, summary.away.takeOnsAttempted],
-                        ['Take Ons Completed', summary.home.takeOnsCompleted, summary.away.takeOnsCompleted],
-                        ['Defensive Actions', summary.home.defensiveActions, summary.away.defensiveActions],
-                        ['Possessions', summary.home.possessions, summary.away.possessions],
-                        ['Attacks (Entered Opp 45)', summary.home.attacks, summary.away.attacks],
                       ].map(([label, h, a]) => (
                         <TableRow key={label}>
                           <TableCell className="text-center">{h}</TableCell>
