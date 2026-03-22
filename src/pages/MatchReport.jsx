@@ -58,14 +58,14 @@ function formatMMSS(seconds) {
 }
 
 function formatPct(n) {
-  if (!Number.isFinite(n)) return '—';
+  if (!Number.isFinite(n)) return 'NA';
   return `${n.toFixed(1)}%`;
 }
 
 function formatTeamLabel(side) {
   if (side === 'home') return 'Home';
   if (side === 'away') return 'Away';
-  return 'â€”';
+  return 'NA';
 }
 
 function humanizeKey(k) {
@@ -109,7 +109,7 @@ function humanizeKey(k) {
 
 function presentablePathLabel(path) {
   const parts = String(path || '').split('.').filter(Boolean);
-  if (!parts.length) return 'â€”';
+  if (!parts.length) return 'NA';
   if (parts.length === 1) return humanizeKey(parts[0]);
   const [section, ...rest] = parts;
   const right = rest.map(humanizeKey).join(' ');
@@ -117,12 +117,12 @@ function presentablePathLabel(path) {
 }
 
 function formatExtraValue(v) {
-  if (v == null) return 'â€”';
+  if (v == null) return 'NA';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
-  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'â€”';
-  if (typeof v === 'string') return v ? toTitleCase(v) : 'â€”';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NA';
+  if (typeof v === 'string') return v ? toTitleCase(v) : 'NA';
   if (Array.isArray(v)) {
-    if (!v.length) return 'â€”';
+    if (!v.length) return 'NA';
     if (v.length <= 6) return v.map((x) => formatExtraValue(x)).join(', ');
     return `${v.length} items`;
   }
@@ -142,7 +142,7 @@ function formatExtraValue(v) {
 
     // Fallback: compact object summary.
     const keys = Object.keys(v);
-    if (!keys.length) return 'â€”';
+    if (!keys.length) return 'NA';
     if (keys.length <= 4) {
       return keys.map((k) => `${toTitleCase(k)}: ${formatExtraValue(v[k])}`).join(' â€¢ ');
     }
@@ -1095,8 +1095,8 @@ export default function MatchReport() {
                         { label: 'Shots', home: summary.home.shots, away: summary.away.shots },
                         {
                           label: 'Points Per Shot',
-                          home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : '—',
-                          away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : '—',
+                          home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
+                          away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : 'NA',
                         },
                         {
                           label: 'Own Kickout Win %',
@@ -1116,8 +1116,8 @@ export default function MatchReport() {
                         { label: 'Turnovers Lost', home: summary.home.turnovers, away: summary.away.turnovers },
                         {
                           label: 'Points Per Possession',
-                          home: summary.home.possessions ? (summary.home.totalPoints / summary.home.possessions).toFixed(2) : '—',
-                          away: summary.away.possessions ? (summary.away.totalPoints / summary.away.possessions).toFixed(2) : '—',
+                          home: summary.home.possessions ? (summary.home.totalPoints / summary.home.possessions).toFixed(2) : 'NA',
+                          away: summary.away.possessions ? (summary.away.totalPoints / summary.away.possessions).toFixed(2) : 'NA',
                         },
                       ];
 
@@ -1617,16 +1617,16 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                           <TableCell colSpan={8} className="p-3">
                             {(() => {
                               const baseItems = [
-                                { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : '—' },
-                                { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : '—' },
-                                { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : '—') },
+                                { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
+                                { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
+                                { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
                                 { label: 'Counter Attack', value: s.counter_attack ? 'Yes' : 'No' },
-                                { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : '—' },
-                                { label: 'Time', value: Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : '—' },
-                                { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : '—' },
-                                { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : '—' },
-                                { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : '—' },
-                                { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : '—' },
+                                { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
+                                { label: 'Time', value: Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : 'NA' },
+                                { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
+                                { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
+                                { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
+                                { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : 'NA' },
                               ];
 
                               const extraItems = flattenExtra(extra)
