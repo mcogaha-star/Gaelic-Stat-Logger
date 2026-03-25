@@ -1529,7 +1529,7 @@ export default function StatModalV4({
                       <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
                     </>
                   )}
-                  <YesNo label="Solo + Go" value={soloPlusGo} onChange={setSoloPlusGo} />
+                  <YesNo label="Solo & Go" value={soloPlusGo} onChange={setSoloPlusGo} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>

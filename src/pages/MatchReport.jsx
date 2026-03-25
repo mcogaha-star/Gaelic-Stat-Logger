@@ -76,6 +76,55 @@ function formatPct(n) {
   return `${n.toFixed(1)}%`;
 }
 
+function computeImputedNormalizedTimes(stats) {
+  const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
+  // Sort by play order if possible, otherwise keep stable input order.
+  const sorted = list.slice().sort((a, b) => {
+    const pa = Number(a?.play_id);
+    const pb = Number(b?.play_id);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    const ta = Number(a?.normalized_time_s);
+    const tb = Number(b?.normalized_time_s);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+
+  const prev = new Array(sorted.length).fill(null);
+  const next = new Array(sorted.length).fill(null);
+
+  let lastT = null;
+  for (let i = 0; i < sorted.length; i += 1) {
+    const t = Number(sorted[i]?.normalized_time_s);
+    if (Number.isFinite(t)) lastT = t;
+    prev[i] = lastT;
+  }
+
+  let nextT = null;
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    const t = Number(sorted[i]?.normalized_time_s);
+    if (Number.isFinite(t)) nextT = t;
+    next[i] = nextT;
+  }
+
+  const out = new Map();
+  for (let i = 0; i < sorted.length; i += 1) {
+    const s = sorted[i];
+    const id = s?.id;
+    if (!id) continue;
+    const t = Number(s?.normalized_time_s);
+    if (Number.isFinite(t)) {
+      out.set(id, t);
+      continue;
+    }
+    const a = prev[i];
+    const b = next[i];
+    if (Number.isFinite(a) && Number.isFinite(b)) out.set(id, (a + b) / 2);
+    else if (Number.isFinite(a)) out.set(id, a);
+    else if (Number.isFinite(b)) out.set(id, b);
+  }
+  return out;
+}
+
 function formatTeamLabel(side) {
   if (side === 'home') return 'Home';
   if (side === 'away') return 'Away';
@@ -104,6 +153,7 @@ function humanizeKey(k) {
     take_on_completed: 'Take On Completed',
     pressure_on_carrier: 'Pressure',
     pressure_on_passer: 'Pressure',
+    solo_plus_go: 'Solo & Go',
     // turnover / foul
     turnover_type: 'Turnover Type',
     foul_type: 'Foul Type',
@@ -126,13 +176,21 @@ function presentablePathLabel(path) {
   if (!parts.length) return 'NA';
   if (parts.length === 1) return humanizeKey(parts[0]);
   const [section, ...rest] = parts;
+  const sectionKey = String(section || '');
+  const single = rest.length === 1 ? String(rest[0] || '') : '';
+
+  // For action sections, show cleaner labels for common role keys (avoid "Pass Er", etc).
+  if (rest.length === 1 && ['pass', 'carry', 'kickout', 'turnover', 'throw_in', 'shot', 'foul', 'defensive_contact'].includes(sectionKey)) {
+    if (single && !single.startsWith(sectionKey + '_')) {
+      return humanizeKey(single);
+    }
+  }
   // Avoid labels like "Foul Foul Type" when the inner key already includes the section prefix.
   if (rest.length === 1) {
     const r0 = String(rest[0] || '');
     const sec = String(section || '');
     if (r0 === sec) return toTitleCase(section);
     if (r0.startsWith(sec + '_')) return `${toTitleCase(section)} ${humanizeKey(r0.slice(sec.length + 1))}`.trim();
-    if (r0.startsWith(sec)) return `${toTitleCase(section)} ${humanizeKey(r0.slice(sec.length))}`.trim();
   }
   const right = rest.map(humanizeKey).join(' ');
   return `${toTitleCase(section)} ${right}`.trim();
@@ -142,7 +200,14 @@ function formatExtraValue(v) {
   if (v == null) return 'NA';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NA';
-  if (typeof v === 'string') return v ? toTitleCase(v) : 'NA';
+  if (typeof v === 'string') {
+    const raw = String(v);
+    const trimmed = raw.trim();
+    if (!trimmed) return 'NA';
+    // Older rows can contain encoded dash placeholders for empty values (e.g. "â€”").
+    if (['—', '–', '-', 'â€”', 'â€“', 'â€"'].includes(trimmed)) return 'NA';
+    return toTitleCase(trimmed);
+  }
   if (Array.isArray(v)) {
     if (!v.length) return 'NA';
     if (v.length <= 6) return v.map((x) => formatExtraValue(x)).join(', ');
@@ -166,7 +231,7 @@ function formatExtraValue(v) {
     const keys = Object.keys(v);
     if (!keys.length) return 'NA';
     if (keys.length <= 4) {
-      return keys.map((k) => `${toTitleCase(k)}: ${formatExtraValue(v[k])}`).join(' â€¢ ');
+      return keys.map((k) => `${toTitleCase(k)}: ${formatExtraValue(v[k])}`).join(' | ');
     }
     return `${keys.length} fields`;
   }
@@ -361,6 +426,7 @@ function derivePossessionOutcome(evs, teamSide) {
 
   if (hasScore) return 'Score';
   if (hasShot) return 'Missed Shot';
+  if (last?.stat_type === 'period_end') return 'Half End';
   if (last?.stat_type === 'turnover' || lastOutcome === 'turnover') return 'Turnover';
   if (last?.stat_type === 'foul' || lastOutcome === 'foul') return 'Foul Won';
   if (lastOutcome.includes('sideline')) return 'Sideline';
@@ -415,6 +481,10 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
 
   const [actionPalette, setActionPalette] = React.useState(() => loadPalette('gstl_viz_action_palette_v1', defaultActionPalette));
   const [outcomePalette, setOutcomePalette] = React.useState(() => loadPalette('gstl_viz_outcome_palette_v1', defaultOutcomePalette));
+  const [teamPalette, setTeamPalette] = React.useState(() => loadPalette('gstl_viz_team_palette_v1', {
+    home: homeColor || '#22c55e',
+    away: awayColor || '#ef4444',
+  }));
 
   const persist = (key, obj) => {
     try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
@@ -449,7 +519,9 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
       return outcomePalette?.[o] || defaultOutcomePalette[o] || '#111827';
     }
     // default: team
-    return s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#22c55e');
+    return s.team_side === 'away'
+      ? (teamPalette?.away || awayColor || '#ef4444')
+      : (teamPalette?.home || homeColor || '#22c55e');
   };
 
   return (
@@ -485,6 +557,7 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
             const hasEnd = Number.isFinite(x2) && Number.isFinite(y2);
             const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
             if (isLineAction && hasEnd) {
+              const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
               return (
                 <g key={s.id}>
                   <title>{tip}</title>
@@ -494,12 +567,16 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
                     x2={x2}
                     y2={y2}
                     stroke={col}
-                    strokeWidth="0.8"
+                    strokeWidth={strokeW}
                     opacity="0.95"
                     markerEnd="url(#gstl_arrow)"
                   />
-                  <circle cx={x1} cy={y1} r="1.25" fill={col} />
-                  <circle cx={x2} cy={y2} r="1.25" fill={col} />
+                  {(s.stat_type === 'kickout' || s.stat_type === 'throw_in') && (
+                    <>
+                      <circle cx={x1} cy={y1} r="1.15" fill={col} />
+                      <circle cx={x2} cy={y2} r="1.15" fill={col} />
+                    </>
+                  )}
                 </g>
               );
             }
@@ -513,20 +590,28 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
         </svg>
       </div>
 
-      {showColorControls && (colorBy === 'action' || colorBy === 'outcome') && (
+      {showColorControls && (colorBy === 'action' || colorBy === 'outcome' || colorBy === 'team') && (
         <div className="border-t bg-slate-50 px-3 py-2">
           <div className="text-xs font-semibold text-slate-700">Colors</div>
           <div className="pt-2 grid grid-cols-2 gap-2">
-            {(colorBy === 'action'
-              ? ['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in', 'defensive_contact'].map((k) => ({ key: k, label: toTitleCase(k) }))
-              : Array.from(new Set(stats.map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
-                .sort((a, b) => String(a).localeCompare(String(b)))
-                .map((k) => ({ key: k, label: toTitleCase(k) }))
+            {(colorBy === 'team'
+              ? [
+                { key: 'home', label: 'Home' },
+                { key: 'away', label: 'Away' },
+              ]
+              : (colorBy === 'action'
+                ? ['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in', 'defensive_contact'].map((k) => ({ key: k, label: toTitleCase(k) }))
+                : Array.from(new Set(stats.map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
+                  .sort((a, b) => String(a).localeCompare(String(b)))
+                  .map((k) => ({ key: k, label: toTitleCase(k) }))
+              )
             ).map((item) => {
               const key = item.key;
-              const value = colorBy === 'action'
-                ? (actionPalette?.[key] || defaultActionPalette[key] || '#111827')
-                : (outcomePalette?.[key] || defaultOutcomePalette[key] || '#111827');
+              const value = colorBy === 'team'
+                ? (teamPalette?.[key] || (key === 'away' ? (awayColor || '#ef4444') : (homeColor || '#22c55e')))
+                : (colorBy === 'action'
+                  ? (actionPalette?.[key] || defaultActionPalette[key] || '#111827')
+                  : (outcomePalette?.[key] || defaultOutcomePalette[key] || '#111827'));
               return (
                 <div key={key} className="flex items-center justify-between gap-2 rounded-md bg-white border border-slate-200 px-2 py-1">
                   <div className="text-xs text-slate-700 truncate">{item.label}</div>
@@ -535,7 +620,11 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
                     value={value}
                     onChange={(e) => {
                       const next = e.target.value;
-                      if (colorBy === 'action') {
+                      if (colorBy === 'team') {
+                        const updated = { ...(teamPalette || {}), [key]: next };
+                        setTeamPalette(updated);
+                        persist('gstl_viz_team_palette_v1', updated);
+                      } else if (colorBy === 'action') {
                         const updated = { ...(actionPalette || {}), [key]: next };
                         setActionPalette(updated);
                         persist('gstl_viz_action_palette_v1', updated);
@@ -559,7 +648,11 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
               size="sm"
               className="h-7 px-2 text-xs"
               onClick={() => {
-                if (colorBy === 'action') {
+                if (colorBy === 'team') {
+                  const def = { home: homeColor || '#22c55e', away: awayColor || '#ef4444' };
+                  setTeamPalette(def);
+                  persist('gstl_viz_team_palette_v1', def);
+                } else if (colorBy === 'action') {
                   setActionPalette(defaultActionPalette);
                   persist('gstl_viz_action_palette_v1', defaultActionPalette);
                 } else {
@@ -682,7 +775,7 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
             const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
             return (
               <g key={`${e.a}|${e.b}`}>
-                <title>{`${aLabel} → ${bLabel}: ${e.count_ab}\n${bLabel} → ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
+                <title>{`${aLabel} -> ${bLabel}: ${e.count_ab}\n${bLabel} -> ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
                 <line
                   x1={a.x}
                   y1={a.y}
@@ -764,7 +857,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
           />
 
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Time Min (min)</Label>
+            <Label className="text-xs text-slate-600">Start Time (min)</Label>
             <Input
               className="h-8 text-xs"
               inputMode="numeric"
@@ -774,7 +867,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Time Max (min)</Label>
+            <Label className="text-xs text-slate-600">End Time (min)</Label>
             <Input
               className="h-8 text-xs"
               inputMode="numeric"
@@ -783,10 +876,6 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
               placeholder="e.g. 35"
             />
           </div>
-        </div>
-
-        <div className="text-[11px] leading-snug text-slate-500">
-          Time range uses normalized match time. If a row has no time, it is excluded when a time range is set.
         </div>
       </CardContent>
     </Card>
@@ -1085,30 +1174,25 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
     return { shotsN, scoresN, conv, pps, avgDist, playConv, placedConv, highConv };
   }, [filteredShots]);
 
-  const zoneSummary = useMemo(() => {
-    const order = ['inside_21', '21_45', '45_65', '65_plus'];
-    const label = {
-      inside_21: 'Inside 21',
-      '21_45': '21-45',
-      '45_65': '45-65',
-      '65_plus': '65+',
-    };
+  const shotTypeSummary = useMemo(() => {
+    const order = ['point', '2_point', 'goal'];
+    const label = { point: '1 Point', '2_point': '2 Point', goal: 'Goal' };
     const m = new Map();
     for (const s of filteredShots) {
-      const z = s.zone || 'NA';
-      const cur = m.get(z) || { zone: z, attempts: 0, scores: 0, points: 0 };
+      const t = String(s.shotType || 'point');
+      const cur = m.get(t) || { type: t, attempts: 0, scores: 0, points: 0 };
       cur.attempts += 1;
       if (s.isScore) cur.scores += 1;
       cur.points += s.points || 0;
-      m.set(z, cur);
+      m.set(t, cur);
     }
     const rows = Array.from(m.values()).map((r) => ({
       ...r,
-      label: label[r.zone] || toTitleCase(r.zone),
+      label: label[r.type] || toTitleCase(r.type),
       conv: r.attempts ? (r.scores / r.attempts) * 100 : NaN,
       pps: r.attempts ? r.points / r.attempts : NaN,
     }));
-    rows.sort((a, b) => order.indexOf(a.zone) - order.indexOf(b.zone));
+    rows.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
     return rows;
   }, [filteredShots]);
 
@@ -1293,11 +1377,11 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             <div className="grid lg:grid-cols-2 gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Shot Zone Efficiency</div>
+                  <div className="font-semibold text-slate-900">Shot Type Breakdown</div>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Zone</TableHead>
+                        <TableHead>Type</TableHead>
                         <TableHead className="text-right">Attempts</TableHead>
                         <TableHead className="text-right">Scores</TableHead>
                         <TableHead className="text-right">Conv %</TableHead>
@@ -1305,8 +1389,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {zoneSummary.map((r) => (
-                        <TableRow key={r.zone}>
+                      {shotTypeSummary.map((r) => (
+                        <TableRow key={r.type}>
                           <TableCell className="font-medium">{r.label}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
@@ -1462,200 +1546,180 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 }
 
 function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const [phase, setPhase] = useState([]); // [] all
-  const [outcome, setOutcome] = useState([]); // [] all
-  const [startSource, setStartSource] = useState([]); // [] all
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const imputed = reportFilters?.imputedTimeById;
 
-  // First-pass implementation:
-  // - Treat attack_id as the possession instance (possession_team_side + possession_id).
-  // - Derive phase/outcome using simple rules so we have a stable baseline.
-  const attacksAll = useMemo(() => {
-    const list = Array.isArray(stats) ? stats : [];
-    const groups = new Map();
+  const possessions = useMemo(() => {
+    const groups = groupByPossession(base);
 
-    const timeKey = (s) => {
-      const tn = Number(s?.normalized_time_s);
-      if (Number.isFinite(tn)) return { k: 0, v: tn };
-      const pid = Number(s?.play_id);
-      if (Number.isFinite(pid)) return { k: 1, v: pid };
+    const timeFor = (s) => {
+      const t = Number(s?.normalized_time_s);
+      if (Number.isFinite(t)) return Math.max(0, t);
+      const it = imputed && typeof imputed.get === 'function' ? Number(imputed.get(s?.id)) : NaN;
+      return Number.isFinite(it) ? Math.max(0, it) : NaN;
+    };
+
+    const sortKey = (s) => {
+      const t = timeFor(s);
+      if (Number.isFinite(t)) return { k: 0, v: t };
+      const p = Number(s?.play_id);
+      if (Number.isFinite(p)) return { k: 1, v: p };
       return { k: 9, v: 0 };
     };
 
-    for (const s of list) {
-      const pid = Number(s?.possession_id);
-      const pside = s?.possession_team_side;
-      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) continue;
-      const attackId = `${pside}-${pid}`;
-      const arr = groups.get(attackId) || [];
-      arr.push(s);
-      groups.set(attackId, arr);
-    }
-
     const out = [];
-    for (const [attackId, evs] of groups.entries()) {
-      evs.sort((a, b) => {
-        const ka = timeKey(a);
-        const kb = timeKey(b);
+    for (const [key, evs0] of groups.entries()) {
+      const [teamSide, pidStr] = String(key).split('-');
+      const pid = Number(pidStr);
+      if (teamSide !== 'home' && teamSide !== 'away') continue;
+      if (!Number.isFinite(pid)) continue;
+
+      const evs = (Array.isArray(evs0) ? evs0 : []).slice().sort((a, b) => {
+        const ka = sortKey(a);
+        const kb = sortKey(b);
         if (ka.k !== kb.k) return ka.k - kb.k;
-        return ka.v - kb.v;
+        if (ka.v !== kb.v) return ka.v - kb.v;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
       });
-      const first = evs[0];
-      const teamSide = first.possession_team_side;
 
-      // v0.4+ definition: "Attack" = possession that enters the opposition 45 at least once.
-      if (!possessionHasOpp45Entry(evs, teamSide)) continue;
+      const acting = evs.filter((e) => e && e.team_side === teamSide);
+      if (!acting.length) continue;
 
-      const acting = evs.filter((e) => e.team_side === teamSide);
+      const shotOutcomes = acting
+        .filter((e) => e.stat_type === 'shot')
+        .map((e) => String(safeParseJSON(e.extra_data || '{}', {})?.shot?.outcome || ''))
+        .filter(Boolean);
+
+      const scoreType = (() => {
+        if (shotOutcomes.includes('goal')) return 'Goal';
+        if (shotOutcomes.includes('2_point')) return '2 Point';
+        if (shotOutcomes.includes('point')) return '1 Point';
+        return '';
+      })();
+
+      const hasShot = shotOutcomes.length > 0;
+      const last = acting[acting.length - 1];
+      const lastExtra = safeParseJSON(last?.extra_data || '{}', {});
+      const lastOutcome = String(deriveOutcome(last, lastExtra) || '');
+
+      const outcome = (() => {
+        if (scoreType) return scoreType;
+        if (hasShot) return 'Miss';
+        if (last?.stat_type === 'period_end') return 'Half End';
+        if (last?.stat_type === 'turnover' || lastOutcome === 'turnover') return 'Turnover';
+        return 'Turnover';
+      })();
+
+      const times = evs.map(timeFor).filter(Number.isFinite);
+      const startTime = times.length ? Math.min(...times) : NaN;
+      const endTime = times.length ? Math.max(...times) : NaN;
+      const duration = Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN;
+
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
 
-      const hasScore = acting.some((e) => {
-        if (e.stat_type !== 'shot') return false;
-        const ex = safeParseJSON(e.extra_data || '{}', {});
-        return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
-      });
-      const hasShot = acting.some((e) => e.stat_type === 'shot');
-
-      const times = evs.map((e) => Number(e.normalized_time_s)).filter(Number.isFinite);
-      const startT = times.length ? Math.min(...times) : NaN;
-      const endT = times.length ? Math.max(...times) : NaN;
-      const duration = Number.isFinite(startT) && Number.isFinite(endT) ? Math.max(0, endT - startT) : NaN;
-
       const startSource = (() => {
-        const f = first;
-        const ex = safeParseJSON(f.extra_data || '{}', {});
-        if (f.stat_type === 'kickout') return 'Kickout Won';
-        if (f.stat_type === 'turnover') return 'Turnover Won';
-        if (f.stat_type === 'throw_in') return 'Throw In Won';
-        if (f.stat_type === 'foul') return 'Foul Won';
+        const f = acting[0];
+        const ex = safeParseJSON(f?.extra_data || '{}', {});
+        if (f?.stat_type === 'kickout') return 'Kickout Won';
+        if (f?.stat_type === 'turnover') return 'Turnover Won';
+        if (f?.stat_type === 'throw_in') return 'Throw In Won';
+        if (f?.stat_type === 'foul') return 'Foul Won';
         if (ex?.pass?.deadball) return 'Restart';
         return 'Other';
       })();
 
-      const last = acting[acting.length - 1] || first;
-      const lastExtra = safeParseJSON(last.extra_data || '{}', {});
-      const lastOutcome = String(deriveOutcome(last, lastExtra) || '');
-      const outcome = (() => {
-        if (hasScore) return 'Score';
-        if (hasShot) return 'Missed Shot';
-        if (last.stat_type === 'turnover' || lastOutcome === 'turnover') return 'Turnover';
-        if (last.stat_type === 'foul' || lastOutcome === 'foul') return 'Foul Won';
-        if (lastOutcome.includes('sideline')) return 'Sideline';
-        if (lastOutcome.includes('45')) return '45';
-        if (lastOutcome.includes('goal_kick')) return 'Goal Kick';
-        return 'Other';
-      })();
-
-      const phase = (() => {
-        const isTransition = ['Kickout Won', 'Turnover Won', 'Throw In Won'].includes(startSource)
-          && ((Number.isFinite(duration) && duration <= 15) || acting.length <= 4);
-        if (isTransition) return 'Transition';
-        if (['Kickout Won', 'Throw In Won', 'Foul Won', 'Restart'].includes(startSource)) return 'Restart';
-        return 'Settled';
-      })();
+      const isAttack = possessionHasOpp45Entry(evs, teamSide);
+      const passes = acting.filter((e) => e.stat_type === 'pass').length;
+      const shots = acting.filter((e) => e.stat_type === 'shot').length;
+      const counter = acting.some((e) => !!e.counter_attack);
 
       out.push({
-        attackId,
+        key,
         teamSide,
-        half: first.half,
-        startTime: startT,
+        possessionId: pid,
+        half: acting[0]?.half || '',
+        startTime,
+        endTime,
         duration,
         startSource,
-        phase,
         outcome,
-        actions: acting.length,
-        passes: acting.filter((e) => e.stat_type === 'pass').length,
-        carries: acting.filter((e) => e.stat_type === 'carry').length,
-        shots: acting.filter((e) => e.stat_type === 'shot').length,
+        isAttack,
+        passes,
+        shots,
         points,
-        isScoring: outcome === 'Score',
-        isShot: hasShot,
-        isEmpty: !hasShot,
+        counter,
       });
     }
 
     out.sort((a, b) => {
-      if (Number.isFinite(a.startTime) && Number.isFinite(b.startTime)) return a.startTime - b.startTime;
-      return String(a.attackId).localeCompare(String(b.attackId));
+      if (Number.isFinite(a.startTime) && Number.isFinite(b.startTime) && a.startTime !== b.startTime) return a.startTime - b.startTime;
+      return String(a.key).localeCompare(String(b.key));
     });
     return out;
-  }, [stats]);
+  }, [base, imputed]);
 
-  const attacks = useMemo(() => {
-    return attacksAll.filter((a) => {
-      if (phase.length && !phase.includes(a.phase)) return false;
-      if (outcome.length && !outcome.includes(a.outcome)) return false;
-      if (startSource.length && !startSource.includes(a.startSource)) return false;
-      return true;
-    });
-  }, [attacksAll, phase, outcome, startSource]);
+  const attacks = useMemo(() => possessions.filter((p) => p.isAttack), [possessions]);
 
   const kpis = useMemo(() => {
-    const list = attacks;
-    const n = list.length;
-    const ds = list.map((a) => a.duration).filter(Number.isFinite);
-    const avgDur = ds.length ? ds.reduce((x, y) => x + y, 0) / ds.length : NaN;
-    const scoringPct = n ? (list.filter((a) => a.isScoring).length / n) * 100 : NaN;
-    const shotPct = n ? (list.filter((a) => a.isShot).length / n) * 100 : NaN;
-    const emptyPct = n ? (list.filter((a) => a.isEmpty).length / n) * 100 : NaN;
-    const avgActions = n ? list.reduce((x, a) => x + a.actions, 0) / n : NaN;
-    const totalPts = list.reduce((x, a) => x + a.points, 0);
-    const ppa = n ? totalPts / n : NaN;
-    return { possessions: n, attacks: n, avgDur, scoringPct, shotPct, emptyPct, avgActions, ppa };
-  }, [attacks]);
+    const possN = possessions.length;
+    const attN = attacks.length;
+    const totalPts = possessions.reduce((a, p) => a + (p.points || 0), 0);
+    const ppp = possN ? totalPts / possN : NaN;
+    const ds = possessions.map((p) => p.duration).filter(Number.isFinite);
+    const avgDur = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : NaN;
+    const possToAttack = possN ? (attN / possN) * 100 : NaN;
+    const possToShot = possN ? (possessions.filter((p) => p.shots > 0).length / possN) * 100 : NaN;
+    const attToShot = attN ? (attacks.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
+    const passesPerPoss = possN ? possessions.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
+    const scoringPoss = possN ? (possessions.filter((p) => ['Goal', '2 Point', '1 Point'].includes(p.outcome)).length / possN) * 100 : NaN;
+    const counterPoss = possN ? (possessions.filter((p) => p.counter).length / possN) * 100 : NaN;
+    return { possN, attN, ppp, avgDur, possToAttack, possToShot, attToShot, passesPerPoss, scoringPoss, counterPoss };
+  }, [possessions, attacks]);
 
-  const outcomeRows = useMemo(() => {
-    const cats = ['Score', 'Missed Shot', 'Turnover', 'Foul Won', 'Sideline', '45', 'Goal Kick', 'Other'];
-    return cats.map((c) => ({ outcome: c, count: attacks.filter((a) => a.outcome === c).length }));
-  }, [attacks]);
+  const byTeam = (rows) => {
+    const out = {
+      home: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0, 'Half End': 0 },
+      away: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0, 'Half End': 0 },
+    };
+    for (const r of rows) {
+      const side = r.teamSide;
+      if (!out[side]) continue;
+      const k = String(r.outcome || 'Turnover');
+      if (out[side][k] == null) out[side][k] = 0;
+      out[side][k] += 1;
+    }
+    return [
+      { team: homeTeam?.name || 'Home', side: 'home', ...out.home },
+      { team: awayTeam?.name || 'Away', side: 'away', ...out.away },
+    ];
+  };
+
+  const possessionOutcomeData = useMemo(() => byTeam(possessions), [possessions, homeTeam, awayTeam]);
+  const attackOutcomeData = useMemo(() => byTeam(attacks), [attacks, homeTeam, awayTeam]);
 
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Local Filters</div>
-            <MultiSelect
-              label="Phase"
-              placeholder="All"
-              values={phase}
-              onChange={setPhase}
-              options={['Transition', 'Settled', 'Restart'].map((v) => ({ value: v, label: v }))}
-            />
-            <MultiSelect
-              label="Start Source"
-              placeholder="All"
-              values={startSource}
-              onChange={setStartSource}
-              options={['Kickout Won', 'Turnover Won', 'Throw In Won', 'Foul Won', 'Restart', 'Other'].map((v) => ({ value: v, label: v }))}
-            />
-            <MultiSelect
-              label="Outcome"
-              placeholder="All"
-              values={outcome}
-              onChange={setOutcome}
-              options={['Score', 'Missed Shot', 'Turnover', 'Foul Won', 'Sideline', '45', 'Goal Kick', 'Other'].map((v) => ({ value: v, label: v }))}
-            />
-          </CardContent>
-        </Card>
       </div>
 
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Possessions', value: kpis.possessions },
-            { label: 'Attacks', value: kpis.attacks },
-            { label: 'Average Attack Duration', value: Number.isFinite(kpis.avgDur) ? `${kpis.avgDur.toFixed(1)}s` : 'NA' },
-            { label: 'Scoring Attack %', value: formatPct(kpis.scoringPct) },
-            { label: 'Shot Attack %', value: formatPct(kpis.shotPct) },
-            { label: 'Empty Attack %', value: formatPct(kpis.emptyPct) },
-            { label: 'Avg Actions / Attack', value: Number.isFinite(kpis.avgActions) ? kpis.avgActions.toFixed(2) : 'NA' },
-            { label: 'Points / Attack', value: Number.isFinite(kpis.ppa) ? kpis.ppa.toFixed(2) : 'NA' },
+            { label: 'Possessions', value: kpis.possN },
+            { label: 'Attacks', value: kpis.attN },
+            { label: 'PPP', value: Number.isFinite(kpis.ppp) ? kpis.ppp.toFixed(2) : 'NA' },
+            { label: 'Avg Possession Duration', value: Number.isFinite(kpis.avgDur) ? `${kpis.avgDur.toFixed(1)}s` : 'NA' },
+            { label: 'Possession To Attack %', value: formatPct(kpis.possToAttack) },
+            { label: 'Possession To Shot %', value: formatPct(kpis.possToShot) },
+            { label: 'Attack To Shot %', value: formatPct(kpis.attToShot) },
+            { label: 'Passes Per Possession', value: Number.isFinite(kpis.passesPerPoss) ? kpis.passesPerPoss.toFixed(2) : 'NA' },
+            { label: 'Scoring Possession %', value: formatPct(kpis.scoringPoss) },
+            { label: 'Counter Attack Possession %', value: formatPct(kpis.counterPoss) },
           ].map((k) => (
             <Card key={k.label}>
               <CardContent className="p-3">
@@ -1666,68 +1730,109 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
           ))}
         </div>
 
-        {attacks.length === 0 ? (
+        {possessions.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
-              No attacks available for current filters.
+              No possessions available for current filters.
             </CardContent>
           </Card>
         ) : (
           <>
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Attack Outcome Summary</div>
-                <ChartContainer
-                  id="attack-outcome-summary"
-                  className="h-[240px] w-full"
-                  config={{ count: { label: 'Attacks', color: '#94a3b8' } }}
-                >
-                  <BarChart data={outcomeRows} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis dataKey="outcome" className="text-xs" interval={0} angle={-20} textAnchor="end" height={50} />
-                    <YAxis allowDecimals={false} className="text-xs" />
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Possession Outcomes</div>
+                  <ChartContainer id="possession-outcomes" className="h-[240px] w-full" config={{}}>
+                    <BarChart data={possessionOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="team" className="text-xs" />
+                      <YAxis allowDecimals={false} className="text-xs" />
+                      <Tooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      {[
+                        { k: 'Goal', c: '#1d4ed8' },
+                        { k: '2 Point', c: '#6366f1' },
+                        { k: '1 Point', c: '#0ea5e9' },
+                        { k: 'Miss', c: '#64748b' },
+                        { k: 'Turnover', c: '#dc2626' },
+                        { k: 'Half End', c: '#94a3b8' },
+                      ].map((o) => (
+                        <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                      ))}
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Attack Outcomes</div>
+                  <div className="text-xs text-slate-500">Attack = possession that enters the opposition 45 (x >= {OPP_45_X}).</div>
+                  <ChartContainer id="attack-outcomes-poss" className="h-[240px] w-full" config={{}}>
+                    <BarChart data={attackOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="team" className="text-xs" />
+                      <YAxis allowDecimals={false} className="text-xs" />
+                      <Tooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      {[
+                        { k: 'Goal', c: '#1d4ed8' },
+                        { k: '2 Point', c: '#6366f1' },
+                        { k: '1 Point', c: '#0ea5e9' },
+                        { k: 'Miss', c: '#64748b' },
+                        { k: 'Turnover', c: '#dc2626' },
+                        { k: 'Half End', c: '#94a3b8' },
+                      ].map((o) => (
+                        <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                      ))}
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
 
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Attack Table</div>
+                <div className="font-semibold text-slate-900">Possession Table</div>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Attack</TableHead>
+                      <TableHead>Poss</TableHead>
                       <TableHead>Team</TableHead>
                       <TableHead>Half</TableHead>
                       <TableHead className="text-right">Start</TableHead>
+                      <TableHead className="text-right">End</TableHead>
                       <TableHead className="text-right">Dur</TableHead>
                       <TableHead>Start Source</TableHead>
-                      <TableHead>Phase</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                      <TableHead className="text-right">Shots</TableHead>
                       <TableHead>Outcome</TableHead>
+                      <TableHead className="text-right">Passes</TableHead>
+                      <TableHead className="text-right">Shots</TableHead>
                       <TableHead className="text-right">Pts</TableHead>
+                      <TableHead className="text-right">Attack</TableHead>
+                      <TableHead className="text-right">Counter</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {attacks.slice(0, 200).map((a) => (
-                      <TableRow key={a.attackId} title="Click-to-drilldown can be added next">
-                        <TableCell className="font-mono text-xs">{a.attackId}</TableCell>
-                        <TableCell>{a.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
-                        <TableCell>{toTitleCase(a.half)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{Number.isFinite(a.startTime) ? formatMMSS(a.startTime) : 'NA'}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{Number.isFinite(a.duration) ? `${a.duration.toFixed(1)}s` : 'NA'}</TableCell>
-                        <TableCell>{a.startSource}</TableCell>
-                        <TableCell>{a.phase}</TableCell>
-                        <TableCell className="text-right tabular-nums">{a.actions}</TableCell>
-                        <TableCell className="text-right tabular-nums">{a.shots}</TableCell>
-                        <TableCell>{a.outcome}</TableCell>
-                        <TableCell className="text-right tabular-nums">{a.points}</TableCell>
-                      </TableRow>
-                    ))}
+                    {possessions.slice(0, 250).map((p) => {
+                      const teamName = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                      return (
+                        <TableRow key={p.key}>
+                          <TableCell className="font-mono text-xs">#{p.possessionId}</TableCell>
+                          <TableCell className="font-medium">{teamName}</TableCell>
+                          <TableCell>{toTitleCase(p.half)}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{Number.isFinite(p.startTime) ? formatMMSS(p.startTime) : 'NA'}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{Number.isFinite(p.endTime) ? formatMMSS(p.endTime) : 'NA'}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{Number.isFinite(p.duration) ? `${p.duration.toFixed(1)}s` : 'NA'}</TableCell>
+                          <TableCell>{p.startSource}</TableCell>
+                          <TableCell>{p.outcome}</TableCell>
+                          <TableCell className="text-right tabular-nums">{p.passes}</TableCell>
+                          <TableCell className="text-right tabular-nums">{p.shots}</TableCell>
+                          <TableCell className="text-right tabular-nums">{p.points}</TableCell>
+                          <TableCell className="text-right tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell>
+                          <TableCell className="text-right tabular-nums">{p.counter ? 'Yes' : 'No'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -1744,6 +1849,8 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   const [pressure, setPressure] = useState([]); // [] any
   const [outcome, setOutcome] = useState([]); // [] any
   const [progressiveOnly, setProgressiveOnly] = useState(false);
+  const [pnSide, setPnSide] = useState('home'); // home|away
+  const [pnMin, setPnMin] = useState(3);
 
   const events = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -1901,36 +2008,46 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Pass Network (Completed Passes)</div>
-                {reportFilters.team === 'both' ? (
-                  <div className="grid md:grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xs font-semibold text-slate-700 pb-2">{homeTeam?.name || 'Home'}</div>
-                      <PassNetwork
-                        passes={events.filter((s) => s.stat_type === 'pass')}
-                        side="home"
-                        minCount={3}
-                        teamColor={homeTeam?.color || '#111827'}
-                      />
+                <div className="font-semibold text-slate-900">Pass Network</div>
+                <div className="text-xs text-slate-500">Built from completed passes (passer to receiver).</div>
+
+                <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Team</Label>
+                      <Select value={pnSide} onValueChange={setPnSide}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold text-slate-700 pb-2">{awayTeam?.name || 'Away'}</div>
-                      <PassNetwork
-                        passes={events.filter((s) => s.stat_type === 'pass')}
-                        side="away"
-                        minCount={3}
-                        teamColor={awayTeam?.color || '#111827'}
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={String(pnMin)}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (!Number.isFinite(n)) return;
+                          setPnMin(Math.max(1, Math.floor(n)));
+                        }}
+                        className="h-8 text-xs"
                       />
                     </div>
                   </div>
-                ) : (
+
                   <PassNetwork
                     passes={events.filter((s) => s.stat_type === 'pass')}
-                    side={reportFilters.team === 'away' ? 'away' : 'home'}
-                    minCount={3}
-                    teamColor={(reportFilters.team === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+                    side={pnSide}
+                    minCount={pnMin}
+                    teamColor={(pnSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
                   />
-                )}
+                </div>
               </CardContent>
             </Card>
           </>
@@ -1948,6 +2065,7 @@ function applyNonTeamReportFilters(stats, reportFilters) {
   const maxM = Number(reportFilters?.timeMax);
   const minS = Number.isFinite(minM) && String(reportFilters?.timeMin ?? '') !== '' ? minM * 60 : null;
   const maxS = Number.isFinite(maxM) && String(reportFilters?.timeMax ?? '') !== '' ? maxM * 60 : null;
+  const imputed = reportFilters?.imputedTimeById;
 
   return list.filter((s) => {
     if (!s) return false;
@@ -1959,8 +2077,12 @@ function applyNonTeamReportFilters(stats, reportFilters) {
       if (!any) return false;
     }
     if (minS != null || maxS != null) {
-      const t = Number(s.normalized_time_s);
+      let t = Number(s.normalized_time_s);
+      if (!Number.isFinite(t) && imputed && typeof imputed.get === 'function') {
+        t = Number(imputed.get(s.id));
+      }
       if (!Number.isFinite(t)) return false;
+      t = Math.max(0, t);
       if (minS != null && t < minS) return false;
       if (maxS != null && t > maxS) return false;
     }
@@ -1972,7 +2094,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
-  const throwIns = useMemo(() => base.filter((s) => s?.stat_type === 'throw_in'), [base]);
 
   const kpis = useMemo(() => {
     const byPoss = groupByPossession(base);
@@ -2000,14 +2121,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
         return r.won?.team_side !== oppSide;
       }).length;
 
-      const throwContested = throwIns.length;
-      const throwWon = throwIns.filter((s) => {
-        const ex = safeParseJSON(s.extra_data || '{}', {});
-        const out = ex?.throw_in?.outcome;
-        const won = ex?.throw_in?.won_by;
-        return (out === 'clean' || out === 'break') && won?.team_side === teamSide;
-      }).length;
-
       // Restart-to-shot/score (best-effort): check possessions associated with won restarts.
       const restartPossKeys = new Set();
       for (const s of kickouts) {
@@ -2016,15 +2129,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
         if (koTeam !== teamSide) continue;
         const o = ex?.kickout?.outcome;
         const won = ex?.kickout?.won_by;
-        if (!((o === 'clean' || o === 'break') && won?.team_side === teamSide)) continue;
-        const pid = Number(s?.possession_id);
-        const pside = s?.possession_team_side;
-        if (Number.isFinite(pid) && pside === teamSide) restartPossKeys.add(`${pside}-${pid}`);
-      }
-      for (const s of throwIns) {
-        const ex = safeParseJSON(s.extra_data || '{}', {});
-        const o = ex?.throw_in?.outcome;
-        const won = ex?.throw_in?.won_by;
         if (!((o === 'clean' || o === 'break') && won?.team_side === teamSide)) continue;
         const pid = Number(s?.possession_id);
         const pside = s?.possession_team_side;
@@ -2046,8 +2150,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
         oppKickoutsTaken: oppTaken,
         oppDisrupted,
         ownCleanWon,
-        throwContested,
-        throwWon,
         restartWins,
         restartToShot,
         restartToScore,
@@ -2055,17 +2157,15 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
     };
 
     // Break-ball recovery % across both restarts (best-effort).
-    const breakKickouts = kickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
-    const breakThrowIns = throwIns.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.throw_in?.outcome === 'break');
-    const breakAll = [...breakKickouts, ...breakThrowIns];
+    const breakAll = kickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
     const breakWonHome = breakAll.filter((s) => {
       const ex = safeParseJSON(s.extra_data || '{}', {});
-      const won = ex?.kickout?.won_by || ex?.throw_in?.won_by;
+      const won = ex?.kickout?.won_by;
       return won?.team_side === 'home';
     }).length;
     const breakWonAway = breakAll.filter((s) => {
       const ex = safeParseJSON(s.extra_data || '{}', {});
-      const won = ex?.kickout?.won_by || ex?.throw_in?.won_by;
+      const won = ex?.kickout?.won_by;
       return won?.team_side === 'away';
     }).length;
 
@@ -2076,7 +2176,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
       breakWonHome,
       breakWonAway,
     };
-  }, [kickouts, throwIns, base]);
+  }, [kickouts, base]);
 
   const kickoutTargets = useMemo(() => {
     const rows = new Map();
@@ -2110,31 +2210,27 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
           {[
             {
               label: 'Own Kickout Win %',
-              value: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) • ${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+              value: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) | ${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Opposition Kickout Disruption %',
-              value: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)}) • ${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
+              value: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)}) | ${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Clean Kickout Win %',
-              value: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) • ${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+              value: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) | ${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Break-Ball Recovery %',
-              value: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) • ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
-            },
-            {
-              label: 'Throw-In Win %',
-              value: `${kpis.home.throwWon}/${kpis.home.throwContested} (${formatPct(kpis.home.throwContested ? (kpis.home.throwWon / kpis.home.throwContested) * 100 : NaN)}) • ${kpis.away.throwWon}/${kpis.away.throwContested} (${formatPct(kpis.away.throwContested ? (kpis.away.throwWon / kpis.away.throwContested) * 100 : NaN)})`,
+              value: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) | ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
             },
             {
               label: 'Restart-to-Shot %',
-              value: `${kpis.home.restartToShot}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToShot / kpis.home.restartWins) * 100 : NaN)}) • ${kpis.away.restartToShot}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToShot / kpis.away.restartWins) * 100 : NaN)})`,
+              value: `${kpis.home.restartToShot}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToShot / kpis.home.restartWins) * 100 : NaN)}) | ${kpis.away.restartToShot}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToShot / kpis.away.restartWins) * 100 : NaN)})`,
             },
             {
               label: 'Restart-to-Score %',
-              value: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)}) • ${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
+              value: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)}) | ${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
             },
           ].map((k) => (
             <Card key={k.label}>
@@ -2146,18 +2242,18 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
           ))}
         </div>
 
-        {kickouts.length === 0 && throwIns.length === 0 ? (
+        {kickouts.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
-              No restart events available for current filters.
+              No kickouts available for current filters.
             </CardContent>
           </Card>
         ) : (
           <>
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Kickout / Throw-In Map</div>
-                <PitchViz stats={[...kickouts, ...throwIns]} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
+                <div className="font-semibold text-slate-900">Kickout Map</div>
+                <PitchViz stats={kickouts} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
               </CardContent>
             </Card>
 
@@ -2194,6 +2290,156 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                 </Table>
               </CardContent>
             </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const throwIns = useMemo(() => base.filter((s) => s?.stat_type === 'throw_in'), [base]);
+
+  const kpis = useMemo(() => {
+    const calc = (teamSide) => {
+      const contested = throwIns.length;
+      const won = throwIns.filter((s) => {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const out = ex?.throw_in?.outcome;
+        const w = ex?.throw_in?.won_by;
+        return (out === 'clean' || out === 'break') && w?.team_side === teamSide;
+      }).length;
+      const cleanWon = throwIns.filter((s) => {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const out = ex?.throw_in?.outcome;
+        const w = ex?.throw_in?.won_by;
+        return out === 'clean' && w?.team_side === teamSide;
+      }).length;
+      const breakWon = throwIns.filter((s) => {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const out = ex?.throw_in?.outcome;
+        const w = ex?.throw_in?.won_by;
+        return out === 'break' && w?.team_side === teamSide;
+      }).length;
+      return { contested, won, cleanWon, breakWon };
+    };
+    return { home: calc('home'), away: calc('away') };
+  }, [throwIns]);
+
+  const outcomeRows = useMemo(() => {
+    const rows = new Map();
+    for (const s of throwIns) {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      const out = String(ex?.throw_in?.outcome || 'unknown');
+      rows.set(out, (rows.get(out) || 0) + 1);
+    }
+    return Array.from(rows.entries())
+      .map(([k, v]) => ({ outcome: toTitleCase(k), count: v }))
+      .sort((a, b) => b.count - a.count || String(a.outcome).localeCompare(String(b.outcome)));
+  }, [throwIns]);
+
+  const playerRows = useMemo(() => {
+    const rows = new Map();
+    const bump = (sel, field) => {
+      if (!sel) return;
+      const key = JSON.stringify({ kind: sel.kind, id: sel.id || '', team_side: sel.team_side || '' });
+      const cur = rows.get(key) || { key, player: formatExtraValue(sel), team: sel.team_side || 'unknown', won: 0, lost: 0, broken: 0 };
+      cur[field] += 1;
+      rows.set(key, cur);
+    };
+    for (const s of throwIns) {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      const ti = ex?.throw_in || {};
+      bump(ti.won_by, 'won');
+      bump(ti.lost_by, 'lost');
+      bump(ti.broken_by, 'broken');
+    }
+    return Array.from(rows.values()).sort((a, b) => (b.won + b.lost + b.broken) - (a.won + a.lost + a.broken));
+  }, [throwIns]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+      </div>
+      <div className="space-y-4">
+        {throwIns.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">No throw-ins available for current filters.</CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  label: 'Throw-In Win %',
+                  value: `${kpis.home.won}/${kpis.home.contested} (${formatPct(kpis.home.contested ? (kpis.home.won / kpis.home.contested) * 100 : NaN)}) • ${kpis.away.won}/${kpis.away.contested} (${formatPct(kpis.away.contested ? (kpis.away.won / kpis.away.contested) * 100 : NaN)})`,
+                },
+                { label: 'Clean Wins', value: `${kpis.home.cleanWon} • ${kpis.away.cleanWon}` },
+                { label: 'Break Wins', value: `${kpis.home.breakWon} • ${kpis.away.breakWon}` },
+                { label: 'Throw-Ins Contested', value: throwIns.length },
+              ].map((k) => (
+                <Card key={k.label}>
+                  <CardContent className="p-3">
+                    <div className="text-[11px] text-slate-600">{k.label}</div>
+                    <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Throw-In Outcomes</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Outcome</TableHead>
+                        <TableHead className="text-right">Count</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {outcomeRows.map((r) => (
+                        <TableRow key={r.outcome}>
+                          <TableCell className="font-medium">{r.outcome}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Throw-In Players</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Player</TableHead>
+                        <TableHead>Team</TableHead>
+                        <TableHead className="text-right">Won</TableHead>
+                        <TableHead className="text-right">Lost</TableHead>
+                        <TableHead className="text-right">Broken</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {playerRows.slice(0, 200).map((r) => (
+                        <TableRow key={r.key}>
+                          <TableCell className="font-medium">{r.player}</TableCell>
+                          <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (r.team === 'home' ? (homeTeam?.name || 'Home') : 'NA')}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.won}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.lost}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.broken}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
           </>
         )}
       </div>
@@ -2470,6 +2716,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
 
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const [focusPlayerId, setFocusPlayerId] = useState('all');
+  const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
 
   const leaderboard = useMemo(() => {
@@ -2538,8 +2785,28 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         if (r) r.defActions += 1;
       }
     }
-    return Array.from(rows.values()).sort((a, b) => b.points - a.points || b.shots - a.shots);
+    return Array.from(rows.values());
   }, [base]);
+
+  const sortedLeaderboard = useMemo(() => {
+    const list = Array.isArray(leaderboard) ? leaderboard.slice() : [];
+    const dir = lbSort?.dir === 'asc' ? 1 : -1;
+    const key = String(lbSort?.key || 'points');
+    const get = (r) => {
+      if (!r) return 0;
+      const v = r[key];
+      return typeof v === 'number' ? v : 0;
+    };
+    list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
+    return list;
+  }, [leaderboard, lbSort]);
+
+  const toggleSort = (key) => {
+    setLbSort((cur) => {
+      if (cur?.key === key) return { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
+      return { key, dir: 'desc' };
+    });
+  };
 
   const focusStats = useMemo(() => {
     if (focusPlayerId === 'all') return [];
@@ -2582,26 +2849,25 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         )}
         <Card>
           <CardContent className="p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Leaderboard</div>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Player</TableHead>
                   <TableHead>Team</TableHead>
-                  <TableHead className="text-right">Shots</TableHead>
-                  <TableHead className="text-right">Scores</TableHead>
-                  <TableHead className="text-right">Points</TableHead>
-                  <TableHead className="text-right">Passes</TableHead>
-                  <TableHead className="text-right">Carries</TableHead>
-                  <TableHead className="text-right">TO Won</TableHead>
-                  <TableHead className="text-right">TO Lost</TableHead>
-                  <TableHead className="text-right">Fouls Won</TableHead>
-                  <TableHead className="text-right">Fouls Conceded</TableHead>
-                  <TableHead className="text-right">Def. Actions</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('shots')}>Shots</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('scores')}>Scores</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('points')}>Points</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('passes')}>Passes</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('carries')}>Carries</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('turnoversWon')}>TO Won</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('turnoversLost')}>TO Lost</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('foulsWon')}>Fouls Won</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('foulsConceded')}>Fouls Conceded</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('defActions')}>Def. Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {leaderboard.slice(0, 250).map((r) => (
+                {sortedLeaderboard.slice(0, 250).map((r) => (
                   <TableRow key={r.key}>
                     <TableCell className="font-medium">{r.player}</TableCell>
                     <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
@@ -2680,9 +2946,6 @@ export default function MatchReport() {
   const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
 
-  const [pnSide, setPnSide] = useState('home'); // home|away
-  const [pnMin, setPnMin] = useState(3);
-
   const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
 
   // Shared "report" filters for the Scoring / Build-Up / Possessions tabs.
@@ -2691,6 +2954,7 @@ export default function MatchReport() {
   const [reportPlayerIds, setReportPlayerIds] = useState([]); // [] means any
   const [reportTimeMin, setReportTimeMin] = useState(''); // minutes (string)
   const [reportTimeMax, setReportTimeMax] = useState(''); // minutes (string)
+  const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
 
   const overviewStats = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -2722,7 +2986,8 @@ export default function MatchReport() {
     setTimeMin: setReportTimeMin,
     timeMax: reportTimeMax,
     setTimeMax: setReportTimeMax,
-  }), [reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax]);
+    imputedTimeById,
+  }), [reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax, imputedTimeById]);
 
   const filteredForReport = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -2742,14 +3007,16 @@ export default function MatchReport() {
         if (!any) return false;
       }
       if (minS != null || maxS != null) {
-        const t = Number(s.normalized_time_s);
+        let t = Number(s.normalized_time_s);
+        if (!Number.isFinite(t)) t = Number(imputedTimeById.get(s.id));
         if (!Number.isFinite(t)) return false;
+        t = Math.max(0, t);
         if (minS != null && t < minS) return false;
         if (maxS != null && t > maxS) return false;
       }
       return true;
     });
-  }, [stats, reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax]);
+  }, [stats, reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax, imputedTimeById]);
 
   const filteredForViz = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -2979,17 +3246,27 @@ export default function MatchReport() {
   const overviewAttackOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
     const outcomes = {
-      home: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Foul Won': 0, Sideline: 0, '45': 0, 'Goal Kick': 0, Other: 0 },
-      away: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Foul Won': 0, Sideline: 0, '45': 0, 'Goal Kick': 0, Other: 0 },
+      home: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0 },
+      away: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0 },
     };
 
     for (const [key, evs] of groups.entries()) {
       const [teamSide] = String(key).split('-');
       if (teamSide !== 'home' && teamSide !== 'away') continue;
       if (!possessionHasOpp45Entry(evs, teamSide)) continue; // attack = entry to opp 45 (one per possession)
-      const o = derivePossessionOutcome(evs, teamSide);
-      if (outcomes[teamSide][o] == null) outcomes[teamSide][o] = 0;
-      outcomes[teamSide][o] += 1;
+      const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+      const shots = acting.filter((e) => e.stat_type === 'shot');
+      let scoreType = '';
+      for (const e of shots) {
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        const o = String(ex?.shot?.outcome || '');
+        if (o === 'goal') { scoreType = 'Goal'; break; }
+        if (o === '2_point') scoreType = scoreType || '2 Point';
+        if (o === 'point') scoreType = scoreType || '1 Point';
+      }
+      if (scoreType) outcomes[teamSide][scoreType] += 1;
+      else if (shots.length) outcomes[teamSide].Miss += 1;
+      else outcomes[teamSide].Turnover += 1;
     }
 
     const data = [
@@ -3030,7 +3307,7 @@ export default function MatchReport() {
     };
 
     for (const s of withTime) {
-      const b = Math.floor(Number(s.normalized_time_s) / 300);
+      const b = Math.floor(Math.max(0, Number(s.normalized_time_s)) / 300);
       const cur = ensure(b);
 
       const pid = Number(s?.possession_id);
@@ -3144,7 +3421,7 @@ export default function MatchReport() {
                 {homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}
               </div>
               <div className="text-xs text-slate-500 truncate">
-                {match?.date || ''}{match?.venue ? ` • ${match.venue}` : ''}
+                {match?.date || ''}{match?.venue ? ` - ${match.venue}` : ''}
               </div>
             </div>
           </div>
@@ -3159,12 +3436,12 @@ export default function MatchReport() {
               <TabsTrigger value="scoring">Scoring</TabsTrigger>
               <TabsTrigger value="possessions">Possessions / Attacks</TabsTrigger>
               <TabsTrigger value="build_up">Build-Up</TabsTrigger>
-              <TabsTrigger value="restarts">Restarts</TabsTrigger>
+              <TabsTrigger value="kickouts">Kickouts</TabsTrigger>
+              <TabsTrigger value="misc">Misc</TabsTrigger>
               <TabsTrigger value="defense">Defense</TabsTrigger>
               <TabsTrigger value="fouls">Fouls / Discipline</TabsTrigger>
               <TabsTrigger value="players_ana">Players</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
-              <TabsTrigger value="pass_network">Pass Network</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
             </TabsList>
           </div>
@@ -3386,7 +3663,7 @@ export default function MatchReport() {
                     <Card>
                       <CardContent className="p-4 space-y-3">
                         <div className="font-semibold text-slate-900">Attack Outcomes</div>
-                        <div className="text-xs text-slate-500">Attack = possession that enters the opposition 45 (x ≥ {OPP_45_X}).</div>
+                        <div className="text-xs text-slate-500">Attack = possession that enters the opposition 45 (x >= {OPP_45_X}).</div>
                         <ChartContainer
                           id="attack-outcomes"
                           className="h-[240px] w-full"
@@ -3399,14 +3676,11 @@ export default function MatchReport() {
                             <Tooltip content={<ChartTooltipContent />} />
                             <Legend />
                             {[
-                              { k: 'Score', c: '#2563eb' },
-                              { k: 'Missed Shot', c: '#64748b' },
+                              { k: 'Goal', c: '#1d4ed8' },
+                              { k: '2 Point', c: '#6366f1' },
+                              { k: '1 Point', c: '#0ea5e9' },
+                              { k: 'Miss', c: '#64748b' },
                               { k: 'Turnover', c: '#dc2626' },
-                              { k: 'Foul Won', c: '#f59e0b' },
-                              { k: 'Sideline', c: '#0ea5e9' },
-                              { k: '45', c: '#a855f7' },
-                              { k: 'Goal Kick', c: '#14b8a6' },
-                              { k: 'Other', c: '#94a3b8' },
                             ].map((o) => (
                               <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                             ))}
@@ -3522,8 +3796,18 @@ export default function MatchReport() {
             />
           </TabsContent>
 
-          <TabsContent value="restarts">
+          <TabsContent value="kickouts">
             <RestartsTab
+              stats={stats}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="misc">
+            <MiscTab
               stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
@@ -3562,57 +3846,6 @@ export default function MatchReport() {
             />
           </TabsContent>
 
-          <TabsContent value="pass_network">
-            <div className="grid lg:grid-cols-[340px_1fr] gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Pass Network</div>
-                  <div className="text-xs text-slate-500">
-                    Built from completed passes (passer to receiver).
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Team</Label>
-                    <Select value={pnSide} onValueChange={setPnSide}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      className="h-8 text-xs"
-                      value={pnMin}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        if (!Number.isFinite(v)) return;
-                        setPnMin(Math.max(1, Math.floor(v)));
-                      }}
-                    />
-                  </div>
-
-                  <div className="text-xs text-slate-500 pt-2">
-                    Tip: set a higher threshold (e.g. 4 to 8) to reduce clutter.
-                  </div>
-                </CardContent>
-              </Card>
-
-              <PassNetwork
-                passes={(Array.isArray(stats) ? stats : []).filter((s) => s?.stat_type === 'pass')}
-                side={pnSide}
-                minCount={pnMin}
-                teamColor={pnSide === 'away' ? awayTeam?.color : homeTeam?.color}
-              />
-            </div>
-          </TabsContent>
-
           <TabsContent value="data">
             <DataTab
               matchId={matchId}
@@ -3634,6 +3867,8 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
   const [actions, setActions] = useState([]); // [] means all
   const [halves, setHalves] = useState([]); // [] means all
   const [playerIds, setPlayerIds] = useState([]); // [] means any
+  const [timeMin, setTimeMin] = useState(''); // minutes (string)
+  const [timeMax, setTimeMax] = useState(''); // minutes (string)
   const [groupBy, setGroupBy] = useState('none'); // none|team|player|action|half|outcome|possession
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
@@ -3675,8 +3910,14 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
       .map((p) => ({ id: p.id, team_side: p.team_side, label: label(p) || p.id }));
   }, [homePlayers, awayPlayers]);
 
+  const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
+
   const filtered = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
+    const minM = Number(timeMin);
+    const maxM = Number(timeMax);
+    const minS = Number.isFinite(minM) && timeMin !== '' ? minM * 60 : null;
+    const maxS = Number.isFinite(maxM) && timeMax !== '' ? maxM * 60 : null;
     return list.filter((s) => {
       if (!s) return false;
       if (team !== 'both' && s.team_side !== team) return false;
@@ -3688,15 +3929,25 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
         const any = playerIds.some((id) => ids.has(id));
         if (!any) return false;
       }
+      if (minS != null || maxS != null) {
+        let t = Number(s.normalized_time_s);
+        if (!Number.isFinite(t)) t = Number(imputedTimeById.get(s.id));
+        if (!Number.isFinite(t)) return false;
+        t = Math.max(0, t);
+        if (minS != null && t < minS) return false;
+        if (maxS != null && t > maxS) return false;
+      }
       return true;
     });
-  }, [stats, team, actions, halves, playerIds]);
+  }, [stats, team, actions, halves, playerIds, timeMin, timeMax, imputedTimeById]);
 
   const filteredSorted = useMemo(() => {
     const list = Array.isArray(filtered) ? [...filtered] : [];
     const timeKey = (s) => {
       const tn = Number(s?.normalized_time_s);
-      if (Number.isFinite(tn)) return { kind: 0, v: tn };
+      if (Number.isFinite(tn)) return { kind: 0, v: Math.max(0, tn) };
+      const it = Number(imputedTimeById.get(s?.id));
+      if (Number.isFinite(it)) return { kind: 0, v: Math.max(0, it) };
       const t = Number(s?.time_s);
       if (Number.isFinite(t)) return { kind: 0, v: t };
       const pid = Number(s?.play_id);
@@ -3713,7 +3964,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
     return list;
-  }, [filtered]);
+  }, [filtered, imputedTimeById]);
 
   const keyForGroup = (s) => {
     const extra = safeParseJSON(s?.extra_data || '{}', {});
@@ -3874,6 +4125,17 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
               </Select>
             </div>
           </div>
+
+          <div className="grid md:grid-cols-5 gap-3 pt-3">
+            <div className="space-y-1 md:col-span-1">
+              <Label className="text-xs text-slate-600">Start Time (min)</Label>
+              <Input className="h-8 text-xs" inputMode="numeric" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} placeholder="e.g. 0" />
+            </div>
+            <div className="space-y-1 md:col-span-1">
+              <Label className="text-xs text-slate-600">End Time (min)</Label>
+              <Input className="h-8 text-xs" inputMode="numeric" value={timeMax} onChange={(e) => setTimeMax(e.target.value)} placeholder="e.g. 35" />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -3953,7 +4215,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                       if (groupBy === 'possession') {
                         const [side, num] = String(r.key || '').split('-');
                         const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                        setVizTitle(`Possession ${num || ''} â€¢ ${teamName} â€¢ ${groupStats.length} events`);
+                        setVizTitle(`Possession ${num || ''} - ${teamName} - ${groupStats.length} events`);
                       } else {
                         setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
                       }
@@ -4071,7 +4333,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                               className="h-7 px-2 text-xs"
                               onClick={() => {
                                 setVizStats([s]);
-                                setVizTitle(`${toTitleCase(s.stat_type)} • ${toTitleCase(s.half)} • ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+                                setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
                                 setVizOpen(true);
                               }}
                             >
@@ -4091,7 +4353,12 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
                                 { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
                                 { label: 'Counter Attack', value: s.counter_attack ? 'Yes' : 'No' },
                                 { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
-                                { label: 'Time', value: Number.isFinite(Number(s.normalized_time_s)) ? formatMMSS(Number(s.normalized_time_s)) : 'NA' },
+                                { label: 'Time', value: (() => {
+                                  const t = Number(s.normalized_time_s);
+                                  if (Number.isFinite(t)) return formatMMSS(Math.max(0, t));
+                                  const it = Number(imputedTimeById.get(s.id));
+                                  return Number.isFinite(it) ? formatMMSS(Math.max(0, it)) : 'NA';
+                                })() },
                                 { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
                                 { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
                                 { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
@@ -4100,6 +4367,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
 
                               const extraItems = flattenExtra(extra)
                                 .filter((r) => r.key !== 'counter_attack') // already shown above
+                                .filter((r) => !/pitch_(w|h|width|height)/i.test(String(r.key || '')))
                                 .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
 
                               const seen = new Set();
