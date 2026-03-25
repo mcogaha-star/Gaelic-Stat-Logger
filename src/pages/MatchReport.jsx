@@ -95,14 +95,14 @@ function computeImputedNormalizedTimes(stats) {
   let lastT = null;
   for (let i = 0; i < sorted.length; i += 1) {
     const t = Number(sorted[i]?.normalized_time_s);
-    if (Number.isFinite(t)) lastT = t;
+    if (Number.isFinite(t)) lastT = Math.max(0, t);
     prev[i] = lastT;
   }
 
   let nextT = null;
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
     const t = Number(sorted[i]?.normalized_time_s);
-    if (Number.isFinite(t)) nextT = t;
+    if (Number.isFinite(t)) nextT = Math.max(0, t);
     next[i] = nextT;
   }
 
@@ -113,14 +113,14 @@ function computeImputedNormalizedTimes(stats) {
     if (!id) continue;
     const t = Number(s?.normalized_time_s);
     if (Number.isFinite(t)) {
-      out.set(id, t);
+      out.set(id, Math.max(0, t));
       continue;
     }
     const a = prev[i];
     const b = next[i];
-    if (Number.isFinite(a) && Number.isFinite(b)) out.set(id, (a + b) / 2);
-    else if (Number.isFinite(a)) out.set(id, a);
-    else if (Number.isFinite(b)) out.set(id, b);
+    if (Number.isFinite(a) && Number.isFinite(b)) out.set(id, Math.max(0, (a + b) / 2));
+    else if (Number.isFinite(a)) out.set(id, Math.max(0, a));
+    else if (Number.isFinite(b)) out.set(id, Math.max(0, b));
   }
   return out;
 }
@@ -153,6 +153,7 @@ function humanizeKey(k) {
     take_on_completed: 'Take On Completed',
     pressure_on_carrier: 'Pressure',
     pressure_on_passer: 'Pressure',
+    pass_er: 'Passer',
     solo_plus_go: 'Solo & Go',
     // turnover / foul
     turnover_type: 'Turnover Type',
@@ -192,8 +193,15 @@ function presentablePathLabel(path) {
     if (r0 === sec) return toTitleCase(section);
     if (r0.startsWith(sec + '_')) return `${toTitleCase(section)} ${humanizeKey(r0.slice(sec.length + 1))}`.trim();
   }
-  const right = rest.map(humanizeKey).join(' ');
-  return `${toTitleCase(section)} ${right}`.trim();
+  // De-duplicate labels like "Turnover Foul Foul Type" -> "Turnover Foul Type".
+  const tokens = [toTitleCase(section), ...rest.map(humanizeKey)].filter(Boolean);
+  for (let i = 0; i < tokens.length - 1;) {
+    const a = tokens[i];
+    const b = tokens[i + 1];
+    if (b.startsWith(a + ' ')) tokens.splice(i, 1);
+    else i += 1;
+  }
+  return tokens.join(' ').trim();
 }
 
 function formatExtraValue(v) {
@@ -826,8 +834,8 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">Filters</div>
 
-        {/* Keep the 5 core filters on one line on desktop to reduce vertical scroll. */}
-        <div className="grid md:grid-cols-5 gap-3">
+        {/* Vertical filters to keep things consistent across all tabs (and reduce horizontal squeeze). */}
+        <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-xs text-slate-600">Team</Label>
             <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
@@ -857,7 +865,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
           />
 
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Start Time (min)</Label>
+            <Label className="text-xs text-slate-600">Start Time</Label>
             <Input
               className="h-8 text-xs"
               inputMode="numeric"
@@ -867,7 +875,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">End Time (min)</Label>
+            <Label className="text-xs text-slate-600">End Time</Label>
             <Input
               className="h-8 text-xs"
               inputMode="numeric"
@@ -1548,6 +1556,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
   const imputed = reportFilters?.imputedTimeById;
+  const teamMode = String(reportFilters?.team || 'both'); // both|home|away
+  const [counterFilter, setCounterFilter] = useState('any'); // any|yes|no
 
   const possessions = useMemo(() => {
     const groups = groupByPossession(base);
@@ -1662,23 +1672,41 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
     return out;
   }, [base, imputed]);
 
-  const attacks = useMemo(() => possessions.filter((p) => p.isAttack), [possessions]);
+  const possessionsFiltered = useMemo(() => {
+    if (counterFilter === 'any') return possessions;
+    const want = counterFilter === 'yes';
+    return possessions.filter((p) => !!p.counter === want);
+  }, [possessions, counterFilter]);
 
-  const kpis = useMemo(() => {
-    const possN = possessions.length;
-    const attN = attacks.length;
-    const totalPts = possessions.reduce((a, p) => a + (p.points || 0), 0);
-    const ppp = possN ? totalPts / possN : NaN;
-    const ds = possessions.map((p) => p.duration).filter(Number.isFinite);
-    const avgDur = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : NaN;
-    const possToAttack = possN ? (attN / possN) * 100 : NaN;
-    const possToShot = possN ? (possessions.filter((p) => p.shots > 0).length / possN) * 100 : NaN;
-    const attToShot = attN ? (attacks.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
-    const passesPerPoss = possN ? possessions.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
-    const scoringPoss = possN ? (possessions.filter((p) => ['Goal', '2 Point', '1 Point'].includes(p.outcome)).length / possN) * 100 : NaN;
-    const counterPoss = possN ? (possessions.filter((p) => p.counter).length / possN) * 100 : NaN;
-    return { possN, attN, ppp, avgDur, possToAttack, possToShot, attToShot, passesPerPoss, scoringPoss, counterPoss };
-  }, [possessions, attacks]);
+  const attacks = useMemo(() => possessionsFiltered.filter((p) => p.isAttack), [possessionsFiltered]);
+
+  const sideKpis = useMemo(() => {
+    const calc = (rows) => {
+      const possN = rows.length;
+      const att = rows.filter((p) => p.isAttack);
+      const attN = att.length;
+      const totalPts = rows.reduce((a, p) => a + (p.points || 0), 0);
+      const pointsPerPossession = possN ? totalPts / possN : NaN;
+      const ds = rows.map((p) => p.duration).filter(Number.isFinite);
+      const avgDur = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : NaN;
+      const possToAttack = possN ? (attN / possN) * 100 : NaN;
+      const possToShot = possN ? (rows.filter((p) => p.shots > 0).length / possN) * 100 : NaN;
+      const attToShot = attN ? (att.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
+      const passesPerPoss = possN ? rows.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
+      const scoringPoss = possN ? (rows.filter((p) => ['Goal', '2 Point', '1 Point'].includes(p.outcome)).length / possN) * 100 : NaN;
+      const counterPoss = possN ? (rows.filter((p) => p.counter).length / possN) * 100 : NaN;
+      return { possN, attN, pointsPerPossession, avgDur, possToAttack, possToShot, attToShot, passesPerPoss, scoringPoss, counterPoss };
+    };
+    const home = calc(possessionsFiltered.filter((p) => p.teamSide === 'home'));
+    const away = calc(possessionsFiltered.filter((p) => p.teamSide === 'away'));
+    return { home, away };
+  }, [possessionsFiltered]);
+
+  const display = (fmtFn) => {
+    if (teamMode === 'home') return fmtFn(sideKpis.home);
+    if (teamMode === 'away') return fmtFn(sideKpis.away);
+    return `${fmtFn(sideKpis.home)} / ${fmtFn(sideKpis.away)}`;
+  };
 
   const byTeam = (rows) => {
     const out = {
@@ -1698,28 +1726,44 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
     ];
   };
 
-  const possessionOutcomeData = useMemo(() => byTeam(possessions), [possessions, homeTeam, awayTeam]);
+  const possessionOutcomeData = useMemo(() => byTeam(possessionsFiltered), [possessionsFiltered, homeTeam, awayTeam]);
   const attackOutcomeData = useMemo(() => byTeam(attacks), [attacks, homeTeam, awayTeam]);
 
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <div className="font-semibold text-slate-900">Local Filters</div>
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Counter Attack</Label>
+              <Select value={counterFilter} onValueChange={setCounterFilter}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any</SelectItem>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Possessions', value: kpis.possN },
-            { label: 'Attacks', value: kpis.attN },
-            { label: 'PPP', value: Number.isFinite(kpis.ppp) ? kpis.ppp.toFixed(2) : 'NA' },
-            { label: 'Avg Possession Duration', value: Number.isFinite(kpis.avgDur) ? `${kpis.avgDur.toFixed(1)}s` : 'NA' },
-            { label: 'Possession To Attack %', value: formatPct(kpis.possToAttack) },
-            { label: 'Possession To Shot %', value: formatPct(kpis.possToShot) },
-            { label: 'Attack To Shot %', value: formatPct(kpis.attToShot) },
-            { label: 'Passes Per Possession', value: Number.isFinite(kpis.passesPerPoss) ? kpis.passesPerPoss.toFixed(2) : 'NA' },
-            { label: 'Scoring Possession %', value: formatPct(kpis.scoringPoss) },
-            { label: 'Counter Attack Possession %', value: formatPct(kpis.counterPoss) },
+            { label: 'Possessions', value: display((k) => String(k.possN)) },
+            { label: 'Attacks', value: display((k) => String(k.attN)) },
+            { label: 'Points Per Possession', value: display((k) => Number.isFinite(k.pointsPerPossession) ? k.pointsPerPossession.toFixed(2) : 'NA') },
+            { label: 'Avg Possession Duration', value: display((k) => Number.isFinite(k.avgDur) ? `${k.avgDur.toFixed(1)}s` : 'NA') },
+            { label: 'Possession To Attack %', value: display((k) => formatPct(k.possToAttack)) },
+            { label: 'Possession To Shot %', value: display((k) => formatPct(k.possToShot)) },
+            { label: 'Attack To Shot %', value: display((k) => formatPct(k.attToShot)) },
+            { label: 'Passes Per Possession', value: display((k) => Number.isFinite(k.passesPerPoss) ? k.passesPerPoss.toFixed(2) : 'NA') },
+            { label: 'Scoring Possession %', value: display((k) => formatPct(k.scoringPoss)) },
+            { label: 'Counter Attack Possession %', value: display((k) => formatPct(k.counterPoss)) },
           ].map((k) => (
             <Card key={k.label}>
               <CardContent className="p-3">
@@ -1730,7 +1774,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
           ))}
         </div>
 
-        {possessions.length === 0 ? (
+        {possessionsFiltered.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
               No possessions available for current filters.
@@ -1813,7 +1857,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {possessions.slice(0, 250).map((p) => {
+                    {possessionsFiltered.slice(0, 250).map((p) => {
                       const teamName = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
                       return (
                         <TableRow key={p.key}>
@@ -3276,6 +3320,48 @@ export default function MatchReport() {
     return { outcomes, data };
   }, [overviewStats, homeTeam, awayTeam]);
 
+  const overviewPossessionOutcome = useMemo(() => {
+    const groups = groupByPossession(overviewStats);
+    const init = () => ({ Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0, 'Half End': 0 });
+    const outcomes = { home: init(), away: init() };
+
+    for (const [key, evs] of groups.entries()) {
+      const [teamSide] = String(key).split('-');
+      if (teamSide !== 'home' && teamSide !== 'away') continue;
+      const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+      if (!acting.length) continue;
+
+      const shotOutcomes = acting
+        .filter((e) => e.stat_type === 'shot')
+        .map((e) => String(safeParseJSON(e.extra_data || '{}', {})?.shot?.outcome || ''))
+        .filter(Boolean);
+
+      const scoreType = (() => {
+        if (shotOutcomes.includes('goal')) return 'Goal';
+        if (shotOutcomes.includes('2_point')) return '2 Point';
+        if (shotOutcomes.includes('point')) return '1 Point';
+        return '';
+      })();
+
+      const hasShot = shotOutcomes.length > 0;
+      const last = acting[acting.length - 1];
+      const outcome = (() => {
+        if (scoreType) return scoreType;
+        if (hasShot) return 'Miss';
+        if (last?.stat_type === 'period_end') return 'Half End';
+        return 'Turnover';
+      })();
+
+      if (outcomes[teamSide][outcome] == null) outcomes[teamSide][outcome] = 0;
+      outcomes[teamSide][outcome] += 1;
+    }
+
+    return [
+      { team: homeTeam?.name || 'Home', side: 'home', ...outcomes.home },
+      { team: awayTeam?.name || 'Away', side: 'away', ...outcomes.away },
+    ];
+  }, [overviewStats, homeTeam, awayTeam]);
+
   const overviewMomentum = useMemo(() => {
     const list = Array.isArray(overviewStats) ? overviewStats : [];
     const withTime = list.filter((s) => Number.isFinite(Number(s?.normalized_time_s)));
@@ -3284,9 +3370,9 @@ export default function MatchReport() {
     const groups = groupByPossession(withTime);
     const possStartBucket = new Map(); // key -> bucket index
     for (const [k, evs] of groups.entries()) {
-      const t = evs.map((e) => Number(e.normalized_time_s)).filter(Number.isFinite);
+      const t = evs.map((e) => Math.max(0, Number(e.normalized_time_s))).filter(Number.isFinite);
       if (!t.length) continue;
-      possStartBucket.set(k, Math.floor(Math.min(...t) / 300));
+      possStartBucket.set(k, Math.max(0, Math.floor(Math.min(...t) / 300)));
     }
 
     const bucketStats = new Map(); // bucket -> {home:{...},away:{...}}
@@ -3337,7 +3423,7 @@ export default function MatchReport() {
     // Possession wins (start-of-possession, best-effort): count possessions whose start bucket is b
     for (const [k, b] of possStartBucket.entries()) {
       const side = String(k).startsWith('away-') ? 'away' : 'home';
-      const cur = ensure(b);
+      const cur = ensure(Math.max(0, Number(b) || 0));
       cur[side].possWins += 1;
     }
 
@@ -3373,7 +3459,7 @@ export default function MatchReport() {
 
       return {
         bucket: b,
-        label: `${b * 5}-${b * 5 + 5}`,
+        label: `${Math.max(0, b) * 5}-${Math.max(0, b) * 5 + 5}`,
         home: Number.isFinite(mHome) ? mHome : 50,
         away: Number.isFinite(mAway) ? mAway : 50,
         home_pts: cur.home.pts,
@@ -3434,7 +3520,7 @@ export default function MatchReport() {
             <TabsList>
               <TabsTrigger value="summary">Overview</TabsTrigger>
               <TabsTrigger value="scoring">Scoring</TabsTrigger>
-              <TabsTrigger value="possessions">Possessions / Attacks</TabsTrigger>
+              <TabsTrigger value="possessions">Possessions</TabsTrigger>
               <TabsTrigger value="build_up">Build-Up</TabsTrigger>
               <TabsTrigger value="kickouts">Kickouts</TabsTrigger>
               <TabsTrigger value="misc">Misc</TabsTrigger>
@@ -3594,8 +3680,9 @@ export default function MatchReport() {
                         },
                         {
                           label: 'Turnover Differential',
-                          home: summary.home.turnoversWon - summary.home.turnovers,
-                          away: summary.away.turnoversWon - summary.away.turnovers,
+                          // Zero-sum differential based on turnover wins.
+                          home: summary.home.turnoversWon - summary.away.turnoversWon,
+                          away: summary.away.turnoversWon - summary.home.turnoversWon,
                         },
                         {
                           label: 'Points Per Possession',
@@ -3662,14 +3749,13 @@ export default function MatchReport() {
 
                     <Card>
                       <CardContent className="p-4 space-y-3">
-                        <div className="font-semibold text-slate-900">Attack Outcomes</div>
-                        <div className="text-xs text-slate-500">Attack = possession that enters the opposition 45 (x >= {OPP_45_X}).</div>
+                        <div className="font-semibold text-slate-900">Possession Outcomes</div>
                         <ChartContainer
-                          id="attack-outcomes"
+                          id="possession-outcomes-overview"
                           className="h-[240px] w-full"
                           config={{}}
                         >
-                          <BarChart data={overviewAttackOutcome.data} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                          <BarChart data={overviewPossessionOutcome} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                             <CartesianGrid vertical={false} />
                             <XAxis dataKey="team" className="text-xs" />
                             <YAxis allowDecimals={false} className="text-xs" />
@@ -3681,6 +3767,7 @@ export default function MatchReport() {
                               { k: '1 Point', c: '#0ea5e9' },
                               { k: 'Miss', c: '#64748b' },
                               { k: 'Turnover', c: '#dc2626' },
+                              { k: 'Half End', c: '#94a3b8' },
                             ].map((o) => (
                               <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                             ))}
@@ -3756,9 +3843,7 @@ export default function MatchReport() {
                     </Select>
                   </div>
 
-                  <div className="text-xs text-slate-500 pt-2">
-                    Showing {filteredForViz.length} events.
-                  </div>
+                  <div className="text-xs text-slate-500 pt-2">Showing {filteredForViz.length} events.</div>
                 </CardContent>
               </Card>
 
@@ -4078,7 +4163,7 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
       <Card>
         <CardContent className="p-4">
           <div className="font-semibold text-slate-900 mb-3">Filters</div>
-          <div className="grid md:grid-cols-5 gap-3">
+          <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Team</Label>
               <Select value={team} onValueChange={setTeam}>
@@ -4126,13 +4211,13 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
             </div>
           </div>
 
-          <div className="grid md:grid-cols-5 gap-3 pt-3">
-            <div className="space-y-1 md:col-span-1">
-              <Label className="text-xs text-slate-600">Start Time (min)</Label>
+          <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Start Time</Label>
               <Input className="h-8 text-xs" inputMode="numeric" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} placeholder="e.g. 0" />
             </div>
-            <div className="space-y-1 md:col-span-1">
-              <Label className="text-xs text-slate-600">End Time (min)</Label>
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">End Time</Label>
               <Input className="h-8 text-xs" inputMode="numeric" value={timeMax} onChange={(e) => setTimeMax(e.target.value)} placeholder="e.g. 35" />
             </div>
           </div>
@@ -4367,7 +4452,8 @@ function DataTab({ matchId, stats, homeTeam, awayTeam, homePlayers, awayPlayers 
 
                               const extraItems = flattenExtra(extra)
                                 .filter((r) => r.key !== 'counter_attack') // already shown above
-                                .filter((r) => !/pitch_(w|h|width|height)/i.test(String(r.key || '')))
+                                // Hide any pitch dimension/debug keys that can appear in older rows.
+                                .filter((r) => !/(^|\\b)pitch([._-]?(w|h|width|height|length))\\b/i.test(String(r.key || '')))
                                 .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
 
                               const seen = new Set();
