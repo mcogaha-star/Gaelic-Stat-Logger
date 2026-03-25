@@ -300,6 +300,75 @@ function collectPlayerIds(extra) {
   return ids;
 }
 
+function sortKeyForTime(s) {
+  const tn = Number(s?.normalized_time_s);
+  if (Number.isFinite(tn)) return { k: 0, v: tn };
+  const t = Number(s?.time_s);
+  if (Number.isFinite(t)) return { k: 1, v: t };
+  const pid = Number(s?.play_id);
+  if (Number.isFinite(pid)) return { k: 2, v: pid };
+  return { k: 9, v: 0 };
+}
+
+function groupByPossession(stats) {
+  const list = Array.isArray(stats) ? stats : [];
+  const groups = new Map();
+  for (const s of list) {
+    const pid = Number(s?.possession_id);
+    const pside = s?.possession_team_side;
+    if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) continue;
+    const key = `${pside}-${pid}`;
+    const arr = groups.get(key) || [];
+    arr.push(s);
+    groups.set(key, arr);
+  }
+  for (const arr of groups.values()) {
+    arr.sort((a, b) => {
+      const ka = sortKeyForTime(a);
+      const kb = sortKeyForTime(b);
+      if (ka.k !== kb.k) return ka.k - kb.k;
+      if (ka.v !== kb.v) return ka.v - kb.v;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+  }
+  return groups;
+}
+
+function possessionHasOpp45Entry(evs, teamSide) {
+  const list = Array.isArray(evs) ? evs : [];
+  for (const s of list) {
+    if (!s || s.team_side !== teamSide) continue;
+    if (statHasEnteredOpp45(s)) return true;
+  }
+  return false;
+}
+
+function derivePossessionOutcome(evs, teamSide) {
+  const list = Array.isArray(evs) ? evs : [];
+  const acting = list.filter((e) => e && e.team_side === teamSide);
+  if (!acting.length) return 'Other';
+
+  const hasScore = acting.some((e) => {
+    if (e.stat_type !== 'shot') return false;
+    const ex = safeParseJSON(e.extra_data || '{}', {});
+    return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
+  });
+  const hasShot = acting.some((e) => e.stat_type === 'shot');
+
+  const last = acting[acting.length - 1];
+  const lastExtra = safeParseJSON(last?.extra_data || '{}', {});
+  const lastOutcome = String(deriveOutcome(last, lastExtra) || '');
+
+  if (hasScore) return 'Score';
+  if (hasShot) return 'Missed Shot';
+  if (last?.stat_type === 'turnover' || lastOutcome === 'turnover') return 'Turnover';
+  if (last?.stat_type === 'foul' || lastOutcome === 'foul') return 'Foul Won';
+  if (lastOutcome.includes('sideline')) return 'Sideline';
+  if (lastOutcome.includes('45')) return '45';
+  if (lastOutcome.includes('goal kick') || lastOutcome.includes('goal_kick')) return 'Goal Kick';
+  return 'Other';
+}
+
 function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -395,6 +464,12 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
         }}
       >
         <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+          <defs>
+            {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
+            <marker id="gstl_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="context-stroke" />
+            </marker>
+          </defs>
           {stats.map((s) => {
             const extra = safeParseJSON(s.extra_data || '{}', {});
             const col = getColor(s, extra);
@@ -406,13 +481,23 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
 
             if (!Number.isFinite(x1) || !Number.isFinite(y1)) return null;
 
-            // Lines for passes/carries with end coords; dots otherwise.
+            // Lines for directional actions with end coords; dots otherwise.
             const hasEnd = Number.isFinite(x2) && Number.isFinite(y2);
-            if ((s.stat_type === 'pass' || s.stat_type === 'carry') && hasEnd) {
+            const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
+            if (isLineAction && hasEnd) {
               return (
                 <g key={s.id}>
                   <title>{tip}</title>
-                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={col} strokeWidth="0.7" opacity="0.95" />
+                  <line
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke={col}
+                    strokeWidth="0.8"
+                    opacity="0.95"
+                    markerEnd="url(#gstl_arrow)"
+                  />
                   <circle cx={x1} cy={y1} r="1.25" fill={col} />
                   <circle cx={x2} cy={y2} r="1.25" fill={col} />
                 </g>
@@ -648,35 +733,36 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">Filters</div>
 
-        <div className="space-y-1">
-          <Label className="text-xs text-slate-600">Team</Label>
-          <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="both">Both</SelectItem>
-              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Keep the 5 core filters on one line on desktop to reduce vertical scroll. */}
+        <div className="grid md:grid-cols-5 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Team</Label>
+            <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="both">Both</SelectItem>
+                <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        <MultiSelect
-          label="Half"
-          placeholder="All"
-          values={reportFilters.halves}
-          onChange={reportFilters.setHalves}
-          options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-        />
+          <MultiSelect
+            label="Half"
+            placeholder="All"
+            values={reportFilters.halves}
+            onChange={reportFilters.setHalves}
+            options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+          />
 
-        <MultiSelect
-          label="Player"
-          placeholder="Any"
-          values={reportFilters.playerIds}
-          onChange={reportFilters.setPlayerIds}
-          options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-        />
+          <MultiSelect
+            label="Player"
+            placeholder="Any"
+            values={reportFilters.playerIds}
+            onChange={reportFilters.setPlayerIds}
+            options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+          />
 
-        <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-slate-600">Time Min (min)</Label>
             <Input
@@ -1416,6 +1502,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
       const first = evs[0];
       const teamSide = first.possession_team_side;
 
+      // v0.4+ definition: "Attack" = possession that enters the opposition 45 at least once.
+      if (!possessionHasOpp45Entry(evs, teamSide)) continue;
+
       const acting = evs.filter((e) => e.team_side === teamSide);
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;
@@ -1813,19 +1902,725 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Pass Network (Completed Passes)</div>
-                <PassNetwork
-                  passes={events.filter((s) => s.stat_type === 'pass')}
-                  side={reportFilters.team === 'away' ? 'away' : 'home'}
-                  minCount={3}
-                  teamColor={(reportFilters.team === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
-                />
-                <div className="text-[11px] text-slate-500">
-                  Pass network currently shows one side at a time (based on the Team filter).
-                </div>
+                {reportFilters.team === 'both' ? (
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700 pb-2">{homeTeam?.name || 'Home'}</div>
+                      <PassNetwork
+                        passes={events.filter((s) => s.stat_type === 'pass')}
+                        side="home"
+                        minCount={3}
+                        teamColor={homeTeam?.color || '#111827'}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700 pb-2">{awayTeam?.name || 'Away'}</div>
+                      <PassNetwork
+                        passes={events.filter((s) => s.stat_type === 'pass')}
+                        side="away"
+                        minCount={3}
+                        teamColor={awayTeam?.color || '#111827'}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <PassNetwork
+                    passes={events.filter((s) => s.stat_type === 'pass')}
+                    side={reportFilters.team === 'away' ? 'away' : 'home'}
+                    minCount={3}
+                    teamColor={(reportFilters.team === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+                  />
+                )}
               </CardContent>
             </Card>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function applyNonTeamReportFilters(stats, reportFilters) {
+  const list = Array.isArray(stats) ? stats : [];
+  const halves = Array.isArray(reportFilters?.halves) ? reportFilters.halves : [];
+  const playerIds = Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds : [];
+  const minM = Number(reportFilters?.timeMin);
+  const maxM = Number(reportFilters?.timeMax);
+  const minS = Number.isFinite(minM) && String(reportFilters?.timeMin ?? '') !== '' ? minM * 60 : null;
+  const maxS = Number.isFinite(maxM) && String(reportFilters?.timeMax ?? '') !== '' ? maxM * 60 : null;
+
+  return list.filter((s) => {
+    if (!s) return false;
+    if (halves.length && !halves.includes(s.half)) return false;
+    if (playerIds.length) {
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const ids = collectPlayerIds(extra);
+      const any = playerIds.some((id) => ids.has(id));
+      if (!any) return false;
+    }
+    if (minS != null || maxS != null) {
+      const t = Number(s.normalized_time_s);
+      if (!Number.isFinite(t)) return false;
+      if (minS != null && t < minS) return false;
+      if (maxS != null && t > maxS) return false;
+    }
+    return true;
+  });
+}
+
+function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+
+  const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
+  const throwIns = useMemo(() => base.filter((s) => s?.stat_type === 'throw_in'), [base]);
+
+  const kpis = useMemo(() => {
+    const byPoss = groupByPossession(base);
+
+    const calcForTeam = (teamSide) => {
+      const ownKickouts = [];
+      const oppKickouts = [];
+      for (const s of kickouts) {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const koTeam = ex?.kickout?.team_side;
+        const o = ex?.kickout?.outcome;
+        const won = ex?.kickout?.won_by;
+        if (koTeam === teamSide) ownKickouts.push({ o, won, koTeam });
+        if (koTeam && koTeam !== teamSide) oppKickouts.push({ o, won, koTeam });
+      }
+
+      const ownTaken = ownKickouts.length;
+      const ownWon = ownKickouts.filter((r) => (r.o === 'clean' || r.o === 'break') && r.won?.team_side === teamSide).length;
+      const ownCleanWon = ownKickouts.filter((r) => r.o === 'clean' && r.won?.team_side === teamSide).length;
+
+      const oppTaken = oppKickouts.length;
+      const oppDisrupted = oppKickouts.filter((r) => {
+        const oppSide = r.koTeam;
+        if (r.o !== 'clean') return true;
+        return r.won?.team_side !== oppSide;
+      }).length;
+
+      const throwContested = throwIns.length;
+      const throwWon = throwIns.filter((s) => {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const out = ex?.throw_in?.outcome;
+        const won = ex?.throw_in?.won_by;
+        return (out === 'clean' || out === 'break') && won?.team_side === teamSide;
+      }).length;
+
+      // Restart-to-shot/score (best-effort): check possessions associated with won restarts.
+      const restartPossKeys = new Set();
+      for (const s of kickouts) {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const koTeam = ex?.kickout?.team_side;
+        if (koTeam !== teamSide) continue;
+        const o = ex?.kickout?.outcome;
+        const won = ex?.kickout?.won_by;
+        if (!((o === 'clean' || o === 'break') && won?.team_side === teamSide)) continue;
+        const pid = Number(s?.possession_id);
+        const pside = s?.possession_team_side;
+        if (Number.isFinite(pid) && pside === teamSide) restartPossKeys.add(`${pside}-${pid}`);
+      }
+      for (const s of throwIns) {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const o = ex?.throw_in?.outcome;
+        const won = ex?.throw_in?.won_by;
+        if (!((o === 'clean' || o === 'break') && won?.team_side === teamSide)) continue;
+        const pid = Number(s?.possession_id);
+        const pside = s?.possession_team_side;
+        if (Number.isFinite(pid) && pside === teamSide) restartPossKeys.add(`${pside}-${pid}`);
+      }
+
+      const restartPoss = Array.from(restartPossKeys).map((k) => byPoss.get(k) || []);
+      const restartWins = restartPoss.length;
+      const restartToShot = restartPoss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot')).length;
+      const restartToScore = restartPoss.filter((evs) => evs.some((e) => {
+        if (e.team_side !== teamSide || e.stat_type !== 'shot') return false;
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
+      })).length;
+
+      return {
+        ownKickoutsTaken: ownTaken,
+        ownKickoutsWon: ownWon,
+        oppKickoutsTaken: oppTaken,
+        oppDisrupted,
+        ownCleanWon,
+        throwContested,
+        throwWon,
+        restartWins,
+        restartToShot,
+        restartToScore,
+      };
+    };
+
+    // Break-ball recovery % across both restarts (best-effort).
+    const breakKickouts = kickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
+    const breakThrowIns = throwIns.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.throw_in?.outcome === 'break');
+    const breakAll = [...breakKickouts, ...breakThrowIns];
+    const breakWonHome = breakAll.filter((s) => {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      const won = ex?.kickout?.won_by || ex?.throw_in?.won_by;
+      return won?.team_side === 'home';
+    }).length;
+    const breakWonAway = breakAll.filter((s) => {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      const won = ex?.kickout?.won_by || ex?.throw_in?.won_by;
+      return won?.team_side === 'away';
+    }).length;
+
+    return {
+      home: calcForTeam('home'),
+      away: calcForTeam('away'),
+      breakAll: breakAll.length,
+      breakWonHome,
+      breakWonAway,
+    };
+  }, [kickouts, throwIns, base]);
+
+  const kickoutTargets = useMemo(() => {
+    const rows = new Map();
+    for (const s of kickouts) {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      const koTeam = ex?.kickout?.team_side;
+      if (koTeam !== 'home' && koTeam !== 'away') continue;
+      const r = ex?.kickout?.intended_recipient;
+      const key = r?.kind === 'player' ? r.id : (r?.kind === 'team' ? 'team' : (r?.kind === 'none' ? 'none' : 'unknown'));
+      const cur = rows.get(`${koTeam}|${key}`) || { team: koTeam, key, label: formatExtraValue(r), targeted: 0, won: 0, clean: 0, break: 0, marks: 0 };
+      cur.targeted += 1;
+      const o = ex?.kickout?.outcome;
+      const wonBy = ex?.kickout?.won_by;
+      if ((o === 'clean' || o === 'break') && wonBy?.team_side === koTeam) cur.won += 1;
+      if (o === 'clean' && wonBy?.team_side === koTeam) cur.clean += 1;
+      if (o === 'break' && wonBy?.team_side === koTeam) cur.break += 1;
+      if (ex?.kickout?.mark) cur.marks += 1;
+      rows.set(`${koTeam}|${key}`, cur);
+    }
+    return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
+  }, [kickouts]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+      </div>
+
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            {
+              label: 'Own Kickout Win %',
+              value: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) • ${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+            },
+            {
+              label: 'Opposition Kickout Disruption %',
+              value: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)}) • ${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
+            },
+            {
+              label: 'Clean Kickout Win %',
+              value: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) • ${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+            },
+            {
+              label: 'Break-Ball Recovery %',
+              value: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) • ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
+            },
+            {
+              label: 'Throw-In Win %',
+              value: `${kpis.home.throwWon}/${kpis.home.throwContested} (${formatPct(kpis.home.throwContested ? (kpis.home.throwWon / kpis.home.throwContested) * 100 : NaN)}) • ${kpis.away.throwWon}/${kpis.away.throwContested} (${formatPct(kpis.away.throwContested ? (kpis.away.throwWon / kpis.away.throwContested) * 100 : NaN)})`,
+            },
+            {
+              label: 'Restart-to-Shot %',
+              value: `${kpis.home.restartToShot}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToShot / kpis.home.restartWins) * 100 : NaN)}) • ${kpis.away.restartToShot}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToShot / kpis.away.restartWins) * 100 : NaN)})`,
+            },
+            {
+              label: 'Restart-to-Score %',
+              value: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)}) • ${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
+            },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {kickouts.length === 0 && throwIns.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">
+              No restart events available for current filters.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Kickout / Throw-In Map</div>
+                <PitchViz stats={[...kickouts, ...throwIns]} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Kickout Targets</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Target</TableHead>
+                      <TableHead className="text-right">Targeted</TableHead>
+                      <TableHead className="text-right">Won</TableHead>
+                      <TableHead className="text-right">Win %</TableHead>
+                      <TableHead className="text-right">Clean</TableHead>
+                      <TableHead className="text-right">Break</TableHead>
+                      <TableHead className="text-right">Marks</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {kickoutTargets.slice(0, 200).map((r, idx) => (
+                      <TableRow key={`${r.team}-${r.key}-${idx}`}>
+                        <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                        <TableCell className="font-medium">{r.label || 'NA'}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.targeted}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.won}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatPct(r.targeted ? (r.won / r.targeted) * 100 : NaN)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.clean}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.break}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.marks}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
+  const defActions = useMemo(() => base.filter((s) => s?.stat_type === 'defensive_contact'), [base]);
+
+  const classifyTurnover = (s) => {
+    const ex = safeParseJSON(s?.extra_data || '{}', {});
+    const t = ex?.turnover || {};
+    const lost = t?.lost_by?.team_side;
+    const rec = t?.recovered_by?.team_side;
+    const unforced = !!t?.unforced;
+    const typ = String(t?.type || t?.turnover_type || ex?.turnover_type || '');
+    return { lost, rec, unforced, typ };
+  };
+
+  const kpis = useMemo(() => {
+    const calc = (teamSide) => {
+      const won = turnovers.filter((s) => classifyTurnover(s).rec === teamSide).length;
+      const lost = turnovers.filter((s) => classifyTurnover(s).lost === teamSide).length;
+      const total = turnovers.filter((s) => {
+        const c = classifyTurnover(s);
+        return c.rec === teamSide || c.lost === teamSide;
+      }).length;
+      const forced = turnovers.filter((s) => {
+        const c = classifyTurnover(s);
+        return (c.rec === teamSide || c.lost === teamSide) && !c.unforced;
+      }).length;
+      const forcedPct = total ? (forced / total) * 100 : NaN;
+
+      const winXs = turnovers
+        .filter((s) => classifyTurnover(s).rec === teamSide)
+        .map((s) => Number(s?.x_position))
+        .filter(Number.isFinite);
+      const avgHeight = winXs.length ? (winXs.reduce((a, b) => a + b, 0) / winXs.length) : NaN;
+
+      const byPoss = groupByPossession(base);
+      const startKeys = new Set();
+      for (const s of turnovers) {
+        const c = classifyTurnover(s);
+        if (c.rec !== teamSide) continue;
+        const pid = Number(s?.possession_id);
+        const pside = s?.possession_team_side;
+        if (Number.isFinite(pid) && pside === teamSide) startKeys.add(`${pside}-${pid}`);
+      }
+      const poss = Array.from(startKeys).map((k) => byPoss.get(k) || []);
+      const shotsFrom = poss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot')).length;
+      const scoresFrom = poss.filter((evs) => evs.some((e) => {
+        if (e.team_side !== teamSide || e.stat_type !== 'shot') return false;
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
+      })).length;
+
+      const oppSide = teamSide === 'home' ? 'away' : 'home';
+      const concededKeys = new Set();
+      for (const s of turnovers) {
+        const c = classifyTurnover(s);
+        if (c.lost !== teamSide) continue;
+        const pid = Number(s?.possession_id);
+        const pside = s?.possession_team_side;
+        if (Number.isFinite(pid) && pside === oppSide) concededKeys.add(`${pside}-${pid}`);
+      }
+      const concededPoss = Array.from(concededKeys).map((k) => byPoss.get(k) || []);
+      const scoresConceded = concededPoss.filter((evs) => evs.some((e) => {
+        if (e.team_side !== oppSide || e.stat_type !== 'shot') return false;
+        const ex = safeParseJSON(e.extra_data || '{}', {});
+        return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
+      })).length;
+
+      return { won, lost, diff: won - lost, forcedPct, avgHeight, shotsFrom, scoresFrom, scoresConceded };
+    };
+    return { home: calc('home'), away: calc('away') };
+  }, [turnovers, base]);
+
+  const typeRows = useMemo(() => {
+    const rows = new Map();
+    for (const s of turnovers) {
+      const c = classifyTurnover(s);
+      const typ = toTitleCase(c.typ || 'Unknown');
+      const cur = rows.get(typ) || { type: typ, won: 0, lost: 0 };
+      if (c.rec) cur.won += 1;
+      if (c.lost) cur.lost += 1;
+      rows.set(typ, cur);
+    }
+    return Array.from(rows.values()).sort((a, b) => String(a.type).localeCompare(String(b.type)));
+  }, [turnovers]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+      </div>
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Turnovers Won', value: `${kpis.home.won} / ${kpis.away.won}` },
+            { label: 'Turnovers Lost', value: `${kpis.home.lost} / ${kpis.away.lost}` },
+            { label: 'Turnover Differential', value: `${kpis.home.diff} / ${kpis.away.diff}` },
+            { label: 'Forced Turnover %', value: `${formatPct(kpis.home.forcedPct)} / ${formatPct(kpis.away.forcedPct)}` },
+            { label: 'Average Regain Height (x)', value: `${Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA'} / ${Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA'}` },
+            { label: 'Shots From Regains', value: `${kpis.home.shotsFrom} / ${kpis.away.shotsFrom}` },
+            { label: 'Scores From Regains', value: `${kpis.home.scoresFrom} / ${kpis.away.scoresFrom}` },
+            { label: 'Scores Conceded After Lost Turnovers', value: `${kpis.home.scoresConceded} / ${kpis.away.scoresConceded}` },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {turnovers.length === 0 && defActions.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">No defensive events available for current filters.</CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Defensive Map</div>
+                <PitchViz stats={[...turnovers, ...defActions]} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Turnover Type Breakdown</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {typeRows.map((r) => (
+                      <TableRow key={r.type}>
+                        <TableCell className="font-medium">{r.type}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.won + r.lost}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="text-[11px] text-slate-500">Counts are best-effort from turnover.type and embedded turnover fields.</div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function extractFoulFromStat(s) {
+  const ex = safeParseJSON(s?.extra_data || '{}', {});
+  if (s?.stat_type === 'foul' && ex?.foul) return ex.foul;
+  if (ex?.turnover?.type === 'foul' && ex?.turnover?.foul) return ex.turnover.foul;
+  if (ex?.pass?.outcome === 'foul' && ex?.pass?.foul) return ex.pass.foul;
+  if (ex?.carry?.outcome === 'foul' && ex?.carry?.foul) return ex.carry.foul;
+  if (ex?.kickout?.outcome === 'foul' && ex?.kickout?.foul) return ex.kickout.foul;
+  if (ex?.throw_in?.outcome === 'foul' && ex?.throw_in?.foul) return ex.throw_in.foul;
+  return null;
+}
+
+function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const fouls = useMemo(() => base.filter((s) => !!extractFoulFromStat(s)), [base]);
+
+  const kpis = useMemo(() => {
+    const by = { home: { won: 0, conceded: 0, yellow: 0, black: 0, red: 0 }, away: { won: 0, conceded: 0, yellow: 0, black: 0, red: 0 } };
+    for (const s of fouls) {
+      const f = extractFoulFromStat(s);
+      const foulBy = f?.foul_by?.team_side;
+      const foulOn = f?.foul_on_or_forced_by?.team_side;
+      const card = String(f?.card || 'none');
+      if (foulOn === 'home') by.home.won += 1;
+      if (foulOn === 'away') by.away.won += 1;
+      if (foulBy === 'home') by.home.conceded += 1;
+      if (foulBy === 'away') by.away.conceded += 1;
+      if (foulBy === 'home') {
+        if (card === 'yellow') by.home.yellow += 1;
+        if (card === 'black') by.home.black += 1;
+        if (card === 'red') by.home.red += 1;
+      }
+      if (foulBy === 'away') {
+        if (card === 'yellow') by.away.yellow += 1;
+        if (card === 'black') by.away.black += 1;
+        if (card === 'red') by.away.red += 1;
+      }
+    }
+    return by;
+  }, [fouls]);
+
+  const typeRows = useMemo(() => {
+    const rows = new Map();
+    for (const s of fouls) {
+      const f = extractFoulFromStat(s);
+      const typ = toTitleCase(f?.foul_type || 'Unknown');
+      const cur = rows.get(typ) || { type: typ, count: 0 };
+      cur.count += 1;
+      rows.set(typ, cur);
+    }
+    return Array.from(rows.values()).sort((a, b) => b.count - a.count);
+  }, [fouls]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+      </div>
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Fouls Won', value: `${kpis.home.won} / ${kpis.away.won}` },
+            { label: 'Fouls Conceded', value: `${kpis.home.conceded} / ${kpis.away.conceded}` },
+            { label: 'Foul Differential', value: `${kpis.home.won - kpis.home.conceded} / ${kpis.away.won - kpis.away.conceded}` },
+            { label: 'Cards Total', value: `${kpis.home.yellow + kpis.home.black + kpis.home.red} / ${kpis.away.yellow + kpis.away.black + kpis.away.red}` },
+          ].map((k) => (
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-600">{k.label}</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {fouls.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-600 text-center">No fouls available for current filters.</CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Foul Map</div>
+                <PitchViz stats={fouls} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="team" showColorControls={false} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Foul Types</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {typeRows.map((r) => (
+                      <TableRow key={r.type}>
+                        <TableCell className="font-medium">{r.type}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const [focusPlayerId, setFocusPlayerId] = useState('all');
+  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+
+  const leaderboard = useMemo(() => {
+    const rows = new Map();
+    const ensure = (sel) => {
+      if (!sel || sel.kind !== 'player') return null;
+      const key = `${sel.team_side || 'unknown'}|${sel.id || ''}`;
+      const cur = rows.get(key) || {
+        key,
+        player: formatExtraValue(sel),
+        team: sel.team_side || 'unknown',
+        shots: 0,
+        scores: 0,
+        points: 0,
+        passes: 0,
+        carries: 0,
+        turnoversWon: 0,
+        turnoversLost: 0,
+        foulsWon: 0,
+        foulsConceded: 0,
+        defActions: 0,
+      };
+      rows.set(key, cur);
+      return cur;
+    };
+
+    for (const s of base) {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      if (s.stat_type === 'shot') {
+        const p = ex?.shot?.player;
+        const r = ensure(p);
+        if (r) {
+          r.shots += 1;
+          const o = ex?.shot?.outcome;
+          if (shotOutcomeGroup(o) === 'score') r.scores += 1;
+          r.points += shotPointsForOutcome(o);
+        }
+      }
+      if (s.stat_type === 'pass') {
+        const p = ex?.pass?.passer;
+        const r = ensure(p);
+        if (r) r.passes += 1;
+      }
+      if (s.stat_type === 'carry') {
+        const p = ex?.carry?.carrier;
+        const r = ensure(p);
+        if (r) r.carries += 1;
+      }
+      if (s.stat_type === 'turnover' || ex?.turnover) {
+        const t = ex?.turnover || {};
+        const rec = ensure(t?.recovered_by);
+        const lost = ensure(t?.lost_by);
+        if (rec) rec.turnoversWon += 1;
+        if (lost) lost.turnoversLost += 1;
+      }
+      const f = extractFoulFromStat(s);
+      if (f) {
+        const won = ensure(f?.foul_on_or_forced_by);
+        const con = ensure(f?.foul_by);
+        if (won) won.foulsWon += 1;
+        if (con) con.foulsConceded += 1;
+      }
+      if (s.stat_type === 'defensive_contact') {
+        const p = ex?.defensive_contact?.player;
+        const r = ensure(p);
+        if (r) r.defActions += 1;
+      }
+    }
+    return Array.from(rows.values()).sort((a, b) => b.points - a.points || b.shots - a.shots);
+  }, [base]);
+
+  const focusStats = useMemo(() => {
+    if (focusPlayerId === 'all') return [];
+    return base.filter((s) => {
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const ids = collectPlayerIds(extra);
+      return ids.has(focusPlayerId);
+    });
+  }, [base, focusPlayerId]);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="space-y-4">
+        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <div className="font-semibold text-slate-900">Player</div>
+            <Select value={focusPlayerId} onValueChange={setFocusPlayerId}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Players</SelectItem>
+                {(playerOptions || []).map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="space-y-4">
+        {focusPlayerId !== 'all' && focusStats.length > 0 && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="font-semibold text-slate-900">Player Events</div>
+              <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+            </CardContent>
+          </Card>
+        )}
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Leaderboard</div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Player</TableHead>
+                  <TableHead>Team</TableHead>
+                  <TableHead className="text-right">Shots</TableHead>
+                  <TableHead className="text-right">Scores</TableHead>
+                  <TableHead className="text-right">Points</TableHead>
+                  <TableHead className="text-right">Passes</TableHead>
+                  <TableHead className="text-right">Carries</TableHead>
+                  <TableHead className="text-right">TO Won</TableHead>
+                  <TableHead className="text-right">TO Lost</TableHead>
+                  <TableHead className="text-right">Fouls Won</TableHead>
+                  <TableHead className="text-right">Fouls Conceded</TableHead>
+                  <TableHead className="text-right">Def. Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {leaderboard.slice(0, 250).map((r) => (
+                  <TableRow key={r.key}>
+                    <TableCell className="font-medium">{r.player}</TableCell>
+                    <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.points}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.passes}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.carries}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.turnoversWon}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.turnoversLost}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.foulsWon}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.foulsConceded}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.defActions}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
@@ -1986,7 +2781,8 @@ export default function MatchReport() {
       points2: 0,
       totalPoints: 0,
       passes: 0,
-      turnovers: 0,
+      turnovers: 0, // lost
+      turnoversWon: 0,
       kickoutsTaken: 0,
       kickoutsWon: 0,
       ownKickoutsTaken: 0,
@@ -2066,11 +2862,15 @@ export default function MatchReport() {
       const turnover = extra?.turnover;
       if (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object')) {
         const lost = turnover?.lost_by;
+        const rec = turnover?.recovered_by;
         if (lost?.team_side === 'home' || lost?.team_side === 'away') {
           out[lost.team_side].turnovers += 1;
         } else {
           // Fallback: attribute to acting team.
           out[side].turnovers += 1;
+        }
+        if (rec?.team_side === 'home' || rec?.team_side === 'away') {
+          out[rec.team_side].turnoversWon += 1;
         }
       }
     }
@@ -2176,6 +2976,141 @@ export default function MatchReport() {
     return { mode, points, htX };
   }, [overviewStats, halfAnchors, overviewHalf]);
 
+  const overviewAttackOutcome = useMemo(() => {
+    const groups = groupByPossession(overviewStats);
+    const outcomes = {
+      home: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Foul Won': 0, Sideline: 0, '45': 0, 'Goal Kick': 0, Other: 0 },
+      away: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Foul Won': 0, Sideline: 0, '45': 0, 'Goal Kick': 0, Other: 0 },
+    };
+
+    for (const [key, evs] of groups.entries()) {
+      const [teamSide] = String(key).split('-');
+      if (teamSide !== 'home' && teamSide !== 'away') continue;
+      if (!possessionHasOpp45Entry(evs, teamSide)) continue; // attack = entry to opp 45 (one per possession)
+      const o = derivePossessionOutcome(evs, teamSide);
+      if (outcomes[teamSide][o] == null) outcomes[teamSide][o] = 0;
+      outcomes[teamSide][o] += 1;
+    }
+
+    const data = [
+      { team: homeTeam?.name || 'Home', side: 'home', ...outcomes.home },
+      { team: awayTeam?.name || 'Away', side: 'away', ...outcomes.away },
+    ];
+    return { outcomes, data };
+  }, [overviewStats, homeTeam, awayTeam]);
+
+  const overviewMomentum = useMemo(() => {
+    const list = Array.isArray(overviewStats) ? overviewStats : [];
+    const withTime = list.filter((s) => Number.isFinite(Number(s?.normalized_time_s)));
+    if (!withTime.length) return { mode: 'none', rows: [] };
+
+    const groups = groupByPossession(withTime);
+    const possStartBucket = new Map(); // key -> bucket index
+    for (const [k, evs] of groups.entries()) {
+      const t = evs.map((e) => Number(e.normalized_time_s)).filter(Number.isFinite);
+      if (!t.length) continue;
+      possStartBucket.set(k, Math.floor(Math.min(...t) / 300));
+    }
+
+    const bucketStats = new Map(); // bucket -> {home:{...},away:{...}}
+    const ensure = (b) => {
+      const cur = bucketStats.get(b) || {
+        home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0, eff: 0 },
+        away: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0, eff: 0 },
+      };
+      bucketStats.set(b, cur);
+      return cur;
+    };
+
+    const turnoverLostSide = (s) => {
+      const ex = safeParseJSON(s?.extra_data || '{}', {});
+      const lost = ex?.turnover?.lost_by?.team_side;
+      if (lost === 'home' || lost === 'away') return lost;
+      return null;
+    };
+
+    for (const s of withTime) {
+      const b = Math.floor(Number(s.normalized_time_s) / 300);
+      const cur = ensure(b);
+
+      const pid = Number(s?.possession_id);
+      const pside = s?.possession_team_side;
+      if (Number.isFinite(pid) && (pside === 'home' || pside === 'away')) cur[pside].poss.add(`${pside}-${pid}`);
+
+      if (s.stat_type === 'shot') {
+        const ex = safeParseJSON(s.extra_data || '{}', {});
+        const o = ex?.shot?.outcome;
+        const add = shotPointsForOutcome(o);
+        if (s.team_side === 'home') {
+          cur.home.shots += 1;
+          cur.home.pts += add;
+        }
+        if (s.team_side === 'away') {
+          cur.away.shots += 1;
+          cur.away.pts += add;
+        }
+      }
+
+      if (s.stat_type === 'turnover' || safeParseJSON(s?.extra_data || '{}', {})?.turnover) {
+        const lostSide = turnoverLostSide(s);
+        if (lostSide) cur[lostSide].toLost += 1;
+      }
+    }
+
+    // Possession wins (start-of-possession, best-effort): count possessions whose start bucket is b
+    for (const [k, b] of possStartBucket.entries()) {
+      const side = String(k).startsWith('away-') ? 'away' : 'home';
+      const cur = ensure(b);
+      cur[side].possWins += 1;
+    }
+
+    const buckets = Array.from(bucketStats.keys()).sort((a, b) => a - b);
+    const rows = buckets.map((b) => {
+      const cur = bucketStats.get(b);
+      const homePoss = cur.home.poss.size;
+      const awayPoss = cur.away.poss.size;
+
+      const homeProd = homePoss ? cur.home.pts / homePoss : 0;
+      const awayProd = awayPoss ? cur.away.pts / awayPoss : 0;
+
+      const homeTC = homePoss ? (1 - cur.home.toLost / homePoss) : 0;
+      const awayTC = awayPoss ? (1 - cur.away.toLost / awayPoss) : 0;
+
+      const homeEff = cur.home.shots ? (cur.home.pts / cur.home.shots) : 0;
+      const awayEff = cur.away.shots ? (cur.away.pts / cur.away.shots) : 0;
+
+      const share = (a, b) => {
+        const d = a + b;
+        if (!Number.isFinite(d) || d <= 0) return 0.5;
+        return a / d;
+      };
+
+      const pointShareHome = share(cur.home.pts, cur.away.pts);
+      const prodShareHome = share(homeProd, awayProd);
+      const tcShareHome = share(homeTC, awayTC);
+      const pwShareHome = share(cur.home.possWins, cur.away.possWins);
+      const effShareHome = share(homeEff, awayEff);
+
+      const mHome = 100 * (0.35 * pointShareHome + 0.25 * prodShareHome + 0.20 * tcShareHome + 0.10 * pwShareHome + 0.10 * effShareHome);
+      const mAway = 100 - mHome;
+
+      return {
+        bucket: b,
+        label: `${b * 5}-${b * 5 + 5}`,
+        home: Number.isFinite(mHome) ? mHome : 50,
+        away: Number.isFinite(mAway) ? mAway : 50,
+        home_pts: cur.home.pts,
+        away_pts: cur.away.pts,
+        home_poss: homePoss,
+        away_poss: awayPoss,
+        home_to: cur.home.toLost,
+        away_to: cur.away.toLost,
+      };
+    });
+
+    return { mode: 'time', rows };
+  }, [overviewStats]);
+
   if (!matchId) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -2224,6 +3159,10 @@ export default function MatchReport() {
               <TabsTrigger value="scoring">Scoring</TabsTrigger>
               <TabsTrigger value="possessions">Possessions / Attacks</TabsTrigger>
               <TabsTrigger value="build_up">Build-Up</TabsTrigger>
+              <TabsTrigger value="restarts">Restarts</TabsTrigger>
+              <TabsTrigger value="defense">Defense</TabsTrigger>
+              <TabsTrigger value="fouls">Fouls / Discipline</TabsTrigger>
+              <TabsTrigger value="players_ana">Players</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="pass_network">Pass Network</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
@@ -2346,6 +3285,8 @@ export default function MatchReport() {
                     {(() => {
                       const homePts = summary.home.points1 + summary.home.points2 * 2;
                       const awayPts = summary.away.points1 + summary.away.points2 * 2;
+                      const homeScores = summary.home.goals + summary.home.points1 + summary.home.points2;
+                      const awayScores = summary.away.goals + summary.away.points1 + summary.away.points2;
                       const metrics = [
                         {
                           label: 'Score',
@@ -2355,9 +3296,9 @@ export default function MatchReport() {
                         },
                         { label: 'Shots', home: summary.home.shots, away: summary.away.shots },
                         {
-                          label: 'Points Per Shot',
-                          home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
-                          away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : 'NA',
+                          label: 'Shot Conversion %',
+                          home: summary.home.shots ? formatPct((homeScores / summary.home.shots) * 100) : 'NA',
+                          away: summary.away.shots ? formatPct((awayScores / summary.away.shots) * 100) : 'NA',
                         },
                         {
                           label: 'Own Kickout Win %',
@@ -2374,11 +3315,20 @@ export default function MatchReport() {
                             return `${won} / ${taken} (${formatPct(pct)})`;
                           })(),
                         },
-                        { label: 'Turnovers Lost', home: summary.home.turnovers, away: summary.away.turnovers },
+                        {
+                          label: 'Turnover Differential',
+                          home: summary.home.turnoversWon - summary.home.turnovers,
+                          away: summary.away.turnoversWon - summary.away.turnovers,
+                        },
                         {
                           label: 'Points Per Possession',
                           home: summary.home.possessions ? (summary.home.totalPoints / summary.home.possessions).toFixed(2) : 'NA',
                           away: summary.away.possessions ? (summary.away.totalPoints / summary.away.possessions).toFixed(2) : 'NA',
+                        },
+                        {
+                          label: 'Points Per Shot',
+                          home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
+                          away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : 'NA',
                         },
                       ];
 
@@ -2401,6 +3351,69 @@ export default function MatchReport() {
                         </div>
                       ));
                     })()}
+                  </div>
+
+                  <div className="pt-5 space-y-4">
+                    <Card>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="font-semibold text-slate-900">Momentum</div>
+                        {overviewMomentum.mode === 'none' ? (
+                          <div className="text-xs text-slate-500">No timeline data available (no normalized time values).</div>
+                        ) : (
+                          <ChartContainer
+                            id="momentum"
+                            className="h-[220px] w-full"
+                            config={{
+                              home: { label: homeTeam?.name || 'Home', color: homeTeam?.color || '#22c55e' },
+                              away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
+                            }}
+                          >
+                            <BarChart data={overviewMomentum.rows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                              <CartesianGrid vertical={false} />
+                              <XAxis dataKey="label" className="text-xs" />
+                              <YAxis className="text-xs" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                              <Tooltip content={<ChartTooltipContent />} />
+                              <Legend />
+                              <Bar dataKey="home" stackId="a" fill={homeTeam?.color || '#22c55e'} radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="away" stackId="a" fill={awayTeam?.color || '#ef4444'} radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ChartContainer>
+                        )}
+                        <div className="text-[11px] text-slate-500">Composite share by 5-minute windows (points, productivity, turnover control, possession wins, efficiency).</div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="font-semibold text-slate-900">Attack Outcomes</div>
+                        <div className="text-xs text-slate-500">Attack = possession that enters the opposition 45 (x ≥ {OPP_45_X}).</div>
+                        <ChartContainer
+                          id="attack-outcomes"
+                          className="h-[240px] w-full"
+                          config={{}}
+                        >
+                          <BarChart data={overviewAttackOutcome.data} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                            <CartesianGrid vertical={false} />
+                            <XAxis dataKey="team" className="text-xs" />
+                            <YAxis allowDecimals={false} className="text-xs" />
+                            <Tooltip content={<ChartTooltipContent />} />
+                            <Legend />
+                            {[
+                              { k: 'Score', c: '#2563eb' },
+                              { k: 'Missed Shot', c: '#64748b' },
+                              { k: 'Turnover', c: '#dc2626' },
+                              { k: 'Foul Won', c: '#f59e0b' },
+                              { k: 'Sideline', c: '#0ea5e9' },
+                              { k: '45', c: '#a855f7' },
+                              { k: 'Goal Kick', c: '#14b8a6' },
+                              { k: 'Other', c: '#94a3b8' },
+                            ].map((o) => (
+                              <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                            ))}
+                          </BarChart>
+                        </ChartContainer>
+                      </CardContent>
+                    </Card>
                   </div>
                 </CardContent>
               </Card>
@@ -2502,6 +3515,46 @@ export default function MatchReport() {
           <TabsContent value="build_up">
             <BuildUpTab
               stats={filteredForReport}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="restarts">
+            <RestartsTab
+              stats={stats}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="defense">
+            <DefenseTab
+              stats={stats}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="fouls">
+            <FoulsDisciplineTab
+              stats={stats}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              playerOptions={playerOptions}
+              reportFilters={reportFilters}
+            />
+          </TabsContent>
+
+          <TabsContent value="players_ana">
+            <PlayersAnalyticsTab
+              stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               playerOptions={playerOptions}

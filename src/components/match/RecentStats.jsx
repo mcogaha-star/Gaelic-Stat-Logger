@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, ArrowRight, Pencil, Download } from 'lucide-react';
-import { format } from 'date-fns';
 
 const formatStatType = (type) => {
     return type?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || '';

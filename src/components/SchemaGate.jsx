@@ -1,17 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from 'sonner';
-import { softDeleteServerStat } from '@/lib/serverSync';
-
+// v0.4+ schema marker. This gate was intentionally changed to be non-blocking:
+// users should never be forced into destructive wipes on load.
 const SCHEMA_VERSION = 4;
 
 const db = globalThis.__B44_DB__ || {
-  auth: { isAuthenticated: async () => false, me: async () => null },
-  entities: new Proxy({}, { get: () => ({ list: async () => [], filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
-  integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
+  entities: new Proxy({}, {
+    get: () => ({
+      list: async () => [],
+      filter: async () => [],
+      get: async () => null,
+      create: async () => ({}),
+      update: async () => ({}),
+    }),
+  }),
 };
 
 async function getSettingsRecord() {
@@ -31,32 +34,6 @@ export default function SchemaGate({ children }) {
   const allowWithoutGate = path === '/Login' || path === '/Privacy';
 
   const [settings, setSettings] = useState(null);
-  const [isWiping, setIsWiping] = useState(false);
-
-const schemaOk = useMemo(() => {
-    const v = settings?.schema_version;
-    // Base44 can sometimes round-trip numbers as strings.
-    const n = typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : NaN);
-    return Number.isFinite(n) && n >= SCHEMA_VERSION;
-  }, [settings]);
-
-  // Gate removed by request: never block usage with a destructive wipe prompt.
-  // Best-effort: mark schema version in background when missing/outdated.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        if (allowWithoutGate) return;
-        if (schemaOk) return;
-        await upsertSettings({ schema_version: SCHEMA_VERSION });
-        if (!alive) return;
-        setSettings((prev) => ({ ...(prev || {}), schema_version: SCHEMA_VERSION }));
-      } catch {}
-    })();
-    return () => { alive = false; };
-  }, [schemaOk, allowWithoutGate]);
-
-  return children;
 
   useEffect(() => {
     let alive = true;
@@ -65,88 +42,23 @@ const schemaOk = useMemo(() => {
         const rec = await getSettingsRecord();
         if (!alive) return;
         setSettings(rec);
-      } catch {
+
+        if (allowWithoutGate) return;
+        const v = rec?.schema_version;
+        const n = typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : NaN);
+        const ok = Number.isFinite(n) && n >= SCHEMA_VERSION;
+        if (ok) return;
+
+        await upsertSettings({ schema_version: SCHEMA_VERSION });
         if (!alive) return;
-        setSettings(null);
+        setSettings((prev) => ({ ...(prev || {}), schema_version: SCHEMA_VERSION }));
+      } catch {
+        // Ignore: do not block the app if settings can't be read/written.
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [allowWithoutGate]);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        if (schemaOk || allowWithoutGate) return;
-        const all = await db.entities.StatEntry.list('-timestamp');
-        if (!alive) return;
-        if (!all || all.length === 0) {
-          await upsertSettings({ schema_version: SCHEMA_VERSION });
-          setSettings((prev) => ({ ...(prev || {}), schema_version: SCHEMA_VERSION }));
-        }
-      } catch {
-        // Ignore: if we can't read stats, fall back to showing the gate.
-      }
-    })();
-    return () => { alive = false; };
-  }, [schemaOk, allowWithoutGate]);
-
-  if (schemaOk || allowWithoutGate) return children;
-
-  const wipe = async () => {
-    setIsWiping(true);
-    try {
-      const all = await db.entities.StatEntry.list('-timestamp');
-
-      // Best-effort server soft delete first (only for rows that were uploaded).
-      for (const s of (all || [])) {
-        if (!s?.server_stat_id) continue;
-        try { await softDeleteServerStat(s.server_stat_id); } catch {}
-      }
-
-      // Delete locally.
-      await Promise.all((all || []).map((s) => s?.id ? db.entities.StatEntry.delete(s.id) : Promise.resolve()));
-
-      // Reset settings to v0.4 defaults and mark schema as upgraded.
-      await upsertSettings({
-        schema_version: SCHEMA_VERSION,
-        click_stats_config: null,
-        drag_stats_config: null,
-        sub_menus_config: null,
-      });
-
-      setSettings({ ...(settings || {}), schema_version: SCHEMA_VERSION });
-      toast.success('Upgraded to v0.4 schema (old stats wiped)');
-    } catch (e) {
-      toast.error(`Schema reset failed: ${e?.message || 'unknown error'}`);
-    } finally {
-      setIsWiping(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-      <Card className="w-full max-w-2xl">
-        <CardHeader>
-          <CardTitle>Update Required</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-slate-700">
-            Gaelic Stats Logger has been upgraded to v0.4 with a new stats schema (play/possession IDs, team-aware actions).
-            To avoid incorrect mappings, existing logged stats on this device must be deleted.
-          </p>
-          <p className="text-sm text-slate-600">
-            This will delete local stats and will attempt to soft-delete any uploaded server stats linked to this device.
-          </p>
-          <Button
-            className="w-full bg-red-600 hover:bg-red-700"
-            onClick={wipe}
-            disabled={isWiping}
-          >
-            {isWiping ? 'Wiping…' : 'Wipe Old Stats & Continue'}
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  // Always allow app usage.
+  return children;
 }
