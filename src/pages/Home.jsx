@@ -20,6 +20,12 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import pitchImg from '@/assets/pitch.png';
+
+const WIND_DIRECTION_OPTIONS = Array.from({ length: 24 }, (_, index) => {
+    const degrees = index * 15;
+    return { value: String(degrees), label: `${degrees}°` };
+});
 
 export default function Home() {
     const navigate = useNavigate();
@@ -33,8 +39,12 @@ export default function Home() {
         competition: '',
         level: 'Senior',
         code: 'GAA',
+        wind_speed: '',
+        wind_direction: '',
     });
     const queryClient = useQueryClient();
+    const windDegrees = Number(newMatch.wind_direction);
+    const windPreviewRotation = Number.isFinite(windDegrees) ? windDegrees : 0;
 
     const { data: matches = [], isLoading } = useQuery({
         queryKey: ['matches'],
@@ -158,6 +168,8 @@ export default function Home() {
                 competition: '',
                 level: 'Senior',
                 code: 'GAA',
+                wind_speed: '',
+                wind_direction: '',
             });
             toast.success('Match created');
         }
@@ -291,6 +303,55 @@ export default function Home() {
                                         <div className="space-y-2">
                                             <Label>Competition</Label>
                                             <Input placeholder="e.g. All-Ireland Championship" value={newMatch.competition} onChange={(e) => setNewMatch({ ...newMatch, competition: e.target.value })} />
+                                        </div>
+                                        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                            <div className="space-y-4">
+                                                <div className="text-sm font-semibold text-slate-900">Wind Details</div>
+                                                <div className="space-y-2">
+                                                    <Label>Wind Direction</Label>
+                                                    <Select value={newMatch.wind_direction} onValueChange={(v) => setNewMatch({ ...newMatch, wind_direction: v })}>
+                                                        <SelectTrigger><SelectValue placeholder="Select angle..." /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {WIND_DIRECTION_OPTIONS.map((option) => (
+                                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <p className="text-xs text-slate-400">Angle for the home team playing up in the 1st half.</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Wind Strength (km/h)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.1"
+                                                        placeholder="e.g. 18"
+                                                        value={newMatch.wind_speed}
+                                                        onChange={(e) => setNewMatch({ ...newMatch, wind_speed: e.target.value })}
+                                                    />
+                                                    <p className="text-xs text-slate-400">Optional. Useful for contextualising kickouts and shooting.</p>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="text-sm font-medium text-amber-700">Wind Direction for Home Team Playing Up in 1st Half</div>
+                                                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                                                    <div
+                                                        className="relative mx-auto aspect-[145/85] w-full max-w-[250px] overflow-hidden rounded-lg border border-slate-200 bg-cover bg-center"
+                                                        style={{ backgroundImage: `url(${pitchImg})` }}
+                                                    >
+                                                        <div className="absolute left-1/2 top-1/2 h-1 w-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
+                                                            style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}>
+                                                            <div className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2 border-y-[9px] border-l-[18px] border-y-transparent border-l-red-500" />
+                                                        </div>
+                                                        <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
+                                                            Wind Angle: {Number.isFinite(windDegrees) ? `${windDegrees}°` : 'NA'}
+                                                        </div>
+                                                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-lg font-bold text-slate-900">
+                                                            Home Team
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="pt-3 border-t">

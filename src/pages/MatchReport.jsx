@@ -89,6 +89,34 @@ function formatMMSS(seconds) {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
+function formatAddedTime(baseSeconds, totalSeconds) {
+  const extra = Math.max(0, Math.floor(totalSeconds - baseSeconds));
+  const extraMinutes = Math.floor(extra / 60);
+  const extraSeconds = extra % 60;
+  return `${Math.floor(baseSeconds / 60)}+${extraMinutes}:${String(extraSeconds).padStart(2, '0')}`;
+}
+
+function formatMatchClock(seconds, match, half) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+  const offsets = getMatchSectionOffsets(match);
+  if (half === 'first') {
+    return seconds > offsets.second ? formatAddedTime(offsets.second, seconds) : formatMMSS(seconds);
+  }
+  if (half === 'second') {
+    const fullTime = offsets.second * 2;
+    return seconds > fullTime ? formatAddedTime(fullTime, seconds) : formatMMSS(seconds);
+  }
+  if (half === 'et_first') {
+    const etFirstEnd = offsets.et_first + 10 * 60;
+    return seconds > etFirstEnd ? formatAddedTime(etFirstEnd, seconds) : formatMMSS(seconds);
+  }
+  if (half === 'et_second') {
+    const etSecondEnd = offsets.et_second + 10 * 60;
+    return seconds > etSecondEnd ? formatAddedTime(etSecondEnd, seconds) : formatMMSS(seconds);
+  }
+  return formatMMSS(seconds);
+}
+
 function formatPct(n) {
   if (!Number.isFinite(n)) return 'NA';
   return `${n.toFixed(1)}%`;
@@ -665,26 +693,56 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   const rowFor = (channel) => rows.find((r) => r.channel === channel) || {};
   const channels = ['Left', 'Middle', 'Right'];
 
-  const ArrowRow = ({ side, channel, color }) => {
-    const row = rowFor(channel);
-    const pct = side === 'home' ? row.homePct : row.awayPct;
-    const count = side === 'home' ? row.homeCount : row.awayCount;
+  const ArrowRow = ({ row, color }) => {
+    const pct = row.pct;
+    const count = row.count;
     const label = `${Number.isFinite(pct) ? pct.toFixed(1) : 'NA'}%`;
-    const x1 = side === 'home' ? 12 : 133;
-    const x2 = side === 'home' ? 56 : 89;
-    const textX = side === 'home' ? 4 : 141;
+    const x1 = 14;
+    const x2 = 60;
+    const textX = 4;
     const y = channel === 'Left' ? 18 : channel === 'Middle' ? 42.5 : 67;
-    const anchor = side === 'home' ? 'start' : 'end';
-    const direction = side === 'home' ? 1 : -1;
     return (
       <g>
-        <text x={textX} y={y - 2.4} textAnchor={anchor} fontSize="4.3" fontWeight="700" fill="#0f172a">{label}</text>
-        <text x={textX} y={y + 2.8} textAnchor={anchor} fontSize="3.1" fill="#475569">{channel}</text>
-        <text x={textX} y={y + 7.2} textAnchor={anchor} fontSize="2.7" fill="#64748b">
+        <text x={textX} y={y - 2.4} textAnchor="start" fontSize="4.3" fontWeight="700" fill="#0f172a">{label}</text>
+        <text x={textX} y={y + 2.8} textAnchor="start" fontSize="3.1" fill="#475569">{channel}</text>
+        <text x={textX} y={y + 7.2} textAnchor="start" fontSize="2.7" fill="#64748b">
           {Number.isFinite(count) ? `${count} attacks` : 'NA'}
         </text>
-        <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth="3" strokeLinecap="round" markerEnd={`url(#attack_arrow_${direction > 0 ? 'right' : 'left'})`} />
+        <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth="3" strokeLinecap="round" markerEnd="url(#attack_arrow_right)" />
       </g>
+    );
+  };
+
+  const TeamHalf = ({ side, title, color }) => {
+    const panelRows = channels.map((channel) => ({
+      channel,
+      count: side === 'home' ? rowFor(channel).homeCount : rowFor(channel).awayCount,
+      pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
+    }));
+    return (
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-slate-900">{title}</div>
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div
+            className="relative w-full"
+            style={{
+              aspectRatio: `${PITCH_W / 2} / ${PITCH_H}`,
+              backgroundImage: `url(${pitchImg})`,
+              backgroundSize: '200% 100%',
+              backgroundPosition: 'right center',
+            }}
+          >
+            <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W / 2} ${PITCH_H}`} preserveAspectRatio="none">
+              {panelRows.map((row) => (
+                <g key={`${side}-${row.channel}`}>
+                  <title>{`${title} - ${row.channel}: ${row.count || 0} attacks (${Number.isFinite(row.pct) ? row.pct.toFixed(1) : 'NA'}%)`}</title>
+                  <ArrowRow row={row} color={color} />
+                </g>
+              ))}
+            </svg>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -692,32 +750,25 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">Attack Entry Channels</div>
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div className="relative w-full" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}`, backgroundImage: `url(${pitchImg})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
-            <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
-              <defs>
-                <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="context-stroke" />
-                </marker>
-                <marker id="attack_arrow_left" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                  <path d="M 10 0 L 0 5 L 10 10 z" fill="context-stroke" stroke="context-stroke" />
-                </marker>
-              </defs>
-              {(teamMode === 'both' || teamMode === 'home') && channels.map((channel) => (
-                <g key={`home-${channel}`}>
-                  <title>{`${homeTeam?.name || 'Home'} - ${channel}: ${rowFor(channel).homeCount || 0} attacks (${Number.isFinite(rowFor(channel).homePct) ? rowFor(channel).homePct.toFixed(1) : 'NA'}%)`}</title>
-                  <ArrowRow side="home" channel={channel} color={homeColor || '#2563eb'} />
-                </g>
-              ))}
-              {(teamMode === 'both' || teamMode === 'away') && channels.map((channel) => (
-                <g key={`away-${channel}`}>
-                  <title>{`${awayTeam?.name || 'Away'} - ${channel}: ${rowFor(channel).awayCount || 0} attacks (${Number.isFinite(rowFor(channel).awayPct) ? rowFor(channel).awayPct.toFixed(1) : 'NA'}%)`}</title>
-                  <ArrowRow side="away" channel={channel} color={awayColor || '#ef4444'} />
-                </g>
-              ))}
-            </svg>
+        <svg width="0" height="0" className="absolute">
+          <defs>
+            <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="context-stroke" />
+            </marker>
+          </defs>
+        </svg>
+        {teamMode === 'both' ? (
+          <div className="grid lg:grid-cols-2 gap-4">
+            <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} />
+            <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} />
           </div>
-        </div>
+        ) : (
+          <TeamHalf
+            side={teamMode === 'away' ? 'away' : 'home'}
+            title={teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+            color={teamMode === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb')}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -870,10 +921,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
-          <div className="text-xs text-slate-500">Weighted degree and betweenness centrality included in tooltips and summary.</div>
-        </div>
+        <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
         <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div
             className="relative w-full"
@@ -1123,7 +1171,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 `Pressure: ${toTitleCase(s.pressure)}`,
                 `Outcome: ${toTitleCase(s.outcome)}`,
                 Number.isFinite(s.distance) ? `Distance: ${s.distance.toFixed(1)}` : null,
-                s.attackId ? `Attack: ${s.attackId}` : null,
+                s.possessionLabel ? `Possession: ${s.possessionLabel}` : null,
               ].filter(Boolean).join('\n');
 
               if (shape === 'goal') {
@@ -1217,11 +1265,11 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         return 'NA';
       })();
 
-      const tNorm = Number(s.normalized_time_s);
-      const timeLabel = Number.isFinite(tNorm) ? formatMMSS(tNorm) : 'NA';
+      const matchTime = getMatchTimeS(s, reportFilters?.match, reportFilters?.imputedTimeById);
+      const timeLabel = Number.isFinite(matchTime) ? formatMatchClock(matchTime, reportFilters?.match, s.half) : 'NA';
 
-      const attackId = (s.possession_team_side && Number.isFinite(Number(s.possession_id)))
-        ? `${s.possession_team_side}-${Number(s.possession_id)}`
+      const possessionLabel = (s.possession_team_side && Number.isFinite(Number(s.possession_id)))
+        ? `${toTitleCase(s.possession_team_side)} #${Number(s.possession_id)}`
         : '';
 
       out.push({
@@ -1231,7 +1279,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         team_side: s.team_side === 'away' ? 'away' : 'home',
         half: s.half,
         possession_id: s.possession_id,
-        attackId,
+        possessionLabel,
         x,
         y,
         shotType: stNorm || 'point',
@@ -1279,6 +1327,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       const play = sh.filter((s) => s.isFromPlay);
       const playScores = play.filter((s) => s.isScore).length;
       const playConv = play.length ? (playScores / play.length) * 100 : NaN;
+      const fromPlayPct = shotsN ? (play.length / shotsN) * 100 : NaN;
       const placed = sh.filter((s) => s.isPlacedBall);
       const placedScores = placed.filter((s) => s.isScore).length;
       const placedConv = placed.length ? (placedScores / placed.length) * 100 : NaN;
@@ -1296,6 +1345,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         pps,
         avgDist,
         playConv,
+        fromPlayPct,
         placedConv,
         lowPressurePct: shotsN ? (lowPressure / shotsN) * 100 : NaN,
         typeBreakdown,
@@ -1427,8 +1477,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   };
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
-      <div className="space-y-4">
+    <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
+      <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
 
         <Card>
@@ -1491,6 +1541,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             { label: 'Points Per Shot', value: display((k) => Number.isFinite(k.pps) ? k.pps.toFixed(2) : 'NA') },
             { label: 'Average Shot Distance', value: display((k) => Number.isFinite(k.avgDist) ? k.avgDist.toFixed(1) : 'NA') },
             { label: 'Play-Shot Conversion %', value: display((k) => formatPct(k.playConv)) },
+            { label: '% Shots From Play', value: display((k) => formatPct(k.fromPlayPct)) },
             { label: 'Placed-Ball Conversion %', value: display((k) => formatPct(k.placedConv)) },
             { label: '1 Point Scores', value: display((k) => `${k.typeBreakdown.point.scored}/${k.typeBreakdown.point.attempts}`) },
             { label: '2 Point Scores', value: display((k) => `${k.typeBreakdown['2_point'].scored}/${k.typeBreakdown['2_point'].attempts}`) },
@@ -1838,8 +1889,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
   }, [sideKpis]);
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
-      <div className="space-y-4">
+    <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
+      <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-2">
@@ -1949,20 +2000,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
 
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Possession Visualiser</div>
-                <PitchViz
-                  stats={possessionsFiltered.flatMap((p) => p.stats || [])}
-                  homeColor={homeTeam?.color}
-                  awayColor={awayTeam?.color}
-                  colorBy={teamMode === 'both' ? 'team' : 'action'}
-                  showColorControls={false}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Possession Table</div>
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -2023,6 +2062,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                     })}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </>
@@ -2134,8 +2174,8 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   }, [kpis]);
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
-      <div className="space-y-4">
+    <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
+      <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -2236,7 +2276,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="grid lg:grid-cols-[220px_1fr] gap-4 items-start">
+                <div className="grid lg:grid-cols-[180px_minmax(0,1fr)] gap-4 items-start">
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Network Team</Label>
@@ -3740,25 +3780,16 @@ export default function MatchReport() {
 
   const overviewMomentum = useMemo(() => {
     const list = Array.isArray(overviewStats) ? overviewStats : [];
-    const withTime = list.filter((s) => Number.isFinite(getMatchTimeS(s, match, imputedTimeById)));
+    const withTime = list
+      .map((s) => ({ stat: s, matchTime: getMatchTimeS(s, match, imputedTimeById) }))
+      .filter((entry) => Number.isFinite(entry.matchTime))
+      .sort((a, b) => a.matchTime - b.matchTime);
     if (!withTime.length) return { mode: 'none', rows: [] };
 
-    const groups = groupByPossession(withTime);
-    const possStartBucket = new Map(); // key -> bucket index
-    for (const [k, evs] of groups.entries()) {
-      const t = evs.map((e) => getMatchTimeS(e, match, imputedTimeById)).filter(Number.isFinite);
-      if (!t.length) continue;
-      possStartBucket.set(k, Math.max(0, Math.floor(Math.min(...t) / 300)));
-    }
-
-    const bucketStats = new Map(); // bucket -> {home:{...},away:{...}}
-    const ensure = (b) => {
-      const cur = bucketStats.get(b) || {
-        home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0, eff: 0 },
-        away: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0, eff: 0 },
-      };
-      bucketStats.set(b, cur);
-      return cur;
+    const share = (a, b) => {
+      const d = a + b;
+      if (!Number.isFinite(d) || d <= 0) return 0.5;
+      return a / d;
     };
 
     const turnoverLostSide = (s) => {
@@ -3768,95 +3799,105 @@ export default function MatchReport() {
       return null;
     };
 
-    for (const s of withTime) {
-      const statTime = getMatchTimeS(s, match, imputedTimeById);
-      if (!Number.isFinite(statTime)) continue;
-      const b = Math.floor(Math.max(0, statTime) / 300);
-      const cur = ensure(b);
-
-      const pid = Number(s?.possession_id);
-      const pside = s?.possession_team_side;
-      if (Number.isFinite(pid) && (pside === 'home' || pside === 'away')) cur[pside].poss.add(`${pside}-${pid}`);
-
-      if (s.stat_type === 'shot') {
-        const ex = safeParseJSON(s.extra_data || '{}', {});
-        const o = ex?.shot?.outcome;
-        const add = shotPointsForOutcome(o);
-        if (s.team_side === 'home') {
-          cur.home.shots += 1;
-          cur.home.pts += add;
-        }
-        if (s.team_side === 'away') {
-          cur.away.shots += 1;
-          cur.away.pts += add;
-        }
-      }
-
-      if (s.stat_type === 'turnover' || safeParseJSON(s?.extra_data || '{}', {})?.turnover) {
-        const lostSide = turnoverLostSide(s);
-        if (lostSide) cur[lostSide].toLost += 1;
-      }
-    }
-
-    // Possession wins (start-of-possession, best-effort): count possessions whose start bucket is b
-    for (const [k, b] of possStartBucket.entries()) {
-      const side = String(k).startsWith('away-') ? 'away' : 'home';
-      const cur = ensure(Math.max(0, Number(b) || 0));
-      cur[side].possWins += 1;
+    const possessionStarts = [];
+    const groups = groupByPossession(withTime.map((entry) => entry.stat));
+    for (const [key, events] of groups.entries()) {
+      const times = events
+        .map((event) => getMatchTimeS(event, match, imputedTimeById))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      if (!times.length) continue;
+      possessionStarts.push({
+        key,
+        side: String(key).startsWith('away-') ? 'away' : 'home',
+        time: times[0],
+      });
     }
 
     const offsets = getMatchSectionOffsets(match);
-    const actualMax = withTime
-      .map((s) => getMatchTimeS(s, match, imputedTimeById))
-      .filter(Number.isFinite)
-      .reduce((m, v) => Math.max(m, v), 0);
+    const actualMax = withTime.reduce((m, entry) => Math.max(m, entry.matchTime), 0);
     const baseMax = offsets.second * 2;
     const axisMax = Math.max(baseMax, actualMax);
-    const bucketCount = Math.max(1, Math.ceil(axisMax / 300));
-    const rows = Array.from({ length: bucketCount }, (_, b) => {
-      const cur = ensure(b);
-      const homePoss = cur.home.poss.size;
-      const awayPoss = cur.away.poss.size;
+    const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
 
-      const homeProd = homePoss ? cur.home.pts / homePoss : 0;
-      const awayProd = awayPoss ? cur.away.pts / awayPoss : 0;
-
-      const homeTC = homePoss ? (1 - cur.home.toLost / homePoss) : 0;
-      const awayTC = awayPoss ? (1 - cur.away.toLost / awayPoss) : 0;
-
-      const homeEff = cur.home.shots ? (cur.home.pts / cur.home.shots) : 0;
-      const awayEff = cur.away.shots ? (cur.away.pts / cur.away.shots) : 0;
-
-      const share = (a, b) => {
-        const d = a + b;
-        if (!Number.isFinite(d) || d <= 0) return 0.5;
-        return a / d;
+    const rows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
+      const minuteMark = minuteIndex * 60;
+      const windowStart = Math.max(0, minuteMark - 5 * 60);
+      const windowStats = withTime.filter((entry) => entry.matchTime > windowStart && entry.matchTime <= minuteMark);
+      const statsBySide = {
+        home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
+        away: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
       };
 
-      const pointShareHome = share(cur.home.pts, cur.away.pts);
+      for (const { stat } of windowStats) {
+        const pid = Number(stat?.possession_id);
+        const pside = stat?.possession_team_side;
+        if (Number.isFinite(pid) && (pside === 'home' || pside === 'away')) {
+          statsBySide[pside].poss.add(`${pside}-${pid}`);
+        }
+
+        if (stat.stat_type === 'shot') {
+          const ex = safeParseJSON(stat.extra_data || '{}', {});
+          const o = ex?.shot?.outcome;
+          const add = shotPointsForOutcome(o);
+          if (stat.team_side === 'home') {
+            statsBySide.home.shots += 1;
+            statsBySide.home.pts += add;
+          }
+          if (stat.team_side === 'away') {
+            statsBySide.away.shots += 1;
+            statsBySide.away.pts += add;
+          }
+        }
+
+        if (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover) {
+          const lostSide = turnoverLostSide(stat);
+          if (lostSide) statsBySide[lostSide].toLost += 1;
+        }
+      }
+
+      for (const pos of possessionStarts) {
+        if (pos.time > windowStart && pos.time <= minuteMark) {
+          statsBySide[pos.side].possWins += 1;
+        }
+      }
+
+      const homePoss = statsBySide.home.poss.size;
+      const awayPoss = statsBySide.away.poss.size;
+
+      const homeProd = homePoss ? statsBySide.home.pts / homePoss : 0;
+      const awayProd = awayPoss ? statsBySide.away.pts / awayPoss : 0;
+
+      const homeTC = homePoss ? (1 - statsBySide.home.toLost / homePoss) : 0;
+      const awayTC = awayPoss ? (1 - statsBySide.away.toLost / awayPoss) : 0;
+
+      const homeEff = statsBySide.home.shots ? (statsBySide.home.pts / statsBySide.home.shots) : 0;
+      const awayEff = statsBySide.away.shots ? (statsBySide.away.pts / statsBySide.away.shots) : 0;
+
+      const pointShareHome = share(statsBySide.home.pts, statsBySide.away.pts);
       const prodShareHome = share(homeProd, awayProd);
       const tcShareHome = share(homeTC, awayTC);
-      const pwShareHome = share(cur.home.possWins, cur.away.possWins);
+      const pwShareHome = share(statsBySide.home.possWins, statsBySide.away.possWins);
       const effShareHome = share(homeEff, awayEff);
 
       const mHome = 100 * (0.35 * pointShareHome + 0.25 * prodShareHome + 0.20 * tcShareHome + 0.10 * pwShareHome + 0.10 * effShareHome);
       const mAway = 100 - mHome;
 
       return {
-        bucket: b,
-        label: `${b * 5}-${b * 5 + 5}`,
+        minute: minuteMark / 60,
+        label: formatMMSS(minuteMark),
         home: Number.isFinite(mHome) ? mHome : 50,
         away: Number.isFinite(mAway) ? mAway : 50,
-        home_pts: cur.home.pts,
-        away_pts: cur.away.pts,
+        home_pts: statsBySide.home.pts,
+        away_pts: statsBySide.away.pts,
         home_poss: homePoss,
         away_poss: awayPoss,
-        home_to: cur.home.toLost,
-        away_to: cur.away.toLost,
+        home_to: statsBySide.home.toLost,
+        away_to: statsBySide.away.toLost,
       };
     });
 
-    return { mode: 'time', rows };
+    return { mode: 'rolling', rows, axisMaxMinutes: Math.ceil(axisMax / 60) };
   }, [overviewStats, match, imputedTimeById]);
 
   if (!matchId) {
@@ -4017,13 +4058,13 @@ export default function MatchReport() {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 text-xs text-slate-600 pt-2">
-                    <div className="inline-flex items-center gap-2 min-w-0">
+                  <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-xs text-slate-600 pt-2">
+                    <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
                       <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
                       <span className="truncate">{homeTeam?.name || 'Home'}</span>
                     </div>
-                    <div className="font-medium">Metric</div>
-                    <div className="inline-flex items-center gap-2 min-w-0 justify-end">
+                    <div className="font-medium text-center">Metric</div>
+                    <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
                       <span className="truncate">{awayTeam?.name || 'Away'}</span>
                       <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
                     </div>
@@ -4086,7 +4127,7 @@ export default function MatchReport() {
                           key={m.label}
                           className="rounded-lg border border-slate-200 bg-white px-3 py-2"
                         >
-                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                          <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
                             <div className={`text-left tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                               {m.home}
                             </div>
@@ -4117,18 +4158,40 @@ export default function MatchReport() {
                               away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
                             }}
                           >
-                            <BarChart data={overviewMomentum.rows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                            <LineChart data={overviewMomentum.rows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                               <CartesianGrid vertical={false} />
-                              <XAxis dataKey="label" className="text-xs" />
+                              <XAxis
+                                dataKey="minute"
+                                type="number"
+                                domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
+                                tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
+                                tickFormatter={(value) => `${Math.round(value)}`}
+                                className="text-xs"
+                              />
                               <YAxis className="text-xs" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                               <Tooltip content={<ChartTooltipContent />} />
                               <Legend />
-                              <Bar dataKey="home" stackId="a" fill={homeTeam?.color || '#22c55e'} radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="away" stackId="a" fill={awayTeam?.color || '#ef4444'} radius={[4, 4, 0, 0]} />
-                            </BarChart>
+                              <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" />
+                              <Line
+                                type="monotone"
+                                dataKey="home"
+                                stroke={homeTeam?.color || '#22c55e'}
+                                strokeWidth={3}
+                                dot={false}
+                                activeDot={{ r: 4 }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="away"
+                                stroke={awayTeam?.color || '#ef4444'}
+                                strokeWidth={3}
+                                dot={false}
+                                activeDot={{ r: 4 }}
+                              />
+                            </LineChart>
                           </ChartContainer>
                         )}
-                        <div className="text-[11px] text-slate-500">Composite share by 5-minute windows (points, productivity, turnover control, possession wins, efficiency).</div>
+                        <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window (points, productivity, turnover control, possession wins, efficiency).</div>
                       </CardContent>
                     </Card>
 
@@ -4786,7 +4849,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <TableCell className="font-mono text-xs">
                           {(() => {
                             const mt = getMatchTimeS(s, match, imputedTimeById);
-                            return Number.isFinite(mt) ? formatMMSS(mt) : '--:--';
+                            return Number.isFinite(mt) ? formatMatchClock(mt, match, s.half) : '--:--';
                           })()}
                         </TableCell>
                         <TableCell className="text-right">
@@ -4831,7 +4894,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                 { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
                                 { label: 'Time', value: (() => {
                                   const t = getMatchTimeS(s, match, imputedTimeById);
-                                  return Number.isFinite(t) ? formatMMSS(t) : 'NA';
+                                  return Number.isFinite(t) ? formatMatchClock(t, match, s.half) : 'NA';
                                 })() },
                                 { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
                                 { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
