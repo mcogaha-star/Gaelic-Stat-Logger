@@ -1157,10 +1157,9 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
               const g = shotOutcomeGroup(s.outcome);
               const outcomeColor = colors[g] || colors.other;
-              const fillColor = teamMode === 'both'
-                ? (s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb'))
-                : outcomeColor;
-              const strokeColor = teamMode === 'both' ? outcomeColor : '#ffffff';
+              const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
+              const fillColor = teamMode === 'both' ? outcomeColor : outcomeColor;
+              const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
               const size = 2.2;
               const tip = [
@@ -1185,7 +1184,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     fill={fillColor}
                     opacity="0.9"
                     stroke={strokeColor}
-                    strokeWidth="0.6"
+                    strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
                   >
                     <title>{tip}</title>
                   </rect>
@@ -1203,14 +1202,14 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     opacity="0.9"
                     transform={`rotate(45 ${x} ${y})`}
                     stroke={strokeColor}
-                    strokeWidth="0.6"
+                    strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
                   >
                     <title>{tip}</title>
                   </rect>
                 );
               }
               return (
-                <circle key={s.id} cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke={strokeColor} strokeWidth="0.6">
+                <circle key={s.id} cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke={strokeColor} strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}>
                   <title>{tip}</title>
                 </circle>
               );
@@ -1219,7 +1218,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = team, outline = outcome group.' : 'Colour = outcome group.'}
+          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = outcome group, outline = team.' : 'Colour = outcome group.'}
         </div>
       </CardContent>
     </Card>
@@ -1740,7 +1739,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   );
 }
 
-function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onVisualisePossession }) {
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
   const [counterFilter, setCounterFilter] = useState('any'); // any|yes|no
@@ -1810,7 +1809,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
     }
 
     out.sort((a, b) => {
-      if (Number.isFinite(a.startTime) && Number.isFinite(b.startTime) && a.startTime !== b.startTime) return a.startTime - b.startTime;
+      if (Number.isFinite(a.possessionId) && Number.isFinite(b.possessionId) && a.possessionId !== b.possessionId) return a.possessionId - b.possessionId;
+      if (a.teamSide !== b.teamSide) return String(a.teamSide).localeCompare(String(b.teamSide));
       return String(a.key).localeCompare(String(b.key));
     });
     return out;
@@ -2013,9 +2013,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                       <TableHead className="text-right">Dur</TableHead>
                       <TableHead>Start Source</TableHead>
                       <TableHead>Outcome</TableHead>
-                      <TableHead>Entry</TableHead>
                       <TableHead className="text-right">Completed Passes</TableHead>
-                      <TableHead className="text-right">Shots</TableHead>
                       <TableHead className="text-right">Pts</TableHead>
                       <TableHead className="text-right">Attack</TableHead>
                       <TableHead className="text-right">Counter</TableHead>
@@ -2035,9 +2033,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                           <TableCell className="text-right font-mono text-xs">{Number.isFinite(p.duration) ? `${p.duration.toFixed(1)}s` : 'NA'}</TableCell>
                           <TableCell>{p.startSource}</TableCell>
                           <TableCell>{p.outcome}</TableCell>
-                          <TableCell>{p.attackEntryChannel || 'NA'}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.passes}</TableCell>
-                          <TableCell className="text-right tabular-nums">{p.shots}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.points}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.counter ? 'Yes' : 'No'}</TableCell>
@@ -2047,12 +2043,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                               variant="outline"
                               size="sm"
                               className="h-7 px-2 text-xs"
-                              onClick={() => {
-                                const titleTeam = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                                setVizStats(p.stats || []);
-                                setVizTitle(`Possession #${p.possessionId} - ${titleTeam}`);
-                                setVizOpen(true);
-                              }}
+                              onClick={() => onVisualisePossession?.(p)}
                             >
                               Visualise
                             </Button>
@@ -3289,7 +3280,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [base, focusPlayerId, teamMode]);
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div className="grid lg:grid-cols-[272px_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
@@ -4168,7 +4159,7 @@ export default function MatchReport() {
                                 tickFormatter={(value) => `${Math.round(value)}`}
                                 className="text-xs"
                               />
-                              <YAxis className="text-xs" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                              <YAxis className="text-xs" domain={[0, 100]} tick={false} axisLine={false} tickLine={false} />
                               <Tooltip content={<ChartTooltipContent />} />
                               <Legend />
                               <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" />
@@ -4314,6 +4305,12 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              onVisualisePossession={(p) => {
+                const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                setVizStats(Array.isArray(p?.stats) ? p.stats : []);
+                setVizTitle(`Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`);
+                setVizOpen(true);
+              }}
             />
           </TabsContent>
 
