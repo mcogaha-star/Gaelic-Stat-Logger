@@ -1158,8 +1158,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const g = shotOutcomeGroup(s.outcome);
               const outcomeColor = colors[g] || colors.other;
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
-              const fillColor = teamMode === 'both' ? outcomeColor : outcomeColor;
-              const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
+              const fillColor = teamMode === 'both' ? teamColor : outcomeColor;
+              const strokeColor = teamMode === 'both' ? outcomeColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
               const size = 2.2;
               const tip = [
@@ -1218,7 +1218,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = outcome group, outline = team.' : 'Colour = outcome group.'}
+          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = team, outline = outcome group.' : 'Colour = outcome group.'}
         </div>
       </CardContent>
     </Card>
@@ -3417,6 +3417,9 @@ export default function MatchReport() {
   const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise ['yes','no']
   const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
+  const [sharedVizOpen, setSharedVizOpen] = useState(false);
+  const [sharedVizTitle, setSharedVizTitle] = useState('');
+  const [sharedVizStats, setSharedVizStats] = useState([]);
 
   const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
 
@@ -3509,6 +3512,25 @@ export default function MatchReport() {
       return true;
     });
   }, [stats, vizTeam, vizActions, vizHalves, vizCounters, vizPlayerIds]);
+
+  const SHARED_VIZ_PRE_ROLL_S = 7;
+
+  const openSharedVideoAt = (timeS) => {
+    const t = Number(timeS);
+    if (!matchId || !Number.isFinite(t)) return;
+    const seekTo = Math.max(0, Math.floor(t - SHARED_VIZ_PRE_ROLL_S));
+    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
+    window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
+    try {
+      const ch = new BroadcastChannel('gstl_video');
+      const msg = { matchId, type: 'SEEK_TO', time_s: seekTo };
+      ch.postMessage(msg);
+      setTimeout(() => ch.postMessage(msg), 350);
+      setTimeout(() => { ch.postMessage(msg); ch.close(); }, 900);
+    } catch {
+      // ignore
+    }
+  };
 
   const summary = useMemo(() => {
     const empty = {
@@ -4307,9 +4329,9 @@ export default function MatchReport() {
               reportFilters={reportFilters}
               onVisualisePossession={(p) => {
                 const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                setVizStats(Array.isArray(p?.stats) ? p.stats : []);
-                setVizTitle(`Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`);
-                setVizOpen(true);
+                setSharedVizStats(Array.isArray(p?.stats) ? p.stats : []);
+                setSharedVizTitle(`Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`);
+                setSharedVizOpen(true);
               }}
             />
           </TabsContent>
@@ -4387,6 +4409,42 @@ export default function MatchReport() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen}>
+        <DialogContent className="sm:max-w-4xl p-4">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-2">
+              <DialogTitle className="text-base">{sharedVizTitle || 'Visualise'}</DialogTitle>
+              {(() => {
+                const times = (sharedVizStats || []).map((s) => Number(s?.time_s)).filter(Number.isFinite);
+                if (!times.length) return null;
+                const t = Math.min(...times);
+                return (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => openSharedVideoAt(t)}
+                    title="Open the video popout and jump to this timestamp"
+                  >
+                    Open Video @ {formatMMSS(Math.max(0, t - SHARED_VIZ_PRE_ROLL_S))}
+                  </Button>
+                );
+              })()}
+            </div>
+          </DialogHeader>
+          <div className="pt-2">
+            <PitchViz
+              stats={sharedVizStats}
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+              colorBy="team"
+              showColorControls={false}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
