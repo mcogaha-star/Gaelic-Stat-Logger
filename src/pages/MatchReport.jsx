@@ -700,11 +700,11 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     const x1 = 14;
     const x2 = 60;
     const textX = 4;
-    const y = channel === 'Left' ? 18 : channel === 'Middle' ? 42.5 : 67;
+    const y = row.channel === 'Left' ? 18 : row.channel === 'Middle' ? 42.5 : 67;
     return (
       <g>
         <text x={textX} y={y - 2.4} textAnchor="start" fontSize="4.3" fontWeight="700" fill="#0f172a">{label}</text>
-        <text x={textX} y={y + 2.8} textAnchor="start" fontSize="3.1" fill="#475569">{channel}</text>
+        <text x={textX} y={y + 2.8} textAnchor="start" fontSize="3.1" fill="#475569">{row.channel}</text>
         <text x={textX} y={y + 7.2} textAnchor="start" fontSize="2.7" fill="#64748b">
           {Number.isFinite(count) ? `${count} attacks` : 'NA'}
         </text>
