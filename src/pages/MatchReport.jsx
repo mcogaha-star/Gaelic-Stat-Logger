@@ -27,6 +27,8 @@ import {
   extractFoulFromStat,
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
+  getFieldTiltContribution,
+  getMatchSectionOffsets,
   getMatchTimeS,
   getScoringZoneEntry,
   isAttackPossession,
@@ -659,7 +661,69 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor }) {
+function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows }) {
+  const rowFor = (channel) => rows.find((r) => r.channel === channel) || {};
+  const channels = ['Left', 'Middle', 'Right'];
+
+  const ArrowRow = ({ side, channel, color }) => {
+    const row = rowFor(channel);
+    const pct = side === 'home' ? row.homePct : row.awayPct;
+    const count = side === 'home' ? row.homeCount : row.awayCount;
+    const label = `${Number.isFinite(pct) ? pct.toFixed(1) : 'NA'}%`;
+    const x1 = side === 'home' ? 12 : 133;
+    const x2 = side === 'home' ? 56 : 89;
+    const textX = side === 'home' ? 4 : 141;
+    const y = channel === 'Left' ? 18 : channel === 'Middle' ? 42.5 : 67;
+    const anchor = side === 'home' ? 'start' : 'end';
+    const direction = side === 'home' ? 1 : -1;
+    return (
+      <g>
+        <text x={textX} y={y - 2.4} textAnchor={anchor} fontSize="4.3" fontWeight="700" fill="#0f172a">{label}</text>
+        <text x={textX} y={y + 2.8} textAnchor={anchor} fontSize="3.1" fill="#475569">{channel}</text>
+        <text x={textX} y={y + 7.2} textAnchor={anchor} fontSize="2.7" fill="#64748b">
+          {Number.isFinite(count) ? `${count} attacks` : 'NA'}
+        </text>
+        <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth="3" strokeLinecap="round" markerEnd={`url(#attack_arrow_${direction > 0 ? 'right' : 'left'})`} />
+      </g>
+    );
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">Attack Entry Channels</div>
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="relative w-full" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}`, backgroundImage: `url(${pitchImg})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+            <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+              <defs>
+                <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="context-stroke" />
+                </marker>
+                <marker id="attack_arrow_left" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M 10 0 L 0 5 L 10 10 z" fill="context-stroke" stroke="context-stroke" />
+                </marker>
+              </defs>
+              {(teamMode === 'both' || teamMode === 'home') && channels.map((channel) => (
+                <g key={`home-${channel}`}>
+                  <title>{`${homeTeam?.name || 'Home'} - ${channel}: ${rowFor(channel).homeCount || 0} attacks (${Number.isFinite(rowFor(channel).homePct) ? rowFor(channel).homePct.toFixed(1) : 'NA'}%)`}</title>
+                  <ArrowRow side="home" channel={channel} color={homeColor || '#2563eb'} />
+                </g>
+              ))}
+              {(teamMode === 'both' || teamMode === 'away') && channels.map((channel) => (
+                <g key={`away-${channel}`}>
+                  <title>{`${awayTeam?.name || 'Away'} - ${channel}: ${rowFor(channel).awayCount || 0} attacks (${Number.isFinite(rowFor(channel).awayPct) ? rowFor(channel).awayPct.toFixed(1) : 'NA'}%)`}</title>
+                  <ArrowRow side="away" channel={channel} color={awayColor || '#ef4444'} />
+                </g>
+              ))}
+            </svg>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -722,6 +786,60 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
   const nodeIds = new Set();
   edgeList.forEach((e) => { nodeIds.add(e.a); nodeIds.add(e.b); });
 
+  const adjacency = new Map();
+  for (const id of nodeIds) adjacency.set(id, new Set());
+  for (const edge of edgeList) {
+    adjacency.get(edge.a)?.add(edge.b);
+    adjacency.get(edge.b)?.add(edge.a);
+  }
+
+  const weightedDegree = new Map();
+  for (const id of nodeIds) weightedDegree.set(id, 0);
+  for (const edge of edgeList) {
+    weightedDegree.set(edge.a, (weightedDegree.get(edge.a) || 0) + edge.total);
+    weightedDegree.set(edge.b, (weightedDegree.get(edge.b) || 0) + edge.total);
+  }
+
+  const betweenness = new Map();
+  for (const id of nodeIds) betweenness.set(id, 0);
+  const nodeList = Array.from(nodeIds);
+  for (const source of nodeList) {
+    const stack = [];
+    const predecessors = new Map(nodeList.map((id) => [id, []]));
+    const sigma = new Map(nodeList.map((id) => [id, 0]));
+    const distance = new Map(nodeList.map((id) => [id, -1]));
+    sigma.set(source, 1);
+    distance.set(source, 0);
+    const queue = [source];
+    while (queue.length) {
+      const v = queue.shift();
+      stack.push(v);
+      for (const w of adjacency.get(v) || []) {
+        if (distance.get(w) < 0) {
+          queue.push(w);
+          distance.set(w, distance.get(v) + 1);
+        }
+        if (distance.get(w) === distance.get(v) + 1) {
+          sigma.set(w, (sigma.get(w) || 0) + (sigma.get(v) || 0));
+          predecessors.get(w).push(v);
+        }
+      }
+    }
+    const dependency = new Map(nodeList.map((id) => [id, 0]));
+    while (stack.length) {
+      const w = stack.pop();
+      for (const v of predecessors.get(w) || []) {
+        const sigmaW = sigma.get(w) || 1;
+        const contribution = ((sigma.get(v) || 0) / sigmaW) * (1 + (dependency.get(w) || 0));
+        dependency.set(v, (dependency.get(v) || 0) + contribution);
+      }
+      if (w !== source) {
+        betweenness.set(w, (betweenness.get(w) || 0) + (dependency.get(w) || 0));
+      }
+    }
+  }
+  for (const id of nodeList) betweenness.set(id, (betweenness.get(id) || 0) / 2);
+
   const nodes = Array.from(nodeIds).map((id) => {
     const p = pos.get(id) || { sumX: 0, sumY: 0, n: 0 };
     const n = Math.max(p.n, 1);
@@ -731,6 +849,8 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
       y: p.n ? (p.sumY / n) : 0,
       made: passesMade.get(id) || 0,
       received: passesReceived.get(id) || 0,
+      weightedDegree: weightedDegree.get(id) || 0,
+      betweenness: betweenness.get(id) || 0,
       number: meta.get(id)?.number ?? null,
       name: meta.get(id)?.name || '',
     };
@@ -742,19 +862,29 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
   const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const centralityRows = nodes
+    .slice()
+    .sort((a, b) => (b.weightedDegree - a.weightedDegree) || (b.betweenness - a.betweenness))
+    .slice(0, 8);
 
   return (
-    <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div
-        className="relative w-full"
-        style={{
-          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
-          backgroundImage: `url(${pitchImg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
+          <div className="text-xs text-slate-500">Weighted degree and betweenness centrality included in tooltips and summary.</div>
+        </div>
+        <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div
+            className="relative w-full"
+            style={{
+              aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+              backgroundImage: `url(${pitchImg})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          >
+            <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
           {edgeList.map((e) => {
             const a = nodeById.get(e.a);
             const b = nodeById.get(e.b);
@@ -785,7 +915,7 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
             const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
             return (
               <g key={n.id}>
-                <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}`}</title>
+                <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nWeighted Degree: ${n.weightedDegree}\nBetweenness: ${n.betweenness.toFixed(2)}`}</title>
                 <circle cx={n.x} cy={n.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
                 {n.number != null && (
                   <text
@@ -803,9 +933,35 @@ function PassNetwork({ passes, side, minCount, teamColor }) {
               </g>
             );
           })}
-        </svg>
-      </div>
-    </div>
+            </svg>
+          </div>
+        </div>
+        {centralityRows.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Player</TableHead>
+                <TableHead className="text-right">Passes</TableHead>
+                <TableHead className="text-right">Received</TableHead>
+                <TableHead className="text-right">Weighted Degree</TableHead>
+                <TableHead className="text-right">Betweenness</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {centralityRows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="font-medium">{(row.number != null ? `#${row.number}` : 'Player') + (row.name ? ` ${row.name}` : '')}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.made}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.received}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.weightedDegree}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.betweenness.toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -889,7 +1045,7 @@ function shotZoneFromDistance(d) {
 }
 
 
-function ShotMap({ shots, mode, setMode }) {
+function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor }) {
   const list = Array.isArray(shots) ? shots : [];
 
   const colors = {
@@ -952,7 +1108,11 @@ function ShotMap({ shots, mode, setMode }) {
               const y = Number(s.y);
               if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
               const g = shotOutcomeGroup(s.outcome);
-              const col = colors[g] || colors.other;
+              const outcomeColor = colors[g] || colors.other;
+              const fillColor = teamMode === 'both'
+                ? (s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb'))
+                : outcomeColor;
+              const strokeColor = teamMode === 'both' ? outcomeColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
               const size = 2.2;
               const tip = [
@@ -968,7 +1128,17 @@ function ShotMap({ shots, mode, setMode }) {
 
               if (shape === 'goal') {
                 return (
-                  <rect key={s.id} x={x - size} y={y - size} width={size * 2} height={size * 2} fill={col} opacity="0.9">
+                  <rect
+                    key={s.id}
+                    x={x - size}
+                    y={y - size}
+                    width={size * 2}
+                    height={size * 2}
+                    fill={fillColor}
+                    opacity="0.9"
+                    stroke={strokeColor}
+                    strokeWidth="0.6"
+                  >
                     <title>{tip}</title>
                   </rect>
                 );
@@ -981,16 +1151,18 @@ function ShotMap({ shots, mode, setMode }) {
                     y={y - size}
                     width={size * 2}
                     height={size * 2}
-                    fill={col}
+                    fill={fillColor}
                     opacity="0.9"
                     transform={`rotate(45 ${x} ${y})`}
+                    stroke={strokeColor}
+                    strokeWidth="0.6"
                   >
                     <title>{tip}</title>
                   </rect>
                 );
               }
               return (
-                <circle key={s.id} cx={x} cy={y} r={size} fill={col} opacity="0.9">
+                <circle key={s.id} cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke={strokeColor} strokeWidth="0.6">
                   <title>{tip}</title>
                 </circle>
               );
@@ -999,7 +1171,7 @@ function ShotMap({ shots, mode, setMode }) {
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. Colour: outcome group.
+          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = team, outline = outcome group.' : 'Colour = outcome group.'}
         </div>
       </CardContent>
     </Card>
@@ -1007,6 +1179,7 @@ function ShotMap({ shots, mode, setMode }) {
 }
 
 function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const teamMode = String(reportFilters?.team || 'both');
   const [shotType, setShotType] = useState([]); // [] all
   const [situation, setSituation] = useState([]); // [] all
   const [pressure, setPressure] = useState([]); // [] all
@@ -1094,28 +1267,41 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   }, [shots, shotType, situation, pressure, outcome, zone]);
 
   const kpis = useMemo(() => {
-    const sh = filteredShots;
-    const shotsN = sh.length;
-    const scoresN = sh.filter((s) => s.isScore).length;
-    const totalPts = sh.reduce((a, s) => a + (s.points || 0), 0);
-    const conv = shotsN ? (scoresN / shotsN) * 100 : NaN;
-    const pps = shotsN ? totalPts / shotsN : NaN;
-    const dists = sh.map((s) => s.distance).filter(Number.isFinite);
-    const avgDist = dists.length ? dists.reduce((a, d) => a + d, 0) / dists.length : NaN;
-
-    const play = sh.filter((s) => s.isFromPlay);
-    const playScores = play.filter((s) => s.isScore).length;
-    const playConv = play.length ? (playScores / play.length) * 100 : NaN;
-
-    const placed = sh.filter((s) => s.isPlacedBall);
-    const placedScores = placed.filter((s) => s.isScore).length;
-    const placedConv = placed.length ? (placedScores / placed.length) * 100 : NaN;
-
-    const high = sh.filter((s) => String(s.pressure) === 'high');
-    const highScores = high.filter((s) => s.isScore).length;
-    const highConv = high.length ? (highScores / high.length) * 100 : NaN;
-
-    return { shotsN, scoresN, conv, pps, avgDist, playConv, placedConv, highConv };
+    const calc = (side) => {
+      const sh = filteredShots.filter((s) => s.team_side === side);
+      const shotsN = sh.length;
+      const scoresN = sh.filter((s) => s.isScore).length;
+      const totalPts = sh.reduce((a, s) => a + (s.points || 0), 0);
+      const conv = shotsN ? (scoresN / shotsN) * 100 : NaN;
+      const pps = shotsN ? totalPts / shotsN : NaN;
+      const dists = sh.map((s) => s.distance).filter(Number.isFinite);
+      const avgDist = dists.length ? dists.reduce((a, d) => a + d, 0) / dists.length : NaN;
+      const play = sh.filter((s) => s.isFromPlay);
+      const playScores = play.filter((s) => s.isScore).length;
+      const playConv = play.length ? (playScores / play.length) * 100 : NaN;
+      const placed = sh.filter((s) => s.isPlacedBall);
+      const placedScores = placed.filter((s) => s.isScore).length;
+      const placedConv = placed.length ? (placedScores / placed.length) * 100 : NaN;
+      const lowPressure = sh.filter((s) => String(s.pressure) === 'low').length;
+      const typeBreakdown = ['point', '2_point', 'goal'].reduce((acc, type) => {
+        const attempts = sh.filter((s) => s.shotType === type).length;
+        const scored = sh.filter((s) => s.shotType === type && s.outcome === type).length;
+        acc[type] = { attempts, scored };
+        return acc;
+      }, {});
+      return {
+        shotsN,
+        scoresN,
+        conv,
+        pps,
+        avgDist,
+        playConv,
+        placedConv,
+        lowPressurePct: shotsN ? (lowPressure / shotsN) * 100 : NaN,
+        typeBreakdown,
+      };
+    };
+    return { home: calc('home'), away: calc('away') };
   }, [filteredShots]);
 
   const shotTypeSummary = useMemo(() => {
@@ -1185,6 +1371,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   const playerSummary = useMemo(() => {
     const rows = new Map();
     for (const s of filteredShots) {
+      if (teamMode !== 'both' && s.team_side !== teamMode) continue;
       const key = s.playerId || s.playerLabel || 'NA';
       const cur = rows.get(key) || {
         key,
@@ -1194,8 +1381,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         points: 0,
         distSum: 0,
         distN: 0,
-        highShots: 0,
-        highScores: 0,
+        pointMade: 0,
+        pointAtt: 0,
+        twoMade: 0,
+        twoAtt: 0,
+        goalMade: 0,
+        goalAtt: 0,
         playShots: 0,
         placedShots: 0,
       };
@@ -1203,10 +1394,9 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       if (s.isScore) cur.scores += 1;
       cur.points += s.points || 0;
       if (Number.isFinite(s.distance)) { cur.distSum += s.distance; cur.distN += 1; }
-      if (String(s.pressure) === 'high') {
-        cur.highShots += 1;
-        if (s.isScore) cur.highScores += 1;
-      }
+      if (s.shotType === 'point') { cur.pointAtt += 1; if (s.outcome === 'point') cur.pointMade += 1; }
+      if (s.shotType === '2_point') { cur.twoAtt += 1; if (s.outcome === '2_point') cur.twoMade += 1; }
+      if (s.shotType === 'goal') { cur.goalAtt += 1; if (s.outcome === 'goal') cur.goalMade += 1; }
       if (s.isFromPlay) cur.playShots += 1;
       if (s.isPlacedBall) cur.placedShots += 1;
       rows.set(key, cur);
@@ -1216,11 +1406,16 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       conv: r.shots ? (r.scores / r.shots) * 100 : NaN,
       pps: r.shots ? r.points / r.shots : NaN,
       avgDist: r.distN ? r.distSum / r.distN : NaN,
-      highConv: r.highShots ? (r.highScores / r.highShots) * 100 : NaN,
     }));
     out.sort((a, b) => b.points - a.points);
     return out;
-  }, [filteredShots]);
+  }, [filteredShots, teamMode]);
+
+  const display = (selector) => {
+    if (teamMode === 'home') return selector(kpis.home);
+    if (teamMode === 'away') return selector(kpis.away);
+    return `${selector(kpis.home)} / ${selector(kpis.away)}`;
+  };
 
   const pieColors = {
     score: '#2563eb',
@@ -1290,14 +1485,17 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Shots', value: kpis.shotsN },
-            { label: 'Scores', value: kpis.scoresN },
-            { label: 'Shot Conversion %', value: formatPct(kpis.conv) },
-            { label: 'Points Per Shot', value: Number.isFinite(kpis.pps) ? kpis.pps.toFixed(2) : 'NA' },
-            { label: 'Average Shot Distance', value: Number.isFinite(kpis.avgDist) ? kpis.avgDist.toFixed(1) : 'NA' },
-            { label: 'Play-Shot Conversion %', value: formatPct(kpis.playConv) },
-            { label: 'Placed-Ball Conversion %', value: formatPct(kpis.placedConv) },
-            { label: 'High-Pressure Conversion %', value: formatPct(kpis.highConv) },
+            { label: 'Shots', value: display((k) => String(k.shotsN)) },
+            { label: 'Scores', value: display((k) => String(k.scoresN)) },
+            { label: 'Shot Conversion %', value: display((k) => formatPct(k.conv)) },
+            { label: 'Points Per Shot', value: display((k) => Number.isFinite(k.pps) ? k.pps.toFixed(2) : 'NA') },
+            { label: 'Average Shot Distance', value: display((k) => Number.isFinite(k.avgDist) ? k.avgDist.toFixed(1) : 'NA') },
+            { label: 'Play-Shot Conversion %', value: display((k) => formatPct(k.playConv)) },
+            { label: 'Placed-Ball Conversion %', value: display((k) => formatPct(k.placedConv)) },
+            { label: '1 Point Scores', value: display((k) => `${k.typeBreakdown.point.scored}/${k.typeBreakdown.point.attempts}`) },
+            { label: '2 Point Scores', value: display((k) => `${k.typeBreakdown['2_point'].scored}/${k.typeBreakdown['2_point'].attempts}`) },
+            { label: 'Goal Scores', value: display((k) => `${k.typeBreakdown.goal.scored}/${k.typeBreakdown.goal.attempts}`) },
+            { label: '% Low Pressure Shots', value: display((k) => formatPct(k.lowPressurePct)) },
           ].map((k) => (
             <Card key={k.label}>
               <CardContent className="p-3">
@@ -1316,7 +1514,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
           </Card>
         ) : (
           <>
-            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} />
+            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} />
 
             <div className="grid lg:grid-cols-2 gap-4">
               <Card>
@@ -1456,8 +1654,9 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
                       <TableHead className="text-right">Points</TableHead>
                       <TableHead className="text-right">Pts/Shot</TableHead>
                       <TableHead className="text-right">Avg Dist</TableHead>
-                      <TableHead className="text-right">High Shots</TableHead>
-                      <TableHead className="text-right">High Conv %</TableHead>
+                      <TableHead className="text-right">1 Pt</TableHead>
+                      <TableHead className="text-right">2 Pt</TableHead>
+                      <TableHead className="text-right">Goals</TableHead>
                       <TableHead className="text-right">Play Shots</TableHead>
                       <TableHead className="text-right">Placed Shots</TableHead>
                     </TableRow>
@@ -1472,8 +1671,9 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
                         <TableCell className="text-right tabular-nums">{r.points}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.highShots}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatPct(r.highConv)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{`${r.pointMade}/${r.pointAtt}`}</TableCell>
+                        <TableCell className="text-right tabular-nums">{`${r.twoMade}/${r.twoAtt}`}</TableCell>
+                        <TableCell className="text-right tabular-nums">{`${r.goalMade}/${r.goalAtt}`}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.playShots}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.placedShots}</TableCell>
                       </TableRow>
@@ -1738,29 +1938,14 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
               </Card>
             </div>
 
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Attack Entry Channels</div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Channel</TableHead>
-                      {(teamMode === 'both' || teamMode === 'home') && <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>}
-                      {(teamMode === 'both' || teamMode === 'away') && <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {attackChannelRows.map((row) => (
-                      <TableRow key={row.channel}>
-                        <TableCell className="font-medium">{row.channel}</TableCell>
-                        {(teamMode === 'both' || teamMode === 'home') && <TableCell className="text-right tabular-nums">{row.homeCount} ({formatPct(row.homePct)})</TableCell>}
-                        {(teamMode === 'both' || teamMode === 'away') && <TableCell className="text-right tabular-nums">{row.awayCount} ({formatPct(row.awayPct)})</TableCell>}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <AttackChannelPitch
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              teamMode={teamMode}
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+              rows={attackChannelRows}
+            />
 
             <Card>
               <CardContent className="p-4 space-y-3">
@@ -1769,7 +1954,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                   stats={possessionsFiltered.flatMap((p) => p.stats || [])}
                   homeColor={homeTeam?.color}
                   awayColor={awayTeam?.color}
-                  colorBy="action"
+                  colorBy={teamMode === 'both' ? 'team' : 'action'}
                   showColorControls={false}
                 />
               </CardContent>
@@ -1795,6 +1980,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                       <TableHead className="text-right">Pts</TableHead>
                       <TableHead className="text-right">Attack</TableHead>
                       <TableHead className="text-right">Counter</TableHead>
+                      <TableHead className="text-right"> </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1816,6 +2002,22 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                           <TableCell className="text-right tabular-nums">{p.points}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.counter ? 'Yes' : 'No'}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                const titleTeam = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                                setVizStats(p.stats || []);
+                                setVizTitle(`Possession #${p.possessionId} - ${titleTeam}`);
+                                setVizOpen(true);
+                              }}
+                            >
+                              Visualise
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -1865,7 +2067,6 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       const progCarry = carry.filter((s) => isProgressiveShared(s)).length;
       const progCarryComp = carry.filter((s) => isProgressiveShared(s) && deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
       const scoringEntries = sideEvents.filter((s) => getScoringZoneEntry(s)).length;
-      const fieldTilt = sideEvents.length ? (sideEvents.filter((s) => Number(s?.x_position) >= OPP_45_X).length / sideEvents.length) * 100 : NaN;
       const turnovers = sideEvents.filter((s) => classifyTerminalOutcome(s, side) === 'TURNOVER').length;
 
       const buildUpSamples = [];
@@ -1897,7 +2098,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         progCarry,
         progCarryPct: progCarry ? (progCarryComp / progCarry) * 100 : NaN,
         scoringEntries,
-        fieldTilt,
+        fieldTiltEvents: sideEvents.filter((s) => getFieldTiltContribution(s)).length,
         turnovers,
         buildUpSpeed: buildUpSamples.length ? buildUpSamples.reduce((a, b) => a + b, 0) / buildUpSamples.length : NaN,
         channels,
@@ -1905,6 +2106,14 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
     };
     return { home: calc('home'), away: calc('away') };
   }, [base, filtered, reportFilters]);
+
+  const fieldTiltPct = useMemo(() => {
+    const total = (kpis.home.fieldTiltEvents || 0) + (kpis.away.fieldTiltEvents || 0);
+    return {
+      home: total ? ((kpis.home.fieldTiltEvents || 0) / total) * 100 : NaN,
+      away: total ? ((kpis.away.fieldTiltEvents || 0) / total) * 100 : NaN,
+    };
+  }, [kpis]);
 
   const display = (selector) => {
     if (teamMode === 'home') return selector(kpis.home);
@@ -1988,7 +2197,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             { label: 'Progressive Carries Attempted', value: display((k) => String(k.progCarry)) },
             { label: 'Progressive Carry Success %', value: display((k) => formatPct(k.progCarryPct)) },
             { label: 'Scoring Zone Entries', value: display((k) => String(k.scoringEntries)) },
-            { label: 'Field Tilt', value: display((k) => formatPct(k.fieldTilt)) },
+            { label: 'Field Tilt', value: teamMode === 'home' ? formatPct(fieldTiltPct.home) : teamMode === 'away' ? formatPct(fieldTiltPct.away) : `${formatPct(fieldTiltPct.home)} / ${formatPct(fieldTiltPct.away)}` },
             { label: 'Build-Up Turnovers', value: display((k) => String(k.turnovers)) },
             { label: 'Build-Up Speed', value: display((k) => Number.isFinite(k.buildUpSpeed) ? `${k.buildUpSpeed.toFixed(1)}s` : 'NA') },
           ].map((k) => (
@@ -2012,76 +2221,59 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Pass / Carry Map</div>
-                <PitchViz stats={filtered} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
+                <PitchViz stats={filtered} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'outcome'} showColorControls={false} />
               </CardContent>
             </Card>
 
-            <div className="grid lg:grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Attack Entry Channels</div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Channel</TableHead>
-                        {(teamMode === 'both' || teamMode === 'home') && <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>}
-                        {(teamMode === 'both' || teamMode === 'away') && <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {channelRows.map((row) => (
-                        <TableRow key={row.channel}>
-                          <TableCell className="font-medium">{row.channel}</TableCell>
-                          {(teamMode === 'both' || teamMode === 'home') && <TableCell className="text-right tabular-nums">{row.homeCount} ({formatPct(row.homePct)})</TableCell>}
-                          {(teamMode === 'both' || teamMode === 'away') && <TableCell className="text-right tabular-nums">{row.awayCount} ({formatPct(row.awayPct)})</TableCell>}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+            <AttackChannelPitch
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              teamMode={teamMode}
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+              rows={channelRows}
+            />
 
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Pass Network</div>
-                  <div className="grid lg:grid-cols-[220px_1fr] gap-4">
-                    <div className="space-y-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Team</Label>
-                        <Select value={teamMode === 'both' ? pnSide : teamMode} onValueChange={setPnSide}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={String(pnMin)}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            if (!Number.isFinite(n)) return;
-                            setPnMin(Math.max(1, Math.floor(n)));
-                          }}
-                          className="h-8 text-xs"
-                        />
-                      </div>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="grid lg:grid-cols-[220px_1fr] gap-4 items-start">
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Network Team</Label>
+                      <Select value={teamMode === 'both' ? pnSide : teamMode} onValueChange={setPnSide}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <PassNetwork
-                      passes={filtered.filter((s) => s.stat_type === 'pass')}
-                      side={teamMode === 'both' ? pnSide : teamMode}
-                      minCount={pnMin}
-                      teamColor={((teamMode === 'both' ? pnSide : teamMode) === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
-                    />
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={String(pnMin)}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (!Number.isFinite(n)) return;
+                          setPnMin(Math.max(1, Math.floor(n)));
+                        }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
+                  <PassNetwork
+                    passes={filtered.filter((s) => s.stat_type === 'pass')}
+                    side={teamMode === 'both' ? pnSide : teamMode}
+                    minCount={pnMin}
+                    teamLabel={(teamMode === 'both' ? pnSide : teamMode) === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+                    teamColor={((teamMode === 'both' ? pnSide : teamMode) === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+                  />
+                </div>
+              </CardContent>
+            </Card>
           </>
         )}
       </div>
@@ -2091,7 +2283,6 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 
 function applyNonTeamReportFilters(stats, reportFilters) {
   const list = Array.isArray(stats) ? stats : [];
-  const team = String(reportFilters?.team || 'both');
   const halves = Array.isArray(reportFilters?.halves) ? reportFilters.halves : [];
   const playerIds = Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds : [];
   const minM = Number(reportFilters?.timeMin);
@@ -2103,7 +2294,6 @@ function applyNonTeamReportFilters(stats, reportFilters) {
 
   return list.filter((s) => {
     if (!s) return false;
-    if (team !== 'both' && s.team_side !== team) return false;
     if (halves.length && !halves.includes(s.half)) return false;
     if (playerIds.length) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
@@ -2123,6 +2313,7 @@ function applyNonTeamReportFilters(stats, reportFilters) {
 
 function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const teamMode = String(reportFilters?.team || 'both');
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
 
@@ -2230,6 +2421,20 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
     return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
   }, [kickouts]);
 
+  const display = (selector) => {
+    if (teamMode === 'home') return selector(kpis.home);
+    if (teamMode === 'away') return selector(kpis.away);
+    return `${selector(kpis.home)} | ${selector(kpis.away)}`;
+  };
+
+  const visibleKickouts = useMemo(() => {
+    if (teamMode === 'both') return kickouts;
+    return kickouts.filter((s) => {
+      const ex = safeParseJSON(s.extra_data || '{}', {});
+      return ex?.kickout?.team_side === teamMode || s?.team_side === teamMode;
+    });
+  }, [kickouts, teamMode]);
+
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
@@ -2241,27 +2446,31 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
           {[
             {
               label: 'Own Kickout Win %',
-              value: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) | ${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+              value: display((k) => `${k.ownKickoutsWon}/${k.ownKickoutsTaken} (${formatPct(k.ownKickoutsTaken ? (k.ownKickoutsWon / k.ownKickoutsTaken) * 100 : NaN)})`),
             },
             {
               label: 'Opposition Kickout Disruption %',
-              value: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)}) | ${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
+              value: display((k) => `${k.oppDisrupted}/${k.oppKickoutsTaken} (${formatPct(k.oppKickoutsTaken ? (k.oppDisrupted / k.oppKickoutsTaken) * 100 : NaN)})`),
             },
             {
               label: 'Clean Kickout Win %',
-              value: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)}) | ${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
+              value: display((k) => `${k.ownCleanWon}/${k.ownKickoutsTaken} (${formatPct(k.ownKickoutsTaken ? (k.ownCleanWon / k.ownKickoutsTaken) * 100 : NaN)})`),
             },
             {
               label: 'Break-Ball Recovery %',
-              value: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) | ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
+              value: teamMode === 'home'
+                ? `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)})`
+                : teamMode === 'away'
+                  ? `${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`
+                  : `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) | ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
             },
             {
               label: 'Restart-to-Shot %',
-              value: `${kpis.home.restartToShot}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToShot / kpis.home.restartWins) * 100 : NaN)}) | ${kpis.away.restartToShot}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToShot / kpis.away.restartWins) * 100 : NaN)})`,
+              value: display((k) => `${k.restartToShot}/${k.restartWins} (${formatPct(k.restartWins ? (k.restartToShot / k.restartWins) * 100 : NaN)})`),
             },
             {
               label: 'Restart-to-Score %',
-              value: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)}) | ${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
+              value: display((k) => `${k.restartToScore}/${k.restartWins} (${formatPct(k.restartWins ? (k.restartToScore / k.restartWins) * 100 : NaN)})`),
             },
           ].map((k) => (
             <Card key={k.label}>
@@ -2273,7 +2482,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
           ))}
         </div>
 
-        {kickouts.length === 0 ? (
+        {visibleKickouts.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
               No kickouts available for current filters.
@@ -2284,7 +2493,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Kickout Map</div>
-                <PitchViz stats={kickouts} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="outcome" showColorControls={false} />
+                <PitchViz stats={visibleKickouts} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'outcome'} showColorControls={false} />
               </CardContent>
             </Card>
 
@@ -2305,7 +2514,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {kickoutTargets.slice(0, 200).map((r, idx) => (
+                    {kickoutTargets.filter((r) => teamMode === 'both' || r.team === teamMode).slice(0, 200).map((r, idx) => (
                       <TableRow key={`${r.team}-${r.key}-${idx}`}>
                         <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
                         <TableCell className="font-medium">{r.label || 'NA'}</TableCell>
@@ -2574,6 +2783,8 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;
 
+      const possessionCount = Array.from(byPoss.keys()).filter((k) => String(k).startsWith(`${teamSide}-`)).length;
+
       return {
         won,
         lost,
@@ -2585,6 +2796,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         scoresConceded,
         defActionCount,
         ppda: defActionCount ? oppCompletedPasses / defActionCount : NaN,
+        turnoverRate: possessionCount ? lost / possessionCount : NaN,
       };
     };
     return { home: calc('home'), away: calc('away') };
@@ -2694,7 +2906,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             { label: 'Average Regain Height (x)', value: display((k) => Number.isFinite(k.avgHeight) ? k.avgHeight.toFixed(1) : 'NA') },
             { label: 'Defensive Actions', value: display((k) => String(k.defActionCount)) },
             { label: 'PPDA', value: display((k) => Number.isFinite(k.ppda) ? k.ppda.toFixed(2) : 'NA') },
-            { label: 'Passes Per Defensive Action', value: display((k) => Number.isFinite(k.ppda) ? k.ppda.toFixed(2) : 'NA') },
+            { label: 'Turnover Rate', value: display((k) => formatPct(Number.isFinite(k.turnoverRate) ? k.turnoverRate * 100 : NaN)) },
             { label: 'Shots From Regains', value: display((k) => String(k.shotsFrom)) },
             { label: 'Scores From Regains', value: display((k) => String(k.scoresFrom)) },
             { label: 'Scores Conceded After Lost Turnovers', value: display((k) => String(k.scoresConceded)) },
@@ -2717,7 +2929,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Defensive Map</div>
-                <PitchViz stats={mapStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+                <PitchViz stats={mapStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'action'} showColorControls={false} />
               </CardContent>
             </Card>
             <Card>
@@ -2918,6 +3130,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   const [focusPlayerId, setFocusPlayerId] = useState('all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const teamMode = String(reportFilters?.team || 'both');
 
   const leaderboard = useMemo(() => {
     const rows = new Map();
@@ -3006,7 +3219,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [base]);
 
   const sortedLeaderboard = useMemo(() => {
-    const list = Array.isArray(leaderboard) ? leaderboard.slice() : [];
+    const list = (Array.isArray(leaderboard) ? leaderboard : []).filter((r) => teamMode === 'both' || r.team === teamMode).slice();
     const dir = lbSort?.dir === 'asc' ? 1 : -1;
     const key = String(lbSort?.key || 'points');
     const get = (r) => {
@@ -3016,7 +3229,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     };
     list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
     return list;
-  }, [leaderboard, lbSort]);
+  }, [leaderboard, lbSort, teamMode]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -3028,11 +3241,12 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   const focusStats = useMemo(() => {
     if (focusPlayerId === 'all') return [];
     return base.filter((s) => {
+      if (teamMode !== 'both' && s?.team_side !== teamMode) return false;
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const ids = collectPlayerIds(extra);
       return ids.has(focusPlayerId);
     });
-  }, [base, focusPlayerId]);
+  }, [base, focusPlayerId, teamMode]);
 
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
@@ -3226,7 +3440,6 @@ export default function MatchReport() {
 
     return list.filter((s) => {
       if (!s) return false;
-      if (reportTeam !== 'both' && s.team_side !== reportTeam) return false;
       if (reportHalves.length && !reportHalves.includes(s.half)) return false;
       if (reportPlayerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
@@ -3592,9 +3805,16 @@ export default function MatchReport() {
       cur[side].possWins += 1;
     }
 
-    const buckets = Array.from(bucketStats.keys()).sort((a, b) => a - b);
-    const rows = buckets.map((b) => {
-      const cur = bucketStats.get(b);
+    const offsets = getMatchSectionOffsets(match);
+    const actualMax = withTime
+      .map((s) => getMatchTimeS(s, match, imputedTimeById))
+      .filter(Number.isFinite)
+      .reduce((m, v) => Math.max(m, v), 0);
+    const baseMax = offsets.second * 2;
+    const axisMax = Math.max(baseMax, actualMax);
+    const bucketCount = Math.max(1, Math.ceil(axisMax / 300));
+    const rows = Array.from({ length: bucketCount }, (_, b) => {
+      const cur = ensure(b);
       const homePoss = cur.home.poss.size;
       const awayPoss = cur.away.poss.size;
 
@@ -3624,7 +3844,7 @@ export default function MatchReport() {
 
       return {
         bucket: b,
-        label: `${Math.max(0, b) * 5}-${Math.max(0, b) * 5 + 5}`,
+        label: `${b * 5}-${b * 5 + 5}`,
         home: Number.isFinite(mHome) ? mHome : 50,
         away: Number.isFinite(mAway) ? mAway : 50,
         home_pts: cur.home.pts,

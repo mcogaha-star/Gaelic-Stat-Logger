@@ -5,6 +5,8 @@ export const GOAL_X = PITCH_W;
 export const GOAL_Y = PITCH_H / 2;
 export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
+export const SCORING_ZONE_RADIUS = 32;
+export const SCORING_ZONE_ANGLE_DEG = 60;
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -47,12 +49,27 @@ export function getSecondHalfStartS(match) {
   return match?.code === 'GAA' && match?.level === 'Intercounty' ? 35 * 60 : 30 * 60;
 }
 
+export function getMatchSectionOffsets(match) {
+  const second = getSecondHalfStartS(match);
+  const secondHalfDuration = second;
+  const etFirst = second + secondHalfDuration;
+  const etSecond = etFirst + 10 * 60;
+  return {
+    first: 0,
+    second,
+    et_first: etFirst,
+    et_second: etSecond,
+  };
+}
+
 export function getMatchTimeS(stat, match, imputedMap) {
   const normalized = getNormalizedTimeS(stat, imputedMap);
   if (!Number.isFinite(normalized)) return null;
-  const secondHalfStartS = getSecondHalfStartS(match);
-  if (stat?.half === 'second') return secondHalfStartS + normalized;
-  if (stat?.half === 'first' && normalized > secondHalfStartS) return normalized;
+  const offsets = getMatchSectionOffsets(match);
+  if (stat?.half === 'second') return offsets.second + normalized;
+  if (stat?.half === 'et_first') return offsets.et_first + normalized;
+  if (stat?.half === 'et_second') return offsets.et_second + normalized;
+  if (stat?.half === 'first' && normalized > offsets.second) return normalized;
   return normalized;
 }
 
@@ -88,19 +105,24 @@ export function calcAngleToGoal(x, y) {
 
 export function isInScoringZone(x, y) {
   const distance = calcDistanceToGoal(x, y);
-  if (!Number.isFinite(distance) || distance > 32) return false;
+  if (!Number.isFinite(distance) || distance > SCORING_ZONE_RADIUS) return false;
   const dx = GOAL_X - Number(x);
   const dy = Number(y) - GOAL_Y;
   if (!Number.isFinite(dx) || !Number.isFinite(dy) || dx < 0) return false;
   const angle = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-  return angle <= 60;
+  return angle <= SCORING_ZONE_ANGLE_DEG;
 }
 
 export function getProgressiveMeters(stat) {
   const sx = Number(stat?.x_position);
+  const sy = Number(stat?.y_position);
   const ex = Number(stat?.end_x_position);
-  if (!Number.isFinite(sx) || !Number.isFinite(ex)) return 0;
-  return Math.max(0, ex - sx);
+  const ey = Number(stat?.end_y_position);
+  if (![sx, sy, ex, ey].every(Number.isFinite)) return 0;
+  const startDist = calcDistanceToGoal(sx, sy);
+  const endDist = calcDistanceToGoal(ex, ey);
+  if (![startDist, endDist].every(Number.isFinite)) return 0;
+  return Math.max(0, startDist - endDist);
 }
 
 export function isProgressive(stat) {
@@ -119,6 +141,12 @@ export function getScoringZoneEntry(stat) {
   const ey = Number(stat?.end_y_position);
   if (![sx, sy, ex, ey].every(Number.isFinite)) return false;
   return !isInScoringZone(sx, sy) && isInScoringZone(ex, ey);
+}
+
+export function getFieldTiltContribution(stat) {
+  if (!stat || !['pass', 'carry'].includes(String(stat?.stat_type || ''))) return false;
+  const ex = Number(stat?.end_x_position);
+  return Number.isFinite(ex) && ex >= OPP_45_X;
 }
 
 export function statHasEnteredOpp45(stat) {
