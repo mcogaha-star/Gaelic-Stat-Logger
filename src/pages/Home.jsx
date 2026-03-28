@@ -335,7 +335,7 @@ export default function Home() {
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                                    <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
+                                                    <div className="relative mx-auto aspect-[636/599] w-full max-w-[280px] overflow-hidden rounded-lg border border-slate-200 bg-white">
                                                         <img
                                                             src={halfPitchImg}
                                                             alt="Wind preview pitch"
