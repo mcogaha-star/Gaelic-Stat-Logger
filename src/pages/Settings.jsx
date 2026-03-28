@@ -22,6 +22,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ArrowLeft, Save } from 'lucide-react';
 import { clearConsent } from '@/components/ConsentGate';
 import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
+import { DEFAULT_SHORTCUTS, mergeShortcutConfig, normalizeShortcutText, prettyShortcut } from '@/lib/shortcuts';
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -35,6 +36,7 @@ export default function Settings() {
   const settingsRecord = settingsRecords[0];
   const [defaults, setDefaults] = useState(DEFAULT_DEFAULTS);
   const [customFields, setCustomFields] = useState(DEFAULT_CUSTOM_FIELDS);
+  const [shortcuts, setShortcuts] = useState(DEFAULT_SHORTCUTS);
 
   useEffect(() => {
     if (!settingsRecord) return;
@@ -47,6 +49,20 @@ export default function Settings() {
       setDefaults(DEFAULT_DEFAULTS);
     }
   }, [settingsRecord?.id]);
+
+  useEffect(() => {
+    if (!settingsRecord) return;
+    const raw = settingsRecord.keyboard_shortcuts_config;
+    if (!raw) {
+      setShortcuts(DEFAULT_SHORTCUTS);
+      return;
+    }
+    try {
+      setShortcuts(mergeShortcutConfig(JSON.parse(raw)));
+    } catch {
+      setShortcuts(DEFAULT_SHORTCUTS);
+    }
+  }, [settingsRecord?.id, settingsRecord?.keyboard_shortcuts_config]);
 
   useEffect(() => {
     if (!settingsRecord) return;
@@ -74,6 +90,7 @@ export default function Settings() {
       const data = {
         defaults_config: JSON.stringify(defaults),
         custom_fields_config: JSON.stringify(customFields),
+        keyboard_shortcuts_config: JSON.stringify(shortcuts),
       };
       if (settingsRecord?.id) return await db.entities.AppSettings.update(settingsRecord.id, data);
       return await db.entities.AppSettings.create(data);
@@ -106,8 +123,9 @@ export default function Settings() {
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="shortcuts">Shortcuts</TabsTrigger>
             <TabsTrigger value="custom">Custom Fields</TabsTrigger>
             <TabsTrigger value="privacy">Privacy</TabsTrigger>
           </TabsList>
@@ -133,6 +151,95 @@ export default function Settings() {
                   <span className="font-mono text-slate-900">{settingsRecord?.schema_version ?? 'Unknown'}</span>
                 </div>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="shortcuts">
+            <div className="bg-white border rounded-xl p-6 space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Keyboard Shortcuts</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  These shortcuts work in the logger and can also control the video popup from the main match window, even while the video is on another screen or in Picture-in-Picture.
+                </p>
+              </div>
+
+              {[
+                {
+                  key: 'stat_click',
+                  title: 'Click Stats',
+                  rows: [
+                    ['shot', 'Shot'],
+                    ['kickout', 'Kickout'],
+                    ['turnover', 'Turnover'],
+                    ['foul', 'Foul'],
+                    ['defensive_contact', 'Def. Action'],
+                    ['throw_in', 'Throw In'],
+                  ],
+                },
+                {
+                  key: 'stat_drag',
+                  title: 'Drag Stats',
+                  rows: [
+                    ['pass', 'Pass'],
+                    ['carry', 'Carry'],
+                  ],
+                },
+                {
+                  key: 'video',
+                  title: 'Video Hotkeys',
+                  rows: [
+                    ['toggle_play_pause', 'Play / Pause'],
+                    ['back_3', 'Back 3s'],
+                    ['forward_3', 'Forward 3s'],
+                    ['back_10', 'Back 10s'],
+                    ['forward_10', 'Forward 10s'],
+                    ['back_20', 'Back 20s'],
+                    ['forward_20', 'Forward 20s'],
+                    ['slower', 'Slow Down'],
+                    ['faster', 'Speed Up'],
+                  ],
+                },
+              ].map((section) => (
+                <div key={section.key} className="border rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">{section.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">Use a single key like <span className="font-mono">P</span> or a combo like <span className="font-mono">Shift+P</span>.</div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShortcuts((prev) => ({ ...prev, [section.key]: { ...DEFAULT_SHORTCUTS[section.key] } }))}
+                    >
+                      Reset Section
+                    </Button>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {section.rows.map(([value, label]) => (
+                      <div key={`${section.key}-${value}`} className="space-y-2">
+                        <Label>{label}</Label>
+                        <Input
+                          value={shortcuts?.[section.key]?.[value] || ''}
+                          onChange={(e) => {
+                            const next = normalizeShortcutText(e.target.value);
+                            setShortcuts((prev) => ({
+                              ...prev,
+                              [section.key]: {
+                                ...(prev?.[section.key] || {}),
+                                [value]: next,
+                              },
+                            }));
+                          }}
+                          placeholder={prettyShortcut(DEFAULT_SHORTCUTS[section.key]?.[value])}
+                          className="font-mono"
+                        />
+                        <div className="text-xs text-slate-500">Current: {prettyShortcut(shortcuts?.[section.key]?.[value])}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </TabsContent>
 

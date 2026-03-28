@@ -55,6 +55,7 @@ import MatchStats from './pages/MatchStats';
 import Players from './pages/Players';
 import Privacy from './pages/Privacy';
 import Settings from './pages/Settings';
+import SeasonStats from './pages/SeasonStats';
 import Teams from './pages/Teams';
 import Video from './pages/Video';
 
@@ -67,6 +68,7 @@ export const PAGES = {
     "Players": Players,
     "Privacy": Privacy,
     "Settings": Settings,
+    "SeasonStats": SeasonStats,
     "Teams": Teams,
     "Video": Video,
 }

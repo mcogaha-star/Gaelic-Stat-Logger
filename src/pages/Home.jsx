@@ -370,6 +370,9 @@ export default function Home() {
                             <Link to={createPageUrl('Teams')}>
                                 <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
                             </Link>
+                            <Link to={createPageUrl('SeasonStats')}>
+                                <Button variant="outline" className="gap-2"><BarChart3 className="w-4 h-4" /> Stats</Button>
+                            </Link>
                             <Link to={createPageUrl('Settings')}>
                                 <Button variant="outline" size="icon"><Settings className="w-4 h-4" /></Button>
                             </Link>

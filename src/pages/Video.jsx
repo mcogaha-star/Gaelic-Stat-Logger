@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
+import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig, prettyShortcut } from '@/lib/shortcuts';
 
 const CHANNEL_NAME = 'gstl_video';
 
@@ -87,6 +89,15 @@ export default function Video() {
   const [timeS, setTimeS] = useState(0);
   const [pipActive, setPipActive] = useState(false);
 
+  const { data: settingsRecords = [] } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: () => db.entities.AppSettings.list(),
+  });
+  const shortcutConfig = useMemo(
+    () => parseShortcutConfig(settingsRecords?.[0]?.keyboard_shortcuts_config),
+    [settingsRecords]
+  );
+
   const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
   const canCloseWindow = typeof window !== 'undefined' && !!window.opener;
 
@@ -121,6 +132,59 @@ export default function Video() {
       return;
     }
     window.location.href = createPageUrl(`MatchStats?id=${matchId}`);
+  };
+
+  const seekRelative = (deltaS) => {
+    const delta = Number(deltaS);
+    if (!Number.isFinite(delta)) return;
+    if (sourceType === 'local' && localVideoRef.current) {
+      const v = localVideoRef.current;
+      v.currentTime = Math.max(0, (v.currentTime || 0) + delta);
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current?.seekTo && ytPlayerRef.current?.getCurrentTime) {
+      const next = Math.max(0, Number(ytPlayerRef.current.getCurrentTime() || 0) + delta);
+      ytPlayerRef.current.seekTo(next, true);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (sourceType === 'local' && localVideoRef.current) {
+      const v = localVideoRef.current;
+      if (v.paused) v.play().catch(() => {});
+      else v.pause();
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current) {
+      try {
+        const state = ytPlayerRef.current.getPlayerState?.();
+        if (state === 1) ytPlayerRef.current.pauseVideo?.();
+        else ytPlayerRef.current.playVideo?.();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const changePlaybackRate = (delta) => {
+    const step = Number(delta);
+    if (!Number.isFinite(step)) return;
+    if (sourceType === 'local' && localVideoRef.current) {
+      const v = localVideoRef.current;
+      const next = Math.min(2, Math.max(0.25, Number(v.playbackRate || 1) + step));
+      v.playbackRate = Number(next.toFixed(2));
+      toast.message(`Speed ${next.toFixed(2)}x`);
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current?.getPlaybackRate && ytPlayerRef.current?.setPlaybackRate) {
+      try {
+        const next = Math.min(2, Math.max(0.25, Number(ytPlayerRef.current.getPlaybackRate() || 1) + step));
+        ytPlayerRef.current.setPlaybackRate(next);
+        toast.message(`Speed ${next.toFixed(2)}x`);
+      } catch {
+        // ignore
+      }
+    }
   };
 
   // Load/save local-only config on the match record.
@@ -163,6 +227,17 @@ export default function Video() {
         if (sourceType === 'youtube' && ytPlayerRef.current && ytPlayerRef.current.seekTo) {
           ytPlayerRef.current.seekTo(t, true);
         }
+      }
+      if (msg.type === 'VIDEO_COMMAND') {
+        if (msg.command === 'toggle_play_pause') togglePlayPause();
+        if (msg.command === 'back_3') seekRelative(-3);
+        if (msg.command === 'forward_3') seekRelative(3);
+        if (msg.command === 'back_10') seekRelative(-10);
+        if (msg.command === 'forward_10') seekRelative(10);
+        if (msg.command === 'back_20') seekRelative(-20);
+        if (msg.command === 'forward_20') seekRelative(20);
+        if (msg.command === 'slower') changePlaybackRate(-0.25);
+        if (msg.command === 'faster') changePlaybackRate(0.25);
       }
       if (msg.type === 'SET_SOURCE') {
         const nextType = msg?.sourceType;
@@ -291,6 +366,28 @@ export default function Video() {
     return () => clearInterval(t);
   }, [sourceType, ready]);
 
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (isTypingTarget(e.target)) return;
+      for (const [command, shortcut] of Object.entries(shortcutConfig?.video || {})) {
+        if (!eventMatchesShortcut(e, shortcut)) continue;
+        e.preventDefault();
+        if (command === 'toggle_play_pause') togglePlayPause();
+        if (command === 'back_3') seekRelative(-3);
+        if (command === 'forward_3') seekRelative(3);
+        if (command === 'back_10') seekRelative(-10);
+        if (command === 'forward_10') seekRelative(10);
+        if (command === 'back_20') seekRelative(-20);
+        if (command === 'forward_20') seekRelative(20);
+        if (command === 'slower') changePlaybackRate(-0.25);
+        if (command === 'faster') changePlaybackRate(0.25);
+        break;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [shortcutConfig, sourceType]);
+
   const header = (
     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -299,6 +396,9 @@ export default function Video() {
       </div>
       <div className="flex items-center gap-2">
         <div className="font-mono text-sm">{formatTimeMMSS(timeS)}</div>
+        <div className="hidden md:block text-[11px] text-slate-500">
+          {`Play/Pause ${prettyShortcut(shortcutConfig?.video?.toggle_play_pause)}`}
+        </div>
         {sourceType === 'local' && (
           <Button
             type="button"
@@ -369,6 +469,13 @@ export default function Video() {
                 <div ref={ytContainerRef} className="w-full h-full" />
               </div>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-10)}>-10s</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(10)}>+10s</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(-0.25)}>Slower</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(0.25)}>Faster</Button>
+            </div>
             {!extractYouTubeId(youtubeUrl) && (
               <div className="text-xs text-slate-600">Paste a valid YouTube URL to load the player.</div>
             )}
@@ -402,6 +509,13 @@ export default function Video() {
             </div>
             <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
               <video ref={localVideoRef} className="w-full" controls />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-10)}>-10s</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(10)}>+10s</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(-0.25)}>Slower</Button>
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(0.25)}>Faster</Button>
             </div>
           </div>
         )}

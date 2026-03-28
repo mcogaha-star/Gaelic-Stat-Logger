@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
 
 const NONE = 'none';
 const TEAM_HOME = 'team:home';
@@ -415,6 +416,7 @@ export default function StatModalV4({
   defaultReceiver, // selection object
   initialStat, // full stat row for edit mode (optional)
   customFields, // { custom_1..custom_3: { enabled, label, options[] } }
+  shortcutConfig,
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -514,6 +516,7 @@ export default function StatModalV4({
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
   };
+  const shortcuts = useMemo(() => parseShortcutConfig(shortcutConfig), [shortcutConfig]);
 
   // Edit mode: seed fields from an existing row.
   useEffect(() => {
@@ -712,6 +715,22 @@ export default function StatModalV4({
       setVideoTimeTouched(false);
     }
   }, [open, initialStat?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const actionShortcuts = isDrag ? (shortcuts?.stat_drag || {}) : (shortcuts?.stat_click || {});
+    const onKeyDown = (e) => {
+      if (isTypingTarget(e.target)) return;
+      for (const [nextAction, shortcut] of Object.entries(actionShortcuts)) {
+        if (!eventMatchesShortcut(e, shortcut)) continue;
+        e.preventDefault();
+        setAction(nextAction);
+        break;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, isDrag, shortcuts]);
 
   // Defaulting to last receiver on open.
   useEffect(() => {

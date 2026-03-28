@@ -24,6 +24,7 @@ import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
 
 const VIDEO_CHANNEL = 'gstl_video';
 
@@ -84,6 +85,7 @@ export default function MatchStats() {
     const dragStats = DEFAULT_DRAG_STATS;
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
     const customFieldsRaw = settingsRecord?.custom_fields_config ? (() => { try { return JSON.parse(settingsRecord.custom_fields_config); } catch { return DEFAULT_CUSTOM_FIELDS; } })() : DEFAULT_CUSTOM_FIELDS;
+    const shortcutConfig = useMemo(() => parseShortcutConfig(settingsRecord?.keyboard_shortcuts_config), [settingsRecord?.keyboard_shortcuts_config]);
 
     const appDefaults = useMemo(() => {
         const d = (appDefaultsRaw && typeof appDefaultsRaw === 'object') ? appDefaultsRaw : DEFAULT_DEFAULTS;
@@ -188,6 +190,19 @@ export default function MatchStats() {
         if (!matchId) return;
         const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
         window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
+    };
+
+    const sendVideoCommand = (command) => {
+        if (!matchId) return;
+        try {
+            const ch = new BroadcastChannel(VIDEO_CHANNEL);
+            const msg = { matchId, type: 'VIDEO_COMMAND', command };
+            ch.postMessage(msg);
+            setTimeout(() => ch.postMessage(msg), 120);
+            setTimeout(() => ch.close(), 250);
+        } catch {
+            // ignore
+        }
     };
 
     const setHalfStartFromVideo = async () => {
@@ -343,27 +358,35 @@ export default function MatchStats() {
         setEndPeriodPrompt({ open: true, nextHalf });
     };
 
+    const remindNextHalfStart = (nextHalf) => {
+        if (!nextHalf) return;
+        const nextAnchor = Number(halfStartByHalf?.[nextHalf]);
+        if (Number.isFinite(nextAnchor)) return;
+        toast.message(`Reminder: set ${String(nextHalf).replace('_', ' ')} video start time when the next half begins.`);
+    };
+
     useEffect(() => {
         const onKeyDown = (e) => {
+            if (isTypingTarget(e.target)) return;
+
             const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z');
-            if (!isUndo) return;
+            if (isUndo) {
+                e.preventDefault();
+                handleUndoLast();
+                return;
+            }
 
-            const t = e.target;
-            const tag = t?.tagName?.toLowerCase?.();
-            const isTypingContext =
-                tag === 'input' ||
-                tag === 'textarea' ||
-                tag === 'select' ||
-                t?.isContentEditable === true;
-
-            if (isTypingContext) return;
-            e.preventDefault();
-            handleUndoLast();
+            for (const [command, shortcut] of Object.entries(shortcutConfig?.video || {})) {
+                if (!eventMatchesShortcut(e, shortcut)) continue;
+                e.preventDefault();
+                sendVideoCommand(command);
+                return;
+            }
         };
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [stats]);
+    }, [stats, shortcutConfig, matchId]);
 
     const snapKickoutOrigin = (coords) => {
         // Snap to nearest 20m line midpoint in the 145x85 plane: (20, 42.5) or (125, 42.5)
@@ -746,6 +769,7 @@ export default function MatchStats() {
                 scoreLine={scoreLine}
                 backUrl={createPageUrl('Home')}
                 statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
+                seasonStatsUrl={createPageUrl(`SeasonStats?matchId=${matchId}`)}
                 settingsUrl={createPageUrl('Settings')}
             />
 
@@ -897,6 +921,7 @@ export default function MatchStats() {
                 defaultReceiver={lastReceiver}
                 initialStat={editingStat}
                 customFields={customFields}
+                shortcutConfig={shortcutConfig}
             />
 
             {/* Half change prompt */}
@@ -1070,6 +1095,7 @@ export default function MatchStats() {
                                 const nextDir = prevDir === 'left' ? 'right' : 'left';
                                 await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: nextDir });
                                 setHalf(nextHalf);
+                                remindNextHalfStart(nextHalf);
                                 setEndPeriodPrompt({ open: false, nextHalf: null });
                             }}
                         >
@@ -1100,6 +1126,7 @@ export default function MatchStats() {
                                 const prevDir = getDirForHalf(half);
                                 await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: prevDir });
                                 setHalf(nextHalf);
+                                remindNextHalfStart(nextHalf);
                                 setEndPeriodPrompt({ open: false, nextHalf: null });
                             }}
                         >

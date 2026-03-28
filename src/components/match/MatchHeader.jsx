@@ -15,6 +15,7 @@ export default function MatchHeader({
     scoreLine,
     backUrl,
     statsUrl,
+    seasonStatsUrl,
     settingsUrl,
 }) {
     return (
@@ -81,6 +82,13 @@ export default function MatchHeader({
                             <Link to={statsUrl}>
                                 <Button variant="outline" size="sm" className="gap-2 h-7">
                                     <BarChart3 className="w-4 h-4" /> Stats
+                                </Button>
+                            </Link>
+                        )}
+                        {seasonStatsUrl && (
+                            <Link to={seasonStatsUrl}>
+                                <Button variant="outline" size="sm" className="gap-2 h-7">
+                                    <BarChart3 className="w-4 h-4" /> Season
                                 </Button>
                             </Link>
                         )}

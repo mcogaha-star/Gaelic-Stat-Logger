@@ -1210,6 +1210,18 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
 }
 
 function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+  const actionOptions = useMemo(() => (
+    Array.from(new Set((reportFilters?.allStats || []).map((s) => String(s?.stat_type || '')).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: toTitleCase(value) }))
+  ), [reportFilters?.allStats]);
+
+  const outcomeOptions = useMemo(() => (
+    Array.from(new Set((reportFilters?.allStats || []).map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: toTitleCase(value) }))
+  ), [reportFilters?.allStats]);
+
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
@@ -1243,6 +1255,22 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
             values={reportFilters.playerIds}
             onChange={reportFilters.setPlayerIds}
             options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+          />
+
+          <MultiSelect
+            label="Action"
+            placeholder="All"
+            values={reportFilters.actionTypes}
+            onChange={reportFilters.setActionTypes}
+            options={actionOptions}
+          />
+
+          <MultiSelect
+            label="Outcome"
+            placeholder="All"
+            values={reportFilters.outcomes}
+            onChange={reportFilters.setOutcomes}
+            options={outcomeOptions}
           />
 
           <div className="space-y-1">
@@ -2564,6 +2592,8 @@ function applyNonTeamReportFilters(stats, reportFilters) {
   const list = Array.isArray(stats) ? stats : [];
   const halves = Array.isArray(reportFilters?.halves) ? reportFilters.halves : [];
   const playerIds = Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds : [];
+  const actionTypes = Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes : [];
+  const outcomes = Array.isArray(reportFilters?.outcomes) ? reportFilters.outcomes : [];
   const minM = Number(reportFilters?.timeMin);
   const maxM = Number(reportFilters?.timeMax);
   const minS = Number.isFinite(minM) && String(reportFilters?.timeMin ?? '') !== '' ? minM * 60 : null;
@@ -2574,6 +2604,12 @@ function applyNonTeamReportFilters(stats, reportFilters) {
   return list.filter((s) => {
     if (!s) return false;
     if (halves.length && !halves.includes(s.half)) return false;
+    if (actionTypes.length && !actionTypes.includes(String(s.stat_type || ''))) return false;
+    if (outcomes.length) {
+      const extra = safeParseJSON(s.extra_data || '{}', {});
+      const outcome = deriveOutcome(s, extra);
+      if (!outcomes.includes(outcome)) return false;
+    }
     if (playerIds.length) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const ids = collectPlayerIds(extra);
@@ -4037,6 +4073,8 @@ export default function MatchReport() {
   const [reportTeam, setReportTeam] = useState('both'); // both|home|away
   const [reportHalves, setReportHalves] = useState([]); // [] means all
   const [reportPlayerIds, setReportPlayerIds] = useState([]); // [] means any
+  const [reportActionTypes, setReportActionTypes] = useState([]); // [] means all
+  const [reportOutcomes, setReportOutcomes] = useState([]); // [] means all
   const [reportTimeMin, setReportTimeMin] = useState(''); // minutes (string)
   const [reportTimeMax, setReportTimeMax] = useState(''); // minutes (string)
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
@@ -4074,13 +4112,18 @@ export default function MatchReport() {
     setHalves: setReportHalves,
     playerIds: reportPlayerIds,
     setPlayerIds: setReportPlayerIds,
+    actionTypes: reportActionTypes,
+    setActionTypes: setReportActionTypes,
+    outcomes: reportOutcomes,
+    setOutcomes: setReportOutcomes,
     timeMin: reportTimeMin,
     setTimeMin: setReportTimeMin,
     timeMax: reportTimeMax,
     setTimeMax: setReportTimeMax,
     imputedTimeById,
     match,
-  }), [reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax, imputedTimeById, match]);
+    allStats: stats,
+  }), [reportTeam, reportHalves, reportPlayerIds, reportActionTypes, reportOutcomes, reportTimeMin, reportTimeMax, imputedTimeById, match, stats]);
 
   const filteredForReport = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -4092,6 +4135,12 @@ export default function MatchReport() {
     return list.filter((s) => {
       if (!s) return false;
       if (reportHalves.length && !reportHalves.includes(s.half)) return false;
+      if (reportActionTypes.length && !reportActionTypes.includes(String(s.stat_type || ''))) return false;
+      if (reportOutcomes.length) {
+        const extra = safeParseJSON(s.extra_data || '{}', {});
+        const out = deriveOutcome(s, extra);
+        if (!reportOutcomes.includes(out)) return false;
+      }
       if (reportPlayerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const ids = collectPlayerIds(extra);
@@ -4106,7 +4155,7 @@ export default function MatchReport() {
       }
       return true;
     });
-  }, [stats, reportTeam, reportHalves, reportPlayerIds, reportTimeMin, reportTimeMax, imputedTimeById, match]);
+  }, [stats, reportTeam, reportHalves, reportPlayerIds, reportActionTypes, reportOutcomes, reportTimeMin, reportTimeMax, imputedTimeById, match]);
 
   const filteredForViz = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
