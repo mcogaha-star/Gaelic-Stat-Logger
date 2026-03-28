@@ -30,6 +30,7 @@ import {
   getFieldTiltContribution,
   getMatchSectionOffsets,
   getMatchTimeS,
+  getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
   isProgressive as isProgressiveShared,
@@ -412,6 +413,19 @@ function collectPlayerIds(extra) {
   return ids;
 }
 
+function collectPlayerSelectionKeys(extra) {
+  const keys = new Set();
+  const walk = (v) => {
+    if (!v || typeof v !== 'object') return;
+    if (v.kind === 'player' && typeof v.id === 'string' && (v.team_side === 'home' || v.team_side === 'away')) {
+      keys.add(`${v.team_side}|${v.id}`);
+    }
+    for (const key of Object.keys(v)) walk(v[key]);
+  };
+  walk(extra);
+  return keys;
+}
+
 function sortKeyForTime(s) {
   const tn = Number(s?.normalized_time_s);
   if (Number.isFinite(tn)) return { k: 0, v: tn };
@@ -452,6 +466,186 @@ function possessionHasOpp45Entry(evs, teamSide) {
 
 function derivePossessionOutcome(evs, teamSide) {
   return derivePossessionOutcomeShared(evs, teamSide);
+}
+
+function selectionKey(sel) {
+  if (!sel || sel.kind !== 'player' || !sel.id) return null;
+  return `${sel.team_side || 'unknown'}|${sel.id}`;
+}
+
+function normalizePlayerRef(sel) {
+  if (!sel) return null;
+  if (sel.kind === 'player' && sel.id && (sel.team_side === 'home' || sel.team_side === 'away')) {
+    return {
+      id: sel.id,
+      team_side: sel.team_side,
+      name: sel.name || '',
+      number: sel.number ?? null,
+      position: sel.position || '',
+    };
+  }
+  if (sel.id && (sel.team_side === 'home' || sel.team_side === 'away')) {
+    return {
+      id: sel.id,
+      team_side: sel.team_side,
+      name: sel.name || '',
+      number: sel.number ?? null,
+      position: sel.position || '',
+    };
+  }
+  return null;
+}
+
+function getPrimaryActorSelection(stat, extra) {
+  if (!stat) return null;
+  if (stat.stat_type === 'shot') return extra?.shot?.player || null;
+  if (stat.stat_type === 'pass') return extra?.pass?.passer || null;
+  if (stat.stat_type === 'carry') return extra?.carry?.carrier || null;
+  if (stat.stat_type === 'turnover') return extra?.turnover?.forced_by || extra?.turnover?.lost_by || null;
+  if (stat.stat_type === 'throw_in') return extra?.throw_in?.won_by || extra?.throw_in?.broken_by || null;
+  if (stat.stat_type === 'defensive_contact') return extra?.defensive_contact?.player || null;
+  if (stat.stat_type === 'foul') return extra?.foul?.foul_by || null;
+  return null;
+}
+
+function getCompletedReceiptSelection(stat, extra) {
+  if (!stat) return null;
+  if (stat.stat_type === 'pass') {
+    if (extra?.pass?.outcome !== 'completed') return null;
+    return extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : (extra?.pass?.intended_recipient?.kind === 'player' ? extra.pass.intended_recipient : null);
+  }
+  if (stat.stat_type === 'kickout') {
+    if (!['clean', 'break'].includes(String(extra?.kickout?.outcome || ''))) return null;
+    return extra?.kickout?.won_by?.kind === 'player' ? extra.kickout.won_by : null;
+  }
+  if (stat.stat_type === 'throw_in') {
+    if (!['clean', 'break'].includes(String(extra?.throw_in?.outcome || ''))) return null;
+    return extra?.throw_in?.won_by?.kind === 'player' ? extra.throw_in.won_by : null;
+  }
+  return null;
+}
+
+function isDirectTouchAction(stat) {
+  return ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in'].includes(String(stat?.stat_type || ''));
+}
+
+function deriveCounterAttackState(actingStats) {
+  const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && typeof s.counter_attack === 'boolean');
+  if (!relevant.length) return 'Set Attack';
+  const flags = relevant.map((s) => !!s.counter_attack);
+  if (flags.every(Boolean)) return 'Counter Attack';
+  if (flags.every((v) => !v)) return 'Set Attack';
+  let sawCounter = false;
+  for (const flag of flags) {
+    if (flag) sawCounter = true;
+    if (sawCounter && !flag) return 'Counter -> Set';
+  }
+  return 'Set Attack';
+}
+
+function getPossessionStartZone(actingStats) {
+  const first = (Array.isArray(actingStats) ? actingStats : []).find((s) => Number.isFinite(Number(s?.x_position)));
+  const sx = Number(first?.x_position);
+  if (!Number.isFinite(sx)) return 'NA';
+  if (sx < PITCH_W / 3) return 'Defensive Third';
+  if (sx < (2 * PITCH_W) / 3) return 'Middle Third';
+  return 'Attacking Third';
+}
+
+function isGoalkeeperPlayer(player) {
+  if (!player) return false;
+  if (String(player.position || '') === 'Goalkeeper') return true;
+  return !player.position && Number(player.number) === 1;
+}
+
+function getKeeperCandidate(players, teamSide) {
+  const sidePlayers = (Array.isArray(players) ? players : []).filter((p) => p?.team_side === teamSide && isGoalkeeperPlayer(p));
+  if (!sidePlayers.length) return null;
+  return sidePlayers
+    .slice()
+    .sort((a, b) => {
+      const aScore = String(a.position || '') === 'Goalkeeper' ? 0 : (Number(a.number) === 1 ? 1 : 2);
+      const bScore = String(b.position || '') === 'Goalkeeper' ? 0 : (Number(b.number) === 1 ? 1 : 2);
+      if (aScore !== bScore) return aScore - bScore;
+      return Number(a.number || 999) - Number(b.number || 999);
+    })[0];
+}
+
+function buildShotAssistCredits(stats) {
+  const out = [];
+  const groups = groupByPossession(stats);
+  for (const [key, evs] of groups.entries()) {
+    const [teamSide] = String(key).split('-');
+    if (teamSide !== 'home' && teamSide !== 'away') continue;
+    const acting = evs.filter((e) => e && e.team_side === teamSide);
+    for (let i = 0; i < acting.length; i += 1) {
+      const shot = acting[i];
+      if (shot?.stat_type !== 'shot') continue;
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const prev = acting[j];
+        if (prev?.stat_type !== 'pass') continue;
+        const extra = safeParseJSON(prev.extra_data || '{}', {});
+        if (extra?.pass?.outcome !== 'completed') continue;
+        const passer = extra?.pass?.passer;
+        if (passer?.kind === 'player') {
+          out.push({ passer, shot, possessionKey: key, teamSide });
+        }
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function buildTouchesMap(stats) {
+  const out = new Map();
+  const add = (sel) => {
+    const key = selectionKey(sel);
+    if (!key) return;
+    out.set(key, (out.get(key) || 0) + 1);
+  };
+
+  const groups = groupByPossession(stats);
+  for (const [key, evs] of groups.entries()) {
+    const [teamSide] = String(key).split('-');
+    if (teamSide !== 'home' && teamSide !== 'away') continue;
+    const acting = evs.filter((e) => e && e.team_side === teamSide);
+    let pendingReceiptKey = null;
+
+    for (const stat of acting) {
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      const actor = getPrimaryActorSelection(stat, extra);
+      const actorKey = selectionKey(actor);
+
+      if (actorKey && isDirectTouchAction(stat)) {
+        if (pendingReceiptKey === actorKey) {
+          pendingReceiptKey = null;
+        } else {
+          add(actor);
+          pendingReceiptKey = null;
+        }
+      } else {
+        pendingReceiptKey = null;
+      }
+
+      const receipt = getCompletedReceiptSelection(stat, extra);
+      const receiptKey = selectionKey(receipt);
+      if (receiptKey) {
+        add(receipt);
+        pendingReceiptKey = receiptKey;
+      }
+    }
+  }
+
+  return out;
+}
+
+function DirectionBadge({ className = '' }) {
+  return (
+    <div className={`absolute left-2 top-2 z-10 rounded-full bg-white/92 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm ${className}`}>
+      Attacking -&gt;
+    </div>
+  );
 }
 
 function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true }) {
@@ -554,6 +748,7 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
           backgroundPosition: 'center',
         }}
       >
+        <DirectionBadge />
         <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
           <defs>
             {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
@@ -932,6 +1127,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
               backgroundPosition: 'center',
             }}
           >
+            <DirectionBadge />
             <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
           {edgeList.map((e) => {
             const a = nodeById.get(e.a);
@@ -1150,6 +1346,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
             backgroundPosition: 'center',
           }}
         >
+          <DirectionBadge />
           <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
             {visible.map((s) => {
               const x = Number(s.x);
@@ -1742,7 +1939,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onVisualisePossession }) {
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
-  const [counterFilter, setCounterFilter] = useState('any'); // any|yes|no
+  const [counterFilter, setCounterFilter] = useState('any'); // any|set_attack|counter_attack|counter_to_set
 
   const possessions = useMemo(() => {
     const groups = groupByPossession(base);
@@ -1785,8 +1982,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
       const shots = acting.filter((e) => e.stat_type === 'shot').length;
-      const counter = acting.some((e) => !!e.counter_attack);
+      const counterState = deriveCounterAttackState(acting);
       const attackEntryChannel = isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '';
+      const startZone = getPossessionStartZone(acting);
 
       out.push({
         key,
@@ -1802,8 +2000,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
         passes,
         shots,
         points,
-        counter,
+        counterState,
         attackEntryChannel,
+        startZone,
         stats: evs,
       });
     }
@@ -1818,8 +2017,12 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
 
   const possessionsFiltered = useMemo(() => {
     if (counterFilter === 'any') return possessions;
-    const want = counterFilter === 'yes';
-    return possessions.filter((p) => !!p.counter === want);
+    const map = {
+      set_attack: 'Set Attack',
+      counter_attack: 'Counter Attack',
+      counter_to_set: 'Counter -> Set',
+    };
+    return possessions.filter((p) => p.counterState === map[counterFilter]);
   }, [possessions, counterFilter]);
 
   const attacks = useMemo(() => possessionsFiltered.filter((p) => p.isAttack), [possessionsFiltered]);
@@ -1838,7 +2041,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
       const attToShot = attN ? (att.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
       const passesPerPoss = possN ? rows.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
       const scoringPoss = possN ? (rows.filter((p) => p.outcome === 'Score').length / possN) * 100 : NaN;
-      const counterPoss = possN ? (rows.filter((p) => p.counter).length / possN) * 100 : NaN;
+      const counterPoss = possN ? (rows.filter((p) => p.counterState === 'Counter Attack').length / possN) * 100 : NaN;
       const channels = { Left: 0, Middle: 0, Right: 0 };
       rows.filter((p) => p.isAttack).forEach((p) => {
         if (channels[p.attackEntryChannel] != null) channels[p.attackEntryChannel] += 1;
@@ -1901,8 +2104,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="yes">Yes</SelectItem>
-                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="set_attack">Set Attack</SelectItem>
+                  <SelectItem value="counter_attack">Counter Attack</SelectItem>
+                  <SelectItem value="counter_to_set">Counter -&gt; Set</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2016,7 +2220,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                       <TableHead className="text-right">Completed Passes</TableHead>
                       <TableHead className="text-right">Pts</TableHead>
                       <TableHead className="text-right">Attack</TableHead>
-                      <TableHead className="text-right">Counter</TableHead>
+                      <TableHead>Start Zone</TableHead>
+                      <TableHead>Transition</TableHead>
                       <TableHead className="text-right"> </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2036,7 +2241,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
                           <TableCell className="text-right tabular-nums">{p.passes}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.points}</TableCell>
                           <TableCell className="text-right tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell>
-                          <TableCell className="text-right tabular-nums">{p.counter ? 'Yes' : 'No'}</TableCell>
+                          <TableCell>{p.startZone}</TableCell>
+                          <TableCell>{p.counterState}</TableCell>
                           <TableCell className="text-right">
                             <Button
                               type="button"
@@ -2087,6 +2293,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 
   const kpis = useMemo(() => {
     const possessionGroups = groupByPossession(base);
+    const shotAssistCredits = buildShotAssistCredits(filtered);
     const calc = (side) => {
       const sideEvents = filtered.filter((s) => s.team_side === side);
       const pass = sideEvents.filter((s) => s.stat_type === 'pass');
@@ -2098,14 +2305,20 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
       const progCarry = carry.filter((s) => isProgressiveShared(s)).length;
       const progCarryComp = carry.filter((s) => isProgressiveShared(s) && deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
       const scoringEntries = sideEvents.filter((s) => getScoringZoneEntry(s)).length;
+      const passesIntoScoringZone = pass.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed' && getScoringZoneEntry(s)).length;
       const turnovers = sideEvents.filter((s) => classifyTerminalOutcome(s, side) === 'TURNOVER').length;
+      const shotAssists = shotAssistCredits.filter((row) => row.teamSide === side).length;
 
       const buildUpSamples = [];
       const channels = { Left: 0, Middle: 0, Right: 0 };
+      const startZones = { 'Defensive Third': 0, 'Middle Third': 0, 'Attacking Third': 0 };
       for (const [key, evs] of possessionGroups.entries()) {
         if (!String(key).startsWith(side + '-')) continue;
         const acting = evs.filter((e) => e && e.team_side === side);
-        if (!acting.length || !isAttackPossession(acting, side)) continue;
+        if (!acting.length) continue;
+        const zone = getPossessionStartZone(acting);
+        if (startZones[zone] != null) startZones[zone] += 1;
+        if (!isAttackPossession(acting, side)) continue;
         const channel = getAttackEntryChannelForPossession(acting, side);
         if (channel) channels[channel] += 1;
 
@@ -2129,10 +2342,14 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         progCarry,
         progCarryPct: progCarry ? (progCarryComp / progCarry) * 100 : NaN,
         scoringEntries,
+        passesIntoScoringZone,
+        shotAssists,
+        shotsCreated: shotAssists,
         fieldTiltEvents: sideEvents.filter((s) => getFieldTiltContribution(s)).length,
         turnovers,
         buildUpSpeed: buildUpSamples.length ? buildUpSamples.reduce((a, b) => a + b, 0) / buildUpSamples.length : NaN,
         channels,
+        startZones,
       };
     };
     return { home: calc('home'), away: calc('away') };
@@ -2228,6 +2445,9 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             { label: 'Progressive Carries Attempted', value: display((k) => String(k.progCarry)) },
             { label: 'Progressive Carry Success %', value: display((k) => formatPct(k.progCarryPct)) },
             { label: 'Scoring Zone Entries', value: display((k) => String(k.scoringEntries)) },
+            { label: 'Passes Into Scoring Zone', value: display((k) => String(k.passesIntoScoringZone)) },
+            { label: 'Shot Assists', value: display((k) => String(k.shotAssists)) },
+            { label: 'Shots Created', value: display((k) => String(k.shotsCreated)) },
             { label: 'Field Tilt', value: teamMode === 'home' ? formatPct(fieldTiltPct.home) : teamMode === 'away' ? formatPct(fieldTiltPct.away) : `${formatPct(fieldTiltPct.home)} / ${formatPct(fieldTiltPct.away)}` },
             { label: 'Build-Up Turnovers', value: display((k) => String(k.turnovers)) },
             { label: 'Build-Up Speed', value: display((k) => Number.isFinite(k.buildUpSpeed) ? `${k.buildUpSpeed.toFixed(1)}s` : 'NA') },
@@ -2303,6 +2523,34 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
                     teamColor={((teamMode === 'both' ? pnSide : teamMode) === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
                   />
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Possession Start Zones</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Zone</TableHead>
+                      {(teamMode === 'both' || teamMode === 'home') && <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>}
+                      {(teamMode === 'both' || teamMode === 'away') && <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {['Defensive Third', 'Middle Third', 'Attacking Third'].map((zone) => (
+                      <TableRow key={zone}>
+                        <TableCell className="font-medium">{zone}</TableCell>
+                        {(teamMode === 'both' || teamMode === 'home') && (
+                          <TableCell className="text-right tabular-nums">{kpis.home.startZones?.[zone] || 0}</TableCell>
+                        )}
+                        {(teamMode === 'both' || teamMode === 'away') && (
+                          <TableCell className="text-right tabular-nums">{kpis.away.startZones?.[zone] || 0}</TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           </>
@@ -3159,36 +3407,95 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
 
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const [focusPlayerId, setFocusPlayerId] = useState('all');
+  const [playerBucket, setPlayerBucket] = useState('scoring');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
 
+  const playerMetaByKey = useMemo(() => {
+    const map = new Map();
+    for (const p of playerOptions || []) {
+      if (p?.id && (p.team_side === 'home' || p.team_side === 'away')) {
+        map.set(`${p.team_side}|${p.id}`, p);
+      }
+    }
+    return map;
+  }, [playerOptions]);
+
+  const shotAssistCredits = useMemo(() => buildShotAssistCredits(base), [base]);
+  const touchMap = useMemo(() => buildTouchesMap(base), [base]);
+
   const leaderboard = useMemo(() => {
     const rows = new Map();
     const ensure = (sel) => {
-      if (!sel || sel.kind !== 'player') return null;
-      const key = `${sel.team_side || 'unknown'}|${sel.id || ''}`;
+      const player = normalizePlayerRef(sel);
+      if (!player) return null;
+      const key = `${player.team_side}|${player.id}`;
+      const meta = playerMetaByKey.get(key) || {};
       const cur = rows.get(key) || {
         key,
-        player: formatExtraValue(sel),
-        team: sel.team_side || 'unknown',
+        id: player.id,
+        player: formatExtraValue({ kind: 'player', ...meta, ...player }),
+        team: player.team_side || 'unknown',
+        number: meta.number ?? player.number ?? null,
+        name: meta.name || player.name || '',
+        position: meta.position || player.position || '',
         shots: 0,
         scores: 0,
         points: 0,
         passes: 0,
+        passComp: 0,
         carries: 0,
+        carryComp: 0,
         turnoversWon: 0,
         turnoversLost: 0,
         foulsWon: 0,
         foulsConceded: 0,
         defActions: 0,
+        contacts: 0,
+        dispossessions: 0,
+        blocks: 0,
         progPassAtt: 0,
         progPassComp: 0,
         progPassRecv: 0,
+        progCarries: 0,
+        progMeters: 0,
+        scoringZoneEntriesCreated: 0,
+        passesIntoScoringZone: 0,
+        shotAssists: 0,
+        shotsCreated: 0,
+        attacksInvolved: 0,
+        scoringPossessionsInvolved: 0,
+        kickoutTargets: 0,
+        kickoutWins: 0,
+        throwInsWon: 0,
+        marks: 0,
+        touches: 0,
+        avgShotDistTotal: 0,
+        avgShotDistCount: 0,
+        kickoutsTaken: 0,
+        ownKickoutsWon: 0,
+        cleanKickoutsWon: 0,
+        shortKickoutsTaken: 0,
+        longKickoutsTaken: 0,
+        shortKickoutsWon: 0,
+        longKickoutsWon: 0,
+        goalShotsSaved: 0,
+        goalShotsAgainst: 0,
+        pressBreakdown: {
+          m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+          zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+          conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+        },
       };
       rows.set(key, cur);
       return cur;
     };
+
+    const homeKeeper = getKeeperCandidate(playerOptions, 'home');
+    const awayKeeper = getKeeperCandidate(playerOptions, 'away');
+    ensure(homeKeeper);
+    ensure(awayKeeper);
 
     for (const s of base) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
@@ -3200,6 +3507,21 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           const o = ex?.shot?.outcome;
           if (shotOutcomeGroup(o) === 'score') r.scores += 1;
           r.points += shotPointsForOutcome(o);
+          const dist = calcDistanceToGoal(Number(s.x_position), Number(s.y_position));
+          if (Number.isFinite(dist)) {
+            r.avgShotDistTotal += dist;
+            r.avgShotDistCount += 1;
+          }
+        }
+        const goalShotType = String(ex?.shot?.shot_type || ex?.shot?.type || '') === 'goal';
+        if (goalShotType && ['goal', 'saved'].includes(String(ex?.shot?.outcome || ''))) {
+          const keeperSide = s.team_side === 'away' ? 'home' : 'away';
+          const savedBy = normalizePlayerRef(ex?.shot?.saved_by);
+          const keeperRow = ensure(savedBy?.team_side === keeperSide ? savedBy : (keeperSide === 'home' ? homeKeeper : awayKeeper));
+          if (keeperRow) {
+            if (ex?.shot?.outcome === 'saved') keeperRow.goalShotsSaved += 1;
+            if (ex?.shot?.outcome === 'goal') keeperRow.goalShotsAgainst += 1;
+          }
         }
       }
       if (s.stat_type === 'pass') {
@@ -3210,9 +3532,15 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const isCompleted = pass?.outcome === 'completed';
         if (r) {
           r.passes += 1;
+          if (isCompleted) r.passComp += 1;
           if (isProg) {
             r.progPassAtt += 1;
             if (isCompleted) r.progPassComp += 1;
+            r.progMeters += getProgressiveMeters(s);
+          }
+          if (isCompleted && getScoringZoneEntry(s)) {
+            r.passesIntoScoringZone += 1;
+            r.scoringZoneEntriesCreated += 1;
           }
         }
         if (isProg && isCompleted) {
@@ -3224,7 +3552,15 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       if (s.stat_type === 'carry') {
         const p = ex?.carry?.carrier;
         const r = ensure(p);
-        if (r) r.carries += 1;
+        if (r) {
+          r.carries += 1;
+          if (deriveOutcome(s, ex) === 'completed') r.carryComp += 1;
+          if (isProgressiveShared(s)) {
+            r.progCarries += 1;
+            r.progMeters += getProgressiveMeters(s);
+          }
+          if (getScoringZoneEntry(s)) r.scoringZoneEntriesCreated += 1;
+        }
       }
       if (s.stat_type === 'turnover' || ex?.turnover) {
         const t = ex?.turnover || {};
@@ -3243,24 +3579,149 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       if (s.stat_type === 'defensive_contact') {
         const p = ex?.defensive_contact?.player;
         const r = ensure(p);
-        if (r) r.defActions += 1;
+        if (r) {
+          r.defActions += 1;
+          const type = String(ex?.defensive_contact?.type || '');
+          if (type === 'contact') r.contacts += 1;
+          if (type === 'dispossess' || type === 'dispossession') r.dispossessions += 1;
+          if (type === 'block') r.blocks += 1;
+        }
+      }
+      if (s.stat_type === 'kickout') {
+        const kick = ex?.kickout || {};
+        const koTeam = kick?.team_side;
+        const keeper = ensure(koTeam === 'home' ? homeKeeper : koTeam === 'away' ? awayKeeper : null);
+        if (keeper) {
+          keeper.kickoutsTaken += 1;
+          const won = (kick?.outcome === 'clean' || kick?.outcome === 'break') && kick?.won_by?.team_side === koTeam;
+          const cleanWon = kick?.outcome === 'clean' && kick?.won_by?.team_side === koTeam;
+          if (won) keeper.ownKickoutsWon += 1;
+          if (cleanWon) keeper.cleanKickoutsWon += 1;
+          const isLong = Number(s.end_x_position) >= OPP_45_X;
+          const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+          if (isLong) {
+            keeper.longKickoutsTaken += 1;
+            if (won) keeper.longKickoutsWon += 1;
+          } else {
+            keeper.shortKickoutsTaken += 1;
+            if (won) keeper.shortKickoutsWon += 1;
+          }
+          if (pressKey && keeper.pressBreakdown?.[pressKey]) {
+            keeper.pressBreakdown[pressKey].taken += 1;
+            if (won) keeper.pressBreakdown[pressKey].won += 1;
+            if (isLong) {
+              keeper.pressBreakdown[pressKey].longTaken += 1;
+              if (won) keeper.pressBreakdown[pressKey].longWon += 1;
+            } else {
+              keeper.pressBreakdown[pressKey].shortTaken += 1;
+              if (won) keeper.pressBreakdown[pressKey].shortWon += 1;
+            }
+          }
+        }
+        const target = ensure(kick?.intended_recipient);
+        if (target) target.kickoutTargets += 1;
+        const wonBy = ensure(kick?.won_by);
+        if (wonBy) {
+          wonBy.kickoutWins += 1;
+          if (kick?.mark) wonBy.marks += 1;
+        }
+      }
+      if (s.stat_type === 'throw_in') {
+        const won = ensure(ex?.throw_in?.won_by);
+        if (won) won.throwInsWon += 1;
       }
     }
-    return Array.from(rows.values());
-  }, [base]);
+
+    for (const row of shotAssistCredits) {
+      const passer = ensure(row.passer);
+      if (passer) {
+        passer.shotAssists += 1;
+        passer.shotsCreated += 1;
+      }
+    }
+
+    const possessionGroups = groupByPossession(base);
+    for (const [key, evs] of possessionGroups.entries()) {
+      const [teamSide] = String(key).split('-');
+      if (teamSide !== 'home' && teamSide !== 'away') continue;
+      const acting = evs.filter((e) => e && e.team_side === teamSide);
+      if (!acting.length) continue;
+      const involved = new Set();
+      for (const e of acting) {
+        const extra = safeParseJSON(e.extra_data || '{}', {});
+        for (const playerKey of collectPlayerSelectionKeys(extra)) involved.add(playerKey);
+      }
+      const isAttack = isAttackPossession(evs, teamSide);
+      const outcome = derivePossessionOutcome(evs, teamSide);
+      for (const playerKey of involved) {
+        const row = rows.get(playerKey);
+        if (!row) continue;
+        if (isAttack) row.attacksInvolved += 1;
+        if (outcome === 'Score') row.scoringPossessionsInvolved += 1;
+      }
+    }
+
+    for (const [key, count] of touchMap.entries()) {
+      const row = rows.get(key);
+      if (row) row.touches = count;
+    }
+
+    return Array.from(rows.values()).map((row) => {
+      const passPct = row.passes ? (row.passComp / row.passes) * 100 : NaN;
+      const carryPct = row.carries ? (row.carryComp / row.carries) * 100 : NaN;
+      const progPassPct = row.progPassAtt ? (row.progPassComp / row.progPassAtt) * 100 : NaN;
+      const totalBallActions = row.passes + row.carries + row.shots;
+      const turnoverRate = totalBallActions ? (row.turnoversLost / totalBallActions) * 100 : NaN;
+      const avgShotDist = row.avgShotDistCount ? row.avgShotDistTotal / row.avgShotDistCount : NaN;
+      const goalShotSavePct = (row.goalShotsSaved + row.goalShotsAgainst)
+        ? (row.goalShotsSaved / (row.goalShotsSaved + row.goalShotsAgainst)) * 100
+        : NaN;
+      const ownKickoutWinPct = row.kickoutsTaken ? (row.ownKickoutsWon / row.kickoutsTaken) * 100 : NaN;
+      const cleanKickoutWinPct = row.kickoutsTaken ? (row.cleanKickoutsWon / row.kickoutsTaken) * 100 : NaN;
+      const shortKickoutWinPct = row.shortKickoutsTaken ? (row.shortKickoutsWon / row.shortKickoutsTaken) * 100 : NaN;
+      const longKickoutWinPct = row.longKickoutsTaken ? (row.longKickoutsWon / row.longKickoutsTaken) * 100 : NaN;
+      return {
+        ...row,
+        passPct,
+        carryPct,
+        progPassPct,
+        turnoverRate,
+        avgShotDist,
+        goalShotSavePct,
+        ownKickoutWinPct,
+        cleanKickoutWinPct,
+        shortKickoutWinPct,
+        longKickoutWinPct,
+      };
+    });
+  }, [base, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
 
   const sortedLeaderboard = useMemo(() => {
-    const list = (Array.isArray(leaderboard) ? leaderboard : []).filter((r) => teamMode === 'both' || r.team === teamMode).slice();
+    const bucketFilters = {
+      scoring: () => true,
+      progression: () => true,
+      retention: () => true,
+      creation: () => true,
+      defense: () => true,
+      restarts: () => true,
+      goalkeepers: (r) => isGoalkeeperPlayer(r),
+    };
+    const list = (Array.isArray(leaderboard) ? leaderboard : [])
+      .filter((r) => teamMode === 'both' || r.team === teamMode)
+      .filter((r) => (focusPlayerId === 'all' ? true : r.id === focusPlayerId))
+      .filter(bucketFilters[playerBucket] || (() => true))
+      .slice();
     const dir = lbSort?.dir === 'asc' ? 1 : -1;
     const key = String(lbSort?.key || 'points');
     const get = (r) => {
       if (!r) return 0;
       const v = r[key];
-      return typeof v === 'number' ? v : 0;
+      if (typeof v === 'number') return v;
+      return 0;
     };
     list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
     return list;
-  }, [leaderboard, lbSort, teamMode]);
+  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -3268,6 +3729,98 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       return { key, dir: 'desc' };
     });
   };
+
+  const bucketColumns = useMemo(() => ({
+    scoring: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'shots', label: 'Shots', numeric: true },
+      { key: 'scores', label: 'Scores', numeric: true },
+      { key: 'points', label: 'Points', numeric: true },
+      { key: 'shotConvPct', label: 'Shot Conv %', numeric: true, sortValue: (r) => (r.shots ? (r.scores / r.shots) * 100 : -1), render: (r) => r.shots ? formatPct((r.scores / r.shots) * 100) : 'NA' },
+      { key: 'pointsPerShot', label: 'Pts/Shot', numeric: true, sortValue: (r) => (r.shots ? r.points / r.shots : -1), render: (r) => r.shots ? (r.points / r.shots).toFixed(2) : 'NA' },
+      { key: 'avgShotDist', label: 'Avg Dist', numeric: true, sortValue: (r) => r.avgShotDist, render: (r) => Number.isFinite(r.avgShotDist) ? r.avgShotDist.toFixed(1) : 'NA' },
+    ],
+    progression: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'progPassAtt', label: 'Prog Pass Att', numeric: true },
+      { key: 'progPassComp', label: 'Prog Pass Comp', numeric: true },
+      { key: 'progPassPct', label: 'Prog Pass %', numeric: true, sortValue: (r) => r.progPassPct, render: (r) => formatPct(r.progPassPct) },
+      { key: 'progPassRecv', label: 'Prog Pass Rec', numeric: true },
+      { key: 'progCarries', label: 'Prog Carries', numeric: true },
+      { key: 'progMeters', label: 'Prog Meters', numeric: true, render: (r) => Number.isFinite(r.progMeters) ? r.progMeters.toFixed(1) : '0.0' },
+      { key: 'scoringZoneEntriesCreated', label: 'Scoring Zone Entries', numeric: true },
+      { key: 'passesIntoScoringZone', label: 'Passes Into Scoring Zone', numeric: true },
+    ],
+    retention: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'passes', label: 'Passes', numeric: true },
+      { key: 'passPct', label: 'Pass %', numeric: true, sortValue: (r) => r.passPct, render: (r) => formatPct(r.passPct) },
+      { key: 'carries', label: 'Carries', numeric: true },
+      { key: 'carryPct', label: 'Carry %', numeric: true, sortValue: (r) => r.carryPct, render: (r) => formatPct(r.carryPct) },
+      { key: 'turnoversLost', label: 'TO Lost', numeric: true },
+      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
+      { key: 'touches', label: 'Touches', numeric: true },
+    ],
+    creation: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'shotAssists', label: 'Shot Assists', numeric: true },
+      { key: 'shotsCreated', label: 'Shots Created', numeric: true },
+      { key: 'attacksInvolved', label: 'Attacks Involved', numeric: true },
+      { key: 'scoringPossessionsInvolved', label: 'Scoring Possessions', numeric: true },
+    ],
+    defense: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'turnoversWon', label: 'TO Won', numeric: true },
+      { key: 'defActions', label: 'Def. Actions', numeric: true },
+      { key: 'contacts', label: 'Contacts', numeric: true },
+      { key: 'dispossessions', label: 'Dispossessions', numeric: true },
+      { key: 'blocks', label: 'Blocks', numeric: true },
+      { key: 'foulsWon', label: 'Fouls Won', numeric: true },
+      { key: 'foulsConceded', label: 'Fouls Conceded', numeric: true },
+    ],
+    restarts: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'kickoutTargets', label: 'KO Targets', numeric: true },
+      { key: 'kickoutWins', label: 'KO Wins', numeric: true },
+      { key: 'throwInsWon', label: 'Throw-Ins Won', numeric: true },
+      { key: 'marks', label: 'Marks', numeric: true },
+    ],
+    goalkeepers: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'kickoutsTaken', label: 'KOs Taken', numeric: true },
+      { key: 'ownKickoutWinPct', label: 'Own KO Win %', numeric: true, sortValue: (r) => r.ownKickoutWinPct, render: (r) => r.kickoutsTaken ? `${r.ownKickoutsWon}/${r.kickoutsTaken} (${formatPct(r.ownKickoutWinPct)})` : 'NA' },
+      { key: 'cleanKickoutWinPct', label: 'Clean KO Win %', numeric: true, sortValue: (r) => r.cleanKickoutWinPct, render: (r) => r.kickoutsTaken ? `${r.cleanKickoutsWon}/${r.kickoutsTaken} (${formatPct(r.cleanKickoutWinPct)})` : 'NA' },
+      { key: 'shortKickoutsTaken', label: 'Short KOs', numeric: true },
+      { key: 'longKickoutsTaken', label: 'Long KOs', numeric: true },
+      { key: 'shortKickoutWinPct', label: 'Short Win %', numeric: true, sortValue: (r) => r.shortKickoutWinPct, render: (r) => r.shortKickoutsTaken ? `${r.shortKickoutsWon}/${r.shortKickoutsTaken} (${formatPct(r.shortKickoutWinPct)})` : 'NA' },
+      { key: 'longKickoutWinPct', label: 'Long Win %', numeric: true, sortValue: (r) => r.longKickoutWinPct, render: (r) => r.longKickoutsTaken ? `${r.longKickoutsWon}/${r.longKickoutsTaken} (${formatPct(r.longKickoutWinPct)})` : 'NA' },
+      { key: 'goalShotSavePct', label: 'Goal Shot Saves', numeric: true, sortValue: (r) => r.goalShotSavePct, render: (r) => (r.goalShotsSaved + r.goalShotsAgainst) ? `${r.goalShotsSaved}/${r.goalShotsSaved + r.goalShotsAgainst} (${formatPct(r.goalShotSavePct)})` : 'NA' },
+    ],
+  }), [homeTeam, awayTeam]);
+
+  React.useEffect(() => {
+    const defaults = {
+      scoring: 'points',
+      progression: 'progMeters',
+      retention: 'touches',
+      creation: 'shotsCreated',
+      defense: 'turnoversWon',
+      restarts: 'kickoutWins',
+      goalkeepers: 'kickoutsTaken',
+    };
+    const nextKey = defaults[playerBucket] || 'points';
+    const columns = bucketColumns[playerBucket] || [];
+    if (!columns.some((c) => c.key === lbSort.key)) {
+      setLbSort({ key: nextKey, dir: 'desc' });
+    }
+  }, [playerBucket, bucketColumns, lbSort.key]);
 
   const focusStats = useMemo(() => {
     if (focusPlayerId === 'all') return [];
@@ -3278,6 +3831,29 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       return ids.has(focusPlayerId);
     });
   }, [base, focusPlayerId, teamMode]);
+
+  const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
+
+  const goalkeeperPressRows = useMemo(() => {
+    if (playerBucket !== 'goalkeepers') return [];
+    const rows = [];
+    for (const row of sortedLeaderboard) {
+      for (const press of ['m2m', 'zonal', 'conceded']) {
+        const info = row.pressBreakdown?.[press];
+        if (!info) continue;
+        rows.push({
+          key: `${row.key}-${press}`,
+          player: row.player,
+          team: row.team,
+          press: press === 'm2m' ? 'M2M' : toTitleCase(press),
+          overall: info.taken ? `${info.won}/${info.taken}` : 'NA',
+          short: info.shortTaken ? `${info.shortWon}/${info.shortTaken}` : 'NA',
+          long: info.longTaken ? `${info.longWon}/${info.longTaken}` : 'NA',
+        });
+      }
+    }
+    return rows;
+  }, [playerBucket, sortedLeaderboard]);
 
   return (
     <div className="grid lg:grid-cols-[272px_minmax(0,1fr)] gap-4">
@@ -3311,54 +3887,88 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         )}
         <Card>
           <CardContent className="p-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['scoring', 'Scoring'],
+                ['progression', 'Progression'],
+                ['retention', 'Retention'],
+                ['creation', 'Creation'],
+                ['defense', 'Defense'],
+                ['restarts', 'Restarts'],
+                ['goalkeepers', 'Goalkeepers'],
+              ].map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={playerBucket === value ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setPlayerBucket(value)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Player</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('shots')}>Shots</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('scores')}>Scores</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('points')}>Points</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('passes')}>Passes</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('progPassAtt')}>Prog Pass Att</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('progPassComp')}>Prog Pass Comp</TableHead>
-                  <TableHead className="text-right">Prog Pass %</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('progPassRecv')}>Prog Pass Rec</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('carries')}>Carries</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('turnoversWon')}>TO Won</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('turnoversLost')}>TO Lost</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('foulsWon')}>Fouls Won</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('foulsConceded')}>Fouls Conceded</TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('defActions')}>Def. Actions</TableHead>
+                  {currentColumns.map((col) => (
+                    <TableHead
+                      key={col.key}
+                      className={col.numeric ? 'text-right cursor-pointer select-none' : 'cursor-pointer select-none'}
+                      onClick={() => toggleSort(col.key)}
+                    >
+                      {col.label}
+                    </TableHead>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedLeaderboard.slice(0, 250).map((r) => (
                   <TableRow key={r.key}>
-                    <TableCell className="font-medium">{r.player}</TableCell>
-                    <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.points}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.passes}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.progPassAtt}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.progPassComp}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {r.progPassAtt ? formatPct((r.progPassComp / r.progPassAtt) * 100) : 'NA'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{r.progPassRecv}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.carries}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.turnoversWon}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.turnoversLost}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.foulsWon}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.foulsConceded}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.defActions}</TableCell>
+                    {currentColumns.map((col) => (
+                      <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
+                        {col.render ? col.render(r) : r[col.key]}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
+
+        {playerBucket === 'goalkeepers' && goalkeeperPressRows.length > 0 && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Player</TableHead>
+                    <TableHead>Team</TableHead>
+                    <TableHead>Press</TableHead>
+                    <TableHead className="text-right">Overall</TableHead>
+                    <TableHead className="text-right">Short</TableHead>
+                    <TableHead className="text-right">Long</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {goalkeeperPressRows.map((row) => (
+                    <TableRow key={row.key}>
+                      <TableCell className="font-medium">{row.player}</TableCell>
+                      <TableCell>{row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                      <TableCell>{row.press}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.short}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.long}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -3447,7 +4057,14 @@ export default function MatchReport() {
     return all
       .slice()
       .sort((a, b) => (a.team_side === b.team_side ? (a.number || 0) - (b.number || 0) : (a.team_side === 'home' ? -1 : 1)))
-      .map((p) => ({ id: p.id, team_side: p.team_side, label: label(p) || p.id }));
+      .map((p) => ({
+        id: p.id,
+        team_side: p.team_side,
+        label: label(p) || p.id,
+        name: p.name || '',
+        number: p.number ?? null,
+        position: p.position || '',
+      }));
   }, [homePlayers, awayPlayers]);
 
   const reportFilters = useMemo(() => ({
