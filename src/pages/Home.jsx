@@ -20,7 +20,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import pitchImg from '@/assets/pitch.png';
+import windHalfPitchImg from '@/assets/wind-half-pitch.svg';
 
 const WIND_DIRECTION_OPTIONS = Array.from({ length: 24 }, (_, index) => {
     const degrees = index * 15;
@@ -337,11 +337,9 @@ export default function Home() {
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
                                                         <div
-                                                            className="absolute left-1/2 top-0 h-[117.24%] w-[341.18%] -translate-x-1/2 bg-cover bg-center"
+                                                            className="absolute inset-0 bg-cover bg-center"
                                                             style={{
-                                                                backgroundImage: `url(${pitchImg})`,
-                                                                transform: 'translateX(-50%) rotate(-90deg)',
-                                                                transformOrigin: 'center',
+                                                                backgroundImage: `url(${windHalfPitchImg})`,
                                                             }}
                                                         />
                                                         <div
