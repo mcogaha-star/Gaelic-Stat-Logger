@@ -18,12 +18,17 @@ create table if not exists public.matches (
   match_date date not null,
   code text not null check (code in ('GAA','LGFA')),
   level text not null check (level in ('Intercounty','Senior','Intermediate','Junior','Minor','Other')),
+  wind_speed double precision null,
+  wind_direction double precision null,
   created_at timestamptz not null default now(),
   deleted_at timestamptz null
 );
 
 create unique index if not exists matches_user_public_match_id_uniq
   on public.matches(user_id, public_match_id);
+
+alter table if exists public.matches add column if not exists wind_speed double precision null;
+alter table if exists public.matches add column if not exists wind_direction double precision null;
 
 -- Stat entries (server-side, redacted)
 create table if not exists public.stat_entries (

@@ -20,24 +20,42 @@ export async function ensureServerMatch({
   matchDate,
   code,
   level,
+  windSpeed,
+  windDirection,
 }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
 
   // Insert if missing; if it already exists, select it.
-  const payload = {
+  const basePayload = {
     user_id: user.id,
     public_match_id: publicMatchId,
     match_date: matchDate,
     code,
     level,
   };
+  const payload = {
+    ...basePayload,
+    wind_speed: windSpeed ?? null,
+    wind_direction: windDirection ?? null,
+  };
 
-  const { data: inserted, error: insertErr } = await supabase
+  let inserted = null;
+  let insertErr = null;
+  ({ data: inserted, error: insertErr } = await supabase
     .from('matches')
     .insert(payload)
     .select('id,public_match_id')
-    .maybeSingle();
+    .maybeSingle());
+
+  // If the live schema doesn't yet have wind columns, retry with the original payload.
+  if (insertErr?.message && /wind_(speed|direction)/i.test(insertErr.message)) {
+    ({ data: inserted, error: insertErr } = await supabase
+      .from('matches')
+      .insert(basePayload)
+      .select('id,public_match_id')
+      .maybeSingle());
+  }
 
   if (!insertErr && inserted?.id) return { ok: true, id: inserted.id };
 
@@ -50,6 +68,21 @@ export async function ensureServerMatch({
     .maybeSingle();
 
   if (fetchErr || !existing?.id) return { ok: false, reason: fetchErr?.message || insertErr?.message || 'match_upsert_failed' };
+
+  // Best-effort update so existing server rows can receive wind metadata when columns are available.
+  if (windSpeed != null || windDirection != null) {
+    const patch = { wind_speed: windSpeed ?? null, wind_direction: windDirection ?? null };
+    const { error: updateErr } = await supabase
+      .from('matches')
+      .update(patch)
+      .eq('id', existing.id)
+      .eq('user_id', user.id);
+
+    if (updateErr?.message && /wind_(speed|direction)/i.test(updateErr.message)) {
+      // Ignore missing-column errors so older Supabase schemas don't block match creation.
+    }
+  }
+
   return { ok: true, id: existing.id };
 }
 

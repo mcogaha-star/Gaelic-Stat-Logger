@@ -148,6 +148,8 @@ export default function Home() {
                 matchDate: created.date,
                 code: created.code || 'GAA',
                 level: created.level || 'Other',
+                windSpeed: created.wind_speed === '' ? null : created.wind_speed,
+                windDirection: created.wind_direction === '' ? null : created.wind_direction,
             });
 
             if (res.ok && res.id) {
@@ -334,20 +336,20 @@ export default function Home() {
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                                    <div className="relative mx-auto aspect-[145/85] w-full max-w-[250px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
+                                                    <div className="relative mx-auto aspect-[85/145] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
                                                         <div
-                                                            className="absolute inset-0 bg-cover bg-center"
+                                                            className="absolute left-1/2 top-1/2 h-[145%] w-[85%] -translate-x-1/2 -translate-y-1/2 bg-cover bg-center"
                                                             style={{
                                                                 backgroundImage: `url(${pitchImg})`,
-                                                                transform: 'scaleY(-1)',
+                                                                transform: 'translate(-50%, -50%) rotate(-90deg)',
                                                                 transformOrigin: 'center',
                                                             }}
                                                         />
                                                         <div
-                                                            className="absolute left-1/2 top-1/2 h-1 w-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
-                                                            style={{ transform: `translate(-50%, -50%) scaleY(-1) rotate(${windPreviewRotation}deg)` }}
+                                                            className="absolute left-1/2 top-1/2 w-1 h-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
+                                                            style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}
                                                         >
-                                                            <div className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2 border-y-[9px] border-l-[18px] border-y-transparent border-l-red-500" />
+                                                            <div className="absolute left-1/2 top-[-2px] h-0 w-0 -translate-x-1/2 border-x-[9px] border-b-[18px] border-x-transparent border-b-red-500" />
                                                         </div>
                                                         <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
                                                             Wind Angle: {Number.isFinite(windDegrees) ? `${windDegrees}°` : 'NA'}
