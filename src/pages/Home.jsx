@@ -1,4 +1,4 @@
-const db = globalThis.__B44_DB__ || {
+﻿const db = globalThis.__B44_DB__ || {
   auth: { isAuthenticated: async () => false, me: async () => null },
   entities: new Proxy({}, { get: () => ({ filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
   integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
@@ -333,14 +333,20 @@ export default function Home() {
                                                 </div>
                                             </div>
                                             <div className="space-y-2">
-                                                <div className="text-sm font-medium text-amber-700">Wind Direction for Home Team Playing Up in 1st Half</div>
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                                    <div
-                                                        className="relative mx-auto aspect-[145/85] w-full max-w-[250px] overflow-hidden rounded-lg border border-slate-200 bg-cover bg-center"
-                                                        style={{ backgroundImage: `url(${pitchImg})` }}
-                                                    >
-                                                        <div className="absolute left-1/2 top-1/2 h-1 w-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
-                                                            style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}>
+                                                    <div className="relative mx-auto aspect-[145/85] w-full max-w-[250px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
+                                                        <div
+                                                            className="absolute inset-0 bg-cover bg-center"
+                                                            style={{
+                                                                backgroundImage: `url(${pitchImg})`,
+                                                                transform: 'scaleY(-1)',
+                                                                transformOrigin: 'center',
+                                                            }}
+                                                        />
+                                                        <div
+                                                            className="absolute left-1/2 top-1/2 h-1 w-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
+                                                            style={{ transform: `translate(-50%, -50%) scaleY(-1) rotate(${windPreviewRotation}deg)` }}
+                                                        >
                                                             <div className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2 border-y-[9px] border-l-[18px] border-y-transparent border-l-red-500" />
                                                         </div>
                                                         <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
@@ -491,3 +497,6 @@ export default function Home() {
         </div>
     );
 }
+
+
+

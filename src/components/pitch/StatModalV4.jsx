@@ -466,6 +466,7 @@ export default function StatModalV4({
   const [kickoutLostBy, setKickoutLostBy] = useState(NONE);
   const [kickoutBrokenBy, setKickoutBrokenBy] = useState(NONE);
   const [kickoutMark, setKickoutMark] = useState(false);
+  const [kickoutPress, setKickoutPress] = useState('');
 
   // Shot
   const [shotType, setShotType] = useState('');
@@ -560,6 +561,7 @@ export default function StatModalV4({
     setKickoutLostBy(NONE);
     setKickoutBrokenBy(NONE);
     setKickoutMark(false);
+    setKickoutPress('');
     setShotType('');
     setShotSituation('');
     setShotMethod('');
@@ -636,6 +638,7 @@ export default function StatModalV4({
       setKickoutLostBy(selectionToValue(extra?.kickout?.lost_by));
       setKickoutBrokenBy(selectionToValue(extra?.kickout?.broken_by));
       setKickoutMark(!!extra?.kickout?.mark);
+      setKickoutPress(extra?.kickout?.press || '');
     } else if (type === 'foul') {
       setPrimaryPlayer(selectionToValue(extra?.foul?.foul_by));
     } else if (type === 'turnover') {
@@ -1203,6 +1206,7 @@ export default function StatModalV4({
         lost_by: sel(kickoutLostBy),
         broken_by: sel(kickoutBrokenBy),
         mark: !!kickoutMark,
+        press: kickoutPress || '',
       };
       if (kickoutOutcome === 'foul') {
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1300,7 +1304,7 @@ export default function StatModalV4({
       stat_type: action,
       is_pass: isDrag,
       team_side: actingSide,
-      counter_attack: !!counterAttack,
+      counter_attack: action === 'kickout' ? false : !!counterAttack,
       time_s: Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null,
       normalized_time_s: Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null,
       primary_player: primary,
@@ -1433,7 +1437,16 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <Buttons
+                    label="Press"
+                    value={kickoutPress}
+                    onChange={setKickoutPress}
+                    options={[
+                      { value: 'm2m', label: 'M2M' },
+                      { value: 'zonal', label: 'Zonal' },
+                      { value: 'conceded', label: 'Conceded' },
+                    ]}
+                  />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
