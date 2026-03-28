@@ -331,22 +331,21 @@ export default function Home() {
                                                         value={newMatch.wind_speed}
                                                         onChange={(e) => setNewMatch({ ...newMatch, wind_speed: e.target.value })}
                                                     />
-                                                    <p className="text-xs text-slate-400">Optional. Useful for contextualising kickouts and shooting.</p>
                                                 </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                                    <div className="relative mx-auto aspect-[85/145] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
+                                                    <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
                                                         <div
-                                                            className="absolute left-1/2 top-1/2 h-[58.62%] w-[170.59%] -translate-x-1/2 -translate-y-1/2 bg-cover bg-center"
+                                                            className="absolute left-1/2 top-[22%] h-[58.62%] w-[170.59%] -translate-x-1/2 bg-cover bg-center"
                                                             style={{
                                                                 backgroundImage: `url(${pitchImg})`,
-                                                                transform: 'translate(-50%, -50%) rotate(-90deg)',
+                                                                transform: 'translateX(-50%) rotate(-90deg)',
                                                                 transformOrigin: 'center',
                                                             }}
                                                         />
                                                         <div
-                                                            className="absolute left-1/2 top-1/2 w-1 h-[36%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
+                                                            className="absolute left-1/2 top-[53%] w-1 h-[42%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
                                                             style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}
                                                         >
                                                             <div className="absolute left-1/2 top-[-2px] h-0 w-0 -translate-x-1/2 border-x-[9px] border-b-[18px] border-x-transparent border-b-red-500" />
@@ -354,9 +353,9 @@ export default function Home() {
                                                         <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
                                                             Wind Angle: {Number.isFinite(windDegrees) ? `${windDegrees}°` : 'NA'}
                                                         </div>
-                                                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-lg font-bold text-slate-900">
-                                                            Home Team
-                                                        </div>
+                                                    </div>
+                                                    <div className="pt-3 text-center text-lg font-bold text-slate-900">
+                                                        Home Team
                                                     </div>
                                                 </div>
                                             </div>
