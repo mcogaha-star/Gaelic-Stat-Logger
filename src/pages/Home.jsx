@@ -336,9 +336,10 @@ export default function Home() {
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
-                                                        <div
-                                                            className="absolute inset-0 bg-cover bg-center"
-                                                            style={{ backgroundImage: `url(${halfPitchImg})` }}
+                                                        <img
+                                                            src={halfPitchImg}
+                                                            alt="Wind preview pitch"
+                                                            className="absolute inset-0 h-full w-full object-fill"
                                                         />
                                                         <div
                                                             className="absolute left-1/2 top-[53%] w-1 h-[42%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
