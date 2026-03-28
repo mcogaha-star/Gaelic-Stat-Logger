@@ -20,30 +20,12 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import halfPitchImg from '@/assets/halfpitch.png';
 
 const WIND_DIRECTION_OPTIONS = Array.from({ length: 24 }, (_, index) => {
     const degrees = index * 15;
     return { value: String(degrees), label: `${degrees}°` };
 });
-
-function WindHalfPitchPreview() {
-    return (
-        <svg viewBox="0 0 85 100" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden="true">
-            <rect width="85" height="100" fill="#42eb22" />
-            <g fill="none" stroke="#ffffff" strokeWidth="0.45">
-                <rect x="0.5" y="0.5" width="84" height="99" />
-                <line x1="0" y1="12.5" x2="85" y2="12.5" />
-                <line x1="0" y1="22" x2="85" y2="22" />
-                <line x1="0" y1="56" x2="85" y2="56" />
-                <line x1="0" y1="81" x2="85" y2="81" />
-                <line x1="0" y1="90.5" x2="85" y2="90.5" strokeDasharray="1.2 1.2" />
-                <rect x="31.5" y="0.5" width="22" height="5.5" />
-                <path d="M 24 22 A 18.5 18.5 0 0 0 61 22" />
-                <path d="M 29.5 22 A 13 13 0 0 0 55.5 22" />
-            </g>
-        </svg>
-    );
-}
 
 export default function Home() {
     const navigate = useNavigate();
@@ -354,7 +336,10 @@ export default function Home() {
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
-                                                        <WindHalfPitchPreview />
+                                                        <div
+                                                            className="absolute inset-0 bg-cover bg-center"
+                                                            style={{ backgroundImage: `url(${halfPitchImg})` }}
+                                                        />
                                                         <div
                                                             className="absolute left-1/2 top-[53%] w-1 h-[42%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
                                                             style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}
