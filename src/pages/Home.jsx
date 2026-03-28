@@ -335,20 +335,22 @@ export default function Home() {
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                                    <div className="relative mx-auto aspect-[636/599] w-full max-w-[280px] overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                                    <div className="relative mx-auto w-full max-w-[320px]">
                                                         <img
                                                             src={halfPitchImg}
                                                             alt="Wind preview pitch"
-                                                            className="absolute inset-0 h-full w-full object-fill"
+                                                            className="block w-full h-auto rounded-lg border border-slate-200"
                                                         />
-                                                        <div
-                                                            className="absolute left-1/2 top-[53%] w-1 h-[42%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
-                                                            style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}
-                                                        >
-                                                            <div className="absolute left-1/2 top-[-2px] h-0 w-0 -translate-x-1/2 border-x-[9px] border-b-[18px] border-x-transparent border-b-red-500" />
-                                                        </div>
-                                                        <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
-                                                            Wind Angle: {Number.isFinite(windDegrees) ? `${windDegrees}°` : 'NA'}
+                                                        <div className="pointer-events-none absolute inset-0">
+                                                            <div
+                                                                className="absolute left-1/2 top-[53%] w-1 h-[42%] -translate-x-1/2 -translate-y-1/2 origin-center rounded-full bg-red-500 shadow-sm"
+                                                                style={{ transform: `translate(-50%, -50%) rotate(${windPreviewRotation}deg)` }}
+                                                            >
+                                                                <div className="absolute left-1/2 top-[-2px] h-0 w-0 -translate-x-1/2 border-x-[9px] border-b-[18px] border-x-transparent border-b-red-500" />
+                                                            </div>
+                                                            <div className="absolute left-3 top-3 text-xl font-bold text-red-500">
+                                                                Wind Angle: {Number.isFinite(windDegrees) ? `${windDegrees}°` : 'NA'}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="pt-3 text-center text-lg font-bold text-slate-900">
