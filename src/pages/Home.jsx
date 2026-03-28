@@ -337,7 +337,7 @@ export default function Home() {
                                                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="relative mx-auto aspect-[85/100] w-full max-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
                                                         <div
-                                                            className="absolute left-1/2 top-[22%] h-[58.62%] w-[170.59%] -translate-x-1/2 bg-cover bg-center"
+                                                            className="absolute left-1/2 top-0 h-[117.24%] w-[341.18%] -translate-x-1/2 bg-cover bg-center"
                                                             style={{
                                                                 backgroundImage: `url(${pitchImg})`,
                                                                 transform: 'translateX(-50%) rotate(-90deg)',
