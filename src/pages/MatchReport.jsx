@@ -1490,43 +1490,67 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
 
               if (shape === 'goal') {
                 return (
-                  <rect
-                    key={s.id}
-                    x={x - size}
-                    y={y - size}
-                    width={size * 2}
-                    height={size * 2}
-                    fill={fillColor}
-                    opacity="0.9"
-                    stroke={strokeColor}
-                    strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
-                  >
-                    <title>{tip}</title>
-                  </rect>
+                  <g key={s.id}>
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
+                      fill={fillColor}
+                      opacity="0.9"
+                      stroke="#111827"
+                      strokeWidth="0.45"
+                    >
+                      <title>{tip}</title>
+                    </rect>
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
+                    />
+                  </g>
                 );
               }
               if (shape === '2_point') {
                 return (
-                  <rect
-                    key={s.id}
-                    x={x - size}
-                    y={y - size}
-                    width={size * 2}
-                    height={size * 2}
-                    fill={fillColor}
-                    opacity="0.9"
-                    transform={`rotate(45 ${x} ${y})`}
-                    stroke={strokeColor}
-                    strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
-                  >
-                    <title>{tip}</title>
-                  </rect>
+                  <g key={s.id}>
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
+                      fill={fillColor}
+                      opacity="0.9"
+                      transform={`rotate(45 ${x} ${y})`}
+                      stroke="#111827"
+                      strokeWidth="0.45"
+                    >
+                      <title>{tip}</title>
+                    </rect>
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
+                      fill="none"
+                      transform={`rotate(45 ${x} ${y})`}
+                      stroke={strokeColor}
+                      strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
+                    />
+                  </g>
                 );
               }
               return (
-                <circle key={s.id} cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke={strokeColor} strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}>
-                  <title>{tip}</title>
-                </circle>
+                <g key={s.id}>
+                  <circle cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke="#111827" strokeWidth="0.45">
+                    <title>{tip}</title>
+                  </circle>
+                  <circle cx={x} cy={y} r={size} fill="none" stroke={strokeColor} strokeWidth={teamMode === 'both' ? '1.2' : '0.6'} />
+                </g>
               );
             })}
           </svg>
