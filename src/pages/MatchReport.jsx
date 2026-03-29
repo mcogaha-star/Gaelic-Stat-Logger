@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, ChevronDown } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -1223,8 +1223,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
   );
 }
 
-function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
-  const [open, setOpen] = useState(false);
+function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam }) {
   const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
     ? reportFilters.allowedActionTypes
     : null;
@@ -1262,12 +1261,84 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
     return selected.filter((value) => available.has(value));
   }, [reportFilters?.outcomes, outcomeOptions]);
 
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Team</Label>
+        <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="both">Both</SelectItem>
+            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <MultiSelect
+        label="Half"
+        placeholder="All"
+        values={reportFilters.halves}
+        onChange={reportFilters.setHalves}
+        options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+      />
+
+      <MultiSelect
+        label="Player"
+        placeholder="Any"
+        values={reportFilters.playerIds}
+        onChange={reportFilters.setPlayerIds}
+        options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+      />
+
+      <MultiSelect
+        label="Action"
+        placeholder="All"
+        values={effectiveActionValues}
+        onChange={reportFilters.setActionTypes}
+        options={actionOptions}
+      />
+
+      <MultiSelect
+        label="Outcome"
+        placeholder="All"
+        values={effectiveOutcomeValues}
+        onChange={reportFilters.setOutcomes}
+        options={outcomeOptions}
+      />
+
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Start Time</Label>
+        <Input
+          className="h-8 text-xs"
+          inputMode="numeric"
+          value={reportFilters.timeMin}
+          onChange={(e) => reportFilters.setTimeMin(e.target.value)}
+          placeholder="e.g. 0"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">End Time</Label>
+        <Input
+          className="h-8 text-xs"
+          inputMode="numeric"
+          value={reportFilters.timeMax}
+          onChange={(e) => reportFilters.setTimeMax(e.target.value)}
+          placeholder="e.g. 35"
+        />
+      </div>
+    </div>
+  );
+}
+
+function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+  const [open, setOpen] = useState(false);
   const activeCount =
     (reportFilters?.team && reportFilters.team !== 'both' ? 1 : 0)
     + (Array.isArray(reportFilters?.halves) ? reportFilters.halves.length : 0)
     + (Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds.length : 0)
-    + effectiveActionValues.length
-    + effectiveOutcomeValues.length
+    + (Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes.length : 0)
+    + (Array.isArray(reportFilters?.outcomes) ? reportFilters.outcomes.length : 0)
     + (String(reportFilters?.timeMin ?? '') !== '' ? 1 : 0)
     + (String(reportFilters?.timeMax ?? '') !== '' ? 1 : 0);
 
@@ -1277,89 +1348,14 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-semibold text-slate-900">Filters</div>
-            {!open && (
-              <div className="text-[11px] text-slate-500">
-                {activeCount ? `${activeCount} active` : 'Collapsed'}
-              </div>
-            )}
+            {!open && <div className="text-[11px] text-slate-500">{activeCount ? `${activeCount} active` : 'Collapsed'}</div>}
           </div>
           <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setOpen((v) => !v)}>
             {open ? 'Hide Filters' : 'Show Filters'}
             <ChevronDown className={`ml-1 h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
           </Button>
         </div>
-
-        {!open ? null : (
-        <>
-        {/* Vertical filters to keep things consistent across all tabs (and reduce horizontal squeeze). */}
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Team</Label>
-            <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="both">Both</SelectItem>
-                <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <MultiSelect
-            label="Half"
-            placeholder="All"
-            values={reportFilters.halves}
-            onChange={reportFilters.setHalves}
-            options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-          />
-
-          <MultiSelect
-            label="Player"
-            placeholder="Any"
-            values={reportFilters.playerIds}
-            onChange={reportFilters.setPlayerIds}
-            options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-          />
-
-          <MultiSelect
-            label="Action"
-            placeholder="All"
-            values={effectiveActionValues}
-            onChange={reportFilters.setActionTypes}
-            options={actionOptions}
-          />
-
-          <MultiSelect
-            label="Outcome"
-            placeholder="All"
-            values={effectiveOutcomeValues}
-            onChange={reportFilters.setOutcomes}
-            options={outcomeOptions}
-          />
-
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Start Time</Label>
-            <Input
-              className="h-8 text-xs"
-              inputMode="numeric"
-              value={reportFilters.timeMin}
-              onChange={(e) => reportFilters.setTimeMin(e.target.value)}
-              placeholder="e.g. 0"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">End Time</Label>
-            <Input
-              className="h-8 text-xs"
-              inputMode="numeric"
-              value={reportFilters.timeMax}
-              onChange={(e) => reportFilters.setTimeMax(e.target.value)}
-              placeholder="e.g. 35"
-            />
-          </div>
-        </div>
-        </>
-        )}
+        {open ? <ReportFiltersFields reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} /> : null}
       </CardContent>
     </Card>
   );
@@ -1516,14 +1512,9 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   );
 }
 
-function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
-  const [shotType, setShotType] = useState([]); // [] all
-  const [situation, setSituation] = useState([]); // [] all
-  const [pressure, setPressure] = useState([]); // [] all
-  const [outcome, setOutcome] = useState([]); // [] all
-  const [zone, setZone] = useState([]); // [] all
   const [shotMapMode, setShotMapMode] = useState('all');
 
   const shots = useMemo(() => {
@@ -1768,62 +1759,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   };
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Local Filters</div>
-            <MultiSelect
-              label="Shot Type"
-              placeholder="All"
-              values={shotType}
-              onChange={setShotType}
-              options={[
-                { value: 'point', label: '1 Point' },
-                { value: '2_point', label: '2 Point' },
-                { value: 'goal', label: 'Goal' },
-              ]}
-            />
-            <MultiSelect
-              label="Situation"
-              placeholder="All"
-              values={situation}
-              onChange={setSituation}
-              options={['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-            />
-            <MultiSelect
-              label="Pressure"
-              placeholder="All"
-              values={pressure}
-              onChange={setPressure}
-              options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-            />
-            <MultiSelect
-              label="Outcome"
-              placeholder="All"
-              values={outcome}
-              onChange={setOutcome}
-              options={['goal', 'point', '2_point', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-            />
-            <MultiSelect
-              label="Shot Zone"
-              placeholder="All"
-              values={zone}
-              onChange={setZone}
-              options={[
-                { value: 'inside_21', label: 'Inside 21' },
-                { value: '21_45', label: '21-45' },
-                { value: '45_65', label: '45-65' },
-                { value: '65_plus', label: '65+' },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Shots', value: display((k) => String(k.shotsN)) },
@@ -2026,16 +1962,14 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
 
-function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onVisualisePossession }) {
+function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
-  const [counterFilter, setCounterFilter] = useState('any'); // any|set_attack|counter_attack|counter_to_set
 
   const possessions = useMemo(() => {
     const groups = groupByPossession(base);
@@ -2188,29 +2122,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
   }, [sideKpis]);
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            <div className="font-semibold text-slate-900">Local Filters</div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Counter Attack</Label>
-              <Select value={counterFilter} onValueChange={setCounterFilter}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="set_attack">Set Attack</SelectItem>
-                  <SelectItem value="counter_attack">Counter Attack</SelectItem>
-                  <SelectItem value="counter_to_set">Counter -&gt; Set</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Possessions', value: display((k) => String(k.possN)) },
@@ -2360,18 +2272,28 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
 
-function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const [eventTypes, setEventTypes] = useState([]); // [] both
-  const [pressure, setPressure] = useState([]); // [] any
-  const [outcome, setOutcome] = useState([]); // [] any
-  const [progressiveOnly, setProgressiveOnly] = useState(false);
-  const [pnSide, setPnSide] = useState('home'); // home|away
-  const [pnMin, setPnMin] = useState(3);
+function BuildUpTab({
+  stats,
+  homeTeam,
+  awayTeam,
+  reportFilters,
+  eventTypes,
+  setEventTypes,
+  pressure,
+  setPressure,
+  outcome,
+  setOutcome,
+  progressiveOnly,
+  setProgressiveOnly,
+  pnSide,
+  setPnSide,
+  pnMin,
+  setPnMin,
+}) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -2479,58 +2401,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   }, [kpis]);
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Local Filters</div>
-            <MultiSelect
-              label="Event Type"
-              placeholder="Both"
-              values={eventTypes}
-              onChange={setEventTypes}
-              options={[
-                { value: 'pass', label: 'Pass' },
-                { value: 'carry', label: 'Carry' },
-              ]}
-            />
-            <MultiSelect
-              label="Pressure"
-              placeholder="Any"
-              values={pressure}
-              onChange={setPressure}
-              options={[
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
-              ]}
-            />
-            <MultiSelect
-              label="Outcome"
-              placeholder="Any"
-              values={outcome}
-              onChange={setOutcome}
-              options={[
-                { value: 'completed', label: 'Completed' },
-                { value: 'turnover', label: 'Turnover' },
-                { value: 'foul', label: 'Foul' },
-                { value: 'sideline_for', label: 'Sideline For' },
-                { value: 'sideline_against', label: 'Sideline Against' },
-                { value: '45_for', label: '45 For' },
-                { value: 'goal_kick_for', label: 'Goal Kick For' },
-                { value: 'goal_kick_against', label: 'Goal Kick Against' },
-              ]}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-slate-600">Progressive Only</div>
-              <Checkbox checked={progressiveOnly} onCheckedChange={(v) => setProgressiveOnly(!!v)} />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Passes Attempted', value: display((k) => String(k.passes)) },
@@ -2652,7 +2523,6 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
@@ -2821,12 +2691,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
   }, [kickouts, teamMode]);
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-      </div>
-
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             {
@@ -2917,7 +2782,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
@@ -2985,11 +2849,7 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   }, [throwIns]);
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-      </div>
-      <div className="space-y-4">
+    <div className="space-y-4">
         {throwIns.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">No throw-ins available for current filters.</CardContent>
@@ -3068,19 +2928,27 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
             </div>
           </>
         )}
-      </div>
     </div>
   );
 }
 
-function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function DefenseTab({
+  stats,
+  homeTeam,
+  awayTeam,
+  reportFilters,
+  eventCategory,
+  setEventCategory,
+  turnoverResult,
+  setTurnoverResult,
+  turnoverTypes,
+  setTurnoverTypes,
+  defTypes,
+  setDefTypes,
+}) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
-  const [eventCategory, setEventCategory] = useState('all');
-  const [turnoverResult, setTurnoverResult] = useState('both');
-  const [turnoverTypes, setTurnoverTypes] = useState([]);
-  const [defTypes, setDefTypes] = useState([]);
 
   const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
   const defActions = useMemo(() => base.filter((s) => s?.stat_type === 'defensive_contact'), [base]);
@@ -3233,56 +3101,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   };
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4">
-        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Local Filters</div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Event Category</Label>
-              <Select value={eventCategory} onValueChange={setEventCategory}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="turnovers">Turnovers</SelectItem>
-                  <SelectItem value="def_actions">Defensive Actions</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Turnover Result</Label>
-              <Select value={turnoverResult} onValueChange={setTurnoverResult}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both">Both</SelectItem>
-                  <SelectItem value="won">Won</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <MultiSelect
-              label="Turnover Type"
-              placeholder="Any"
-              values={turnoverTypes}
-              onChange={setTurnoverTypes}
-              options={typeRows.map((r) => ({ value: String(r.type || '').toLowerCase().replace(/\s+/g, '_'), label: r.type }))}
-            />
-            <MultiSelect
-              label="Defensive Action Type"
-              placeholder="All"
-              values={defTypes}
-              onChange={setDefTypes}
-              options={[
-                { value: 'contact', label: 'Contact' },
-                { value: 'dispossession', label: 'Dispossess' },
-                { value: 'block', label: 'Block' },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Turnovers Won', value: display((k) => String(k.won)) },
@@ -3342,7 +3161,6 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
@@ -3413,11 +3231,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
   };
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4">
-        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-      </div>
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Fouls Won', value: display((k) => String(k.won)) },
@@ -3507,14 +3321,12 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
             </Card>
           </>
         )}
-      </div>
     </div>
   );
 }
 
-function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, focusPlayerId, setFocusPlayerId }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }), [reportFilters]);
-  const [focusPlayerId, setFocusPlayerId] = useState('all');
   const [playerBucket, setPlayerBucket] = useState('scoring');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
@@ -4010,27 +3822,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [playerBucket, sortedLeaderboard]);
 
   return (
-    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-      <div className="space-y-4">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            <div className="font-semibold text-slate-900">Player</div>
-            <Select value={focusPlayerId} onValueChange={setFocusPlayerId}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Players</SelectItem>
-                {(playerOptions || []).map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-      </div>
-      <div className="space-y-4">
+    <div className="space-y-4">
         {focusPlayerId !== 'all' && focusStats.length > 0 && (
           <Card>
             <CardContent className="p-4 space-y-3">
@@ -4140,7 +3932,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
             </CardContent>
           </Card>
         )}
-      </div>
     </div>
   );
 }
@@ -4198,11 +3989,11 @@ export default function MatchReport() {
   const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise possession transition states
   const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
-  const [vizFiltersOpen, setVizFiltersOpen] = useState(false);
   const [sharedVizOpen, setSharedVizOpen] = useState(false);
   const [sharedVizTitle, setSharedVizTitle] = useState('');
   const [sharedVizStats, setSharedVizStats] = useState([]);
   const [activeTab, setActiveTab] = useState('summary');
+  const [topFiltersOpen, setTopFiltersOpen] = useState(false);
 
   const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
 
@@ -4214,6 +4005,23 @@ export default function MatchReport() {
   const [reportOutcomes, setReportOutcomes] = useState([]); // [] means all
   const [reportTimeMin, setReportTimeMin] = useState(''); // minutes (string)
   const [reportTimeMax, setReportTimeMax] = useState(''); // minutes (string)
+  const [scoringShotType, setScoringShotType] = useState([]);
+  const [scoringSituation, setScoringSituation] = useState([]);
+  const [scoringPressure, setScoringPressure] = useState([]);
+  const [scoringOutcome, setScoringOutcome] = useState([]);
+  const [scoringZone, setScoringZone] = useState([]);
+  const [possessionsCounterFilter, setPossessionsCounterFilter] = useState('any');
+  const [buildEventTypes, setBuildEventTypes] = useState([]);
+  const [buildPressure, setBuildPressure] = useState([]);
+  const [buildOutcome, setBuildOutcome] = useState([]);
+  const [buildProgressiveOnly, setBuildProgressiveOnly] = useState(false);
+  const [buildPnSide, setBuildPnSide] = useState('home');
+  const [buildPnMin, setBuildPnMin] = useState(3);
+  const [defenseEventCategory, setDefenseEventCategory] = useState('all');
+  const [defenseTurnoverResult, setDefenseTurnoverResult] = useState('both');
+  const [defenseTurnoverTypes, setDefenseTurnoverTypes] = useState([]);
+  const [defenseDefTypes, setDefenseDefTypes] = useState([]);
+  const [playersFocusPlayerId, setPlayersFocusPlayerId] = useState('all');
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
 
   const overviewStats = useMemo(() => {
@@ -4241,6 +4049,20 @@ export default function MatchReport() {
         position: p.position || '',
       }));
   }, [homePlayers, awayPlayers]);
+
+  const defenseTurnoverTypeOptions = useMemo(() => {
+    const values = new Set();
+    for (const s of Array.isArray(stats) ? stats : []) {
+      const extra = safeParseJSON(s?.extra_data || '{}', {});
+      const turnover = extra?.turnover;
+      if (!(s?.stat_type === 'turnover' || turnover)) continue;
+      const raw = String(turnover?.type || turnover?.turnover_type || '');
+      const normalized = normalizeFoulType(raw);
+      if (!normalized) continue;
+      values.add(JSON.stringify({ value: normalized, label: raw ? toTitleCase(raw) : toTitleCase(normalized) }));
+    }
+    return Array.from(values).map((raw) => JSON.parse(raw)).sort((a, b) => a.label.localeCompare(b.label));
+  }, [stats]);
 
   const reportFilters = useMemo(() => ({
     team: reportTeam,
@@ -4368,6 +4190,8 @@ export default function MatchReport() {
       return true;
     });
   }, [stats, vizTeam, vizActions, vizHalves, vizCounters, vizPlayerIds]);
+
+  const showTopFiltersButton = activeTab !== 'data';
 
   const SHARED_VIZ_PRE_ROLL_S = 7;
 
@@ -4825,6 +4649,192 @@ export default function MatchReport() {
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
             </TabsList>
+            {showTopFiltersButton && (
+              <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="ml-auto gap-2">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    Filters
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[320px] max-w-[90vw] p-4">
+                  <div className="space-y-4">
+                    {activeTab === 'summary' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Overview Filters</div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Half</Label>
+                          <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Halves</SelectItem>
+                              <SelectItem value="first">1st Half</SelectItem>
+                              <SelectItem value="second">2nd Half</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                    {activeTab === 'scoring' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Scoring Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+                        <MultiSelect label="Situation" placeholder="All" values={scoringSituation} onChange={setScoringSituation} options={['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Outcome" placeholder="All" values={scoringOutcome} onChange={setScoringOutcome} options={['goal', 'point', '2_point', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Shot Zone" placeholder="All" values={scoringZone} onChange={setScoringZone} options={[{ value: 'inside_21', label: 'Inside 21' }, { value: '21_45', label: '21-45' }, { value: '45_65', label: '45-65' }, { value: '65_plus', label: '65+' }]} />
+                      </>
+                    )}
+                    {activeTab === 'possessions' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Possessions Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Counter Attack</Label>
+                          <Select value={possessionsCounterFilter} onValueChange={setPossessionsCounterFilter}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="any">Any</SelectItem>
+                              <SelectItem value="set_attack">Set Attack</SelectItem>
+                              <SelectItem value="counter_attack">Counter Attack</SelectItem>
+                              <SelectItem value="counter_to_set">Counter -&gt; Set</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                    {activeTab === 'build_up' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Build-Up Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <MultiSelect label="Event Type" placeholder="Both" values={buildEventTypes} onChange={setBuildEventTypes} options={[{ value: 'pass', label: 'Pass' }, { value: 'carry', label: 'Carry' }]} />
+                        <MultiSelect label="Pressure" placeholder="Any" values={buildPressure} onChange={setBuildPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} />
+                        <MultiSelect label="Outcome" placeholder="Any" values={buildOutcome} onChange={setBuildOutcome} options={[{ value: 'completed', label: 'Completed' }, { value: 'turnover', label: 'Turnover' }, { value: 'foul', label: 'Foul' }, { value: 'sideline_for', label: 'Sideline For' }, { value: 'sideline_against', label: 'Sideline Against' }, { value: '45_for', label: '45 For' }, { value: 'goal_kick_for', label: 'Goal Kick For' }, { value: 'goal_kick_against', label: 'Goal Kick Against' }]} />
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs text-slate-600">Progressive Only</div>
+                          <Checkbox checked={buildProgressiveOnly} onCheckedChange={(v) => setBuildProgressiveOnly(!!v)} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Network Team</Label>
+                          <Select value={buildPnSide} onValueChange={setBuildPnSide}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
+                          <Input className="h-8 text-xs" inputMode="numeric" value={String(buildPnMin)} onChange={(e) => setBuildPnMin(Math.max(1, Number(e.target.value) || 1))} />
+                        </div>
+                      </>
+                    )}
+                    {activeTab === 'kickouts' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Kickouts Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                      </>
+                    )}
+                    {activeTab === 'misc' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Misc Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                      </>
+                    )}
+                    {activeTab === 'defense' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Defense Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Event Category</Label>
+                          <Select value={defenseEventCategory} onValueChange={setDefenseEventCategory}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              <SelectItem value="turnovers">Turnovers</SelectItem>
+                              <SelectItem value="def_actions">Defensive Actions</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Turnover Result</Label>
+                          <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="both">Both</SelectItem>
+                              <SelectItem value="won">Won</SelectItem>
+                              <SelectItem value="lost">Lost</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <MultiSelect label="Turnover Type" placeholder="Any" values={defenseTurnoverTypes} onChange={setDefenseTurnoverTypes} options={defenseTurnoverTypeOptions} />
+                        <MultiSelect label="Defensive Action Type" placeholder="All" values={defenseDefTypes} onChange={setDefenseDefTypes} options={[{ value: 'contact', label: 'Contact' }, { value: 'dispossession', label: 'Dispossess' }, { value: 'block', label: 'Block' }]} />
+                      </>
+                    )}
+                    {activeTab === 'fouls' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Fouls Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                      </>
+                    )}
+                    {activeTab === 'players_ana' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Players Filters</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Focus Player</Label>
+                          <Select value={playersFocusPlayerId} onValueChange={setPlayersFocusPlayerId}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Players</SelectItem>
+                              {(playerOptions || []).map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                    {activeTab === 'visualiser' && (
+                      <>
+                        <div className="font-semibold text-slate-900">Visualiser Filters</div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Team</Label>
+                          <Select value={vizTeam} onValueChange={setVizTeam}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="both">Both</SelectItem>
+                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Counter Attack" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'set_attack', label: 'Set Attack' }, { value: 'counter_attack', label: 'Counter Attack' }, { value: 'counter_to_set', label: 'Counter -> Set' }]} />
+                        <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Color By</Label>
+                          <Select value={vizColorBy} onValueChange={setVizColorBy}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="team">Team</SelectItem>
+                              <SelectItem value="action">Action</SelectItem>
+                              <SelectItem value="outcome">Outcome</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="text-xs text-slate-500">Showing {filteredForViz.length} events.</div>
+                      </>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
 
           <TabsContent value="summary">
@@ -4834,16 +4844,7 @@ export default function MatchReport() {
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="w-40" />
                     <div className="font-semibold text-slate-900 text-center flex-1">Overview</div>
-                    <div className="w-40">
-                      <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Halves</SelectItem>
-                          <SelectItem value="first">1st Half</SelectItem>
-                          <SelectItem value="second">2nd Half</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <div className="w-40" />
                   </div>
 
                   <div className="pb-4">
@@ -5097,87 +5098,7 @@ export default function MatchReport() {
           </TabsContent>
 
           <TabsContent value="visualiser">
-            <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
-              <Card className={vizFiltersOpen ? 'w-[300px] max-w-full self-start' : 'w-fit self-start'}>
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-slate-900">Filters</div>
-                      {!vizFiltersOpen && <div className="text-[11px] text-slate-500">Collapsed</div>}
-                    </div>
-                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setVizFiltersOpen((v) => !v)}>
-                      {vizFiltersOpen ? 'Hide Filters' : 'Show Filters'}
-                      <ChevronDown className={`ml-1 h-3.5 w-3.5 transition-transform ${vizFiltersOpen ? 'rotate-180' : ''}`} />
-                    </Button>
-                  </div>
-
-                  {!vizFiltersOpen ? (
-                    <div className="text-xs text-slate-500">Showing {filteredForViz.length} events.</div>
-                  ) : (
-                    <>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Team</Label>
-                        <Select value={vizTeam} onValueChange={setVizTeam}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="both">Both</SelectItem>
-                            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <MultiSelect
-                        label="Action"
-                        values={vizActions}
-                        onChange={setVizActions}
-                        options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                      />
-
-                      <MultiSelect
-                        label="Half"
-                        values={vizHalves}
-                        onChange={setVizHalves}
-                        options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                      />
-
-                      <MultiSelect
-                        label="Counter Attack"
-                        placeholder="Any"
-                        values={vizCounters}
-                        onChange={setVizCounters}
-                        options={[
-                          { value: 'set_attack', label: 'Set Attack' },
-                          { value: 'counter_attack', label: 'Counter Attack' },
-                          { value: 'counter_to_set', label: 'Counter -> Set' },
-                        ]}
-                      />
-
-                      <MultiSelect
-                        label="Player"
-                        values={vizPlayerIds}
-                        onChange={setVizPlayerIds}
-                        options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-                      />
-
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Color By</Label>
-                        <Select value={vizColorBy} onValueChange={setVizColorBy}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="team">Team</SelectItem>
-                            <SelectItem value="action">Action</SelectItem>
-                            <SelectItem value="outcome">Outcome</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="text-xs text-slate-500 pt-2">Showing {filteredForViz.length} events.</div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
+            <div className="space-y-4">
               <PitchViz stats={filteredForViz} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={vizColorBy} />
             </div>
           </TabsContent>
@@ -5189,6 +5110,16 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              shotType={scoringShotType}
+              setShotType={setScoringShotType}
+              situation={scoringSituation}
+              setSituation={setScoringSituation}
+              pressure={scoringPressure}
+              setPressure={setScoringPressure}
+              outcome={scoringOutcome}
+              setOutcome={setScoringOutcome}
+              zone={scoringZone}
+              setZone={setScoringZone}
             />
           </TabsContent>
 
@@ -5199,6 +5130,8 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              counterFilter={possessionsCounterFilter}
+              setCounterFilter={setPossessionsCounterFilter}
               onVisualisePossession={(p) => {
                 const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
                 setSharedVizStats(Array.isArray(p?.stats) ? p.stats : []);
@@ -5213,8 +5146,19 @@ export default function MatchReport() {
               stats={filteredForReport}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
-              playerOptions={playerOptions}
               reportFilters={reportFilters}
+              eventTypes={buildEventTypes}
+              setEventTypes={setBuildEventTypes}
+              pressure={buildPressure}
+              setPressure={setBuildPressure}
+              outcome={buildOutcome}
+              setOutcome={setBuildOutcome}
+              progressiveOnly={buildProgressiveOnly}
+              setProgressiveOnly={setBuildProgressiveOnly}
+              pnSide={buildPnSide}
+              setPnSide={setBuildPnSide}
+              pnMin={buildPnMin}
+              setPnMin={setBuildPnMin}
             />
           </TabsContent>
 
@@ -5235,6 +5179,8 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              focusPlayerId={playersFocusPlayerId}
+              setFocusPlayerId={setPlayersFocusPlayerId}
             />
           </TabsContent>
 
