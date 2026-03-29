@@ -1272,7 +1272,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
     + (String(reportFilters?.timeMax ?? '') !== '' ? 1 : 0);
 
   return (
-    <Card>
+    <Card className={open ? 'w-[300px] max-w-full self-start' : 'w-fit self-start'}>
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -1768,7 +1768,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   };
 
   return (
-    <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
 
@@ -2188,7 +2188,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
   }, [sideKpis]);
 
   return (
-    <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
@@ -2479,7 +2479,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   }, [kpis]);
 
   return (
-    <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
@@ -2821,7 +2821,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
   }, [kickouts, teamMode]);
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
@@ -2985,7 +2985,7 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   }, [throwIns]);
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
@@ -3233,7 +3233,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   };
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
@@ -3413,7 +3413,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
   };
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
@@ -4010,7 +4010,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [playerBucket, sortedLeaderboard]);
 
   return (
-    <div className="grid lg:grid-cols-[272px_minmax(0,1fr)] gap-4">
+    <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
         <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
@@ -5097,8 +5097,8 @@ export default function MatchReport() {
           </TabsContent>
 
           <TabsContent value="visualiser">
-            <div className="grid lg:grid-cols-[340px_1fr] gap-4">
-              <Card>
+            <div className="grid lg:grid-cols-[max-content_minmax(0,1fr)] gap-4">
+              <Card className={vizFiltersOpen ? 'w-[300px] max-w-full self-start' : 'w-fit self-start'}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
