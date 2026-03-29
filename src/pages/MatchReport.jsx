@@ -3579,6 +3579,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         throwInsWon: 0,
         marks: 0,
         touches: 0,
+        noCarryPasses: 0,
         avgShotDistTotal: 0,
         avgShotDistCount: 0,
         kickoutsTaken: 0,
@@ -3754,10 +3755,22 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       if (teamSide !== 'home' && teamSide !== 'away') continue;
       const acting = evs.filter((e) => e && e.team_side === teamSide);
       if (!acting.length) continue;
+      const carriedEarlier = new Set();
       const involved = new Set();
       for (const e of acting) {
         const extra = safeParseJSON(e.extra_data || '{}', {});
         for (const playerKey of collectPlayerSelectionKeys(extra)) involved.add(playerKey);
+        if (e?.stat_type === 'pass') {
+          const passerKey = selectionKey(extra?.pass?.passer);
+          if (passerKey && !carriedEarlier.has(passerKey)) {
+            const row = rows.get(passerKey);
+            if (row) row.noCarryPasses += 1;
+          }
+        }
+        if (e?.stat_type === 'carry') {
+          const carrierKey = selectionKey(extra?.carry?.carrier);
+          if (carrierKey) carriedEarlier.add(carrierKey);
+        }
       }
       const isAttack = isAttackPossession(evs, teamSide);
       const outcome = derivePossessionOutcome(evs, teamSide);
@@ -3778,8 +3791,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       const passPct = row.passes ? (row.passComp / row.passes) * 100 : NaN;
       const carryPct = row.carries ? (row.carryComp / row.carries) * 100 : NaN;
       const progPassPct = row.progPassAtt ? (row.progPassComp / row.progPassAtt) * 100 : NaN;
-      const totalBallActions = row.passes + row.carries + row.shots;
-      const turnoverRate = totalBallActions ? (row.turnoversLost / totalBallActions) * 100 : NaN;
+      const turnoverRate = row.touches ? (row.turnoversLost / row.touches) * 100 : NaN;
+      const passRate = row.touches ? (row.passes / row.touches) * 100 : NaN;
+      const carryRate = row.touches ? (row.carries / row.touches) * 100 : NaN;
+      const shootRate = row.touches ? (row.shots / row.touches) * 100 : NaN;
+      const noCarryPassRate = row.touches ? (row.noCarryPasses / row.touches) * 100 : NaN;
       const avgShotDist = row.avgShotDistCount ? row.avgShotDistTotal / row.avgShotDistCount : NaN;
       const goalShotSavePct = (row.goalShotsSaved + row.goalShotsAgainst)
         ? (row.goalShotsSaved / (row.goalShotsSaved + row.goalShotsAgainst)) * 100
@@ -3794,6 +3810,10 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         carryPct,
         progPassPct,
         turnoverRate,
+        passRate,
+        carryRate,
+        shootRate,
+        noCarryPassRate,
         avgShotDist,
         goalShotSavePct,
         ownKickoutWinPct,
@@ -3809,6 +3829,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       scoring: () => true,
       progression: () => true,
       retention: () => true,
+      tendencies: () => true,
       creation: () => true,
       defense: () => true,
       restarts: () => true,
@@ -3872,6 +3893,16 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
       { key: 'touches', label: 'Touches', numeric: true },
     ],
+    tendencies: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'touches', label: 'Touches', numeric: true },
+      { key: 'carryRate', label: 'Carry Rate', numeric: true, sortValue: (r) => r.carryRate, render: (r) => formatPct(r.carryRate) },
+      { key: 'passRate', label: 'Pass Rate', numeric: true, sortValue: (r) => r.passRate, render: (r) => formatPct(r.passRate) },
+      { key: 'shootRate', label: 'Shoot Rate', numeric: true, sortValue: (r) => r.shootRate, render: (r) => formatPct(r.shootRate) },
+      { key: 'noCarryPassRate', label: 'No-Carry Pass Rate', numeric: true, sortValue: (r) => r.noCarryPassRate, render: (r) => formatPct(r.noCarryPassRate) },
+      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
+    ],
     creation: [
       { key: 'player', label: 'Player' },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
@@ -3918,6 +3949,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       scoring: 'points',
       progression: 'progMeters',
       retention: 'touches',
+      tendencies: 'passRate',
       creation: 'shotsCreated',
       defense: 'turnoversWon',
       restarts: 'kickoutWins',
@@ -4014,6 +4046,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 ['scoring', 'Scoring'],
                 ['progression', 'Progression'],
                 ['retention', 'Retention'],
+                ['tendencies', 'Tendencies'],
                 ['creation', 'Creation'],
                 ['defense', 'Defense'],
                 ['restarts', 'Restarts'],

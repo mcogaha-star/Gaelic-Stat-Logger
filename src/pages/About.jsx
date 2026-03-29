@@ -20,10 +20,15 @@ const DEFINITIONS = [
   ['Build-Up Speed', 'Time from the start of a possession to the first attack event where that possession becomes an attack.'],
   ['Shot Assist', 'The final completed pass before a shot.'],
   ['Shots Created', 'Currently the same as shot assists: the final completed pass before a shot.'],
+  ['Possession Start Zone', 'The zone of the first acting event in a possession, grouped as defensive third, middle third, or attacking third.'],
   ['Own Kickout Win %', 'Own kickouts won divided by own kickouts taken.'],
-  ['Turnover Rate', 'Turnovers lost divided by total ball actions for that player or possessions for team-level defense cards, depending on context.'],
+  ['Turnover Rate', 'For player tables, turnovers lost divided by touches. For team-level defense cards, turnovers lost divided by possessions.'],
   ['PPDA', 'Opponent completed passes divided by defensive actions, where defensive actions include turnovers won, defensive contacts, and selected defensive fouls.'],
-  ['Touches', 'Direct ball involvements, including explicit receipts, while avoiding double-counting a receipt followed immediately by the player’s next same-possession action.'],
+  ['Touches', 'Times a player gains or takes control of the ball: completed passes received, kickouts won, throw-ins won, turnovers recovered, qualifying dead-ball restarts taken, and shot recoveries logged to a player.'],
+  ['Carry Rate', 'Carries divided by touches.'],
+  ['Pass Rate', 'Passes divided by touches.'],
+  ['Shoot Rate', 'Shots divided by touches.'],
+  ['No-Carry Pass Rate', 'Passes played by a player before they have carried the ball in that same possession, divided by touches.'],
 ];
 
 export default function About() {

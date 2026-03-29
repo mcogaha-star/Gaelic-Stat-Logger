@@ -12,9 +12,9 @@ export const DEFAULT_SHORTCUTS = {
     carry: 'c',
   },
   video: {
-    toggle_play_pause: 'space',
-    back_3: '1',
-    forward_3: '2',
+    toggle_play_pause: 'v',
+    back_3: ',',
+    forward_3: '.',
     back_10: 'j',
     forward_10: 'l',
     back_20: 'u',
