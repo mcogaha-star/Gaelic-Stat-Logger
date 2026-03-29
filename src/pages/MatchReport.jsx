@@ -657,15 +657,34 @@ function buildTouchesMap(stats) {
   return out;
 }
 
-function DirectionBadge({ className = '' }) {
+function DirectionBadge({ className = '', label = 'Attacking ->' }) {
   return (
     <div className={`absolute left-2 top-2 z-10 rounded-full bg-white/92 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm ${className}`}>
-      Attacking -&gt;
+      {label}
     </div>
   );
 }
 
-function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true, verticalScale = REPORT_PITCH_VERTICAL_SCALE }) {
+function transformDisplayPoint(x, y, teamSide, mirrorAwayWhenBoth) {
+  const xx = Number(x);
+  const yy = Number(y);
+  if (!Number.isFinite(xx) || !Number.isFinite(yy)) return null;
+  if (mirrorAwayWhenBoth && teamSide === 'away') {
+    return { x: PITCH_W - xx, y: PITCH_H - yy };
+  }
+  return { x: xx, y: yy };
+}
+
+function PitchViz({
+  stats,
+  homeColor,
+  awayColor,
+  colorBy,
+  showColorControls = true,
+  verticalScale = REPORT_PITCH_VERTICAL_SCALE,
+  mirrorAwayWhenBoth = false,
+  directionLabel = 'Attacking ->',
+}) {
   const defaultActionPalette = {
     shot: '#111827',
     kickout: '#0f766e',
@@ -766,7 +785,7 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
           backgroundPosition: 'center',
         }}
       >
-        <DirectionBadge />
+        <DirectionBadge label={directionLabel} />
         <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
           <defs>
             {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
@@ -778,15 +797,16 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
             const extra = safeParseJSON(s.extra_data || '{}', {});
             const col = getColor(s, extra);
             const tip = tooltipText(s, extra);
-            const x1 = Number(s.x_position);
-            const y1 = Number(s.y_position);
-            const x2 = Number(s.end_x_position);
-            const y2 = Number(s.end_y_position);
-
-            if (!Number.isFinite(x1) || !Number.isFinite(y1)) return null;
+            const start = transformDisplayPoint(s.x_position, s.y_position, s.team_side, mirrorAwayWhenBoth);
+            if (!start) return null;
+            const end = transformDisplayPoint(s.end_x_position, s.end_y_position, s.team_side, mirrorAwayWhenBoth);
+            const x1 = start.x;
+            const y1 = start.y;
+            const x2 = end?.x;
+            const y2 = end?.y;
 
             // Lines for directional actions with end coords; dots otherwise.
-            const hasEnd = Number.isFinite(x2) && Number.isFinite(y2);
+            const hasEnd = !!end;
             const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
             if (isLineAction && hasEnd) {
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
@@ -1443,12 +1463,13 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
             backgroundPosition: 'center',
           }}
         >
-          <DirectionBadge />
+          <DirectionBadge label={teamMode === 'both' ? 'Home ->' : 'Attacking ->'} />
           <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
             {visible.map((s) => {
-              const x = Number(s.x);
-              const y = Number(s.y);
-              if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+              const point = transformDisplayPoint(s.x, s.y, s.team_side, teamMode === 'both');
+              if (!point) return null;
+              const x = point.x;
+              const y = point.y;
               const g = shotOutcomeGroup(s.outcome);
               const outcomeColor = colors[g] || colors.other;
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
@@ -2116,18 +2137,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
   const possessionOutcomeData = useMemo(() => byTeam(possessionsFiltered), [possessionsFiltered, homeTeam, awayTeam, teamMode]);
   const attackOutcomeData = useMemo(() => byTeam(attacks), [attacks, homeTeam, awayTeam, teamMode]);
-  const attackChannelRows = useMemo(() => {
-    const homeTotal = Object.values(sideKpis.home.channels || {}).reduce((a, b) => a + b, 0);
-    const awayTotal = Object.values(sideKpis.away.channels || {}).reduce((a, b) => a + b, 0);
-    return ['Left', 'Middle', 'Right'].map((channel) => ({
-      channel,
-      homeCount: sideKpis.home.channels?.[channel] || 0,
-      awayCount: sideKpis.away.channels?.[channel] || 0,
-      homePct: homeTotal ? ((sideKpis.home.channels?.[channel] || 0) / homeTotal) * 100 : NaN,
-      awayPct: awayTotal ? ((sideKpis.away.channels?.[channel] || 0) / awayTotal) * 100 : NaN,
-    }));
-  }, [sideKpis]);
-
   return (
     <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -2207,15 +2216,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 </CardContent>
               </Card>
             </div>
-
-            <AttackChannelPitch
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              teamMode={teamMode}
-              homeColor={homeTeam?.color}
-              awayColor={awayTeam?.color}
-              rows={attackChannelRows}
-            />
 
             <Card>
               <CardContent className="p-4 space-y-3">
@@ -2447,7 +2447,15 @@ function BuildUpTab({
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Pass / Carry Map</div>
-                <PitchViz stats={filtered} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'outcome'} showColorControls={false} />
+                <PitchViz
+                  stats={filtered}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy={teamMode === 'both' ? 'team' : 'outcome'}
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={teamMode === 'both'}
+                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                />
               </CardContent>
             </Card>
 
@@ -2750,7 +2758,15 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Kickout Map</div>
-                <PitchViz stats={visibleKickouts} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'outcome'} showColorControls={false} />
+                <PitchViz
+                  stats={visibleKickouts}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy={teamMode === 'both' ? 'team' : 'outcome'}
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={teamMode === 'both'}
+                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                />
               </CardContent>
             </Card>
 
@@ -3141,7 +3157,15 @@ function DefenseTab({
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Defensive Map</div>
-                <PitchViz stats={mapStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={teamMode === 'both' ? 'team' : 'action'} showColorControls={false} />
+                <PitchViz
+                  stats={mapStats}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy={teamMode === 'both' ? 'team' : 'action'}
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={teamMode === 'both'}
+                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                />
               </CardContent>
             </Card>
             <Card>
@@ -3265,7 +3289,15 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Foul Map</div>
-                <PitchViz stats={visibleFouls} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="team" showColorControls={false} />
+                <PitchViz
+                  stats={visibleFouls}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy="team"
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={teamMode === 'both'}
+                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                />
               </CardContent>
             </Card>
             <Card>
@@ -5106,7 +5138,14 @@ export default function MatchReport() {
 
           <TabsContent value="visualiser">
             <div className="space-y-4">
-              <PitchViz stats={filteredForViz} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy={vizColorBy} />
+              <PitchViz
+                stats={filteredForViz}
+                homeColor={homeTeam?.color}
+                awayColor={awayTeam?.color}
+                colorBy={vizColorBy}
+                mirrorAwayWhenBoth={vizTeam === 'both'}
+                directionLabel={vizTeam === 'both' ? 'Home ->' : 'Attacking ->'}
+              />
             </div>
           </TabsContent>
 
