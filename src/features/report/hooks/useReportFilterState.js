@@ -1,0 +1,191 @@
+import { useEffect, useMemo, useState } from 'react';
+import { collectPlayerIds, deriveCounterAttackState, deriveOutcome, groupByPossession, safeParseJSON } from '../shared';
+
+export function useReportFilterState({ stats, match, imputedTimeById }) {
+  const [vizTeam, setVizTeam] = useState('both');
+  const [vizActions, setVizActions] = useState([]);
+  const [vizHalves, setVizHalves] = useState([]);
+  const [vizCounters, setVizCounters] = useState([]);
+  const [vizPlayerIds, setVizPlayerIds] = useState([]);
+  const [vizColorBy, setVizColorBy] = useState('team');
+  const [activeTab, setActiveTab] = useState('summary');
+  const [topFiltersOpen, setTopFiltersOpen] = useState(false);
+  const [overviewHalf, setOverviewHalf] = useState('all');
+
+  const [reportTeam, setReportTeam] = useState('both');
+  const [reportHalves, setReportHalves] = useState([]);
+  const [reportPlayerIds, setReportPlayerIds] = useState([]);
+  const [reportActionTypes, setReportActionTypes] = useState([]);
+  const [reportOutcomes, setReportOutcomes] = useState([]);
+  const [reportTimeMin, setReportTimeMin] = useState('');
+  const [reportTimeMax, setReportTimeMax] = useState('');
+
+  const [scoringShotType, setScoringShotType] = useState([]);
+  const [scoringSituation, setScoringSituation] = useState([]);
+  const [scoringPressure, setScoringPressure] = useState([]);
+  const [scoringOutcome, setScoringOutcome] = useState([]);
+  const [scoringZone, setScoringZone] = useState([]);
+  const [possessionsCounterFilter, setPossessionsCounterFilter] = useState('any');
+  const [buildEventTypes, setBuildEventTypes] = useState([]);
+  const [buildPressure, setBuildPressure] = useState([]);
+  const [buildOutcome, setBuildOutcome] = useState([]);
+  const [buildProgressiveOnly, setBuildProgressiveOnly] = useState(false);
+  const [buildPnSide, setBuildPnSide] = useState('home');
+  const [buildPnMin, setBuildPnMin] = useState(3);
+  const [defenseEventCategory, setDefenseEventCategory] = useState('all');
+  const [defenseTurnoverResult, setDefenseTurnoverResult] = useState('both');
+  const [defenseTurnoverTypes, setDefenseTurnoverTypes] = useState([]);
+  const [defenseDefTypes, setDefenseDefTypes] = useState([]);
+  const [playersFocusPlayerId, setPlayersFocusPlayerId] = useState('all');
+
+  const reportFilters = useMemo(() => ({
+    team: reportTeam,
+    setTeam: setReportTeam,
+    halves: reportHalves,
+    setHalves: setReportHalves,
+    playerIds: reportPlayerIds,
+    setPlayerIds: setReportPlayerIds,
+    actionTypes: reportActionTypes,
+    setActionTypes: setReportActionTypes,
+    outcomes: reportOutcomes,
+    setOutcomes: setReportOutcomes,
+    timeMin: reportTimeMin,
+    setTimeMin: setReportTimeMin,
+    timeMax: reportTimeMax,
+    setTimeMax: setReportTimeMax,
+    imputedTimeById,
+    match,
+    allStats: stats,
+  }), [reportTeam, reportHalves, reportPlayerIds, reportActionTypes, reportOutcomes, reportTimeMin, reportTimeMax, imputedTimeById, match, stats]);
+
+  useEffect(() => {
+    const allowedByTab = {
+      scoring: ['shot'],
+      possessions: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'],
+      build_up: ['pass', 'carry'],
+      kickouts: ['kickout', 'throw_in'],
+      misc: ['throw_in'],
+      defense: ['turnover', 'defensive_contact', 'foul'],
+      fouls: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'],
+      players_ana: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'],
+    };
+    const allowed = allowedByTab[activeTab] || null;
+    if (!allowed) return;
+
+    const allowedSet = new Set(allowed);
+    const nextActionTypes = (Array.isArray(reportActionTypes) ? reportActionTypes : []).filter((value) => allowedSet.has(value));
+    const actionChanged =
+      nextActionTypes.length !== reportActionTypes.length
+      || nextActionTypes.some((value, index) => value !== reportActionTypes[index]);
+    if (actionChanged) setReportActionTypes(nextActionTypes);
+
+    const validOutcomes = new Set(
+      (Array.isArray(stats) ? stats : [])
+        .filter((s) => {
+          const statType = String(s?.stat_type || '');
+          if (!allowedSet.has(statType)) return false;
+          if (nextActionTypes.length && !nextActionTypes.includes(statType)) return false;
+          return true;
+        })
+        .map((s) => deriveOutcome(s, safeParseJSON(s?.extra_data || '{}', {})))
+        .filter(Boolean)
+    );
+
+    const nextOutcomes = (Array.isArray(reportOutcomes) ? reportOutcomes : []).filter((value) => validOutcomes.has(value));
+    const outcomesChanged =
+      nextOutcomes.length !== reportOutcomes.length
+      || nextOutcomes.some((value, index) => value !== reportOutcomes[index]);
+    if (outcomesChanged) setReportOutcomes(nextOutcomes);
+  }, [activeTab, reportActionTypes, reportOutcomes, stats]);
+
+  const filteredForViz = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    const possessionGroups = groupByPossession(list);
+    const counterStateByPossession = new Map(
+      Array.from(possessionGroups.entries()).map(([key, evs]) => {
+        const [teamSide] = String(key).split('-');
+        const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+        return [key, deriveCounterAttackState(acting)];
+      })
+    );
+    return list.filter((s) => {
+      if (!s) return false;
+      if (vizTeam !== 'both' && s.team_side !== vizTeam) return false;
+      if (vizActions.length && !vizActions.includes(s.stat_type)) return false;
+      if (vizHalves.length && !vizHalves.includes(s.half)) return false;
+      if (vizCounters.length) {
+        const possKey = `${s?.possession_team_side || 'unknown'}-${s?.possession_id ?? 'na'}`;
+        const state = counterStateByPossession.get(possKey) || 'Set Attack';
+        const stateKey = state === 'Counter Attack' ? 'counter_attack' : state === 'Counter -> Set' ? 'counter_to_set' : 'set_attack';
+        if (!vizCounters.includes(stateKey)) return false;
+      }
+      if (vizPlayerIds.length) {
+        const extra = safeParseJSON(s.extra_data || '{}', {});
+        const ids = collectPlayerIds(extra);
+        const any = vizPlayerIds.some((id) => ids.has(id));
+        if (!any) return false;
+      }
+      return true;
+    });
+  }, [stats, vizTeam, vizActions, vizHalves, vizCounters, vizPlayerIds]);
+
+  return {
+    activeTab,
+    setActiveTab,
+    topFiltersOpen,
+    setTopFiltersOpen,
+    overviewHalf,
+    setOverviewHalf,
+    reportFilters,
+    vizTeam,
+    setVizTeam,
+    vizActions,
+    setVizActions,
+    vizHalves,
+    setVizHalves,
+    vizCounters,
+    setVizCounters,
+    vizPlayerIds,
+    setVizPlayerIds,
+    vizColorBy,
+    setVizColorBy,
+    scoringShotType,
+    setScoringShotType,
+    scoringSituation,
+    setScoringSituation,
+    scoringPressure,
+    setScoringPressure,
+    scoringOutcome,
+    setScoringOutcome,
+    scoringZone,
+    setScoringZone,
+    possessionsCounterFilter,
+    setPossessionsCounterFilter,
+    buildEventTypes,
+    setBuildEventTypes,
+    buildPressure,
+    setBuildPressure,
+    buildOutcome,
+    setBuildOutcome,
+    buildProgressiveOnly,
+    setBuildProgressiveOnly,
+    buildPnSide,
+    setBuildPnSide,
+    buildPnMin,
+    setBuildPnMin,
+    defenseEventCategory,
+    setDefenseEventCategory,
+    defenseTurnoverResult,
+    setDefenseTurnoverResult,
+    defenseTurnoverTypes,
+    setDefenseTurnoverTypes,
+    defenseDefTypes,
+    setDefenseDefTypes,
+    playersFocusPlayerId,
+    setPlayersFocusPlayerId,
+    filteredForViz,
+    showTopFiltersButton: activeTab !== 'data',
+  };
+}
+
+export default useReportFilterState;
