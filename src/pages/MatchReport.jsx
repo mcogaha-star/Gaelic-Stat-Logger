@@ -1477,6 +1477,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
               const size = 2.2;
+              const blackStrokeWidth = teamMode === 'both' ? 1 : 0.425;
+              const teamStrokeWidth = teamMode === 'both' ? 0.95 : 0.6;
               const tip = [
                 `Player: ${s.playerLabel || 'NA'}`,
                 `Time: ${s.timeLabel || 'NA'}`,
@@ -1496,10 +1498,17 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       y={y - size}
                       width={size * 2}
                       height={size * 2}
+                      fill="none"
+                      stroke="#111827"
+                      strokeWidth={blackStrokeWidth}
+                    />
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
                       fill={fillColor}
                       opacity="0.9"
-                      stroke="#111827"
-                      strokeWidth={teamMode === 'both' ? '2' : '0.85'}
                     >
                       <title>{tip}</title>
                     </rect>
@@ -1510,7 +1519,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       height={size * 2}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
+                      strokeWidth={teamStrokeWidth}
                     />
                   </g>
                 );
@@ -1523,11 +1532,19 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       y={y - size}
                       width={size * 2}
                       height={size * 2}
+                      fill="none"
+                      transform={`rotate(45 ${x} ${y})`}
+                      stroke="#111827"
+                      strokeWidth={blackStrokeWidth}
+                    />
+                    <rect
+                      x={x - size}
+                      y={y - size}
+                      width={size * 2}
+                      height={size * 2}
                       fill={fillColor}
                       opacity="0.9"
                       transform={`rotate(45 ${x} ${y})`}
-                      stroke="#111827"
-                      strokeWidth={teamMode === 'both' ? '2' : '0.85'}
                     >
                       <title>{tip}</title>
                     </rect>
@@ -1539,7 +1556,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       fill="none"
                       transform={`rotate(45 ${x} ${y})`}
                       stroke={strokeColor}
-                      strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
+                      strokeWidth={teamStrokeWidth}
                     />
                   </g>
                 );
@@ -1550,10 +1567,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     cx={x}
                     cy={y}
                     r={size}
+                    fill="none"
+                    stroke="#111827"
+                    strokeWidth={blackStrokeWidth}
+                  />
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={size}
                     fill={fillColor}
                     opacity="0.9"
-                    stroke="#111827"
-                    strokeWidth={teamMode === 'both' ? '2' : '0.85'}
                   >
                     <title>{tip}</title>
                   </circle>
@@ -1563,7 +1586,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     r={size}
                     fill="none"
                     stroke={strokeColor}
-                    strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
+                    strokeWidth={teamStrokeWidth}
                   />
                 </g>
               );
