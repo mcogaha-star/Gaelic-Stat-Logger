@@ -64,7 +64,8 @@ const db = globalThis.__B44_DB__ || {
   }),
 };
 
-const REPORT_PITCH_VERTICAL_SCALE = 0.75;
+const REPORT_PITCH_VERTICAL_SCALE = 1;
+const REPORT_PITCH_SCALE = '80%';
 
 function safeParseJSON(s, fallback) {
   try {
@@ -756,8 +757,9 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
   return (
     <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
       <div
-        className="relative w-full"
+        className="relative mx-auto"
         style={{
+          width: REPORT_PITCH_SCALE,
           aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
           backgroundImage: `url(${pitchImg})`,
           backgroundSize: 'cover',
@@ -935,8 +937,9 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         <div className="text-sm font-medium text-slate-900">{title}</div>
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div
-            className="relative w-full"
+            className="relative mx-auto"
             style={{
+              width: REPORT_PITCH_SCALE,
               aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
@@ -1135,8 +1138,9 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
         <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
         <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div
-            className="relative w-full"
+            className="relative mx-auto"
             style={{
+              width: REPORT_PITCH_SCALE,
               aspectRatio: `${PITCH_W} / ${PITCH_H}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: 'cover',
@@ -1430,8 +1434,9 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div
-          className="relative w-full rounded-xl border border-slate-200 overflow-hidden"
+          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden"
           style={{
+            width: REPORT_PITCH_SCALE,
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
