@@ -731,8 +731,11 @@ export default function StatModalV4({
   useEffect(() => {
     if (!open) return;
     const actionShortcuts = isDrag ? (shortcuts?.stat_drag || {}) : (shortcuts?.stat_click || {});
+    const videoShortcuts = Object.values(shortcuts?.video || {}).filter(Boolean);
     const onKeyDown = (e) => {
       if (isTypingTarget(e.target)) return;
+      if (e.defaultPrevented) return;
+      if (videoShortcuts.some((shortcut) => eventMatchesShortcut(e, shortcut))) return;
       for (const [nextAction, shortcut] of Object.entries(actionShortcuts)) {
         if (!eventMatchesShortcut(e, shortcut)) continue;
         e.preventDefault();
