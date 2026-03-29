@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -417,6 +417,7 @@ export default function StatModalV4({
   initialStat, // full stat row for edit mode (optional)
   customFields, // { custom_1..custom_3: { enabled, label, options[] } }
   shortcutConfig,
+  defaultCounterAttack = false,
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -512,6 +513,10 @@ export default function StatModalV4({
   const [passOutcome, setPassOutcome] = useState('');
   const [passWonBy, setPassWonBy] = useState(NONE);
   const [deadball, setDeadball] = useState(false);
+  const numberBufferRef = useRef('');
+  const numberBufferTimerRef = useRef(null);
+  const preferredSideRef = useRef(null);
+  const preferredSideTimerRef = useRef(null);
 
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
@@ -727,10 +732,47 @@ export default function StatModalV4({
         setAction(nextAction);
         break;
       }
+
+      const lower = String(e.key || '').toLowerCase();
+      if (lower === 'h' || lower === 'a') {
+        preferredSideRef.current = lower === 'h' ? 'home' : 'away';
+        if (preferredSideTimerRef.current) clearTimeout(preferredSideTimerRef.current);
+        preferredSideTimerRef.current = setTimeout(() => {
+          preferredSideRef.current = null;
+        }, 1200);
+        return;
+      }
+
+      if (/^\d$/.test(String(e.key || ''))) {
+        e.preventDefault();
+        const active = activeRole || nextUnfilledRole();
+        if (!active) return;
+        numberBufferRef.current = `${numberBufferRef.current}${e.key}`.slice(-2);
+        const desiredSide = getRestrictSideForRole(active) || preferredSideRef.current;
+        const sides = desiredSide ? [desiredSide] : ['home', 'away'];
+        const pool = sides.flatMap((side) => (rosters?.[side] || []).map((p) => ({ ...p, team_side: side })));
+        const matches = pool.filter((p) => Number(p?.number) === Number(numberBufferRef.current));
+        if (matches.length === 1) {
+          handlePickValue(`player:${matches[0].id}`);
+          numberBufferRef.current = '';
+          preferredSideRef.current = null;
+          if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
+          if (preferredSideTimerRef.current) clearTimeout(preferredSideTimerRef.current);
+          return;
+        }
+        if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
+        numberBufferTimerRef.current = setTimeout(() => {
+          numberBufferRef.current = '';
+        }, 800);
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, isDrag, shortcuts]);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
+      if (preferredSideTimerRef.current) clearTimeout(preferredSideTimerRef.current);
+    };
+  }, [open, isDrag, shortcuts, activeRole, rosters, touchedRoles, action, passOutcome, carryOutcome, kickoutOutcome, turnoverType, shotOutcome, shotResult, passer, passIntendedRecipient, passWonBy, intendedRecipient, kickoutWonBy, kickoutLostBy, kickoutBrokenBy, carrier, defender, foulBy, foulOn, lostBy, forcedBy, recoveredBy, wonBy, throwLostBy, brokenBy, shotRecoveredBy, shotBlockedBy, shotSavedBy]);
 
   // Defaulting to last receiver on open.
   useEffect(() => {
@@ -745,6 +787,7 @@ export default function StatModalV4({
       setPasser(def);
       setCarrier(def);
     }
+    setCounterAttack(!!defaultCounterAttack);
     setActiveRole(null);
     setTouchedRoles({});
     setShotOutcomeTouched(false);
@@ -754,7 +797,7 @@ export default function StatModalV4({
     } else {
       setVideoTimeText('');
     }
-  }, [open]); // intentionally only on open
+  }, [open, defaultCounterAttack]); // intentionally seeded on open
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {

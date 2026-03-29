@@ -1210,17 +1210,51 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
 }
 
 function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+  const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
+    ? reportFilters.allowedActionTypes
+    : null;
+
   const actionOptions = useMemo(() => (
-    Array.from(new Set((reportFilters?.allStats || []).map((s) => String(s?.stat_type || '')).filter(Boolean)))
+    Array.from(new Set((reportFilters?.allStats || [])
+      .map((s) => String(s?.stat_type || ''))
+      .filter((v) => v && (!allowedActionTypes || allowedActionTypes.includes(v)))))
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: toTitleCase(value) }))
-  ), [reportFilters?.allStats]);
+  ), [reportFilters?.allStats, allowedActionTypes]);
+
+  const effectiveActionValues = useMemo(() => {
+    const selected = Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes : [];
+    const available = new Set(actionOptions.map((option) => option.value));
+    return selected.filter((value) => available.has(value));
+  }, [reportFilters?.actionTypes, actionOptions]);
 
   const outcomeOptions = useMemo(() => (
-    Array.from(new Set((reportFilters?.allStats || []).map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
+    Array.from(new Set((reportFilters?.allStats || [])
+      .filter((s) => {
+        const statType = String(s?.stat_type || '');
+        if (allowedActionTypes && !allowedActionTypes.includes(statType)) return false;
+        if (effectiveActionValues.length && !effectiveActionValues.includes(statType)) return false;
+        return true;
+      })
+      .map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})))
+      .filter(Boolean)))
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: toTitleCase(value) }))
-  ), [reportFilters?.allStats]);
+  ), [reportFilters?.allStats, allowedActionTypes, effectiveActionValues]);
+
+  useEffect(() => {
+    const selected = Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes : [];
+    if (selected.length === effectiveActionValues.length) return;
+    reportFilters?.setActionTypes?.(effectiveActionValues);
+  }, [reportFilters, effectiveActionValues]);
+
+  useEffect(() => {
+    const selected = Array.isArray(reportFilters?.outcomes) ? reportFilters.outcomes : [];
+    const available = new Set(outcomeOptions.map((option) => option.value));
+    const next = selected.filter((value) => available.has(value));
+    if (next.length === selected.length) return;
+    reportFilters?.setOutcomes?.(next);
+  }, [reportFilters, outcomeOptions]);
 
   return (
     <Card>
@@ -1260,7 +1294,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
           <MultiSelect
             label="Action"
             placeholder="All"
-            values={reportFilters.actionTypes}
+            values={effectiveActionValues}
             onChange={reportFilters.setActionTypes}
             options={actionOptions}
           />
@@ -1451,6 +1485,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
 }
 
 function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [shotType, setShotType] = useState([]); // [] all
   const [situation, setSituation] = useState([]); // [] all
@@ -1489,8 +1524,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
         return 'NA';
       })();
 
-      const matchTime = getMatchTimeS(s, reportFilters?.match, reportFilters?.imputedTimeById);
-      const timeLabel = Number.isFinite(matchTime) ? formatMatchClock(matchTime, reportFilters?.match, s.half) : 'NA';
+      const matchTime = getMatchTimeS(s, scopedReportFilters?.match, scopedReportFilters?.imputedTimeById);
+      const timeLabel = Number.isFinite(matchTime) ? formatMatchClock(matchTime, scopedReportFilters?.match, s.half) : 'NA';
 
       const possessionLabel = (s.possession_team_side && Number.isFinite(Number(s.possession_id)))
         ? `${toTitleCase(s.possession_team_side)} #${Number(s.possession_id)}`
@@ -1703,7 +1738,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   return (
     <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
 
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -1965,7 +2000,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 }
 
 function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onVisualisePossession }) {
-  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }), [reportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
   const [counterFilter, setCounterFilter] = useState('any'); // any|set_attack|counter_attack|counter_to_set
 
@@ -2122,7 +2158,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilter
   return (
     <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-2">
             <div className="font-semibold text-slate-900">Local Filters</div>
@@ -2304,7 +2340,8 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   const [progressiveOnly, setProgressiveOnly] = useState(false);
   const [pnSide, setPnSide] = useState('home'); // home|away
   const [pnMin, setPnMin] = useState(3);
-  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const events = useMemo(() => base.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry')), [base]);
 
@@ -2412,7 +2449,7 @@ function BuildUpTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   return (
     <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
       <div className="space-y-4 min-w-0">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="font-semibold text-slate-900">Local Filters</div>
@@ -2627,7 +2664,8 @@ function applyNonTeamReportFilters(stats, reportFilters) {
 }
 
 function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
@@ -2753,7 +2791,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
 
       <div className="space-y-4">
@@ -2916,7 +2954,7 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
       <div className="space-y-4">
         {throwIns.length === 0 ? (
@@ -3003,7 +3041,7 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
 }
 
 function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both' }), [reportFilters]);
+  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [eventCategory, setEventCategory] = useState('all');
@@ -3164,7 +3202,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="font-semibold text-slate-900">Local Filters</div>
@@ -3277,7 +3315,7 @@ function DefenseTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters })
 }
 
 function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both' }), [reportFilters]);
+  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const fouls = useMemo(() => base.filter((s) => !!extractFoulFromStat(s)), [base]);
@@ -3344,7 +3382,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -3442,10 +3480,11 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
 }
 
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }), [reportFilters]);
   const [focusPlayerId, setFocusPlayerId] = useState('all');
   const [playerBucket, setPlayerBucket] = useState('scoring');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
-  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
 
   const playerMetaByKey = useMemo(() => {
@@ -3870,31 +3909,45 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
-  const goalkeeperPressRows = useMemo(() => {
+  const formatBreakdownCell = (won, taken) => {
+    if (!taken) return 'NA';
+    return `${won}/${taken} (${formatPct((won / taken) * 100)})`;
+  };
+
+  const goalkeeperPressCards = useMemo(() => {
     if (playerBucket !== 'goalkeepers') return [];
-    const rows = [];
+    const cards = [];
     for (const row of sortedLeaderboard) {
-      for (const press of ['m2m', 'zonal', 'conceded']) {
-        const info = row.pressBreakdown?.[press];
-        if (!info) continue;
-        rows.push({
-          key: `${row.key}-${press}`,
-          player: row.player,
-          team: row.team,
-          press: press === 'm2m' ? 'M2M' : toTitleCase(press),
-          overall: info.taken ? `${info.won}/${info.taken}` : 'NA',
-          short: info.shortTaken ? `${info.shortWon}/${info.shortTaken}` : 'NA',
-          long: info.longTaken ? `${info.longWon}/${info.longTaken}` : 'NA',
-        });
-      }
+      const pressRows = ['m2m', 'zonal', 'conceded']
+        .map((press) => {
+          const info = row.pressBreakdown?.[press];
+          if (!info) return null;
+          return {
+            key: `${row.key}-${press}`,
+            press: press === 'm2m' ? 'M2M' : toTitleCase(press),
+            overall: formatBreakdownCell(info.won, info.taken),
+            short: formatBreakdownCell(info.shortWon, info.shortTaken),
+            long: formatBreakdownCell(info.longWon, info.longTaken),
+          };
+        })
+        .filter(Boolean);
+      if (!pressRows.length) continue;
+      cards.push({
+        key: row.key,
+        player: row.player,
+        team: row.team,
+        ownKickoutsWon: row.ownKickoutsWon,
+        kickoutsTaken: row.kickoutsTaken,
+        pressRows,
+      });
     }
-    return rows;
+    return cards;
   }, [playerBucket, sortedLeaderboard]);
 
   return (
     <div className="grid lg:grid-cols-[272px_minmax(0,1fr)] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={reportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
         <Card>
           <CardContent className="p-4 space-y-2">
             <div className="font-semibold text-slate-900">Player</div>
@@ -3974,34 +4027,50 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           </CardContent>
         </Card>
 
-        {playerBucket === 'goalkeepers' && goalkeeperPressRows.length > 0 && (
+        {playerBucket === 'goalkeepers' && goalkeeperPressCards.length > 0 && (
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Player</TableHead>
-                    <TableHead>Team</TableHead>
-                    <TableHead>Press</TableHead>
-                    <TableHead className="text-right">Overall</TableHead>
-                    <TableHead className="text-right">Short</TableHead>
-                    <TableHead className="text-right">Long</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {goalkeeperPressRows.map((row) => (
-                    <TableRow key={row.key}>
-                      <TableCell className="font-medium">{row.player}</TableCell>
-                      <TableCell>{row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
-                      <TableCell>{row.press}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.short}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.long}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {goalkeeperPressCards.map((card) => (
+                  <div key={card.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-900">{card.player}</div>
+                        <div className="text-xs text-slate-500">
+                          {card.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-slate-600">
+                        <div className="font-medium text-slate-900">{card.kickoutsTaken ? `${card.ownKickoutsWon}/${card.kickoutsTaken}` : 'NA'}</div>
+                        <div>Overall Own KO Wins</div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Press</TableHead>
+                            <TableHead className="text-right">Overall</TableHead>
+                            <TableHead className="text-right">Short</TableHead>
+                            <TableHead className="text-right">Long</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {card.pressRows.map((row) => (
+                            <TableRow key={row.key}>
+                              <TableCell className="font-medium">{row.press}</TableCell>
+                              <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
+                              <TableCell className="text-right tabular-nums">{row.short}</TableCell>
+                              <TableCell className="text-right tabular-nums">{row.long}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}

@@ -384,8 +384,8 @@ export default function Video() {
         break;
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [shortcutConfig, sourceType]);
 
   const header = (

@@ -384,8 +384,8 @@ export default function MatchStats() {
             }
         };
 
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
     }, [stats, shortcutConfig, matchId]);
 
     const snapKickoutOrigin = (coords) => {
@@ -499,6 +499,29 @@ export default function MatchStats() {
         }
         return null;
     };
+
+    const defaultCounterAttack = useMemo(() => {
+        if (pendingNextPossessionTeamSide) return false;
+        if (!currentPossessionId || !['home', 'away'].includes(currentPossessionTeamSide)) return false;
+
+        const currentPossessionStats = (stats || [])
+            .filter((s) =>
+                Number(s?.possession_id) === Number(currentPossessionId)
+                && s?.possession_team_side === currentPossessionTeamSide
+                && s?.stat_type !== 'kickout'
+                && s?.stat_type !== 'period_end'
+                && s?.stat_type !== 'substitution'
+                && typeof s?.counter_attack === 'boolean'
+            )
+            .sort((a, b) => {
+                const playDiff = Number(b?.play_id || 0) - Number(a?.play_id || 0);
+                if (playDiff) return playDiff;
+                return String(b?.timestamp || '').localeCompare(String(a?.timestamp || ''));
+            });
+
+        if (!currentPossessionStats.length) return false;
+        return !!currentPossessionStats[0].counter_attack;
+    }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide]);
 
     const handleStatSubmit = (payload) => {
         // Edit mode: update the existing row's metadata (coords/IDs remain unchanged).
@@ -922,6 +945,7 @@ export default function MatchStats() {
                 initialStat={editingStat}
                 customFields={customFields}
                 shortcutConfig={shortcutConfig}
+                defaultCounterAttack={defaultCounterAttack}
             />
 
             {/* Half change prompt */}
