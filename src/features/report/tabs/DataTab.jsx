@@ -796,7 +796,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <div className="flex items-center justify-end gap-2 flex-wrap">
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Open Video</Button>
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => { setVizStats([s]); setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`); setVizOpen(true); }}>Visualise</Button>
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit IDs</Button>
                           </div>
                         </TableCell>
                       </TableRow>
