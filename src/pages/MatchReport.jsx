@@ -1241,20 +1241,11 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: toTitleCase(value) }))
   ), [reportFilters?.allStats, allowedActionTypes, effectiveActionValues]);
-
-  useEffect(() => {
-    const selected = Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes : [];
-    if (selected.length === effectiveActionValues.length) return;
-    reportFilters?.setActionTypes?.(effectiveActionValues);
-  }, [reportFilters, effectiveActionValues]);
-
-  useEffect(() => {
+  const effectiveOutcomeValues = useMemo(() => {
     const selected = Array.isArray(reportFilters?.outcomes) ? reportFilters.outcomes : [];
     const available = new Set(outcomeOptions.map((option) => option.value));
-    const next = selected.filter((value) => available.has(value));
-    if (next.length === selected.length) return;
-    reportFilters?.setOutcomes?.(next);
-  }, [reportFilters, outcomeOptions]);
+    return selected.filter((value) => available.has(value));
+  }, [reportFilters?.outcomes, outcomeOptions]);
 
   return (
     <Card>
@@ -1302,7 +1293,7 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
           <MultiSelect
             label="Outcome"
             placeholder="All"
-            values={reportFilters.outcomes}
+            values={effectiveOutcomeValues}
             onChange={reportFilters.setOutcomes}
             options={outcomeOptions}
           />
@@ -4136,6 +4127,7 @@ export default function MatchReport() {
   const [sharedVizOpen, setSharedVizOpen] = useState(false);
   const [sharedVizTitle, setSharedVizTitle] = useState('');
   const [sharedVizStats, setSharedVizStats] = useState([]);
+  const [activeTab, setActiveTab] = useState('summary');
 
   const [overviewHalf, setOverviewHalf] = useState('all'); // all|first|second
 
@@ -4194,6 +4186,50 @@ export default function MatchReport() {
     match,
     allStats: stats,
   }), [reportTeam, reportHalves, reportPlayerIds, reportActionTypes, reportOutcomes, reportTimeMin, reportTimeMax, imputedTimeById, match, stats]);
+
+  useEffect(() => {
+    const allowedByTab = {
+      scoring: ['shot'],
+      possessions: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'],
+      build_up: ['pass', 'carry'],
+      kickouts: ['kickout', 'throw_in'],
+      misc: ['throw_in'],
+      defense: ['turnover', 'defensive_contact', 'foul'],
+      fouls: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'],
+      players_ana: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'],
+    };
+    const allowed = allowedByTab[activeTab] || null;
+    if (!allowed) return;
+
+    const allowedSet = new Set(allowed);
+    const nextActionTypes = (Array.isArray(reportActionTypes) ? reportActionTypes : []).filter((value) => allowedSet.has(value));
+    const actionChanged =
+      nextActionTypes.length !== reportActionTypes.length
+      || nextActionTypes.some((value, index) => value !== reportActionTypes[index]);
+    if (actionChanged) {
+      setReportActionTypes(nextActionTypes);
+    }
+
+    const validOutcomes = new Set(
+      (Array.isArray(stats) ? stats : [])
+        .filter((s) => {
+          const statType = String(s?.stat_type || '');
+          if (!allowedSet.has(statType)) return false;
+          if (nextActionTypes.length && !nextActionTypes.includes(statType)) return false;
+          return true;
+        })
+        .map((s) => deriveOutcome(s, safeParseJSON(s?.extra_data || '{}', {})))
+        .filter(Boolean)
+    );
+
+    const nextOutcomes = (Array.isArray(reportOutcomes) ? reportOutcomes : []).filter((value) => validOutcomes.has(value));
+    const outcomesChanged =
+      nextOutcomes.length !== reportOutcomes.length
+      || nextOutcomes.some((value, index) => value !== reportOutcomes[index]);
+    if (outcomesChanged) {
+      setReportOutcomes(nextOutcomes);
+    }
+  }, [activeTab, reportActionTypes, reportOutcomes, stats]);
 
   const filteredForReport = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -4690,7 +4726,7 @@ export default function MatchReport() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 py-5">
-        <Tabs defaultValue="summary">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <TabsList>
               <TabsTrigger value="summary">Overview</TabsTrigger>
