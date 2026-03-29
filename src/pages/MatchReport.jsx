@@ -65,7 +65,7 @@ const db = globalThis.__B44_DB__ || {
 };
 
 const REPORT_PITCH_VERTICAL_SCALE = 1;
-const REPORT_PITCH_SCALE = '80%';
+const REPORT_PITCH_SCALE = '73%';
 
 function safeParseJSON(s, fallback) {
   try {
