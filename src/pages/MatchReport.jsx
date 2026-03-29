@@ -64,7 +64,7 @@ const db = globalThis.__B44_DB__ || {
   }),
 };
 
-const REPORT_PITCH_VERTICAL_SCALE = 0.88;
+const REPORT_PITCH_VERTICAL_SCALE = 0.75;
 
 function safeParseJSON(s, fallback) {
   try {
