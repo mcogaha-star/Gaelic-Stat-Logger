@@ -1,5 +1,11 @@
+const db = globalThis.__B44_DB__ || {
+  entities: new Proxy({}, { get: () => ({ filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
+};
+
 import React, { useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,7 +31,87 @@ import {
   derivePossessionOutcome,
 } from '../shared';
 
+function sortStatsForEditing(list, match, imputedTimeById) {
+  const timeKey = (s) => {
+    const play = Number(s?.play_id);
+    if (Number.isFinite(play)) return { kind: 0, v: play };
+    const mt = getMatchTimeS(s, match, imputedTimeById);
+    if (Number.isFinite(mt)) return { kind: 1, v: mt };
+    const t = Number(s?.time_s);
+    if (Number.isFinite(t)) return { kind: 2, v: t };
+    const ts = Date.parse(String(s?.timestamp || ''));
+    if (Number.isFinite(ts)) return { kind: 3, v: ts };
+    return { kind: 9, v: 0 };
+  };
+
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const ka = timeKey(a);
+    const kb = timeKey(b);
+    if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+    if (ka.v !== kb.v) return ka.v - kb.v;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
+function getPossessionKey(stat) {
+  const pid = Number(stat?.possession_id);
+  const side = stat?.possession_team_side;
+  return Number.isFinite(pid) && (side === 'home' || side === 'away') ? `${side}-${pid}` : 'unknown';
+}
+
+function getContiguousRange(ordered, index, mode) {
+  if (!Array.isArray(ordered) || index < 0 || index >= ordered.length) return [];
+  if (mode === 'row_only') return [index];
+  const key = getPossessionKey(ordered[index]);
+  if (mode === 'row_tail') {
+    const indices = [];
+    for (let i = index; i < ordered.length; i += 1) {
+      if (i > index && getPossessionKey(ordered[i]) !== key) break;
+      indices.push(i);
+    }
+    return indices;
+  }
+  if (mode === 'entire_possession') {
+    let start = index;
+    let end = index;
+    while (start - 1 >= 0 && getPossessionKey(ordered[start - 1]) === key) start -= 1;
+    while (end + 1 < ordered.length && getPossessionKey(ordered[end + 1]) === key) end += 1;
+    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+  }
+  return [index];
+}
+
+function findAdjacentPossession(ordered, index, direction) {
+  if (!Array.isArray(ordered) || index < 0 || index >= ordered.length) return null;
+  const currentKey = getPossessionKey(ordered[index]);
+  const step = direction === 'next' ? 1 : -1;
+  for (let i = index + step; i >= 0 && i < ordered.length; i += step) {
+    const key = getPossessionKey(ordered[i]);
+    if (key !== currentKey) return ordered[i];
+  }
+  return null;
+}
+
+function formatTeamName(side, homeTeam, awayTeam) {
+  if (side === 'away') return awayTeam?.name || 'Away';
+  if (side === 'home') return homeTeam?.name || 'Home';
+  return 'NA';
+}
+
+function summarizeRow(stat, match, imputedTimeById, homeTeam, awayTeam) {
+  if (!stat) return 'NA';
+  const mt = getMatchTimeS(stat, match, imputedTimeById);
+  const timeLabel = Number.isFinite(mt) ? formatMatchClock(mt, match, stat.half) : 'NA';
+  const playLabel = Number.isFinite(Number(stat?.play_id)) ? `Play ${Number(stat.play_id)}` : 'Play NA';
+  return `${playLabel} - ${toTitleCase(stat?.stat_type)} - ${formatTeamName(stat?.team_side, homeTeam, awayTeam)} - ${timeLabel}`;
+}
+
+function resequenceOrderedStats(ordered) {
+  return ordered.map((stat, index) => ({ ...stat, play_id: index + 1 }));
+}
+
 function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
+  const queryClient = useQueryClient();
   const [team, setTeam] = useState('both');
   const [actions, setActions] = useState([]);
   const [halves, setHalves] = useState([]);
@@ -37,8 +123,36 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
   const [expandedRowId, setExpandedRowId] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editStatId, setEditStatId] = useState(null);
+  const [editScope, setEditScope] = useState('row_tail');
+  const [targetPossessionId, setTargetPossessionId] = useState('');
+  const [targetPossessionTeam, setTargetPossessionTeam] = useState('home');
+  const [newPossessionTeam, setNewPossessionTeam] = useState('home');
+  const [moveTargetId, setMoveTargetId] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedPlayId, setAdvancedPlayId] = useState('');
+  const [advancedPossessionId, setAdvancedPossessionId] = useState('');
+  const [advancedPossessionTeam, setAdvancedPossessionTeam] = useState('home');
 
   const VIDEO_PRE_ROLL_S = 7;
+
+  const persistMutation = useMutation({
+    mutationFn: async (updates) => {
+      for (const update of updates) {
+        await db.entities.StatEntry.update(update.id, update.data);
+      }
+      return updates.length;
+    },
+    onSuccess: async (count) => {
+      await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+      toast.success(count === 1 ? 'ID update saved' : `${count} rows updated`);
+      setEditOpen(false);
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to update IDs');
+    },
+  });
 
   const openVideoAt = (timeS) => {
     const t = Number(timeS);
@@ -73,6 +187,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   }, [homePlayers, awayPlayers]);
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
+  const orderedAllStats = useMemo(() => sortStatsForEditing(stats, match, imputedTimeById), [stats, match, imputedTimeById]);
+  const maxPossessionId = useMemo(() => orderedAllStats.reduce((max, stat) => {
+    const pid = Number(stat?.possession_id);
+    return Number.isFinite(pid) ? Math.max(max, pid) : max;
+  }, 0), [orderedAllStats]);
 
   const filtered = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -101,28 +220,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     });
   }, [stats, team, actions, halves, playerIds, timeMin, timeMax, imputedTimeById, match]);
 
-  const filteredSorted = useMemo(() => {
-    const list = Array.isArray(filtered) ? [...filtered] : [];
-    const timeKey = (s) => {
-      const mt = getMatchTimeS(s, match, imputedTimeById);
-      if (Number.isFinite(mt)) return { kind: 0, v: mt };
-      const t = Number(s?.time_s);
-      if (Number.isFinite(t)) return { kind: 0, v: t };
-      const pid = Number(s?.play_id);
-      if (Number.isFinite(pid)) return { kind: 1, v: pid };
-      const ts = Date.parse(String(s?.timestamp || ''));
-      if (Number.isFinite(ts)) return { kind: 2, v: ts };
-      return { kind: 9, v: 0 };
-    };
-    list.sort((a, b) => {
-      const ka = timeKey(a);
-      const kb = timeKey(b);
-      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
-      if (ka.v !== kb.v) return ka.v - kb.v;
-      return String(a?.id || '').localeCompare(String(b?.id || ''));
-    });
-    return list;
-  }, [filtered, imputedTimeById, match]);
+  const filteredSorted = useMemo(() => sortStatsForEditing(filtered, match, imputedTimeById), [filtered, match, imputedTimeById]);
 
   const keyForGroup = (s) => {
     const extra = safeParseJSON(s?.extra_data || '{}', {});
@@ -236,6 +334,107 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     return arr.sort((a, b) => String(a.key).localeCompare(String(b.key)));
   }, [filtered, groupBy, match, imputedTimeById]);
 
+  const editStat = useMemo(() => orderedAllStats.find((stat) => stat?.id === editStatId) || null, [orderedAllStats, editStatId]);
+  const editIndex = useMemo(() => orderedAllStats.findIndex((stat) => stat?.id === editStatId), [orderedAllStats, editStatId]);
+  const editPrev = editIndex > 0 ? orderedAllStats[editIndex - 1] : null;
+  const editNext = editIndex >= 0 && editIndex + 1 < orderedAllStats.length ? orderedAllStats[editIndex + 1] : null;
+  const editRangeIndices = useMemo(() => getContiguousRange(orderedAllStats, editIndex, editScope), [orderedAllStats, editIndex, editScope]);
+  const editRangeStats = useMemo(() => editRangeIndices.map((index) => orderedAllStats[index]).filter(Boolean), [orderedAllStats, editRangeIndices]);
+  const previousPossession = useMemo(() => findAdjacentPossession(orderedAllStats, editIndex, 'previous'), [orderedAllStats, editIndex]);
+  const nextPossession = useMemo(() => findAdjacentPossession(orderedAllStats, editIndex, 'next'), [orderedAllStats, editIndex]);
+  const moveTargetOptions = useMemo(() => orderedAllStats.filter((stat) => stat?.id !== editStatId), [orderedAllStats, editStatId]);
+
+  const openEditDialogForStat = (stat) => {
+    if (!stat?.id) return;
+    const currentTeam = stat.possession_team_side === 'away' ? 'away' : 'home';
+    setEditStatId(stat.id);
+    setEditScope('row_tail');
+    setTargetPossessionId(Number.isFinite(Number(stat?.possession_id)) ? String(Number(stat.possession_id)) : '');
+    setTargetPossessionTeam(currentTeam);
+    setNewPossessionTeam(currentTeam);
+    setMoveTargetId('');
+    setAdvancedOpen(false);
+    setAdvancedPlayId(Number.isFinite(Number(stat?.play_id)) ? String(Number(stat.play_id)) : '');
+    setAdvancedPossessionId(Number.isFinite(Number(stat?.possession_id)) ? String(Number(stat.possession_id)) : '');
+    setAdvancedPossessionTeam(currentTeam);
+    setEditOpen(true);
+  };
+
+  const buildPossessionUpdates = (targetId, targetTeam) => editRangeStats.map((stat) => ({
+    id: stat.id,
+    data: {
+      possession_id: targetId,
+      possession_team_side: targetTeam,
+    },
+  }));
+
+  const runPossessionAction = ({ label, targetId, targetTeam }) => {
+    if (!editStat || !editRangeStats.length) return;
+    if (!Number.isFinite(Number(targetId)) || Number(targetId) <= 0) {
+      toast.error('Choose a valid possession number');
+      return;
+    }
+    const updates = buildPossessionUpdates(Number(targetId), targetTeam);
+    const summary = `${updates.length} row${updates.length === 1 ? '' : 's'} will move to Possession ${Number(targetId)} (${formatTeamName(targetTeam, homeTeam, awayTeam)}).`;
+    if (!window.confirm(`${label}\n\n${summary}`)) return;
+    persistMutation.mutate(updates);
+  };
+
+  const runPlayMove = ({ label, getNewOrder }) => {
+    if (!editStat || editIndex < 0) return;
+    const updatedOrdered = resequenceOrderedStats(getNewOrder([...orderedAllStats]));
+    const updates = updatedOrdered
+      .filter((stat, index) => Number(stat?.play_id) !== Number(orderedAllStats[index]?.play_id))
+      .map((stat) => ({ id: stat.id, data: { play_id: stat.play_id } }));
+    if (!updates.length) return;
+    const first = Math.min(...updates.map((row) => Number(row.data.play_id)));
+    const last = Math.max(...updates.map((row) => Number(row.data.play_id)));
+    const summary = `${updates.length} row${updates.length === 1 ? '' : 's'} will be resequenced across plays ${first}-${last}.`;
+    if (!window.confirm(`${label}\n\n${summary}`)) return;
+    persistMutation.mutate(updates);
+  };
+
+  const applyAdvanced = () => {
+    if (!editStat) return;
+    const nextPossessionId = Number(advancedPossessionId);
+    const nextPlayId = Number(advancedPlayId);
+    if (!Number.isFinite(nextPossessionId) || nextPossessionId <= 0) {
+      toast.error('Enter a valid possession number');
+      return;
+    }
+    if (!Number.isFinite(nextPlayId) || nextPlayId <= 0) {
+      toast.error('Enter a valid play number');
+      return;
+    }
+
+    const remaining = orderedAllStats.filter((stat) => stat.id !== editStat.id);
+    const clampedIndex = Math.max(0, Math.min(remaining.length, Math.round(nextPlayId) - 1));
+    const inserted = [...remaining.slice(0, clampedIndex), editStat, ...remaining.slice(clampedIndex)];
+    const resequenced = resequenceOrderedStats(inserted);
+    const playUpdates = resequenced
+      .filter((stat, index) => Number(stat?.play_id) !== Number(inserted[index]?.play_id))
+      .map((stat) => ({ id: stat.id, data: { play_id: stat.play_id } }));
+
+    const possessionUpdates = editRangeStats.map((stat) => ({
+      id: stat.id,
+      data: {
+        possession_id: nextPossessionId,
+        possession_team_side: advancedPossessionTeam,
+      },
+    }));
+
+    const merged = new Map();
+    for (const row of [...playUpdates, ...possessionUpdates]) {
+      const current = merged.get(row.id) || { id: row.id, data: {} };
+      current.data = { ...current.data, ...row.data };
+      merged.set(row.id, current);
+    }
+    const updates = Array.from(merged.values());
+    const summary = `${updates.length} row${updates.length === 1 ? '' : 's'} will be updated. Possession rows will move to Possession ${nextPossessionId} (${formatTeamName(advancedPossessionTeam, homeTeam, awayTeam)}), and play order will be resequenced.`;
+    if (!window.confirm(`Apply advanced raw ID changes?\n\n${summary}`)) return;
+    persistMutation.mutate(updates);
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -309,14 +508,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 if (!times.length) return null;
                 const t = Math.min(...times);
                 return (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-3 text-xs"
-                    onClick={() => openVideoAt(t)}
-                    title="Open the video popout and jump to this timestamp"
-                  >
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => openVideoAt(t)} title="Open the video popout and jump to this timestamp">
                     Open Video @ {formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}
                   </Button>
                 );
@@ -324,17 +516,156 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
             </div>
           </DialogHeader>
           <div className="pt-2">
-            <PitchViz
-              stats={vizStats}
-              homeColor={homeTeam?.color}
-              awayColor={awayTeam?.color}
-              colorBy="team"
-              showColorControls={false}
-            />
+            <PitchViz stats={vizStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="team" showColorControls={false} />
           </div>
         </DialogContent>
       </Dialog>
 
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-4xl p-4 max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base">Edit Play / Possession IDs</DialogTitle>
+          </DialogHeader>
+          {editStat ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <div className="font-semibold text-slate-900">Current Row</div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><span className="text-slate-500">Play:</span> <span className="font-mono">{Number.isFinite(Number(editStat.play_id)) ? Number(editStat.play_id) : 'NA'}</span></div>
+                    <div><span className="text-slate-500">Possession:</span> <span className="font-mono">{Number.isFinite(Number(editStat.possession_id)) ? Number(editStat.possession_id) : 'NA'}</span></div>
+                    <div><span className="text-slate-500">Possession Team:</span> {formatTeamName(editStat.possession_team_side, homeTeam, awayTeam)}</div>
+                    <div><span className="text-slate-500">Grouping:</span> <span className="font-mono">{getPossessionKey(editStat)}</span></div>
+                  </div>
+                  <div className="text-xs text-slate-600">{summarizeRow(editStat, match, imputedTimeById, homeTeam, awayTeam)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="font-semibold text-slate-900">Context</div>
+                  <div className="text-xs"><span className="text-slate-500">Previous:</span> {summarizeRow(editPrev, match, imputedTimeById, homeTeam, awayTeam)}</div>
+                  <div className="text-xs"><span className="text-slate-500">Next:</span> {summarizeRow(editNext, match, imputedTimeById, homeTeam, awayTeam)}</div>
+                  <div className="text-xs"><span className="text-slate-500">Scope:</span> {editRangeStats.length} row{editRangeStats.length === 1 ? '' : 's'} selected</div>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-4 gap-3 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Scope</Label>
+                  <Select value={editScope} onValueChange={setEditScope}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="row_only">This row only</SelectItem>
+                      <SelectItem value="row_tail">This row + following rows</SelectItem>
+                      <SelectItem value="entire_possession">Entire current possession</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="md:col-span-3 text-xs text-slate-500 rounded-md border border-dashed border-slate-200 p-2">
+                  Row + following rows stops at the next possession break. Play reordering applies to the selected row and then resequences play IDs safely.
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <div className="font-semibold text-slate-900">Guided Possession Tools</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={!previousPossession || persistMutation.isPending} onClick={() => previousPossession && runPossessionAction({ label: 'Move to previous possession', targetId: Number(previousPossession.possession_id), targetTeam: previousPossession.possession_team_side })}>Move to Previous Possession</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!nextPossession || persistMutation.isPending} onClick={() => nextPossession && runPossessionAction({ label: 'Move to next possession', targetId: Number(nextPossession.possession_id), targetTeam: nextPossession.possession_team_side })}>Move to Next Possession</Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Possession #</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={targetPossessionId} onChange={(e) => setTargetPossessionId(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Team</Label>
+                      <Select value={targetPossessionTeam} onValueChange={setTargetPossessionTeam}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button type="button" size="sm" disabled={persistMutation.isPending} onClick={() => runPossessionAction({ label: 'Move to chosen possession', targetId: targetPossessionId, targetTeam: targetPossessionTeam })}>Move to Chosen Possession</Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Change possession team</Label>
+                      <Select value={newPossessionTeam} onValueChange={setNewPossessionTeam}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" disabled={persistMutation.isPending} onClick={() => runPossessionAction({ label: 'Change possession team', targetId: Number(editStat.possession_id), targetTeam: newPossessionTeam })}>Change Possession Team</Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 items-end">
+                    <div className="text-xs text-slate-500">Starts a new possession at this row using the selected team.</div>
+                    <Button type="button" variant="outline" size="sm" disabled={persistMutation.isPending} onClick={() => runPossessionAction({ label: 'Start new possession here', targetId: maxPossessionId + 1, targetTeam: newPossessionTeam })}>Start New Possession Here</Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <div className="font-semibold text-slate-900">Guided Play Order Tools</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={editIndex <= 0 || persistMutation.isPending} onClick={() => runPlayMove({ label: 'Move earlier', getNewOrder: (ordered) => { const next = [...ordered]; const [row] = next.splice(editIndex, 1); next.splice(Math.max(0, editIndex - 1), 0, row); return next; } })}>Move Earlier</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={editIndex < 0 || editIndex >= orderedAllStats.length - 1 || persistMutation.isPending} onClick={() => runPlayMove({ label: 'Move later', getNewOrder: (ordered) => { const next = [...ordered]; const [row] = next.splice(editIndex, 1); next.splice(Math.min(next.length, editIndex + 1), 0, row); return next; } })}>Move Later</Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 items-end">
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-slate-600">Target row</Label>
+                      <Select value={moveTargetId} onValueChange={setMoveTargetId}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose a row" /></SelectTrigger>
+                        <SelectContent>
+                          {moveTargetOptions.map((stat) => (
+                            <SelectItem key={stat.id} value={stat.id}>{summarizeRow(stat, match, imputedTimeById, homeTeam, awayTeam)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="text-xs text-slate-500">Selected row only</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={!moveTargetId || persistMutation.isPending} onClick={() => { runPlayMove({ label: 'Move before chosen row', getNewOrder: (ordered) => { const currentIndex = ordered.findIndex((stat) => stat.id === editStat.id); const next = [...ordered]; const [row] = next.splice(currentIndex, 1); const insertAt = next.findIndex((stat) => stat.id === moveTargetId); next.splice(Math.max(0, insertAt), 0, row); return next; } }); }}>Move Before Chosen Row</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!moveTargetId || persistMutation.isPending} onClick={() => { runPlayMove({ label: 'Move after chosen row', getNewOrder: (ordered) => { const currentIndex = ordered.findIndex((stat) => stat.id === editStat.id); const next = [...ordered]; const [row] = next.splice(currentIndex, 1); const insertAt = next.findIndex((stat) => stat.id === moveTargetId); next.splice(insertAt + 1, 0, row); return next; } }); }}>Move After Chosen Row</Button>
+                  </div>
+                </div>
+              </div>
+
+              <details className="rounded-lg border border-amber-200 bg-amber-50/60 p-3" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
+                <summary className="cursor-pointer font-semibold text-amber-900">Advanced Raw IDs</summary>
+                <div className="space-y-3 pt-3">
+                  <div className="text-xs text-amber-800">Raw changes can affect possession analysis and ordering. Play ID changes are normalized safely after save.</div>
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Play ID</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={advancedPlayId} onChange={(e) => setAdvancedPlayId(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Possession ID</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={advancedPossessionId} onChange={(e) => setAdvancedPossessionId(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Possession Team</Label>
+                      <Select value={advancedPossessionTeam} onValueChange={setAdvancedPossessionTeam}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyAdvanced}>Apply Advanced Changes</Button>
+                  </div>
+                </div>
+              </details>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       {pivot ? (
         <Card>
           <CardContent className="p-4">
@@ -356,6 +687,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       <TableHead>Entry</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                       <TableHead className="text-right">Shot Pts</TableHead>
+                      <TableHead className="text-right">Edit</TableHead>
                     </>
                   ) : (
                     <>
@@ -368,49 +700,46 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               </TableHeader>
               <TableBody>
                 {pivot.map((r) => (
-                  <TableRow
-                    key={r.key}
-                    className="cursor-pointer"
-                    onClick={() => {
+                  <TableRow key={r.key} className="cursor-pointer" onClick={() => {
+                    const groupStats = filtered.filter((s) => keyForGroup(s) === r.key);
+                    setVizStats(groupStats);
+                    if (groupBy === 'possession') {
+                      const [side, num] = String(r.key || '').split('-');
+                      const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                      setVizTitle(`Possession ${num || ''} - ${teamName} - ${groupStats.length} events`);
+                    } else {
+                      setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
+                    }
+                    setVizOpen(true);
+                  }}>
+                    {groupBy === 'possession' ? (() => {
+                      const [side, num] = String(r.key || '').split('-');
+                      const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                      const start = Number.isFinite(Number(r.start_time_norm_s)) ? formatMMSS(Number(r.start_time_norm_s)) : 'NA';
+                      const end = Number.isFinite(Number(r.end_time_norm_s)) ? formatMMSS(Number(r.end_time_norm_s)) : 'NA';
+                      const dur = (Number.isFinite(Number(r.start_time_norm_s)) && Number.isFinite(Number(r.end_time_norm_s))) ? `${Math.max(0, Number(r.end_time_norm_s) - Number(r.start_time_norm_s)).toFixed(1)}s` : 'NA';
                       const groupStats = filtered.filter((s) => keyForGroup(s) === r.key);
-                      setVizStats(groupStats);
-                      if (groupBy === 'possession') {
-                        const [side, num] = String(r.key || '').split('-');
-                        const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                        setVizTitle(`Possession ${num || ''} - ${teamName} - ${groupStats.length} events`);
-                      } else {
-                        setVizTitle(`${toTitleCase(groupBy)}: ${toTitleCase(r.key)} (${groupStats.length})`);
-                      }
-                      setVizOpen(true);
-                    }}
-                  >
-                    {groupBy === 'possession' ? (
-                      (() => {
-                        const [side, num] = String(r.key || '').split('-');
-                        const teamName = side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                        const start = Number.isFinite(Number(r.start_time_norm_s)) ? formatMMSS(Number(r.start_time_norm_s)) : 'NA';
-                        const end = Number.isFinite(Number(r.end_time_norm_s)) ? formatMMSS(Number(r.end_time_norm_s)) : 'NA';
-                        const dur = (Number.isFinite(Number(r.start_time_norm_s)) && Number.isFinite(Number(r.end_time_norm_s)))
-                          ? `${Math.max(0, Number(r.end_time_norm_s) - Number(r.start_time_norm_s)).toFixed(1)}s`
-                          : 'NA';
-                        return (
-                          <>
-                            <TableCell className="font-mono text-xs">#{num || 'NA'}</TableCell>
-                            <TableCell className="font-medium">{teamName}</TableCell>
-                            <TableCell>{toTitleCase(r.start_half || '')}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{start}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{end}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{dur}</TableCell>
-                            <TableCell>{r.start_source || 'NA'}</TableCell>
-                            <TableCell>{r.end_outcome || 'NA'}</TableCell>
-                            <TableCell>{r.attack ? 'Yes' : 'No'}</TableCell>
-                            <TableCell>{r.attack_entry_channel || 'NA'}</TableCell>
-                            <TableCell className="text-right tabular-nums">{r.count}</TableCell>
-                            <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
-                          </>
-                        );
-                      })()
-                    ) : (
+                      const firstStat = sortStatsForEditing(groupStats, match, imputedTimeById)[0] || null;
+                      return (
+                        <>
+                          <TableCell className="font-mono text-xs">#{num || 'NA'}</TableCell>
+                          <TableCell className="font-medium">{teamName}</TableCell>
+                          <TableCell>{toTitleCase(r.start_half || '')}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{start}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{end}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{dur}</TableCell>
+                          <TableCell>{r.start_source || 'NA'}</TableCell>
+                          <TableCell>{r.end_outcome || 'NA'}</TableCell>
+                          <TableCell>{r.attack ? 'Yes' : 'No'}</TableCell>
+                          <TableCell>{r.attack_entry_channel || 'NA'}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
+                          <TableCell className="text-right">
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit IDs</Button>
+                          </TableCell>
+                        </>
+                      );
+                    })() : (
                       <>
                         <TableCell className="font-medium">{toTitleCase(r.key)}</TableCell>
                         <TableCell>{r.count}</TableCell>
@@ -440,7 +769,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   <TableHead>Outcome</TableHead>
                   <TableHead>Player</TableHead>
                   <TableHead>Time</TableHead>
-                  <TableHead className="w-[90px]"> </TableHead>
+                  <TableHead className="w-[180px]"> </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -453,18 +782,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                     <React.Fragment key={s.id}>
                       <TableRow>
                         <TableCell className="align-middle">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0"
-                            aria-label={isOpen ? 'Collapse row' : 'Expand row'}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setExpandedRowId((cur) => (cur === s.id ? null : s.id));
-                            }}
-                          >
+                          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={isOpen ? 'Collapse row' : 'Expand row'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedRowId((cur) => (cur === s.id ? null : s.id)); }}>
                             <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                           </Button>
                         </TableCell>
@@ -473,38 +791,12 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <TableCell>{toTitleCase(s.stat_type)}</TableCell>
                         <TableCell>{toTitleCase(deriveOutcome(s, extra))}</TableCell>
                         <TableCell>{s.player_number ? `#${s.player_number}` : ''}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {(() => {
-                            const mt = getMatchTimeS(s, match, imputedTimeById);
-                            return Number.isFinite(mt) ? formatMatchClock(mt, match, s.half) : '--:--';
-                          })()}
-                        </TableCell>
+                        <TableCell className="font-mono text-xs">{(() => { const mt = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(mt) ? formatMatchClock(mt, match, s.half) : '--:--'; })()}</TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={!hasTime}
-                              title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'}
-                              onClick={() => hasTime && openVideoAt(t)}
-                            >
-                              Open Video
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => {
-                                setVizStats([s]);
-                                setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
-                                setVizOpen(true);
-                              }}
-                            >
-                              Visualise
-                            </Button>
+                          <div className="flex items-center justify-end gap-2 flex-wrap">
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Open Video</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => { setVizStats([s]); setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`); setVizOpen(true); }}>Visualise</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit IDs</Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -512,63 +804,47 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       {isOpen && (
                         <TableRow className="bg-slate-50/60">
                           <TableCell colSpan={8} className="p-3">
-                            {(() => {
-                              const baseItems = [
-                                { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
-                                { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
-                                { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
-                                { label: 'Counter Attack', value: s.counter_attack ? 'Yes' : 'No' },
-                                { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
-                                {
-                                  label: 'Time',
-                                  value: (() => {
-                                    const rowTime = getMatchTimeS(s, match, imputedTimeById);
-                                    return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA';
-                                  })(),
-                                },
-                                { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
-                                { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
-                                { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
-                                { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : 'NA' },
-                              ];
-
-                              const extraItems = flattenExtra(extra)
-                                .filter((r) => r.key !== 'counter_attack')
-                                .filter((r) => !/(^|\\b)pitch([._-]?(w|h|width|height|length))\\b/i.test(String(r.key || '')))
-                                .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
-
-                              const seen = new Set();
-                              const items = [];
-                              for (const it of [...baseItems, ...extraItems]) {
-                                const k = String(it.label || '');
-                                if (!k || seen.has(k)) continue;
-                                seen.add(k);
-                                items.push(it);
-                              }
-
-                              const pairs = [];
-                              for (let i = 0; i < items.length; i += 2) pairs.push([items[i], items[i + 1] || null]);
-
-                              return (
-                                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                  <div className="text-xs font-semibold text-slate-900 mb-2">Details</div>
-                                  <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
-                                    <Table>
-                                      <TableBody>
-                                        {pairs.map(([a, b], idx) => (
-                                          <TableRow key={idx}>
-                                            <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{a.label}</TableCell>
-                                            <TableCell className="py-1 text-xs font-mono tabular-nums">{a.value}</TableCell>
-                                            <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{b ? b.label : ''}</TableCell>
-                                            <TableCell className="py-1 text-xs font-mono tabular-nums">{b ? b.value : ''}</TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
-                                </div>
-                              );
-                            })()}
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs font-semibold text-slate-900">Details</div>
+                                <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit IDs</Button>
+                              </div>
+                              <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
+                                <Table>
+                                  <TableBody>
+                                    {(() => {
+                                      const baseItems = [
+                                        { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
+                                        { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
+                                        { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
+                                        { label: 'Counter Attack', value: s.counter_attack ? 'Yes' : 'No' },
+                                        { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
+                                        { label: 'Time', value: (() => { const rowTime = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA'; })() },
+                                        { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
+                                        { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
+                                        { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
+                                        { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : 'NA' },
+                                      ];
+                                      const extraItems = flattenExtra(extra)
+                                        .filter((r) => r.key !== 'counter_attack')
+                                        .filter((r) => !/(^|\\b)pitch([._-]?(w|h|width|height|length))\\b/i.test(String(r.key || '')))
+                                        .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
+                                      const items = [...baseItems, ...extraItems].filter((it, idx, arr) => it.label && arr.findIndex((other) => other.label === it.label) === idx);
+                                      const pairs = [];
+                                      for (let i = 0; i < items.length; i += 2) pairs.push([items[i], items[i + 1] || null]);
+                                      return pairs.map(([a, b], idx) => (
+                                        <TableRow key={idx}>
+                                          <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{a.label}</TableCell>
+                                          <TableCell className="py-1 text-xs font-mono tabular-nums">{a.value}</TableCell>
+                                          <TableCell className="py-1 text-xs text-slate-500 whitespace-nowrap">{b ? b.label : ''}</TableCell>
+                                          <TableCell className="py-1 text-xs font-mono tabular-nums">{b ? b.value : ''}</TableCell>
+                                        </TableRow>
+                                      ));
+                                    })()}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )}
@@ -577,9 +853,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 })}
               </TableBody>
             </Table>
-            {filteredSorted.length > 200 && (
-              <div className="text-xs text-slate-500 pt-2">Showing first 200 rows. Add a group-by to summarise.</div>
-            )}
+            {filteredSorted.length > 200 && <div className="text-xs text-slate-500 pt-2">Showing first 200 rows. Add a group-by to summarise.</div>}
           </CardContent>
         </Card>
       )}
