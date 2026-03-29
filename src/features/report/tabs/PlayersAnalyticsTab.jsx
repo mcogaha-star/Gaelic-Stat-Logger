@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
 import {
+  OPP_45_X,
   PITCH_W,
   PITCH_H,
   calcDistanceToGoal,
@@ -27,8 +28,12 @@ import {
 import {
   safeParseJSON,
   toTitleCase,
+  deriveOutcome,
+  formatExtraValue,
   formatMMSS,
   formatPct,
+  collectPlayerIds,
+  collectPlayerSelectionKeys,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,

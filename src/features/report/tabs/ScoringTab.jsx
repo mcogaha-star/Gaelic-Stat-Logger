@@ -10,6 +10,7 @@ import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, C
 import {
   PITCH_W,
   PITCH_H,
+  calcAngleToGoal,
   calcDistanceToGoal,
   extractFoulFromStat,
   findScorableFreeConcededRows,
@@ -27,6 +28,7 @@ import {
 import {
   safeParseJSON,
   toTitleCase,
+  formatMatchClock,
   formatMMSS,
   formatPct,
   groupByPossession,

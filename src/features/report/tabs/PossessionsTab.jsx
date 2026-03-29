@@ -27,6 +27,7 @@ import {
 import {
   safeParseJSON,
   toTitleCase,
+  deriveOutcome,
   formatMMSS,
   formatPct,
   groupByPossession,
