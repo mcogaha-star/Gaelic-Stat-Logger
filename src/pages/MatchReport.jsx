@@ -605,34 +605,48 @@ function buildTouchesMap(stats) {
     out.set(key, (out.get(key) || 0) + 1);
   };
 
-  const groups = groupByPossession(stats);
-  for (const [key, evs] of groups.entries()) {
-    const [teamSide] = String(key).split('-');
-    if (teamSide !== 'home' && teamSide !== 'away') continue;
-    const acting = evs.filter((e) => e && e.team_side === teamSide);
-    let pendingReceiptKey = null;
+  for (const stat of Array.isArray(stats) ? stats : []) {
+    if (!stat) continue;
+    const extra = safeParseJSON(stat.extra_data || '{}', {});
 
-    for (const stat of acting) {
-      const extra = safeParseJSON(stat.extra_data || '{}', {});
-      const actor = getPrimaryActorSelection(stat, extra);
-      const actorKey = selectionKey(actor);
-
-      if (actorKey && isDirectTouchAction(stat)) {
-        if (pendingReceiptKey === actorKey) {
-          pendingReceiptKey = null;
-        } else {
-          add(actor);
-          pendingReceiptKey = null;
-        }
-      } else {
-        pendingReceiptKey = null;
+    if (stat.stat_type === 'pass') {
+      if (extra?.pass?.outcome === 'completed') {
+        add(extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : extra?.pass?.intended_recipient);
       }
+      if (extra?.pass?.deadball) {
+        add(extra?.pass?.passer);
+      }
+      continue;
+    }
 
-      const receipt = getCompletedReceiptSelection(stat, extra);
-      const receiptKey = selectionKey(receipt);
-      if (receiptKey) {
-        add(receipt);
-        pendingReceiptKey = receiptKey;
+    if (stat.stat_type === 'kickout') {
+      if (['clean', 'break'].includes(String(extra?.kickout?.outcome || ''))) add(extra?.kickout?.won_by);
+      continue;
+    }
+
+    if (stat.stat_type === 'throw_in') {
+      if (['clean', 'break'].includes(String(extra?.throw_in?.outcome || ''))) add(extra?.throw_in?.won_by);
+      continue;
+    }
+
+    if (stat.stat_type === 'turnover' || extra?.turnover) {
+      add(extra?.turnover?.recovered_by);
+      continue;
+    }
+
+    if (stat.stat_type === 'carry') {
+      if (extra?.carry?.solo_plus_go) add(extra?.carry?.carrier);
+      continue;
+    }
+
+    if (stat.stat_type === 'shot') {
+      const situation = String(extra?.shot?.situation || '');
+      if (['free_ground', 'free_hands', '45', 'penalty'].includes(situation)) {
+        add(extra?.shot?.player);
+      }
+      const result = String(extra?.shot?.result || '');
+      if (['retained', 'opposition'].includes(result)) {
+        add(extra?.shot?.recovered_by);
       }
     }
   }
@@ -1210,6 +1224,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
 }
 
 function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+  const [open, setOpen] = useState(false);
   const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
     ? reportFilters.allowedActionTypes
     : null;
@@ -1247,11 +1262,35 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
     return selected.filter((value) => available.has(value));
   }, [reportFilters?.outcomes, outcomeOptions]);
 
+  const activeCount =
+    (reportFilters?.team && reportFilters.team !== 'both' ? 1 : 0)
+    + (Array.isArray(reportFilters?.halves) ? reportFilters.halves.length : 0)
+    + (Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds.length : 0)
+    + effectiveActionValues.length
+    + effectiveOutcomeValues.length
+    + (String(reportFilters?.timeMin ?? '') !== '' ? 1 : 0)
+    + (String(reportFilters?.timeMax ?? '') !== '' ? 1 : 0);
+
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">Filters</div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold text-slate-900">Filters</div>
+            {!open && (
+              <div className="text-[11px] text-slate-500">
+                {activeCount ? `${activeCount} active` : 'Collapsed'}
+              </div>
+            )}
+          </div>
+          <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setOpen((v) => !v)}>
+            {open ? 'Hide Filters' : 'Show Filters'}
+            <ChevronDown className={`ml-1 h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </Button>
+        </div>
 
+        {!open ? null : (
+        <>
         {/* Vertical filters to keep things consistent across all tabs (and reduce horizontal squeeze). */}
         <div className="space-y-3">
           <div className="space-y-1">
@@ -1319,6 +1358,8 @@ function ReportFiltersCard({ reportFilters, playerOptions, homeTeam, awayTeam })
             />
           </div>
         </div>
+        </>
+        )}
       </CardContent>
     </Card>
   );
@@ -4121,9 +4162,10 @@ export default function MatchReport() {
   const [vizTeam, setVizTeam] = useState('both'); // home|away|both
   const [vizActions, setVizActions] = useState([]); // [] means all
   const [vizHalves, setVizHalves] = useState([]); // [] means all
-  const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise ['yes','no']
+  const [vizCounters, setVizCounters] = useState([]); // [] means any, otherwise possession transition states
   const [vizPlayerIds, setVizPlayerIds] = useState([]); // [] means all
   const [vizColorBy, setVizColorBy] = useState('team'); // team|action|outcome
+  const [vizFiltersOpen, setVizFiltersOpen] = useState(false);
   const [sharedVizOpen, setSharedVizOpen] = useState(false);
   const [sharedVizTitle, setSharedVizTitle] = useState('');
   const [sharedVizStats, setSharedVizStats] = useState([]);
@@ -4265,15 +4307,24 @@ export default function MatchReport() {
 
   const filteredForViz = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
+    const possessionGroups = groupByPossession(list);
+    const counterStateByPossession = new Map(
+      Array.from(possessionGroups.entries()).map(([key, evs]) => {
+        const [teamSide] = String(key).split('-');
+        const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+        return [key, deriveCounterAttackState(acting)];
+      })
+    );
     return list.filter((s) => {
       if (!s) return false;
       if (vizTeam !== 'both' && s.team_side !== vizTeam) return false;
       if (vizActions.length && !vizActions.includes(s.stat_type)) return false;
       if (vizHalves.length && !vizHalves.includes(s.half)) return false;
       if (vizCounters.length) {
-        const isYes = !!s.counter_attack;
-        if (isYes && !vizCounters.includes('yes')) return false;
-        if (!isYes && !vizCounters.includes('no')) return false;
+        const possKey = `${s?.possession_team_side || 'unknown'}-${s?.possession_id ?? 'na'}`;
+        const state = counterStateByPossession.get(possKey) || 'Set Attack';
+        const stateKey = state === 'Counter Attack' ? 'counter_attack' : state === 'Counter -> Set' ? 'counter_to_set' : 'set_attack';
+        if (!vizCounters.includes(stateKey)) return false;
       }
       if (vizPlayerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
@@ -5016,65 +5067,81 @@ export default function MatchReport() {
             <div className="grid lg:grid-cols-[340px_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Filters</div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Team</Label>
-                    <Select value={vizTeam} onValueChange={setVizTeam}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">Filters</div>
+                      {!vizFiltersOpen && <div className="text-[11px] text-slate-500">Collapsed</div>}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setVizFiltersOpen((v) => !v)}>
+                      {vizFiltersOpen ? 'Hide Filters' : 'Show Filters'}
+                      <ChevronDown className={`ml-1 h-3.5 w-3.5 transition-transform ${vizFiltersOpen ? 'rotate-180' : ''}`} />
+                    </Button>
                   </div>
 
-                  <MultiSelect
-                    label="Action"
-                    values={vizActions}
-                    onChange={setVizActions}
-                    options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                  />
+                  {!vizFiltersOpen ? (
+                    <div className="text-xs text-slate-500">Showing {filteredForViz.length} events.</div>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Team</Label>
+                        <Select value={vizTeam} onValueChange={setVizTeam}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="both">Both</SelectItem>
+                            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                  <MultiSelect
-                    label="Half"
-                    values={vizHalves}
-                    onChange={setVizHalves}
-                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                  />
+                      <MultiSelect
+                        label="Action"
+                        values={vizActions}
+                        onChange={setVizActions}
+                        options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                      />
 
-                  <MultiSelect
-                    label="Counter Attack"
-                    placeholder="Any"
-                    values={vizCounters}
-                    onChange={setVizCounters}
-                    options={[
-                      { value: 'yes', label: 'Yes' },
-                      { value: 'no', label: 'No' },
-                    ]}
-                  />
+                      <MultiSelect
+                        label="Half"
+                        values={vizHalves}
+                        onChange={setVizHalves}
+                        options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                      />
 
-                  <MultiSelect
-                    label="Player"
-                    values={vizPlayerIds}
-                    onChange={setVizPlayerIds}
-                    options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-                  />
+                      <MultiSelect
+                        label="Counter Attack"
+                        placeholder="Any"
+                        values={vizCounters}
+                        onChange={setVizCounters}
+                        options={[
+                          { value: 'set_attack', label: 'Set Attack' },
+                          { value: 'counter_attack', label: 'Counter Attack' },
+                          { value: 'counter_to_set', label: 'Counter -> Set' },
+                        ]}
+                      />
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Color By</Label>
-                    <Select value={vizColorBy} onValueChange={setVizColorBy}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="team">Team</SelectItem>
-                        <SelectItem value="action">Action</SelectItem>
-                        <SelectItem value="outcome">Outcome</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <MultiSelect
+                        label="Player"
+                        values={vizPlayerIds}
+                        onChange={setVizPlayerIds}
+                        options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+                      />
 
-                  <div className="text-xs text-slate-500 pt-2">Showing {filteredForViz.length} events.</div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Color By</Label>
+                        <Select value={vizColorBy} onValueChange={setVizColorBy}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="team">Team</SelectItem>
+                            <SelectItem value="action">Action</SelectItem>
+                            <SelectItem value="outcome">Outcome</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="text-xs text-slate-500 pt-2">Showing {filteredForViz.length} events.</div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
