@@ -1473,8 +1473,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const g = shotOutcomeGroup(s.outcome);
               const outcomeColor = colors[g] || colors.other;
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
-              const fillColor = teamMode === 'both' ? teamColor : outcomeColor;
-              const strokeColor = teamMode === 'both' ? outcomeColor : '#ffffff';
+              const fillColor = outcomeColor;
+              const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
               const size = 2.2;
               const tip = [
@@ -1533,7 +1533,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = team, outline = outcome group.' : 'Colour = outcome group.'}
+          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = outcome group, outline = team.' : 'Colour = outcome group.'}
         </div>
       </CardContent>
     </Card>
