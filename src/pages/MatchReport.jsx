@@ -1499,7 +1499,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       fill={fillColor}
                       opacity="0.9"
                       stroke="#111827"
-                      strokeWidth="0.45"
+                      strokeWidth={teamMode === 'both' ? '2' : '0.85'}
                     >
                       <title>{tip}</title>
                     </rect>
@@ -1510,7 +1510,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       height={size * 2}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
+                      strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
                     />
                   </g>
                 );
@@ -1527,7 +1527,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       opacity="0.9"
                       transform={`rotate(45 ${x} ${y})`}
                       stroke="#111827"
-                      strokeWidth="0.45"
+                      strokeWidth={teamMode === 'both' ? '2' : '0.85'}
                     >
                       <title>{tip}</title>
                     </rect>
@@ -1539,17 +1539,32 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                       fill="none"
                       transform={`rotate(45 ${x} ${y})`}
                       stroke={strokeColor}
-                      strokeWidth={teamMode === 'both' ? '1.2' : '0.6'}
+                      strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
                     />
                   </g>
                 );
               }
               return (
                 <g key={s.id}>
-                  <circle cx={x} cy={y} r={size} fill={fillColor} opacity="0.9" stroke="#111827" strokeWidth="0.45">
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={size}
+                    fill={fillColor}
+                    opacity="0.9"
+                    stroke="#111827"
+                    strokeWidth={teamMode === 'both' ? '2' : '0.85'}
+                  >
                     <title>{tip}</title>
                   </circle>
-                  <circle cx={x} cy={y} r={size} fill="none" stroke={strokeColor} strokeWidth={teamMode === 'both' ? '1.2' : '0.6'} />
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={size}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={teamMode === 'both' ? '0.95' : '0.6'}
+                  />
                 </g>
               );
             })}
@@ -4200,6 +4215,7 @@ export default function MatchReport() {
 
     return list.filter((s) => {
       if (!s) return false;
+      if (reportTeam !== 'both' && s.team_side !== reportTeam) return false;
       if (reportHalves.length && !reportHalves.includes(s.half)) return false;
       if (reportActionTypes.length && !reportActionTypes.includes(String(s.stat_type || ''))) return false;
       if (reportOutcomes.length) {
