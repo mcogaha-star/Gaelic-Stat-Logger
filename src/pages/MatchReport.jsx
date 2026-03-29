@@ -64,6 +64,8 @@ const db = globalThis.__B44_DB__ || {
   }),
 };
 
+const REPORT_PITCH_VERTICAL_SCALE = 0.88;
+
 function safeParseJSON(s, fallback) {
   try {
     const v = JSON.parse(s);
@@ -662,7 +664,7 @@ function DirectionBadge({ className = '' }) {
   );
 }
 
-function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true }) {
+function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = true, verticalScale = REPORT_PITCH_VERTICAL_SCALE }) {
   const defaultActionPalette = {
     shot: '#111827',
     kickout: '#0f766e',
@@ -756,7 +758,7 @@ function PitchViz({ stats, homeColor, awayColor, colorBy, showColorControls = tr
       <div
         className="relative w-full"
         style={{
-          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+          aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
           backgroundImage: `url(${pitchImg})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
@@ -935,7 +937,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
           <div
             className="relative w-full"
             style={{
-              aspectRatio: `${PITCH_W / 2} / ${PITCH_H}`,
+              aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
               backgroundPosition: 'right center',
@@ -1430,7 +1432,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         <div
           className="relative w-full rounded-xl border border-slate-200 overflow-hidden"
           style={{
-            aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+            aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
@@ -4657,7 +4659,7 @@ export default function MatchReport() {
                     Filters
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-[320px] max-w-[90vw] p-4">
+                <PopoverContent align="end" className="w-[320px] max-w-[90vw] max-h-[80vh] overflow-y-auto p-4">
                   <div className="space-y-4">
                     {activeTab === 'summary' && (
                       <>
@@ -5179,8 +5181,6 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
-              focusPlayerId={playersFocusPlayerId}
-              setFocusPlayerId={setPlayersFocusPlayerId}
             />
           </TabsContent>
 
@@ -5189,8 +5189,15 @@ export default function MatchReport() {
               stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
-              playerOptions={playerOptions}
               reportFilters={reportFilters}
+              eventCategory={defenseEventCategory}
+              setEventCategory={setDefenseEventCategory}
+              turnoverResult={defenseTurnoverResult}
+              setTurnoverResult={setDefenseTurnoverResult}
+              turnoverTypes={defenseTurnoverTypes}
+              setTurnoverTypes={setDefenseTurnoverTypes}
+              defTypes={defenseDefTypes}
+              setDefTypes={setDefenseDefTypes}
             />
           </TabsContent>
 
@@ -5211,6 +5218,8 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              focusPlayerId={playersFocusPlayerId}
+              setFocusPlayerId={setPlayersFocusPlayerId}
             />
           </TabsContent>
 
