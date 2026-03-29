@@ -31,6 +31,16 @@ const DEFINITIONS = [
   ['No-Carry Pass Rate', 'Passes played by a player before they have carried the ball in that same possession, divided by touches.'],
 ];
 
+const ID_EDIT_GUIDE = [
+  ['Open It', 'In the Data tab, expand a row or grouped possession and choose `Edit IDs` to open the guided play and possession editor.'],
+  ['Use Scope First', 'Choose `This row only` when one event is wrong, `This row + following rows` when the possession break happens too late, and `Entire current possession` when the whole possession should move together.'],
+  ['Move Possessions Safely', 'Use `Move to previous possession`, `Move to next possession`, or `Move to chosen possession` when an event is attached to the wrong possession. Use `Start new possession here` when a new possession should begin at that row.'],
+  ['Change Team Carefully', 'Use `Change possession team` when the possession number is correct but the team attribution is wrong.'],
+  ['Reorder Plays', 'Use `Move earlier`, `Move later`, `Move before chosen row`, or `Move after chosen row` when the event sequence is wrong. The tool resequences play IDs automatically to keep the order valid.'],
+  ['Advanced Raw IDs', 'Only use the advanced raw section when you know the exact play and possession numbers you want. It is more powerful, but easier to misuse than the guided actions.'],
+  ['Best Workflow', 'Fix ordering first if the sequence is wrong, then fix possession grouping, then recheck the Possessions and Visualiser views to make sure the cleanup behaved as expected.'],
+];
+
 export default function About() {
   return (
     <div className="min-h-screen bg-slate-50">
@@ -83,6 +93,23 @@ export default function About() {
             </div>
             <div className="space-y-3">
               {DEFINITIONS.map(([term, meaning]) => (
+                <div key={term} className="rounded-xl border border-slate-200 p-4">
+                  <div className="font-semibold text-slate-900">{term}</div>
+                  <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <div className="text-xl font-semibold text-slate-900">Edit IDs Guide</div>
+              <div className="text-sm text-slate-500 mt-1">How to fix play order and possession grouping safely in the Data tab.</div>
+            </div>
+            <div className="space-y-3">
+              {ID_EDIT_GUIDE.map(([term, meaning]) => (
                 <div key={term} className="rounded-xl border border-slate-200 p-4">
                   <div className="font-semibold text-slate-900">{term}</div>
                   <div className="text-sm text-slate-600 mt-1">{meaning}</div>
