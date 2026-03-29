@@ -2891,7 +2891,8 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
 }
 
 function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
-  const base = useMemo(() => applyNonTeamReportFilters(stats, reportFilters), [stats, reportFilters]);
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['throw_in'] }), [reportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const throwIns = useMemo(() => base.filter((s) => s?.stat_type === 'throw_in'), [base]);
 
   const kpis = useMemo(() => {
@@ -2954,7 +2955,7 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
       <div className="space-y-4">
         {throwIns.length === 0 ? (
@@ -3382,7 +3383,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <div className="space-y-4">
-        <ReportFiltersCard reportFilters={scopedReportFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+        <ReportFiltersCard reportFilters={analysisFilters} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
       </div>
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
