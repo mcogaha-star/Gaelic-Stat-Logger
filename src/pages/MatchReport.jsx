@@ -14,7 +14,9 @@ import { createPageUrl } from '@/utils';
 import {
   getMatchSectionOffsets,
   getMatchTimeS,
+  normalizeFoulType,
   shotPointsForOutcome,
+  statHasEnteredOpp45,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -26,6 +28,7 @@ import {
   ReportFiltersFields,
   PitchViz,
   MultiSelect,
+  toTitleCase,
 } from '@/features/report/shared';
 import ScoringTab from '@/features/report/tabs/ScoringTab';
 import PossessionsTab from '@/features/report/tabs/PossessionsTab';
