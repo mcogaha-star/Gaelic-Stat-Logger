@@ -522,6 +522,13 @@ export default function StatModalV4({
     try { return JSON.parse(s); } catch { return {}; }
   };
   const shortcuts = useMemo(() => parseShortcutConfig(shortcutConfig), [shortcutConfig]);
+  const rosters = useMemo(() => {
+    // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
+    return {
+      home: (homeRoster && Array.isArray(homeRoster)) ? homeRoster : homePlayers,
+      away: (awayRoster && Array.isArray(awayRoster)) ? awayRoster : awayPlayers,
+    };
+  }, [homeRoster, awayRoster, homePlayers, awayPlayers]);
 
   // Edit mode: seed fields from an existing row.
   useEffect(() => {
@@ -851,14 +858,6 @@ export default function StatModalV4({
     if (value === NONE) return !!touchedRoles?.[roleKey];
     return false;
   };
-
-  const rosters = useMemo(() => {
-    // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
-    return {
-      home: (homeRoster && Array.isArray(homeRoster)) ? homeRoster : homePlayers,
-      away: (awayRoster && Array.isArray(awayRoster)) ? awayRoster : awayPlayers,
-    };
-  }, [homeRoster, awayRoster, homePlayers, awayPlayers]);
 
   const benchPlayersBySide = useMemo(() => {
     const build = (side) => {
