@@ -127,6 +127,7 @@ export default function MatchStats() {
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
     const [endPeriodPrompt, setEndPeriodPrompt] = useState({ open: false, nextHalf: null });
+    const [nextHalfReminder, setNextHalfReminder] = useState({ open: false, nextHalf: null });
 
     // v0.5: video timestamp support (local-only)
     const [currentVideoTimeS, setCurrentVideoTimeS] = useState(null);
@@ -205,18 +206,20 @@ export default function MatchStats() {
         }
     };
 
-    const setHalfStartFromVideo = async () => {
+    const setHalfStartFromVideoFor = async (targetHalf) => {
         if (!match?.id) return;
         if (!Number.isFinite(Number(currentVideoTimeS))) {
             toast.error('Open video window first');
             return;
         }
         const next = { ...(halfStartByHalf || {}) };
-        next[half] = Math.floor(Number(currentVideoTimeS));
+        next[targetHalf] = Math.floor(Number(currentVideoTimeS));
         await db.entities.Match.update(match.id, { video_half_start_time_s: JSON.stringify(next) });
         queryClient.invalidateQueries({ queryKey: ['match', matchId] });
-        toast.success('Half start set');
+        toast.success(`${String(targetHalf).replace('_', ' ')} start set`);
     };
+
+    const setHalfStartFromVideo = async () => setHalfStartFromVideoFor(half);
 
     useEffect(() => {
         if (!match?.id) return;
@@ -362,7 +365,7 @@ export default function MatchStats() {
         if (!nextHalf) return;
         const nextAnchor = Number(halfStartByHalf?.[nextHalf]);
         if (Number.isFinite(nextAnchor)) return;
-        toast.message(`Reminder: set ${String(nextHalf).replace('_', ' ')} video start time when the next half begins.`);
+        setNextHalfReminder({ open: true, nextHalf });
     };
 
     useEffect(() => {
@@ -1155,6 +1158,32 @@ export default function MatchStats() {
                             }}
                         >
                             Keep direction
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={nextHalfReminder.open} onOpenChange={(open) => !open && setNextHalfReminder({ open: false, nextHalf: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Set next half start time?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Remember to set the {String(nextHalfReminder.nextHalf || '').replace('_', ' ')} video start time. This keeps cross-half timing and video sync accurate.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setNextHalfReminder({ open: false, nextHalf: null })}>
+                            Later
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async () => {
+                                const targetHalf = nextHalfReminder.nextHalf;
+                                if (!targetHalf) return;
+                                await setHalfStartFromVideoFor(targetHalf);
+                                setNextHalfReminder({ open: false, nextHalf: null });
+                            }}
+                        >
+                            Set from video
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
