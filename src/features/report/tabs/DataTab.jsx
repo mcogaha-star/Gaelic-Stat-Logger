@@ -585,7 +585,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         </SelectContent>
                       </Select>
                     </div>
-                    <Button type="button" size="sm" disabled={persistMutation.isPending} onClick={() => runPossessionAction({ label: 'Move to chosen possession', targetId: targetPossessionId, targetTeam: targetPossessionTeam })}>Move to Chosen Possession</Button>
+                    <Button type="button" size="sm" disabled={persistMutation.isPending} onClick={() => runPossessionAction({ label: 'Move to chosen possession', targetId: targetPossessionId, targetTeam: targetPossessionTeam })}>Move to Chosen Poss.</Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 items-end">
                     <div className="space-y-1">
