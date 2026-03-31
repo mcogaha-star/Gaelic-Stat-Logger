@@ -415,6 +415,7 @@ export default function StatModalV4({
   awayTeamColor,
   defaultReceiver, // selection object
   initialStat, // full stat row for edit mode (optional)
+  previousStat,
   customFields, // { custom_1..custom_3: { enabled, label, options[] } }
   shortcutConfig,
   defaultCounterAttack = false,
@@ -469,12 +470,12 @@ export default function StatModalV4({
   const [kickoutLostBy, setKickoutLostBy] = useState(NONE);
   const [kickoutBrokenBy, setKickoutBrokenBy] = useState(NONE);
   const [kickoutMark, setKickoutMark] = useState(false);
-  const [kickoutPress, setKickoutPress] = useState('');
+  const [kickoutPress, setKickoutPress] = useState('m2m');
 
   // Shot
   const [shotType, setShotType] = useState('');
-  const [shotSituation, setShotSituation] = useState('');
-  const [shotMethod, setShotMethod] = useState('');
+  const [shotSituation, setShotSituation] = useState('play');
+  const [shotMethod, setShotMethod] = useState('right');
   const [shotPressure, setShotPressure] = useState('');
   const [shotOutcome, setShotOutcome] = useState('');
   const [shotOutcomeTouched, setShotOutcomeTouched] = useState(false);
@@ -493,7 +494,7 @@ export default function StatModalV4({
   }, [parsedVideoTimeS, halfStartTimeS]);
 
   // Defensive contact
-  const [defType, setDefType] = useState('');
+  const [defType, setDefType] = useState('contact');
 
   // Carry (drag)
   const [carrier, setCarrier] = useState(NONE);
@@ -509,7 +510,7 @@ export default function StatModalV4({
   const [passIntendedRecipient, setPassIntendedRecipient] = useState(NONE);
   const [passMethod, setPassMethod] = useState('hand');
   const [passStyle, setPassStyle] = useState('chest');
-  const [passPressure, setPassPressure] = useState('');
+  const [passPressure, setPassPressure] = useState('low');
   const [passOutcome, setPassOutcome] = useState('completed');
   const [passWonBy, setPassWonBy] = useState(NONE);
   const [deadball, setDeadball] = useState(false);
@@ -576,10 +577,10 @@ export default function StatModalV4({
     setKickoutLostBy(NONE);
     setKickoutBrokenBy(NONE);
     setKickoutMark(false);
-    setKickoutPress('');
+    setKickoutPress('m2m');
     setShotType('');
-    setShotSituation('');
-    setShotMethod('');
+    setShotSituation('play');
+    setShotMethod('right');
     setShotPressure('');
     setShotOutcome('');
     setShotOutcomeTouched(false);
@@ -587,7 +588,7 @@ export default function StatModalV4({
     setShotRecoveredBy(NONE);
     setShotBlockedBy(NONE);
     setShotSavedBy(NONE);
-    setDefType('');
+    setDefType('contact');
     setCarrier(NONE);
     setCarrierPressure('low');
     setTakeOnAttempted(false);
@@ -599,7 +600,7 @@ export default function StatModalV4({
     setPassIntendedRecipient(NONE);
     setPassMethod('hand');
     setPassStyle('chest');
-    setPassPressure('');
+    setPassPressure('low');
     setPassOutcome('completed');
     setPassWonBy(NONE);
     setDeadball(false);
@@ -791,9 +792,14 @@ export default function StatModalV4({
     const def = selectionToValue(defaultReceiver);
     setPassMethod('hand');
     setPassStyle('chest');
+    setPassPressure('low');
     setPassOutcome('completed');
     setCarrierPressure('low');
     setCarryOutcome('completed');
+    setShotSituation('play');
+    setShotMethod('right');
+    setDefType('contact');
+    setKickoutPress('m2m');
     if (!isDrag) {
       // Defaults for click-based actors.
       setPrimaryPlayer(def);
@@ -820,13 +826,26 @@ export default function StatModalV4({
     if (action === 'pass') {
       if (!passMethod) setPassMethod('hand');
       if (!passStyle) setPassStyle('chest');
+      if (!passPressure) setPassPressure('low');
       if (!passOutcome) setPassOutcome('completed');
     }
     if (action === 'carry') {
       if (!carrierPressure) setCarrierPressure('low');
       if (!carryOutcome) setCarryOutcome('completed');
     }
-  }, [open, initialStat?.id, action, passMethod, passStyle, passOutcome, carrierPressure, carryOutcome]);
+    if (action === 'shot') {
+      if (!shotSituation) {
+        setShotSituation(previousStat?.stat_type === 'foul' ? 'free_hands' : 'play');
+      }
+      if (!shotMethod) setShotMethod('right');
+    }
+    if (action === 'defensive_contact' && !defType) {
+      setDefType('contact');
+    }
+    if (action === 'kickout' && !kickoutPress) {
+      setKickoutPress('m2m');
+    }
+  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {
@@ -1383,6 +1402,7 @@ export default function StatModalV4({
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     }
 
+    onClose?.();
     onSubmit?.({
       stat_type: action,
       is_pass: isDrag,
@@ -1393,7 +1413,7 @@ export default function StatModalV4({
       primary_player: primary,
       extra,
     });
-    onClose?.();
+    setTimeout(() => onClose?.(), 0);
   };
 
   return (

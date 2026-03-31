@@ -121,6 +121,12 @@ export default function MatchStats() {
     const awayOnField = parseIds(match?.away_on_field);
     const homePlayers = homeTeam ? orderByOnField(allPlayers.filter(p => p.team_id === homeTeam.id), homeOnField) : [];
     const awayPlayers = awayTeam ? orderByOnField(allPlayers.filter(p => p.team_id === awayTeam.id), awayOnField) : [];
+    const previousStat = useMemo(() => {
+        const ordered = [...(stats || [])]
+            .filter((s) => s?.stat_type !== 'substitution')
+            .sort((a, b) => String(b?.timestamp || b?.created_date || '').localeCompare(String(a?.timestamp || a?.created_date || '')));
+        return ordered[0] || null;
+    }, [stats]);
 
     const halfStartByHalf = useMemo(() => {
         return safeParseJSON(match?.video_half_start_time_s || '{}', {});
@@ -810,6 +816,7 @@ export default function MatchStats() {
                     awayTeamColor: awayTeam?.color || '#ef4444',
                     lastReceiver,
                     editingStat,
+                    previousStat,
                     customFields,
                     shortcutConfig,
                     defaultCounterAttack,

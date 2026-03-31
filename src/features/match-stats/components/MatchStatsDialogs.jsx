@@ -30,6 +30,7 @@ export default function MatchStatsDialogs({
     awayTeamColor,
     lastReceiver,
     editingStat,
+    previousStat,
     customFields,
     shortcutConfig,
     defaultCounterAttack,
@@ -89,6 +90,7 @@ export default function MatchStatsDialogs({
         awayTeamColor={awayTeamColor}
         defaultReceiver={lastReceiver}
         initialStat={editingStat}
+        previousStat={previousStat}
         customFields={customFields}
         shortcutConfig={shortcutConfig}
         defaultCounterAttack={defaultCounterAttack}
