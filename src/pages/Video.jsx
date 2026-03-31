@@ -386,7 +386,7 @@ export default function Video() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [shortcutConfig, sourceType]);
+  }, [shortcutConfig, sourceType, playing]);
 
   const header = (
     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">

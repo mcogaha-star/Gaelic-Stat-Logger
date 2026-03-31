@@ -51,6 +51,10 @@ export function useMatchVideoControls({ db, matchId, match, half, halfStartByHal
       const ch = new BroadcastChannel(VIDEO_CHANNEL);
       const msg = { matchId, type: 'VIDEO_COMMAND', command };
       ch.postMessage(msg);
+      if (command === 'toggle_play_pause') {
+        setTimeout(() => ch.close(), 120);
+        return;
+      }
       setTimeout(() => ch.postMessage(msg), 120);
       setTimeout(() => ch.close(), 250);
     } catch {

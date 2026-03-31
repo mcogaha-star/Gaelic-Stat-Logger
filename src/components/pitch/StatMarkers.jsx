@@ -50,12 +50,12 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
         <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="absolute inset-0 w-full h-full pointer-events-none">
             {stats.map((stat, index) => {
                 if (!mostRecent || stat.id !== mostRecent.id) return null;
-                if (stat?.x_position == null || stat?.y_position == null) return null;
+                if (stat?.raw_x_position == null || stat?.raw_y_position == null) return null;
                 const color = STAT_COLORS[stat.stat_type] || '#ffffff';
 
-                const start = toCurrentPlane(stat, { x: stat.x_position, y: stat.y_position });
-                const end = (stat.end_x_position != null && stat.end_y_position != null)
-                    ? toCurrentPlane(stat, { x: stat.end_x_position, y: stat.end_y_position })
+                const start = toCurrentPlane(stat, { x: stat.raw_x_position, y: stat.raw_y_position });
+                const end = (stat.raw_end_x_position != null && stat.raw_end_y_position != null)
+                    ? toCurrentPlane(stat, { x: stat.raw_end_x_position, y: stat.raw_end_y_position })
                     : null;
                 
                 // Only show a line for the most recent drag stat when an end point is present.

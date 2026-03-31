@@ -497,20 +497,20 @@ export default function StatModalV4({
 
   // Carry (drag)
   const [carrier, setCarrier] = useState(NONE);
-  const [carrierPressure, setCarrierPressure] = useState('');
+  const [carrierPressure, setCarrierPressure] = useState('low');
   const [takeOnAttempted, setTakeOnAttempted] = useState(false);
   const [takeOnCompleted, setTakeOnCompleted] = useState(false);
   const [defender, setDefender] = useState(NONE);
-  const [carryOutcome, setCarryOutcome] = useState('');
+  const [carryOutcome, setCarryOutcome] = useState('completed');
   const [soloPlusGo, setSoloPlusGo] = useState(false);
 
   // Pass (drag)
   const [passer, setPasser] = useState(NONE);
   const [passIntendedRecipient, setPassIntendedRecipient] = useState(NONE);
-  const [passMethod, setPassMethod] = useState('');
-  const [passStyle, setPassStyle] = useState('');
+  const [passMethod, setPassMethod] = useState('hand');
+  const [passStyle, setPassStyle] = useState('chest');
   const [passPressure, setPassPressure] = useState('');
-  const [passOutcome, setPassOutcome] = useState('');
+  const [passOutcome, setPassOutcome] = useState('completed');
   const [passWonBy, setPassWonBy] = useState(NONE);
   const [deadball, setDeadball] = useState(false);
   const numberBufferRef = useRef('');
@@ -589,18 +589,18 @@ export default function StatModalV4({
     setShotSavedBy(NONE);
     setDefType('');
     setCarrier(NONE);
-    setCarrierPressure('');
+    setCarrierPressure('low');
     setTakeOnAttempted(false);
     setTakeOnCompleted(false);
     setDefender(NONE);
-    setCarryOutcome('');
+    setCarryOutcome('completed');
     setSoloPlusGo(false);
     setPasser(NONE);
     setPassIntendedRecipient(NONE);
-    setPassMethod('');
-    setPassStyle('');
+    setPassMethod('hand');
+    setPassStyle('chest');
     setPassPressure('');
-    setPassOutcome('');
+    setPassOutcome('completed');
     setPassWonBy(NONE);
     setDeadball(false);
     setCustom1('');
@@ -789,6 +789,11 @@ export default function StatModalV4({
     if (!open) return;
     if (initialStat?.id) return;
     const def = selectionToValue(defaultReceiver);
+    setPassMethod('hand');
+    setPassStyle('chest');
+    setPassOutcome('completed');
+    setCarrierPressure('low');
+    setCarryOutcome('completed');
     if (!isDrag) {
       // Defaults for click-based actors.
       setPrimaryPlayer(def);
@@ -808,6 +813,20 @@ export default function StatModalV4({
       setVideoTimeText('');
     }
   }, [open, defaultCounterAttack]); // intentionally seeded on open
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action === 'pass') {
+      if (!passMethod) setPassMethod('hand');
+      if (!passStyle) setPassStyle('chest');
+      if (!passOutcome) setPassOutcome('completed');
+    }
+    if (action === 'carry') {
+      if (!carrierPressure) setCarrierPressure('low');
+      if (!carryOutcome) setCarryOutcome('completed');
+    }
+  }, [open, initialStat?.id, action, passMethod, passStyle, passOutcome, carrierPressure, carryOutcome]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {
@@ -1374,6 +1393,7 @@ export default function StatModalV4({
       primary_player: primary,
       extra,
     });
+    onClose?.();
   };
 
   return (
