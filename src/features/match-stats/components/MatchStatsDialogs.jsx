@@ -74,6 +74,8 @@ export default function MatchStatsDialogs({
       <StatModalV4
         key={[
           String(editingStat?.id || 'new'),
+          (homePlayers || []).map((p) => `${p.id}:${p.number ?? ''}:${p.name || ''}`).join(','),
+          (awayPlayers || []).map((p) => `${p.id}:${p.number ?? ''}:${p.name || ''}`).join(','),
           (homeOnField || []).join(','),
           (awayOnField || []).join(','),
         ].join('|')}

@@ -431,6 +431,15 @@ export default function MatchStats() {
             const t = extra?.turnover?.turnover_type;
             if (t && t !== 'foul' && extra?.turnover?.recovered_by?.kind === 'player') return extra.turnover.recovered_by;
         }
+        if (stat_type === 'shot') {
+            const outcome = String(extra?.shot?.outcome || '');
+            const result = String(extra?.shot?.result || '');
+            if (['short', 'post', 'saved', 'blocked'].includes(outcome)
+                && ['retained', 'opposition'].includes(result)
+                && extra?.shot?.recovered_by?.kind === 'player') {
+                return extra.shot.recovered_by;
+            }
+        }
         return null;
     };
 
@@ -591,7 +600,7 @@ export default function MatchStats() {
         setPendingNextPossessionTeamSide(shouldScheduleNextPossession({ ...payload, extra }) || pending);
 
         const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
-        if (lr) setLastReceiver(lr);
+        setLastReceiver(lr || null);
 
     };
 

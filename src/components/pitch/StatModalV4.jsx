@@ -529,6 +529,12 @@ export default function StatModalV4({
     previousStat?.stat_type === 'shot'
       ? (previousStat?.team_side === 'home' ? 'away' : previousStat?.team_side === 'away' ? 'home' : null)
       : null;
+  const previousShotNeedsKickout =
+    previousStat?.stat_type === 'shot' && (() => {
+      const ex = safeParse(previousStat?.extra_data || '{}');
+      const outcome = String(ex?.shot?.outcome || '');
+      return outcome === 'wide' || ['goal', 'point', '2_point'].includes(outcome);
+    })();
   const rosters = useMemo(() => {
     // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
     return {
@@ -557,7 +563,7 @@ export default function StatModalV4({
     if (initialStat?.player_number == null) return NONE;
     return findPlayerByNumber(side, initialStat.player_number);
   })();
-    setAction(initialStat.stat_type || (isDrag ? 'pass' : 'shot'));
+    setAction(initialStat.stat_type || (isDrag ? 'pass' : (previousShotNeedsKickout ? 'kickout' : 'shot')));
     setCounterAttack(!!initialStat.counter_attack);
 
     // Reset common fields before re-seeding.
@@ -734,7 +740,7 @@ export default function StatModalV4({
       setVideoTimeText('');
       setVideoTimeTouched(false);
     }
-  }, [open, initialStat?.id]);
+  }, [open, initialStat?.id, previousShotNeedsKickout]);
 
   useEffect(() => {
     if (!open) return;
@@ -825,7 +831,10 @@ export default function StatModalV4({
     } else {
       setVideoTimeText('');
     }
-  }, [open, defaultCounterAttack, defaultReceiver]); // intentionally seeded on open
+    if (!initialStat?.id) {
+      setAction(isDrag ? 'pass' : (previousShotNeedsKickout ? 'kickout' : 'shot'));
+    }
+  }, [open, defaultCounterAttack, defaultReceiver, initialStat?.id, isDrag, previousShotNeedsKickout]); // intentionally seeded on open
 
   useEffect(() => {
     if (!open) return;
@@ -841,7 +850,11 @@ export default function StatModalV4({
     if (action === 'carry') {
       if (!carrierPressure) setCarrierPressure('low');
       if (!carryOutcome) setCarryOutcome('completed');
-      if (previousAction !== 'carry') setSoloPlusGo(false);
+      if (previousAction !== 'carry') {
+        setSoloPlusGo(false);
+        setTakeOnAttempted(false);
+        setTakeOnCompleted(false);
+      }
     }
     if (action === 'shot') {
       if (!shotPressure) setShotPressure('low');
@@ -874,10 +887,14 @@ export default function StatModalV4({
 
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {
-    if (action !== 'turnover') return;
+    const isTurnoverContext =
+      action === 'turnover'
+      || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
+      || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+    if (!isTurnoverContext) return;
     if (touchedRoles?.recovered_by) return;
     setRecoveredBy(forcedBy !== NONE ? forcedBy : NONE);
-  }, [forcedBy, action, touchedRoles]);
+  }, [forcedBy, action, passOutcome, carryOutcome, turnoverType, touchedRoles]);
 
   // Pass turnover defaults:
   // - lost_by defaults to passer
@@ -900,21 +917,27 @@ export default function StatModalV4({
     if (!isDrag) return;
     if (action !== 'pass') return;
     if (passOutcome === 'turnover') return; // "won_by" is not used for turnover passes
-    if (passWonBy !== NONE) return;
-    if (!passIntendedRecipient || passIntendedRecipient === NONE) return;
+    if (touchedRoles?.pass_won_by) return;
+    if (!passIntendedRecipient || passIntendedRecipient === NONE) {
+      if (passWonBy !== NONE) setPassWonBy(NONE);
+      return;
+    }
     if (!String(passIntendedRecipient).startsWith('player:')) return;
-    setPassWonBy(passIntendedRecipient);
-  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient]);
+    if (passWonBy !== passIntendedRecipient) setPassWonBy(passIntendedRecipient);
+  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, touchedRoles]);
 
   useEffect(() => {
     if (!open) return;
     if (initialStat?.id) return;
     if (action !== 'kickout') return;
-    if (kickoutWonBy !== NONE) return;
-    if (!intendedRecipient || intendedRecipient === NONE) return;
+    if (touchedRoles?.kickout_won_by) return;
+    if (!intendedRecipient || intendedRecipient === NONE) {
+      if (kickoutWonBy !== NONE) setKickoutWonBy(NONE);
+      return;
+    }
     if (!String(intendedRecipient).startsWith('player:')) return;
-    setKickoutWonBy(intendedRecipient);
-  }, [open, initialStat?.id, action, kickoutWonBy, intendedRecipient]);
+    if (kickoutWonBy !== intendedRecipient) setKickoutWonBy(intendedRecipient);
+  }, [open, initialStat?.id, action, kickoutWonBy, intendedRecipient, touchedRoles]);
 
   useEffect(() => {
     if (!open) return;
@@ -935,6 +958,21 @@ export default function StatModalV4({
       setShotRecoveredBy(NONE);
     }
   }, [open, action, shotOutcome, shotResult, shotRecoveredBy, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'shot') return;
+    if (shotOutcome !== 'blocked') return;
+    if (!['retained', 'opposition'].includes(String(shotResult || ''))) return;
+    if (touchedRoles?.shot_recovered_by) return;
+    const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
+    if (shooterSide !== 'home' && shooterSide !== 'away') return;
+    const requiredTeam = shotResult === 'retained'
+      ? shooterSide
+      : (shooterSide === 'home' ? 'away' : 'home');
+    const requiredValue = requiredTeam === 'away' ? TEAM_AWAY : TEAM_HOME;
+    if (shotRecoveredBy !== requiredValue) setShotRecoveredBy(requiredValue);
+  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, primaryPlayer, touchedRoles, ctx]);
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
@@ -1064,6 +1102,12 @@ export default function StatModalV4({
       return side === 'home' || side === 'away' ? side : null;
     }
     if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
+    if (k === 'shot_recovered_by' && shotOutcome === 'blocked') {
+      const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
+      if (shooterSide !== 'home' && shooterSide !== 'away') return null;
+      if (shotResult === 'retained') return shooterSide;
+      if (shotResult === 'opposition') return shooterSide === 'home' ? 'away' : 'home';
+    }
     return null;
   };
 
