@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v2';
+export const POSSESSION_REBUILD_VERSION = 'v3';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -414,7 +414,8 @@ export function buildLegacyPossessionRepairs(stats) {
       const outcome = String(next.pass.outcome || '');
       const passerSide = next.pass?.passer?.team_side || stat?.team_side;
       const wonSide = next.pass?.won_by?.team_side;
-      if (outcome === 'turnover' && next.pass.won_by && Object.keys(next.pass.won_by || {}).length) {
+      const hasPassTurnover = outcome === 'turnover' || !!next?.turnover;
+      if (hasPassTurnover && next.pass.won_by && Object.keys(next.pass.won_by || {}).length) {
         next.pass.won_by = null;
         changed = true;
       }
