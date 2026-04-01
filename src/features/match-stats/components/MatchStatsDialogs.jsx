@@ -72,6 +72,11 @@ export default function MatchStatsDialogs({
   return (
     <>
       <StatModalV4
+        key={[
+          String(editingStat?.id || 'new'),
+          (homeOnField || []).join(','),
+          (awayOnField || []).join(','),
+        ].join('|')}
         open={modalOpen}
         onClose={closeModal}
         onSubmit={handleStatSubmit}

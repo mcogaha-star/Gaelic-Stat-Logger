@@ -469,6 +469,7 @@ export default function MatchStats() {
             nextPossessionTeam = (teamSide === 'home' || teamSide === 'away') ? teamSide : 'unknown';
         }
 
+        const pendingWasApplied = !!pending;
         if (pending) {
             nextPossessionId = nextPossessionCounter + 1;
             nextPossessionCounter = nextPossessionId;
@@ -478,7 +479,7 @@ export default function MatchStats() {
 
         // Immediate possession start rules on the same row
         const startTeam = inferPossessionStart(payload);
-        if (startTeam) {
+        if (startTeam && (!pendingWasApplied || startTeam !== nextPossessionTeam)) {
             nextPossessionId = nextPossessionCounter + 1;
             nextPossessionCounter = nextPossessionId;
             nextPossessionTeam = startTeam;
@@ -527,6 +528,11 @@ export default function MatchStats() {
             extra_data: JSON.stringify(extra),
         };
 
+        setModalOpen(false);
+        setClickCoords(null);
+        setPassEndCoords(null);
+        setEditingStat(null);
+
         createStatMutation.mutate(statData);
 
         setPlayCounter(nextPlayId);
@@ -538,9 +544,6 @@ export default function MatchStats() {
         const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
         if (lr) setLastReceiver(lr);
 
-        setModalOpen(false);
-        setClickCoords(null);
-        setPassEndCoords(null);
     };
 
     const exportToCSV = () => {

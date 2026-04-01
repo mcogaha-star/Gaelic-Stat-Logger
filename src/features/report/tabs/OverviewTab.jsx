@@ -12,6 +12,14 @@ export default function OverviewTab({
   overviewMomentum,
   overviewPossessionOutcome,
 }) {
+  const momentumRows = React.useMemo(
+    () => (Array.isArray(overviewMomentum?.rows) ? overviewMomentum.rows.map((row) => ({
+      ...row,
+      swing: Number.isFinite(Number(row?.home)) ? Number(row.home) - 50 : 0,
+    })) : []),
+    [overviewMomentum]
+  );
+
   return (
     <div className="space-y-4">
       <Card>
@@ -163,7 +171,7 @@ export default function OverviewTab({
                       away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
                     }}
                   >
-                    <LineChart data={overviewMomentum.rows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                    <LineChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                       <CartesianGrid vertical={false} />
                       <XAxis
                         dataKey="minute"
@@ -173,16 +181,42 @@ export default function OverviewTab({
                         tickFormatter={(value) => `${Math.round(value)}`}
                         className="text-xs"
                       />
-                      <YAxis className="text-xs" domain={[0, 100]} tick={false} axisLine={false} tickLine={false} />
-                      <Tooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                      <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" />
-                      <Line type="monotone" dataKey="home" stroke={homeTeam?.color || '#22c55e'} strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
-                      <Line type="monotone" dataKey="away" stroke={awayTeam?.color || '#ef4444'} strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
+                      <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        content={
+                          <ChartTooltipContent
+                            formatter={(_, __, item) => {
+                              const row = item?.payload;
+                              return (
+                                <div className="space-y-1">
+                                  <div className="flex w-full justify-between gap-4">
+                                    <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
+                                    <span className="font-mono font-medium tabular-nums text-foreground">
+                                      {Math.round(Number(row?.home || 50))}%
+                                    </span>
+                                  </div>
+                                  <div className="flex w-full justify-between gap-4">
+                                    <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
+                                    <span className="font-mono font-medium tabular-nums text-foreground">
+                                      {Math.round(Number(row?.away || 50))}%
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                            labelFormatter={(_, payload) => {
+                              const row = payload?.[0]?.payload;
+                              return `Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`;
+                            }}
+                          />
+                        }
+                      />
+                      <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
                     </LineChart>
                   </ChartContainer>
                 )}
-                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window (points, productivity, turnover control, possession wins, efficiency).</div>
+                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Above the centre line favours home; below favours away.</div>
               </CardContent>
             </Card>
 

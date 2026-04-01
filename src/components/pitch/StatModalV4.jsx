@@ -518,6 +518,7 @@ export default function StatModalV4({
   const numberBufferTimerRef = useRef(null);
   const preferredSideRef = useRef(null);
   const preferredSideTimerRef = useRef(null);
+  const previousActionRef = useRef(action);
 
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
@@ -581,7 +582,7 @@ export default function StatModalV4({
     setShotType('');
     setShotSituation('play');
     setShotMethod('right');
-    setShotPressure('');
+    setShotPressure('low');
     setShotOutcome('');
     setShotOutcomeTouched(false);
     setShotResult('');
@@ -673,7 +674,7 @@ export default function StatModalV4({
       setDefType(extra?.defensive_contact?.type || '');
     } else if (type === 'carry') {
       setCarrier(selectionToValue(extra?.carry?.carrier));
-      setCarrierPressure(extra?.carry?.pressure_on_carrier || '');
+      setCarrierPressure(extra?.carry?.pressure_on_carrier || 'low');
       setTakeOnAttempted(!!extra?.carry?.take_on_attempted);
       setTakeOnCompleted(!!extra?.carry?.take_on_completed);
       setDefender(selectionToValue(extra?.carry?.defender));
@@ -684,7 +685,7 @@ export default function StatModalV4({
       setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
       setPassMethod(extra?.pass?.method || '');
       setPassStyle(extra?.pass?.style || '');
-      setPassPressure(extra?.pass?.pressure_on_passer || '');
+      setPassPressure(extra?.pass?.pressure_on_passer || 'low');
       setPassOutcome(extra?.pass?.outcome || '');
       setPassWonBy(selectionToValue(extra?.pass?.won_by));
       setDeadball(!!extra?.pass?.deadball);
@@ -818,11 +819,13 @@ export default function StatModalV4({
     } else {
       setVideoTimeText('');
     }
-  }, [open, defaultCounterAttack]); // intentionally seeded on open
+  }, [open, defaultCounterAttack, defaultReceiver]); // intentionally seeded on open
 
   useEffect(() => {
     if (!open) return;
     if (initialStat?.id) return;
+    const previousAction = previousActionRef.current;
+    previousActionRef.current = action;
     if (action === 'pass') {
       if (!passMethod) setPassMethod('hand');
       if (!passStyle) setPassStyle('chest');
@@ -832,6 +835,7 @@ export default function StatModalV4({
     if (action === 'carry') {
       if (!carrierPressure) setCarrierPressure('low');
       if (!carryOutcome) setCarryOutcome('completed');
+      if (previousAction !== 'carry') setSoloPlusGo(false);
     }
     if (action === 'shot') {
       if (!shotSituation) {
@@ -861,8 +865,9 @@ export default function StatModalV4({
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {
     if (action !== 'turnover') return;
-    if (recoveredBy === NONE && forcedBy !== NONE) setRecoveredBy(forcedBy);
-  }, [forcedBy, action]);
+    if (touchedRoles?.recovered_by) return;
+    setRecoveredBy(forcedBy !== NONE ? forcedBy : NONE);
+  }, [forcedBy, action, touchedRoles]);
 
   // Pass turnover defaults:
   // - lost_by defaults to passer
@@ -890,6 +895,36 @@ export default function StatModalV4({
     if (!String(passIntendedRecipient).startsWith('player:')) return;
     setPassWonBy(passIntendedRecipient);
   }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action !== 'kickout') return;
+    if (kickoutWonBy !== NONE) return;
+    if (!intendedRecipient || intendedRecipient === NONE) return;
+    if (!String(intendedRecipient).startsWith('player:')) return;
+    setKickoutWonBy(intendedRecipient);
+  }, [open, initialStat?.id, action, kickoutWonBy, intendedRecipient]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'carry') return;
+    if (carryOutcome !== 'foul') return;
+    if (touchedRoles?.foul_on) return;
+    if (!carrier || carrier === NONE) return;
+    setFoulOn(carrier);
+  }, [open, action, carryOutcome, carrier, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'shot') return;
+    const requiresRecoveredBy =
+      ['short', 'saved', 'blocked', 'post'].includes(String(shotOutcome || ''))
+      && ['retained', 'opposition'].includes(String(shotResult || ''));
+    if (!requiresRecoveredBy && !touchedRoles?.shot_recovered_by && shotRecoveredBy !== NONE) {
+      setShotRecoveredBy(NONE);
+    }
+  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, touchedRoles]);
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 

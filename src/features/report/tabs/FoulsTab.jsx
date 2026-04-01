@@ -149,8 +149,8 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
                   awayColor={awayTeam?.color}
                   colorBy="team"
                   showColorControls={false}
-                  mirrorAwayWhenBoth={teamMode === 'both'}
-                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                mirrorAwayWhenBoth={teamMode !== 'home'}
+                  directionLabel="Home ->"
                 />
               </CardContent>
             </Card>

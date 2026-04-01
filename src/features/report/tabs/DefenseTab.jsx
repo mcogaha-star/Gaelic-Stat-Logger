@@ -258,8 +258,8 @@ function DefenseTab({
                   awayColor={awayTeam?.color}
                   colorBy={teamMode === 'both' ? 'team' : 'action'}
                   showColorControls={false}
-                  mirrorAwayWhenBoth={teamMode === 'both'}
-                  directionLabel={teamMode === 'both' ? 'Home ->' : 'Attacking ->'}
+                mirrorAwayWhenBoth={teamMode !== 'home'}
+                  directionLabel="Home ->"
                 />
               </CardContent>
             </Card>

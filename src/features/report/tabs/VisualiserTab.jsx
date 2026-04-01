@@ -9,8 +9,8 @@ export default function VisualiserTab({ filteredForViz, homeTeam, awayTeam, vizC
         homeColor={homeTeam?.color}
         awayColor={awayTeam?.color}
         colorBy={vizColorBy}
-        mirrorAwayWhenBoth={vizTeam === 'both'}
-        directionLabel={vizTeam === 'both' ? 'Home ->' : 'Attacking ->'}
+      mirrorAwayWhenBoth={vizTeam !== 'home'}
+        directionLabel="Home ->"
       />
     </div>
   );

@@ -627,11 +627,11 @@ function DirectionBadge({ className = '', label = 'Attacking ->' }) {
   );
 }
 
-function transformDisplayPoint(x, y, teamSide, mirrorAwayWhenBoth) {
+function transformDisplayPoint(x, y, teamSide, mirrorAway) {
   const xx = Number(x);
   const yy = Number(y);
   if (!Number.isFinite(xx) || !Number.isFinite(yy)) return null;
-  if (mirrorAwayWhenBoth && teamSide === 'away') {
+  if (mirrorAway && teamSide === 'away') {
     return { x: PITCH_W - xx, y: PITCH_H - yy };
   }
   return { x: xx, y: yy };
@@ -645,7 +645,7 @@ function PitchViz({
   showColorControls = true,
   verticalScale = REPORT_PITCH_VERTICAL_SCALE,
   mirrorAwayWhenBoth = false,
-  directionLabel = 'Attacking ->',
+  directionLabel = 'Home ->',
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -1425,10 +1425,10 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
             backgroundPosition: 'center',
           }}
         >
-          <DirectionBadge label={teamMode === 'both' ? 'Home ->' : 'Attacking ->'} />
+          <DirectionBadge label="Home ->" />
           <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
             {visible.map((s) => {
-              const point = transformDisplayPoint(s.x, s.y, s.team_side, teamMode === 'both');
+              const point = transformDisplayPoint(s.x, s.y, s.team_side, teamMode !== 'home');
               if (!point) return null;
               const x = point.x;
               const y = point.y;

@@ -59,7 +59,8 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
                     : null;
                 
                 // Only show a line for the most recent drag stat when an end point is present.
-                if (stat.is_pass && end) {
+                const hasMeaningfulEnd = !!end && !(Number(end.x) === 0 && Number(end.y) === 0);
+                if (stat.is_pass && stat.stat_type !== 'throw_in' && hasMeaningfulEnd) {
                     return (
                         <g key={index}>
                             <line
