@@ -76,25 +76,28 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
+    const statsByPossessionKey = new Map();
+    orderedBase.forEach((stat) => {
+      const pid = Number(stat?.possession_id);
+      const pside = stat?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
+      const key = `${pside}-${pid}`;
+      const arr = statsByPossessionKey.get(key) || [];
+      arr.push(stat);
+      statsByPossessionKey.set(key, arr);
+    });
     const previousByPossessionKey = new Map();
-    orderedBase.forEach((stat, index) => {
+    orderedBase.forEach((stat) => {
       const pid = Number(stat?.possession_id);
       const pside = stat?.possession_team_side;
       if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
       const key = `${pside}-${pid}`;
       if (!previousByPossessionKey.has(key)) {
-        let prev = null;
-        for (let i = index - 1; i >= 0; i -= 1) {
-          const candidate = orderedBase[i];
-          const cpid = Number(candidate?.possession_id);
-          const cpside = candidate?.possession_team_side;
-          if (!Number.isFinite(cpid) || (cpside !== 'home' && cpside !== 'away')) continue;
-          const candidateKey = `${cpside}-${cpid}`;
-          if (candidateKey === key) continue;
-          prev = candidate;
-          break;
-        }
-        previousByPossessionKey.set(key, prev);
+        const keys = Array.from(statsByPossessionKey.keys());
+        const idx = keys.indexOf(key);
+        const prevKey = idx > 0 ? keys[idx - 1] : null;
+        const prevGroup = prevKey ? statsByPossessionKey.get(prevKey) || [] : [];
+        previousByPossessionKey.set(key, prevGroup.length ? prevGroup[prevGroup.length - 1] : null);
       }
     });
 
