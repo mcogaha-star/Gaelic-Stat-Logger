@@ -170,7 +170,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const possToShot = possN ? (rows.filter((p) => p.shots > 0).length / possN) * 100 : NaN;
       const attToShot = attN ? (att.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
       const passesPerPoss = possN ? rows.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
-      const scoringPoss = possN ? (rows.filter((p) => p.outcome === 'Score').length / possN) * 100 : NaN;
+      const scoringPoss = possN ? (rows.filter((p) => Number(p.points || 0) > 0).length / possN) * 100 : NaN;
       const counterPoss = possN ? (rows.filter((p) => p.counterState === 'Counter Attack').length / possN) * 100 : NaN;
       const channels = { Left: 0, Middle: 0, Right: 0 };
       rows.filter((p) => p.isAttack).forEach((p) => {
@@ -244,9 +244,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
                       {[
-                        { k: 'Score', c: '#16a34a' },
-                        { k: 'Missed Shot', c: '#f59e0b' },
-                        { k: 'Turnover', c: '#dc2626' },
+                        { k: 'Score', c: '#059669' },
+                        { k: 'Missed Shot', c: '#eab308' },
+                        { k: 'Turnover', c: '#7c3aed' },
                         { k: 'Half End', c: '#64748b' },
                       ].map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
@@ -267,9 +267,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
                       {[
-                        { k: 'Score', c: '#16a34a' },
-                        { k: 'Missed Shot', c: '#f59e0b' },
-                        { k: 'Turnover', c: '#dc2626' },
+                        { k: 'Score', c: '#059669' },
+                        { k: 'Missed Shot', c: '#eab308' },
+                        { k: 'Turnover', c: '#7c3aed' },
                         { k: 'Half End', c: '#64748b' },
                       ].map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />

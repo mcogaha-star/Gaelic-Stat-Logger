@@ -96,7 +96,7 @@ export default function OverviewTab({
             </div>
           </div>
 
-          <div className="grid gap-2 pt-2">
+          <div className="grid gap-2 pt-2 w-full lg:w-[48%] lg:max-w-[48%]">
             {(() => {
               const homePts = summary.home.points1 + summary.home.points2 * 2;
               const awayPts = summary.away.points1 + summary.away.points2 * 2;
@@ -235,9 +235,9 @@ export default function OverviewTab({
                     <Tooltip content={<ChartTooltipContent />} />
                     <Legend />
                     {[
-                      { k: 'Score', c: '#16a34a' },
-                      { k: 'Missed Shot', c: '#f59e0b' },
-                      { k: 'Turnover', c: '#dc2626' },
+                      { k: 'Score', c: '#059669' },
+                      { k: 'Missed Shot', c: '#eab308' },
+                      { k: 'Turnover', c: '#7c3aed' },
                       { k: 'Half End', c: '#64748b' },
                     ].map((o) => (
                       <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
