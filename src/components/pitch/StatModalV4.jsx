@@ -951,6 +951,16 @@ export default function StatModalV4({
     if (!open) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
+    if (passOutcome !== 'turnover') return;
+    if (passWonBy === NONE) return;
+    if (touchedRoles?.pass_won_by) return;
+    setPassWonBy(NONE);
+  }, [open, isDrag, action, passOutcome, passWonBy, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isDrag) return;
+    if (action !== 'pass') return;
     if (passOutcome !== 'completed') return;
     const side = makeSelection(passIntendedRecipient, ctx).team_side || makeSelection(passer, ctx).team_side;
     if (side !== 'home' && side !== 'away') return;
