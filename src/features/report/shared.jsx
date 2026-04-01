@@ -513,7 +513,6 @@ function inferPossessionStartSource(groupStats, teamSide, previousStat) {
     if (prev?.stat_type === 'shot') {
       const result = String(prevExtra?.shot?.result || '');
       const outcome = String(prevExtra?.shot?.outcome || '');
-      if (result === 'retained' && prev?.team_side === teamSide) return 'Shot Retained';
       if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return 'Shot Short';
       if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return 'Shot Blocked';
       if (result === 'opposition' && prev?.team_side !== teamSide) return 'Opposition Shot Won';
@@ -542,11 +541,10 @@ function inferPossessionStartSource(groupStats, teamSide, previousStat) {
   if (first?.stat_type === 'foul') return 'Foul Won';
   if (first?.stat_type === 'shot') {
     const outcome = String(firstExtra?.shot?.outcome || '');
-    if (firstExtra?.shot?.result === 'retained') return 'Shot Retained';
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
     if (firstExtra?.shot?.result === 'opposition') return 'Opposition Shot Won';
-    return 'Shot Phase';
+    return 'Open Play';
   }
   if (first?.stat_type === 'pass' && firstExtra?.pass?.deadball) return 'Restart';
   if (first?.stat_type === 'carry' && firstExtra?.carry?.solo_plus_go) return 'Restart Carry';

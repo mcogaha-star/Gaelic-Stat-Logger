@@ -135,6 +135,17 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [advancedPlayId, setAdvancedPlayId] = useState('');
   const [advancedPossessionId, setAdvancedPossessionId] = useState('');
   const [advancedPossessionTeam, setAdvancedPossessionTeam] = useState('home');
+  const [rawEditOpen, setRawEditOpen] = useState(false);
+  const [rawStatType, setRawStatType] = useState('');
+  const [rawTeamSide, setRawTeamSide] = useState('home');
+  const [rawHalf, setRawHalf] = useState('first');
+  const [rawTimeS, setRawTimeS] = useState('');
+  const [rawNormalizedTimeS, setRawNormalizedTimeS] = useState('');
+  const [rawPlayerName, setRawPlayerName] = useState('');
+  const [rawPlayerNumber, setRawPlayerNumber] = useState('');
+  const [rawRecipientName, setRawRecipientName] = useState('');
+  const [rawRecipientNumber, setRawRecipientNumber] = useState('');
+  const [rawExtraJson, setRawExtraJson] = useState('{}');
 
   const VIDEO_PRE_ROLL_S = 7;
 
@@ -370,6 +381,17 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     setAdvancedPlayId(Number.isFinite(Number(stat?.play_id)) ? String(Number(stat.play_id)) : '');
     setAdvancedPossessionId(Number.isFinite(Number(stat?.possession_id)) ? String(Number(stat.possession_id)) : '');
     setAdvancedPossessionTeam(currentTeam);
+    setRawEditOpen(false);
+    setRawStatType(stat?.stat_type || '');
+    setRawTeamSide(stat?.team_side === 'away' ? 'away' : 'home');
+    setRawHalf(stat?.half || 'first');
+    setRawTimeS(Number.isFinite(Number(stat?.time_s)) ? String(Number(stat.time_s)) : '');
+    setRawNormalizedTimeS(Number.isFinite(Number(stat?.normalized_time_s)) ? String(Number(stat.normalized_time_s)) : '');
+    setRawPlayerName(stat?.player_name || '');
+    setRawPlayerNumber(stat?.player_number == null ? '' : String(stat.player_number));
+    setRawRecipientName(stat?.recipient_name || '');
+    setRawRecipientNumber(stat?.recipient_number == null ? '' : String(stat.recipient_number));
+    setRawExtraJson(JSON.stringify(safeParseJSON(stat?.extra_data || '{}', {}), null, 2));
     setEditOpen(true);
   };
 
@@ -446,6 +468,45 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     const summary = `${updates.length} row${updates.length === 1 ? '' : 's'} will be updated. Possession rows will move to Possession ${nextPossessionId} (${formatTeamName(advancedPossessionTeam, homeTeam, awayTeam)}), and play order will be resequenced.`;
     if (!window.confirm(`Apply advanced raw ID changes?\n\n${summary}`)) return;
     persistMutation.mutate(updates);
+  };
+
+  const applyRawStatChanges = () => {
+    if (!editStat) return;
+    let parsedExtra;
+    try {
+      parsedExtra = JSON.parse(String(rawExtraJson || '{}'));
+      if (!parsedExtra || typeof parsedExtra !== 'object') throw new Error('Extra data must be an object');
+    } catch {
+      toast.error('Extra JSON is invalid');
+      return;
+    }
+
+    const nextTime = rawTimeS === '' ? null : Number(rawTimeS);
+    const nextNormTime = rawNormalizedTimeS === '' ? null : Number(rawNormalizedTimeS);
+    const nextPlayerNumber = rawPlayerNumber === '' ? null : Number(rawPlayerNumber);
+    const nextRecipientNumber = rawRecipientNumber === '' ? null : Number(rawRecipientNumber);
+    if (rawTimeS !== '' && !Number.isFinite(nextTime)) return toast.error('Time (s) must be numeric');
+    if (rawNormalizedTimeS !== '' && !Number.isFinite(nextNormTime)) return toast.error('Match Time (s) must be numeric');
+    if (rawPlayerNumber !== '' && !Number.isFinite(nextPlayerNumber)) return toast.error('Player # must be numeric');
+    if (rawRecipientNumber !== '' && !Number.isFinite(nextRecipientNumber)) return toast.error('Recipient # must be numeric');
+
+    const update = {
+      id: editStat.id,
+      data: {
+        stat_type: String(rawStatType || editStat.stat_type || ''),
+        team_side: rawTeamSide,
+        half: rawHalf,
+        time_s: nextTime,
+        normalized_time_s: nextNormTime,
+        player_name: rawPlayerName || null,
+        player_number: nextPlayerNumber,
+        recipient_name: rawRecipientName || null,
+        recipient_number: nextRecipientNumber,
+        extra_data: JSON.stringify(parsedExtra),
+      },
+    };
+    if (!window.confirm('Apply raw stat field changes to this row?')) return;
+    persistMutation.mutate([update]);
   };
 
   return (
@@ -672,6 +733,80 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   </div>
                   <div className="flex justify-end">
                     <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyAdvanced}>Apply Advanced Changes</Button>
+                  </div>
+                </div>
+              </details>
+
+              <details className="rounded-lg border border-slate-200 bg-slate-50/60 p-3" open={rawEditOpen} onToggle={(e) => setRawEditOpen(e.currentTarget.open)}>
+                <summary className="cursor-pointer font-semibold text-slate-900">Raw Stat Fields</summary>
+                <div className="space-y-3 pt-3">
+                  <div className="text-xs text-slate-600">Edit the actual row fields without changing coordinates or possession structure.</div>
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Stat Type</Label>
+                      <Input className="h-8 text-xs" value={rawStatType} onChange={(e) => setRawStatType(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Team</Label>
+                      <Select value={rawTeamSide} onValueChange={setRawTeamSide}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Half</Label>
+                      <Select value={rawHalf} onValueChange={setRawHalf}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="first">First</SelectItem>
+                          <SelectItem value="second">Second</SelectItem>
+                          <SelectItem value="et_first">ET First</SelectItem>
+                          <SelectItem value="et_second">ET Second</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-4 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Time (s)</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={rawTimeS} onChange={(e) => setRawTimeS(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Match Time (s)</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={rawNormalizedTimeS} onChange={(e) => setRawNormalizedTimeS(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Player #</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={rawPlayerNumber} onChange={(e) => setRawPlayerNumber(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Recipient #</Label>
+                      <Input className="h-8 text-xs" inputMode="numeric" value={rawRecipientNumber} onChange={(e) => setRawRecipientNumber(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Player Name</Label>
+                      <Input className="h-8 text-xs" value={rawPlayerName} onChange={(e) => setRawPlayerName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Recipient Name</Label>
+                      <Input className="h-8 text-xs" value={rawRecipientName} onChange={(e) => setRawRecipientName(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Extra JSON</Label>
+                    <textarea
+                      className="min-h-[160px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-mono"
+                      value={rawExtraJson}
+                      onChange={(e) => setRawExtraJson(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyRawStatChanges}>Apply Raw Stat Changes</Button>
                   </div>
                 </div>
               </details>

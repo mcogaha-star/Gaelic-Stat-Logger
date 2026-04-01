@@ -896,6 +896,25 @@ export default function StatModalV4({
     setRecoveredBy(forcedBy !== NONE ? forcedBy : NONE);
   }, [forcedBy, action, passOutcome, carryOutcome, turnoverType, touchedRoles]);
 
+  useEffect(() => {
+    const isTurnoverContext =
+      action === 'turnover'
+      || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
+      || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+    if (!isTurnoverContext) return;
+    const lostSide = makeSelection(lostBy, ctx).team_side;
+    const forcedSide = makeSelection(forcedBy, ctx).team_side;
+    const recoveredSide = makeSelection(recoveredBy, ctx).team_side;
+    const requiredSide =
+      lostSide === 'home' ? 'away'
+        : lostSide === 'away' ? 'home'
+        : (forcedSide === 'home' || forcedSide === 'away' ? forcedSide : null);
+    if (!requiredSide) return;
+    if (recoveredSide && recoveredSide !== requiredSide) {
+      setRecoveredBy(requiredSide === 'home' ? TEAM_HOME : TEAM_AWAY);
+    }
+  }, [action, passOutcome, carryOutcome, turnoverType, lostBy, forcedBy, recoveredBy, ctx]);
+
   // Pass turnover defaults:
   // - lost_by defaults to passer
   // - forced_by + recovered_by default to won_by
@@ -925,6 +944,19 @@ export default function StatModalV4({
     if (!String(passIntendedRecipient).startsWith('player:')) return;
     if (passWonBy !== passIntendedRecipient) setPassWonBy(passIntendedRecipient);
   }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isDrag) return;
+    if (action !== 'pass') return;
+    if (passOutcome !== 'completed') return;
+    const side = makeSelection(passIntendedRecipient, ctx).team_side || makeSelection(passer, ctx).team_side;
+    if (side !== 'home' && side !== 'away') return;
+    const wonSide = makeSelection(passWonBy, ctx).team_side;
+    if (wonSide && wonSide !== side) {
+      setPassWonBy(side === 'home' ? TEAM_HOME : TEAM_AWAY);
+    }
+  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, passer, ctx]);
 
   useEffect(() => {
     if (!open) return;
@@ -1101,7 +1133,19 @@ export default function StatModalV4({
       const side = makeSelection(passer, ctx).team_side;
       return side === 'home' || side === 'away' ? side : null;
     }
+    if (k === 'pass_won_by') {
+      const side = makeSelection(passIntendedRecipient, ctx).team_side || makeSelection(passer, ctx).team_side;
+      return side === 'home' || side === 'away' ? side : null;
+    }
     if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
+    if (k === 'kickout_won_by') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
+    if (k === 'recovered_by') {
+      const lostSide = makeSelection(lostBy, ctx).team_side;
+      if (lostSide === 'home') return 'away';
+      if (lostSide === 'away') return 'home';
+      const forcedSide = makeSelection(forcedBy, ctx).team_side;
+      return forcedSide === 'home' || forcedSide === 'away' ? forcedSide : null;
+    }
     if (k === 'shot_recovered_by' && shotOutcome === 'blocked') {
       const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
       if (shooterSide !== 'home' && shooterSide !== 'away') return null;
