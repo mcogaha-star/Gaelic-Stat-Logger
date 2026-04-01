@@ -18,8 +18,6 @@ export default function OverviewTab({
       swing: Number.isFinite(Number(row?.home)) ? Number(row.home) - 50 : 0,
       homeSwing: Number.isFinite(Number(row?.home)) ? Math.max(0, Number(row.home) - 50) : 0,
       awaySwing: Number.isFinite(Number(row?.home)) ? Math.min(0, Number(row.home) - 50) : 0,
-      homeLine: Number.isFinite(Number(row?.home)) && Number(row.home) > 50 ? Number(row.home) - 50 : null,
-      awayLine: Number.isFinite(Number(row?.home)) && Number(row.home) < 50 ? Number(row.home) - 50 : null,
     })) : []),
     [overviewMomentum]
   );
@@ -217,8 +215,7 @@ export default function OverviewTab({
                         <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
                         <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
                         <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
-                        <Line type="monotone" dataKey="homeLine" stroke={homeTeam?.color || '#22c55e'} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} activeDot={{ r: 4 }} />
-                        <Line type="monotone" dataKey="awayLine" stroke={awayTeam?.color || '#ef4444'} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} activeDot={{ r: 4 }} />
+                        <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4 }} />
                       </ComposedChart>
                     </ChartContainer>
                   </div>

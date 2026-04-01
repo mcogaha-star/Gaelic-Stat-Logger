@@ -55,7 +55,13 @@ import {
 
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }), [reportFilters]);
-  const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
+  const possessionLevelFilters = useMemo(() => ({
+    ...scopedReportFilters,
+    actionTypes: [],
+    outcomes: [],
+    playerIds: [],
+  }), [scopedReportFilters]);
+  const base = useMemo(() => applyNonTeamReportFilters(stats, possessionLevelFilters), [stats, possessionLevelFilters]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
 
   const possessions = useMemo(() => {
