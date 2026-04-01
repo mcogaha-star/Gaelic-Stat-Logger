@@ -268,13 +268,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         const arr = statsByPossessionKey.get(key) || [];
         arr.push(stat);
         statsByPossessionKey.set(key, arr);
-        if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, null);
-      }
-      const keys = Array.from(statsByPossessionKey.keys());
-      keys.forEach((key, idx) => {
-        const prevKey = idx > 0 ? keys[idx - 1] : null;
-        const prevGroup = prevKey ? statsByPossessionKey.get(prevKey) || [] : [];
-        previousByPossessionKey.set(key, prevGroup);
+        if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, i > 0 ? filteredSorted[i - 1] : null);
       });
     }
 

@@ -83,7 +83,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
     const statsByPossessionKey = new Map();
-    orderedBase.forEach((stat) => {
+    const previousByPossessionKey = new Map();
+    orderedBase.forEach((stat, index) => {
       const pid = Number(stat?.possession_id);
       const pside = stat?.possession_team_side;
       if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
@@ -91,19 +92,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const arr = statsByPossessionKey.get(key) || [];
       arr.push(stat);
       statsByPossessionKey.set(key, arr);
-    });
-    const previousByPossessionKey = new Map();
-    orderedBase.forEach((stat) => {
-      const pid = Number(stat?.possession_id);
-      const pside = stat?.possession_team_side;
-      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
-      const key = `${pside}-${pid}`;
       if (!previousByPossessionKey.has(key)) {
-        const keys = Array.from(statsByPossessionKey.keys());
-        const idx = keys.indexOf(key);
-        const prevKey = idx > 0 ? keys[idx - 1] : null;
-        const prevGroup = prevKey ? statsByPossessionKey.get(prevKey) || [] : [];
-        previousByPossessionKey.set(key, prevGroup);
+        previousByPossessionKey.set(key, index > 0 ? orderedBase[index - 1] : null);
       }
     });
 

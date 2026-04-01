@@ -512,29 +512,22 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     return turnoverType && turnoverType !== 'foul' ? recoveredSide : null;
   };
 
-  const possessionTrigger = (Array.isArray(groupStats) ? groupStats : []).find((e) => {
-    if (!e) return false;
-    const extra = safeParseJSON(e.extra_data || '{}', {});
-    if (getTurnoverWinSide(extra) === teamSide) return true;
-    if (e.stat_type === 'kickout') {
-      const outcome = String(extra?.kickout?.outcome || '');
-      return (outcome === 'clean' || outcome === 'break') && extra?.kickout?.won_by?.team_side === teamSide;
-    }
-    if (e.stat_type === 'throw_in') {
-      const outcome = String(extra?.throw_in?.outcome || '');
-      return (outcome === 'clean' || outcome === 'break') && extra?.throw_in?.won_by?.team_side === teamSide;
-    }
-    if (e.stat_type === 'foul') {
-      const foul = extractFoulFromStat(e);
-      const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
-      return foulOn === teamSide;
-    }
-    return false;
-  });
-  if (getTurnoverWinSide(safeParseJSON(possessionTrigger?.extra_data || '{}', {})) === teamSide) return 'Turnover Won';
-  if (possessionTrigger?.stat_type === 'kickout') return 'Kickout Won';
-  if (possessionTrigger?.stat_type === 'throw_in') return 'Throw In Won';
-  if (possessionTrigger?.stat_type === 'foul') return 'Foul Won';
+  const firstAll = Array.isArray(groupStats) && groupStats.length ? groupStats[0] : null;
+  const firstAllExtra = safeParseJSON(firstAll?.extra_data || '{}', {});
+  if (getTurnoverWinSide(firstAllExtra) === teamSide) return 'Turnover Won';
+  if (firstAll?.stat_type === 'kickout') {
+    const outcome = String(firstAllExtra?.kickout?.outcome || '');
+    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.kickout?.won_by?.team_side === teamSide) return 'Kickout Won';
+  }
+  if (firstAll?.stat_type === 'throw_in') {
+    const outcome = String(firstAllExtra?.throw_in?.outcome || '');
+    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return 'Throw In Won';
+  }
+  if (firstAll?.stat_type === 'foul') {
+    const foul = extractFoulFromStat(firstAll);
+    const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+    if (foulOn === teamSide) return 'Foul Won';
+  }
 
   if (getTurnoverWinSide(prevExtra) === teamSide) return 'Turnover Won';
   if (prev?.stat_type === 'shot') {
