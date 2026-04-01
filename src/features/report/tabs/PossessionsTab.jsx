@@ -82,7 +82,20 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const pside = stat?.possession_team_side;
       if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
       const key = `${pside}-${pid}`;
-      if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, orderedBase[index - 1] || null);
+      if (!previousByPossessionKey.has(key)) {
+        let prev = null;
+        for (let i = index - 1; i >= 0; i -= 1) {
+          const candidate = orderedBase[i];
+          const cpid = Number(candidate?.possession_id);
+          const cpside = candidate?.possession_team_side;
+          if (!Number.isFinite(cpid) || (cpside !== 'home' && cpside !== 'away')) continue;
+          const candidateKey = `${cpside}-${cpid}`;
+          if (candidateKey === key) continue;
+          prev = candidate;
+          break;
+        }
+        previousByPossessionKey.set(key, prev);
+      }
     });
 
     const out = [];
