@@ -511,10 +511,16 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const recoveredSide = extra?.turnover?.recovered_by?.team_side;
     return turnoverType && turnoverType !== 'foul' ? recoveredSide : null;
   };
+  const getTurnoverFoulWinSide = (stat) => {
+    const extra = safeParseJSON(stat?.extra_data || '{}', {});
+    const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
+    if (turnoverType !== 'foul') return null;
+    const foul = extractFoulFromStat(stat);
+    return foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
+  };
 
   const firstAll = Array.isArray(groupStats) && groupStats.length ? groupStats[0] : null;
   const firstAllExtra = safeParseJSON(firstAll?.extra_data || '{}', {});
-  if (getTurnoverWinSide(firstAllExtra) === teamSide) return 'Turnover Won';
   if (firstAll?.stat_type === 'kickout') {
     const outcome = String(firstAllExtra?.kickout?.outcome || '');
     if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.kickout?.won_by?.team_side === teamSide) return 'Kickout Won';
@@ -523,13 +529,9 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const outcome = String(firstAllExtra?.throw_in?.outcome || '');
     if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return 'Throw In Won';
   }
-  if (firstAll?.stat_type === 'foul') {
-    const foul = extractFoulFromStat(firstAll);
-    const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
-    if (foulOn === teamSide) return 'Foul Won';
-  }
 
   if (getTurnoverWinSide(prevExtra) === teamSide) return 'Turnover Won';
+  if (getTurnoverFoulWinSide(prev) === teamSide) return 'Foul Won';
   if (prev?.stat_type === 'shot') {
     const result = String(prevExtra?.shot?.result || '');
     const outcome = String(prevExtra?.shot?.outcome || '');
@@ -552,6 +554,9 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
     if (foulOn === teamSide) return 'Foul Won';
   }
+
+  if (getTurnoverWinSide(firstAllExtra) === teamSide) return 'Turnover Won';
+  if (getTurnoverFoulWinSide(firstAll) === teamSide) return 'Foul Won';
 
   if (!first) return 'Open Play';
   if (first?.stat_type === 'kickout') return 'Kickout Won';
