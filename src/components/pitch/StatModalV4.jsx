@@ -959,6 +959,8 @@ export default function StatModalV4({
     }
   }, [open, action, shotOutcome, shotResult, shotRecoveredBy, touchedRoles]);
 
+  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
+
   useEffect(() => {
     if (!open) return;
     if (action !== 'shot') return;
@@ -973,8 +975,6 @@ export default function StatModalV4({
     const requiredValue = requiredTeam === 'away' ? TEAM_AWAY : TEAM_HOME;
     if (shotRecoveredBy !== requiredValue) setShotRecoveredBy(requiredValue);
   }, [open, action, shotOutcome, shotResult, shotRecoveredBy, primaryPlayer, touchedRoles, ctx]);
-
-  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   const isRoleFilled = (roleKey, value) => {
     if (!roleKey) return false;
