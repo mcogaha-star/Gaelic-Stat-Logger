@@ -506,12 +506,13 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     : previousContext ? [previousContext] : [];
   const prev = previousStats.length ? previousStats[previousStats.length - 1] : null;
   const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
+  const getTurnoverWinSide = (extra) => {
+    const turnoverType = String(extra?.turnover?.turnover_type || '');
+    const recoveredSide = extra?.turnover?.recovered_by?.team_side;
+    return turnoverType && turnoverType !== 'foul' ? recoveredSide : null;
+  };
 
-  if (prev?.stat_type === 'turnover') {
-    const turnoverType = String(prevExtra?.turnover?.turnover_type || '');
-    const recoveredSide = prevExtra?.turnover?.recovered_by?.team_side;
-    if (turnoverType && turnoverType !== 'foul' && recoveredSide === teamSide) return 'Turnover Won';
-  }
+  if (getTurnoverWinSide(prevExtra) === teamSide) return 'Turnover Won';
   if (prev?.stat_type === 'shot') {
     const result = String(prevExtra?.shot?.result || '');
     const outcome = String(prevExtra?.shot?.outcome || '');
@@ -538,10 +539,7 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const possessionTrigger = (Array.isArray(groupStats) ? groupStats : []).find((e) => {
     if (!e) return false;
     const extra = safeParseJSON(e.extra_data || '{}', {});
-    if (e.stat_type === 'turnover') {
-      const turnoverType = String(extra?.turnover?.turnover_type || '');
-      return turnoverType && turnoverType !== 'foul' && extra?.turnover?.recovered_by?.team_side === teamSide;
-    }
+    if (getTurnoverWinSide(extra) === teamSide) return true;
     if (e.stat_type === 'kickout') {
       const outcome = String(extra?.kickout?.outcome || '');
       return (outcome === 'clean' || outcome === 'break') && extra?.kickout?.won_by?.team_side === teamSide;
@@ -557,7 +555,7 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     }
     return false;
   });
-  if (possessionTrigger?.stat_type === 'turnover') return 'Turnover Won';
+  if (getTurnoverWinSide(safeParseJSON(possessionTrigger?.extra_data || '{}', {})) === teamSide) return 'Turnover Won';
   if (possessionTrigger?.stat_type === 'kickout') return 'Kickout Won';
   if (possessionTrigger?.stat_type === 'throw_in') return 'Throw In Won';
   if (possessionTrigger?.stat_type === 'foul') return 'Foul Won';
