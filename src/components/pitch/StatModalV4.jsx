@@ -504,6 +504,7 @@ export default function StatModalV4({
   const [defender, setDefender] = useState(NONE);
   const [carryOutcome, setCarryOutcome] = useState('completed');
   const [soloPlusGo, setSoloPlusGo] = useState(false);
+  const [carryDefContact, setCarryDefContact] = useState('none');
 
   // Pass (drag)
   const [passer, setPasser] = useState(NONE);
@@ -601,6 +602,7 @@ export default function StatModalV4({
     setDefender(NONE);
     setCarryOutcome('completed');
     setSoloPlusGo(false);
+    setCarryDefContact('none');
     setPasser(NONE);
     setPassIntendedRecipient(NONE);
     setPassMethod('hand');
@@ -684,6 +686,7 @@ export default function StatModalV4({
       setDefender(selectionToValue(extra?.carry?.defender));
       setCarryOutcome(extra?.carry?.outcome || '');
       setSoloPlusGo(!!extra?.carry?.solo_plus_go);
+      setCarryDefContact(extra?.carry?.defensive_contact_type || 'none');
     } else if (type === 'pass') {
       setPasser(selectionToValue(extra?.pass?.passer));
       setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
@@ -842,6 +845,7 @@ export default function StatModalV4({
       if (previousAction !== 'carry') setSoloPlusGo(false);
     }
     if (action === 'shot') {
+      if (!shotPressure) setShotPressure('low');
       if (!shotSituation) {
         setShotSituation(previousStat?.stat_type === 'foul' ? 'free_hands' : 'play');
       }
@@ -856,7 +860,7 @@ export default function StatModalV4({
     if (action === 'kickout' && previousAction !== 'kickout' && previousShotOppositeSide && !initialStat?.id) {
       setKickoutTeam(previousShotOppositeSide);
     }
-  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {
@@ -1391,6 +1395,7 @@ export default function StatModalV4({
       actingSide = makeSelection(primaryPlayer, ctx).team_side || 'unknown';
       primary = makeSelection(primaryPlayer, ctx);
       extra.shot = {
+        player: primary,
         shot_type: shotType,
         situation: shotSituation,
         method: shotMethod,
@@ -1415,6 +1420,7 @@ export default function StatModalV4({
         take_on_completed: !!takeOnCompleted,
         defender: sel(defender),
         solo_plus_go: !!soloPlusGo,
+        defensive_contact_type: carryDefContact,
         outcome: carryOutcome,
       };
       if (carryOutcome === 'turnover') {
@@ -1703,6 +1709,16 @@ export default function StatModalV4({
                   </div>
                   {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
                   <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <Buttons
+                    label="Defensive Contact"
+                    value={carryDefContact}
+                    onChange={setCarryDefContact}
+                    options={[
+                      { value: 'none', label: 'None' },
+                      { value: 'contact', label: 'Contact' },
+                      { value: 'dispossess', label: 'Dispossess' },
+                    ]}
+                  />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}

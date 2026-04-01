@@ -91,17 +91,18 @@ function formatPct(n) {
 function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [] }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
+  const metricCol = '96px';
 
   return (
     <Card>
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
-        <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-xs text-slate-600">
+        <div className="grid items-center gap-3 text-xs text-slate-600" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
           <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
             <span className="truncate">{homeTeam?.name || 'Home'}</span>
           </div>
-          <div className="font-medium text-center">Metric</div>
+          <div className="text-center text-sm font-bold text-slate-700">Metric</div>
           <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
             <span className="truncate">{awayTeam?.name || 'Away'}</span>
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
@@ -110,7 +111,7 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
         <div className="grid gap-2">
           {rows.map((row) => (
             <div key={row.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
+              <div className="grid items-center gap-3" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
                 <div className={`text-left tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                   {showHome ? row.home : ''}
                 </div>
@@ -497,12 +498,33 @@ function normalizePlayerRef(sel) {
       position: sel.position || '',
     };
   }
+  if ((sel.team_side === 'home' || sel.team_side === 'away') && (sel.number != null || sel.name)) {
+    return {
+      id: sel.id || `legacy:${sel.team_side}:${sel.number ?? ''}:${sel.name || ''}`,
+      team_side: sel.team_side,
+      name: sel.name || '',
+      number: sel.number ?? null,
+      position: sel.position || '',
+    };
+  }
   return null;
 }
 
 function getPrimaryActorSelection(stat, extra) {
   if (!stat) return null;
-  if (stat.stat_type === 'shot') return extra?.shot?.player || null;
+  if (stat.stat_type === 'shot') {
+    return extra?.shot?.player || (
+      (stat.team_side === 'home' || stat.team_side === 'away') && (stat.player_number != null || stat.player_name)
+        ? {
+            kind: 'player',
+            id: `legacy:${stat.team_side}:${stat.player_number ?? ''}:${stat.player_name || ''}`,
+            team_side: stat.team_side,
+            name: stat.player_name || '',
+            number: stat.player_number ?? null,
+          }
+        : null
+    );
+  }
   if (stat.stat_type === 'pass') return extra?.pass?.passer || null;
   if (stat.stat_type === 'carry') return extra?.carry?.carrier || null;
   if (stat.stat_type === 'turnover') return extra?.turnover?.forced_by || extra?.turnover?.lost_by || null;

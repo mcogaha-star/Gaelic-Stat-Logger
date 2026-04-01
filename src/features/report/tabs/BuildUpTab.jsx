@@ -91,7 +91,7 @@ function BuildUpTab({
 
   const kpis = useMemo(() => {
     const possessionGroups = groupByPossession(base);
-    const shotAssistCredits = buildShotAssistCredits(filtered);
+    const shotAssistCredits = buildShotAssistCredits(base);
     const calc = (side) => {
       const sideEvents = filtered.filter((s) => s.team_side === side);
       const pass = sideEvents.filter((s) => s.stat_type === 'pass');
@@ -108,6 +108,7 @@ function BuildUpTab({
       const shotAssists = shotAssistCredits.filter((row) => row.teamSide === side).length;
 
       const buildUpSamples = [];
+      const possessionDurations = [];
       const channels = { Left: 0, Middle: 0, Right: 0 };
       const startZones = { 'Defensive Third': 0, 'Middle Third': 0, 'Attacking Third': 0 };
       for (const [key, evs] of possessionGroups.entries()) {
@@ -116,6 +117,8 @@ function BuildUpTab({
         if (!acting.length) continue;
         const zone = getPossessionStartZone(acting);
         if (startZones[zone] != null) startZones[zone] += 1;
+        const times = acting.map((e) => getMatchTimeS(e, reportFilters?.match, reportFilters?.imputedTimeById)).filter(Number.isFinite);
+        if (times.length >= 2) possessionDurations.push(Math.max(0, Math.max(...times) - Math.min(...times)));
         if (!isAttackPossession(acting, side)) continue;
         const channel = getAttackEntryChannelForPossession(acting, side);
         if (channel) channels[channel] += 1;
@@ -146,6 +149,9 @@ function BuildUpTab({
         fieldTiltEvents: sideEvents.filter((s) => getFieldTiltContribution(s)).length,
         turnovers,
         buildUpSpeed: buildUpSamples.length ? buildUpSamples.reduce((a, b) => a + b, 0) / buildUpSamples.length : NaN,
+        passesPerMinuteInPossession: possessionDurations.length
+          ? pass.length / (possessionDurations.reduce((a, b) => a + b, 0) / 60)
+          : NaN,
         channels,
         startZones,
       };
@@ -193,6 +199,7 @@ function BuildUpTab({
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
             { label: 'Shot Assists', home: kpis.home.shotAssists, away: kpis.away.shotAssists },
             { label: 'Shots Created', home: kpis.home.shotsCreated, away: kpis.away.shotsCreated },
+            { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
             { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
             { label: 'Build-Up Turnovers', home: kpis.home.turnovers, away: kpis.away.turnovers },
             { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },

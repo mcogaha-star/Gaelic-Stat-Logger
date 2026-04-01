@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { formatMMSS, formatPct } from '../shared';
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function OverviewTab({
   homeTeam,
@@ -16,6 +16,10 @@ export default function OverviewTab({
     () => (Array.isArray(overviewMomentum?.rows) ? overviewMomentum.rows.map((row) => ({
       ...row,
       swing: Number.isFinite(Number(row?.home)) ? Number(row.home) - 50 : 0,
+      homeSwing: Number.isFinite(Number(row?.home)) ? Math.max(0, Number(row.home) - 50) : 0,
+      awaySwing: Number.isFinite(Number(row?.home)) ? Math.min(0, Number(row.home) - 50) : 0,
+      homeLine: Number.isFinite(Number(row?.home)) && Number(row.home) >= 50 ? Number(row.home) - 50 : null,
+      awayLine: Number.isFinite(Number(row?.home)) && Number(row.home) <= 50 ? Number(row.home) - 50 : null,
     })) : []),
     [overviewMomentum]
   );
@@ -171,49 +175,60 @@ export default function OverviewTab({
                       away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
                     }}
                   >
-                    <LineChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                        dataKey="minute"
-                        type="number"
-                        domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
-                        tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
-                        tickFormatter={(value) => `${Math.round(value)}`}
-                        className="text-xs"
-                      />
-                      <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
-                      <Tooltip
-                        content={
-                          <ChartTooltipContent
-                            formatter={(_, __, item) => {
-                              const row = item?.payload;
-                              return (
-                                <div className="space-y-1">
-                                  <div className="flex w-full justify-between gap-4">
-                                    <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
-                                    <span className="font-mono font-medium tabular-nums text-foreground">
-                                      {Math.round(Number(row?.home || 50))}%
-                                    </span>
+                    <div className="relative h-[220px] w-full">
+                      <div className="absolute left-2 top-1 z-10 text-[11px] font-semibold" style={{ color: homeTeam?.color || '#22c55e' }}>
+                        {homeTeam?.name || 'Home'}
+                      </div>
+                      <div className="absolute left-2 bottom-1 z-10 text-[11px] font-semibold" style={{ color: awayTeam?.color || '#ef4444' }}>
+                        {awayTeam?.name || 'Away'}
+                      </div>
+                      <AreaChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis
+                          dataKey="minute"
+                          type="number"
+                          domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
+                          tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
+                          tickFormatter={(value) => `${Math.round(value)}`}
+                          className="text-xs"
+                        />
+                        <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(_, __, item) => {
+                                const row = item?.payload;
+                                return (
+                                  <div className="space-y-1">
+                                    <div className="flex w-full justify-between gap-4">
+                                      <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
+                                      <span className="font-mono font-medium tabular-nums text-foreground">
+                                        {Math.round(Number(row?.home || 50))}%
+                                      </span>
+                                    </div>
+                                    <div className="flex w-full justify-between gap-4">
+                                      <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
+                                      <span className="font-mono font-medium tabular-nums text-foreground">
+                                        {Math.round(Number(row?.away || 50))}%
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="flex w-full justify-between gap-4">
-                                    <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
-                                    <span className="font-mono font-medium tabular-nums text-foreground">
-                                      {Math.round(Number(row?.away || 50))}%
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            }}
-                            labelFormatter={(_, payload) => {
-                              const row = payload?.[0]?.payload;
-                              return `Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`;
-                            }}
-                          />
-                        }
-                      />
-                      <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
-                      <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
-                    </LineChart>
+                                );
+                              }}
+                              labelFormatter={(_, payload) => {
+                                const row = payload?.[0]?.payload;
+                                return `Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`;
+                              }}
+                            />
+                          }
+                        />
+                        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                        <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="homeLine" stroke={homeTeam?.color || '#22c55e'} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} activeDot={{ r: 4 }} />
+                        <Line type="monotone" dataKey="awayLine" stroke={awayTeam?.color || '#ef4444'} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} activeDot={{ r: 4 }} />
+                      </AreaChart>
+                    </div>
                   </ChartContainer>
                 )}
                 <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Above the centre line favours home; below favours away.</div>

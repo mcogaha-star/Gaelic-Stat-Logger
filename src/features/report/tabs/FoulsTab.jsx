@@ -118,9 +118,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
           awayTeam={awayTeam}
           teamMode={teamMode}
           rows={[
-            { label: 'Fouls Won', home: kpis.home.won, away: kpis.away.won },
             { label: 'Fouls Conceded', home: kpis.home.conceded, away: kpis.away.conceded },
-            { label: 'Foul Differential', home: kpis.home.won - kpis.home.conceded, away: kpis.away.won - kpis.away.conceded },
             { label: 'Cards Total', home: kpis.home.yellow + kpis.home.black + kpis.home.red, away: kpis.away.yellow + kpis.away.black + kpis.away.red },
             { label: 'Scorable Frees Conceded', home: kpis.home.scorable, away: kpis.away.scorable },
           ]}
