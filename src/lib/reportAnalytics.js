@@ -7,6 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
+export const POSSESSION_REBUILD_VERSION = 'v1';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {

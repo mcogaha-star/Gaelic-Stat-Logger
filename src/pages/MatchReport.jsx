@@ -19,6 +19,7 @@ import {
   normalizeFoulType,
   shotPointsForOutcome,
   buildLegacyPossessionRepairs,
+  POSSESSION_REBUILD_VERSION,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -107,8 +108,15 @@ export default function MatchReport() {
 
   useEffect(() => {
     if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
+    const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
+    try {
+      if (localStorage.getItem(rebuildKey) === 'done') return;
+    } catch {}
     const repairs = buildLegacyPossessionRepairs(stats);
-    if (!repairs.length) return;
+    if (!repairs.length) {
+      try { localStorage.setItem(rebuildKey, 'done'); } catch {}
+      return;
+    }
 
     let cancelled = false;
     (async () => {
@@ -121,6 +129,7 @@ export default function MatchReport() {
         if (!cancelled) {
           await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
           await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+          try { localStorage.setItem(rebuildKey, 'done'); } catch {}
         }
       } finally {
         if (!cancelled) setRepairingLegacyPossessions(false);
