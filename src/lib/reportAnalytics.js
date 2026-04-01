@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v1';
+export const POSSESSION_REBUILD_VERSION = 'v2';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -380,6 +380,56 @@ export function buildLegacyPossessionRepairs(stats) {
   const validSide = (side) => side === 'home' || side === 'away';
   const oppositeSide = (side) => (side === 'home' ? 'away' : side === 'away' ? 'home' : null);
   const parseExtra = (stat) => safeParseJSONLocal(stat?.extra_data || '{}', {});
+  const cloneSelection = (sel) => {
+    if (!sel || typeof sel !== 'object') return sel;
+    return { ...sel };
+  };
+  const sanitizeLegacyExtra = (stat) => {
+    const extra = parseExtra(stat);
+    let changed = false;
+    const next = JSON.parse(JSON.stringify(extra || {}));
+
+    if (stat?.stat_type === 'shot' && next?.shot) {
+      const outcome = String(next.shot.outcome || '');
+      const supportsResult = ['short', 'saved', 'blocked', 'post'].includes(outcome);
+      if (!supportsResult && next.shot.result) {
+        next.shot.result = '';
+        changed = true;
+      }
+      if (!supportsResult && next.shot.recovered_by && Object.keys(next.shot.recovered_by || {}).length) {
+        next.shot.recovered_by = null;
+        changed = true;
+      }
+      if (outcome !== 'blocked' && next.shot.blocked_by && Object.keys(next.shot.blocked_by || {}).length) {
+        next.shot.blocked_by = null;
+        changed = true;
+      }
+      if (outcome !== 'saved' && next.shot.saved_by && Object.keys(next.shot.saved_by || {}).length) {
+        next.shot.saved_by = null;
+        changed = true;
+      }
+    }
+
+    if (stat?.stat_type === 'pass' && next?.pass) {
+      const outcome = String(next.pass.outcome || '');
+      const passerSide = next.pass?.passer?.team_side || stat?.team_side;
+      const wonSide = next.pass?.won_by?.team_side;
+      if (outcome === 'turnover' && next.pass.won_by && Object.keys(next.pass.won_by || {}).length) {
+        next.pass.won_by = null;
+        changed = true;
+      }
+      if (outcome === 'completed' && passerSide && wonSide && wonSide !== passerSide) {
+        next.pass.won_by = cloneSelection(next.pass.intended_recipient) || {
+          kind: 'team',
+          team_side: passerSide,
+        };
+        changed = true;
+      }
+    }
+
+    if (!changed) return null;
+    return JSON.stringify(next);
+  };
 
   const inferImmediatePossessionStartFromStat = (stat) => {
     const extra = parseExtra(stat);
@@ -486,6 +536,8 @@ export function buildLegacyPossessionRepairs(stats) {
     if (stat.team_side !== rowActingTeam) data.team_side = rowActingTeam;
     if (stat.possession_team_side !== rowPossessionTeam) data.possession_team_side = rowPossessionTeam;
     if (Number(stat?.possession_id) !== currentPossessionId) data.possession_id = currentPossessionId;
+    const sanitizedExtra = sanitizeLegacyExtra(stat);
+    if (sanitizedExtra != null && sanitizedExtra !== (stat?.extra_data || '')) data.extra_data = sanitizedExtra;
 
     if (Object.keys(data).length) {
       updates.push({ id: stat.id, data });
