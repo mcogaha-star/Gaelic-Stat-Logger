@@ -506,17 +506,19 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     : previousContext ? [previousContext] : [];
   const prev = previousStats.length ? previousStats[previousStats.length - 1] : null;
   const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
-  const getTurnoverWinSide = (extra) => {
+  const getTurnoverWinSide = (extra, stat = null) => {
     const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
+    if (!turnoverType) return null;
     const recoveredSide = extra?.turnover?.recovered_by?.team_side;
-    return turnoverType && turnoverType !== 'foul' ? recoveredSide : null;
-  };
-  const getTurnoverFoulWinSide = (stat) => {
-    const extra = safeParseJSON(stat?.extra_data || '{}', {});
-    const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
-    if (turnoverType !== 'foul') return null;
-    const foul = extractFoulFromStat(stat);
-    return foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
+    const forcedSide = extra?.turnover?.forced_by?.team_side;
+    if (recoveredSide === 'home' || recoveredSide === 'away') return recoveredSide;
+    if (forcedSide === 'home' || forcedSide === 'away') return forcedSide;
+    if (turnoverType === 'foul' && stat) {
+      const foul = extractFoulFromStat(stat);
+      const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
+      if (foulOn === 'home' || foulOn === 'away') return foulOn;
+    }
+    return null;
   };
 
   const firstAll = Array.isArray(groupStats) && groupStats.length ? groupStats[0] : null;
@@ -530,14 +532,12 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return 'Throw In Won';
   }
 
-  if (getTurnoverWinSide(prevExtra) === teamSide) return 'Turnover Won';
-  if (getTurnoverFoulWinSide(prev) === teamSide) return 'Foul Won';
+  if (getTurnoverWinSide(prevExtra, prev) === teamSide) return 'Turnover Won';
   if (prev?.stat_type === 'shot') {
     const result = String(prevExtra?.shot?.result || '');
     const outcome = String(prevExtra?.shot?.outcome || '');
     if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return 'Shot Short';
     if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return 'Shot Blocked';
-    if (result === 'opposition' && prev?.team_side !== teamSide) return 'Opposition Shot Won';
   }
   if (prev?.stat_type === 'kickout') {
     const outcome = String(prevExtra?.kickout?.outcome || '');
@@ -549,29 +549,18 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const wonSide = prevExtra?.throw_in?.won_by?.team_side;
     if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Throw In Won';
   }
-  if (prev?.stat_type === 'foul') {
-    const foul = extractFoulFromStat(prev);
-    const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
-    if (foulOn === teamSide) return 'Foul Won';
-  }
 
-  if (getTurnoverWinSide(firstAllExtra) === teamSide) return 'Turnover Won';
-  if (getTurnoverFoulWinSide(firstAll) === teamSide) return 'Foul Won';
+  if (getTurnoverWinSide(firstAllExtra, firstAll) === teamSide) return 'Turnover Won';
 
   if (!first) return 'Open Play';
   if (first?.stat_type === 'kickout') return 'Kickout Won';
-  if (first?.stat_type === 'turnover') return 'Turnover Won';
   if (first?.stat_type === 'throw_in') return 'Throw In Won';
-  if (first?.stat_type === 'foul') return 'Foul Won';
   if (first?.stat_type === 'shot') {
     const outcome = String(firstExtra?.shot?.outcome || '');
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
-    if (firstExtra?.shot?.result === 'opposition') return 'Opposition Shot Won';
     return 'Open Play';
   }
-  if (first?.stat_type === 'pass' && firstExtra?.pass?.deadball) return 'Restart';
-  if (first?.stat_type === 'carry' && firstExtra?.carry?.solo_plus_go) return 'Restart Carry';
   if (first?.stat_type === 'pass' || first?.stat_type === 'carry') return 'Open Play';
   return toTitleCase(first?.stat_type || 'Open Play');
 }
