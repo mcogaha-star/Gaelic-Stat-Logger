@@ -885,6 +885,8 @@ export default function StatModalV4({
     if (['point', '2_point', 'goal'].includes(shotType)) setShotOutcome(shotType);
   }, [open, initialStat?.id, action, shotType, shotOutcomeTouched]);
 
+  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
+
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {
     const isTurnoverContext =
@@ -990,8 +992,6 @@ export default function StatModalV4({
       setShotRecoveredBy(NONE);
     }
   }, [open, action, shotOutcome, shotResult, shotRecoveredBy, touchedRoles]);
-
-  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   useEffect(() => {
     if (!open) return;
