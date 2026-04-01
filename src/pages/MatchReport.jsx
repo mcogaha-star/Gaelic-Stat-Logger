@@ -911,7 +911,7 @@ export default function MatchReport() {
 
           <TabsContent value="possessions">
             <PossessionsTab
-              stats={filteredForReport}
+              stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               playerOptions={playerOptions}

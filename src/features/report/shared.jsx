@@ -768,9 +768,9 @@ function PitchViz({
             const y2 = end?.y;
 
             // Lines for directional actions with end coords; dots otherwise.
-            const hasEnd = !!end;
+            const hasEnd = !!end && !(Number(end?.x) === 0 && Number(end?.y) === 0);
             const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
-            if (isLineAction && hasEnd) {
+            if (isLineAction && hasEnd && String(s.stat_type || '') !== 'throw_in') {
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
               return (
                 <g key={s.id}>
@@ -785,7 +785,7 @@ function PitchViz({
                     opacity="0.95"
                     markerEnd="url(#gstl_arrow)"
                   />
-                  {(s.stat_type === 'kickout' || s.stat_type === 'throw_in') && (
+                  {(s.stat_type === 'kickout') && (
                     <>
                       <circle cx={x1} cy={y1} r="1.15" fill={col} />
                       <circle cx={x2} cy={y2} r="1.15" fill={col} />
