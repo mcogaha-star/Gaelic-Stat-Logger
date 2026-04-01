@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BarChart3, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import {
   normalizeFoulType,
   shotPointsForOutcome,
   statHasEnteredOpp45,
+  buildLegacyPossessionRepairs,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -56,6 +57,7 @@ const db = globalThis.__B44_DB__ || {
   }),
 };
 export default function MatchReport() {
+  const queryClient = useQueryClient();
   const location = useLocation();
   const urlParams = new URLSearchParams(location?.search || '');
   const matchId = urlParams.get('id');
@@ -101,6 +103,33 @@ export default function MatchReport() {
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
     enabled: !!matchId,
   });
+
+  const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
+
+  useEffect(() => {
+    if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
+    const repairs = buildLegacyPossessionRepairs(stats);
+    if (!repairs.length) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setRepairingLegacyPossessions(true);
+        for (const repair of repairs) {
+          if (cancelled) return;
+          await db.entities.StatEntry.update(repair.id, repair.data);
+        }
+        if (!cancelled) {
+          await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+          await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+        }
+      } finally {
+        if (!cancelled) setRepairingLegacyPossessions(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [matchId, stats, repairingLegacyPossessions, queryClient]);
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
 

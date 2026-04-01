@@ -331,3 +331,61 @@ export function findScorableFreeConcededRows(stats) {
   }
   return out;
 }
+
+export function buildLegacyPossessionRepairs(stats) {
+  const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+    const pa = Number(a?.play_id);
+    const pb = Number(b?.play_id);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    const ta = Date.parse(String(a?.timestamp || a?.created_date || ''));
+    const tb = Date.parse(String(b?.timestamp || b?.created_date || ''));
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+
+  const updates = [];
+
+  for (let i = 0; i < ordered.length; i += 1) {
+    const stat = ordered[i];
+    if (!stat) continue;
+
+    const prev = ordered[i - 1] || null;
+    const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
+    const data = {};
+
+    const { foul, foulBy, foulOn } = getFoulTeams(stat);
+    if (foul && (foulOn === 'home' || foulOn === 'away') && foulOn !== foulBy) {
+      if (stat.team_side !== foulOn) data.team_side = foulOn;
+      if (stat.possession_team_side !== foulOn) data.possession_team_side = foulOn;
+      const prevPid = Number(prev?.possession_id);
+      if (
+        Number.isFinite(prevPid)
+        && prev?.possession_team_side === foulOn
+        && Number(stat?.possession_id) !== prevPid
+      ) {
+        data.possession_id = prevPid;
+      }
+    } else if (stat?.stat_type === 'turnover' || extra?.turnover) {
+      const turnoverType = String(extra?.turnover?.turnover_type || '');
+      const lostSide = extra?.turnover?.lost_by?.team_side;
+      if (turnoverType && turnoverType !== 'foul' && (lostSide === 'home' || lostSide === 'away')) {
+        if (stat.team_side !== lostSide) data.team_side = lostSide;
+        if (stat.possession_team_side !== lostSide) data.possession_team_side = lostSide;
+        const prevPid = Number(prev?.possession_id);
+        if (
+          Number.isFinite(prevPid)
+          && prev?.possession_team_side === lostSide
+          && Number(stat?.possession_id) !== prevPid
+        ) {
+          data.possession_id = prevPid;
+        }
+      }
+    }
+
+    if (Object.keys(data).length) {
+      updates.push({ id: stat.id, data });
+    }
+  }
+
+  return updates;
+}

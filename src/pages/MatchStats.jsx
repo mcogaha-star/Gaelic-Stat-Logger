@@ -19,6 +19,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
+import { buildLegacyPossessionRepairs } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -266,6 +267,42 @@ export default function MatchStats() {
         },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat deleted'); }
     });
+
+    const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
+
+    useEffect(() => {
+        if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
+        const repairs = buildLegacyPossessionRepairs(stats);
+        if (!repairs.length) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                setRepairingLegacyPossessions(true);
+                for (const repair of repairs) {
+                    if (cancelled) return;
+                    const current = stats.find((s) => s.id === repair.id);
+                    await db.entities.StatEntry.update(repair.id, repair.data);
+                    if (current?.server_stat_id) {
+                        await updateServerStat(current.server_stat_id, repair.data);
+                    }
+                }
+                if (!cancelled) {
+                    await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+                    await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+                    toast.success(`Repaired ${repairs.length} legacy possession row${repairs.length === 1 ? '' : 's'}`);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    toast.error(error?.message || 'Failed to repair legacy possession rows');
+                }
+            } finally {
+                if (!cancelled) setRepairingLegacyPossessions(false);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [matchId, stats, repairingLegacyPossessions, queryClient]);
 
     const getMostRecentStat = () => {
         if (!stats?.length) return null;
