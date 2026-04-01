@@ -504,38 +504,63 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const previousStats = Array.isArray(previousContext)
     ? previousContext.filter(Boolean)
     : previousContext ? [previousContext] : [];
+  const prev = previousStats.length ? previousStats[previousStats.length - 1] : null;
+  const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
 
-  for (let idx = previousStats.length - 1; idx >= 0; idx -= 1) {
-    const prev = previousStats[idx];
-    const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
-    if (prev?.stat_type === 'turnover') {
-      const turnoverType = String(prevExtra?.turnover?.turnover_type || '');
-      const recoveredSide = prevExtra?.turnover?.recovered_by?.team_side;
-      if (turnoverType && turnoverType !== 'foul' && recoveredSide === teamSide) return 'Turnover Won';
-    }
-    if (prev?.stat_type === 'shot') {
-      const result = String(prevExtra?.shot?.result || '');
-      const outcome = String(prevExtra?.shot?.outcome || '');
-      if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return 'Shot Short';
-      if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return 'Shot Blocked';
-      if (result === 'opposition' && prev?.team_side !== teamSide) return 'Opposition Shot Won';
-    }
-    if (prev?.stat_type === 'kickout') {
-      const outcome = String(prevExtra?.kickout?.outcome || '');
-      const wonSide = prevExtra?.kickout?.won_by?.team_side;
-      if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Kickout Won';
-    }
-    if (prev?.stat_type === 'throw_in') {
-      const outcome = String(prevExtra?.throw_in?.outcome || '');
-      const wonSide = prevExtra?.throw_in?.won_by?.team_side;
-      if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Throw In Won';
-    }
-    if (prev?.stat_type === 'foul') {
-      const foul = extractFoulFromStat(prev);
-      const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
-      if (foulOn === teamSide) return 'Foul Won';
-    }
+  if (prev?.stat_type === 'turnover') {
+    const turnoverType = String(prevExtra?.turnover?.turnover_type || '');
+    const recoveredSide = prevExtra?.turnover?.recovered_by?.team_side;
+    if (turnoverType && turnoverType !== 'foul' && recoveredSide === teamSide) return 'Turnover Won';
   }
+  if (prev?.stat_type === 'shot') {
+    const result = String(prevExtra?.shot?.result || '');
+    const outcome = String(prevExtra?.shot?.outcome || '');
+    if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return 'Shot Short';
+    if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return 'Shot Blocked';
+    if (result === 'opposition' && prev?.team_side !== teamSide) return 'Opposition Shot Won';
+  }
+  if (prev?.stat_type === 'kickout') {
+    const outcome = String(prevExtra?.kickout?.outcome || '');
+    const wonSide = prevExtra?.kickout?.won_by?.team_side;
+    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Kickout Won';
+  }
+  if (prev?.stat_type === 'throw_in') {
+    const outcome = String(prevExtra?.throw_in?.outcome || '');
+    const wonSide = prevExtra?.throw_in?.won_by?.team_side;
+    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Throw In Won';
+  }
+  if (prev?.stat_type === 'foul') {
+    const foul = extractFoulFromStat(prev);
+    const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+    if (foulOn === teamSide) return 'Foul Won';
+  }
+
+  const possessionTrigger = (Array.isArray(groupStats) ? groupStats : []).find((e) => {
+    if (!e) return false;
+    const extra = safeParseJSON(e.extra_data || '{}', {});
+    if (e.stat_type === 'turnover') {
+      const turnoverType = String(extra?.turnover?.turnover_type || '');
+      return turnoverType && turnoverType !== 'foul' && extra?.turnover?.recovered_by?.team_side === teamSide;
+    }
+    if (e.stat_type === 'kickout') {
+      const outcome = String(extra?.kickout?.outcome || '');
+      return (outcome === 'clean' || outcome === 'break') && extra?.kickout?.won_by?.team_side === teamSide;
+    }
+    if (e.stat_type === 'throw_in') {
+      const outcome = String(extra?.throw_in?.outcome || '');
+      return (outcome === 'clean' || outcome === 'break') && extra?.throw_in?.won_by?.team_side === teamSide;
+    }
+    if (e.stat_type === 'foul') {
+      const foul = extractFoulFromStat(e);
+      const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+      return foulOn === teamSide;
+    }
+    return false;
+  });
+  if (possessionTrigger?.stat_type === 'turnover') return 'Turnover Won';
+  if (possessionTrigger?.stat_type === 'kickout') return 'Kickout Won';
+  if (possessionTrigger?.stat_type === 'throw_in') return 'Throw In Won';
+  if (possessionTrigger?.stat_type === 'foul') return 'Foul Won';
 
   if (!first) return 'Open Play';
   if (first?.stat_type === 'kickout') return 'Kickout Won';

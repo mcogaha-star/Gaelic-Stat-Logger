@@ -985,13 +985,26 @@ export default function StatModalV4({
   useEffect(() => {
     if (!open) return;
     if (action !== 'shot') return;
+    const supportsResult = ['short', 'saved', 'blocked', 'post'].includes(String(shotOutcome || ''));
+    if (!supportsResult) {
+      if (shotResult) setShotResult('');
+      if (!touchedRoles?.shot_recovered_by && shotRecoveredBy !== NONE) setShotRecoveredBy(NONE);
+      if (!touchedRoles?.shot_blocked_by && shotBlockedBy !== NONE) setShotBlockedBy(NONE);
+      if (!touchedRoles?.shot_saved_by && shotSavedBy !== NONE) setShotSavedBy(NONE);
+      return;
+    }
     const requiresRecoveredBy =
-      ['short', 'saved', 'blocked', 'post'].includes(String(shotOutcome || ''))
-      && ['retained', 'opposition'].includes(String(shotResult || ''));
+      ['retained', 'opposition'].includes(String(shotResult || ''));
     if (!requiresRecoveredBy && !touchedRoles?.shot_recovered_by && shotRecoveredBy !== NONE) {
       setShotRecoveredBy(NONE);
     }
-  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, touchedRoles]);
+    if (shotOutcome !== 'blocked' && !touchedRoles?.shot_blocked_by && shotBlockedBy !== NONE) {
+      setShotBlockedBy(NONE);
+    }
+    if (shotOutcome !== 'saved' && !touchedRoles?.shot_saved_by && shotSavedBy !== NONE) {
+      setShotSavedBy(NONE);
+    }
+  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, shotBlockedBy, shotSavedBy, touchedRoles]);
 
   useEffect(() => {
     if (!open) return;
