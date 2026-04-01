@@ -33,6 +33,7 @@ import {
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
+  inferPossessionStartSource,
   getCompletedReceiptSelection,
   getPrimaryActorSelection,
   getKeeperCandidate,
@@ -66,6 +67,23 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
   const possessions = useMemo(() => {
     const groups = groupByPossession(base);
+    const orderedBase = base.slice().sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, reportFilters?.match, reportFilters?.imputedTimeById);
+      const tb = getMatchTimeS(b, reportFilters?.match, reportFilters?.imputedTimeById);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const previousByPossessionKey = new Map();
+    orderedBase.forEach((stat, index) => {
+      const pid = Number(stat?.possession_id);
+      const pside = stat?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
+      const key = `${pside}-${pid}`;
+      if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, orderedBase[index - 1] || null);
+    });
 
     const out = [];
     for (const [key, evs0] of groups.entries()) {
@@ -91,26 +109,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
 
-      const startSource = (() => {
-        const f = acting[0];
-        const ex = safeParseJSON(f?.extra_data || '{}', {});
-        if (f?.stat_type === 'kickout') return 'Kickout Won';
-        if (f?.stat_type === 'turnover') return 'Turnover Won';
-        if (f?.stat_type === 'throw_in') return 'Throw In Won';
-        if (f?.stat_type === 'foul') return 'Foul Won';
-        if (f?.stat_type === 'shot') {
-          const outcome = String(ex?.shot?.outcome || '');
-          if (ex?.shot?.result === 'retained') return 'Shot Retained';
-          if (ex?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
-          if (ex?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
-          if (ex?.shot?.result === 'opposition') return 'Opposition Shot Won';
-          return 'Shot Phase';
-        }
-        if (f?.stat_type === 'pass' && ex?.pass?.deadball) return 'Restart';
-        if (f?.stat_type === 'carry' && ex?.carry?.solo_plus_go) return 'Restart Carry';
-        if (f?.stat_type === 'pass' || f?.stat_type === 'carry') return 'Open Play';
-        return 'Open Play';
-      })();
+      const startSource = inferPossessionStartSource(evs, teamSide, previousByPossessionKey.get(key));
 
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;

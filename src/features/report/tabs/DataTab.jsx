@@ -29,6 +29,7 @@ import {
   computeImputedNormalizedTimes,
   deriveOutcome,
   derivePossessionOutcome,
+  inferPossessionStartSource,
 } from '../shared';
 
 function sortStatsForEditing(list, match, imputedTimeById) {
@@ -245,6 +246,20 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const pivot = useMemo(() => {
     if (groupBy === 'none') return null;
     const rows = new Map();
+    const previousByPossessionKey = new Map();
+    const statsByPossessionKey = new Map();
+
+    if (groupBy === 'possession') {
+      for (let i = 0; i < filteredSorted.length; i += 1) {
+        const stat = filteredSorted[i];
+        const key = getPossessionKey(stat);
+        if (key === 'unknown') continue;
+        const arr = statsByPossessionKey.get(key) || [];
+        arr.push(stat);
+        statsByPossessionKey.set(key, arr);
+        if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, filteredSorted[i - 1] || null);
+      }
+    }
 
     for (const s of filtered) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
@@ -293,24 +308,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
             cur._minPlay = pid;
             cur.start_action = act;
             cur.start_half = s?.half || '';
-            cur.start_source = (() => {
-              if (act === 'kickout') return 'Kickout Won';
-              if (act === 'turnover') return 'Turnover Won';
-              if (act === 'throw_in') return 'Throw In Won';
-              if (act === 'foul') return 'Foul Won';
-              if (act === 'shot') {
-                const outcome = String(extra?.shot?.outcome || '');
-                if (extra?.shot?.result === 'retained') return 'Shot Retained';
-                if (extra?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
-                if (extra?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
-                if (extra?.shot?.result === 'opposition') return 'Opposition Shot Won';
-                return 'Shot Phase';
-              }
-              if (act === 'pass' && extra?.pass?.deadball) return 'Restart';
-              if (act === 'carry' && extra?.carry?.solo_plus_go) return 'Restart Carry';
-              if (act === 'pass' || act === 'carry') return 'Open Play';
-              return toTitleCase(act || 'Open Play');
-            })();
+            cur.start_source = inferPossessionStartSource(
+              statsByPossessionKey.get(key) || [s],
+              s?.possession_team_side,
+              previousByPossessionKey.get(key),
+            );
           }
           if (cur._maxPlay == null || pid > cur._maxPlay) {
             cur._maxPlay = pid;
