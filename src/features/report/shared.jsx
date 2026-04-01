@@ -498,6 +498,8 @@ function derivePossessionOutcome(evs, teamSide) {
 }
 
 function inferPossessionStartSource(groupStats, teamSide, previousContext) {
+  const ALLOWED = new Set(['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Open Play']);
+  const finish = (label) => (ALLOWED.has(label) ? label : 'Open Play');
   const acting = (Array.isArray(groupStats) ? groupStats : []).filter((e) => e && e.team_side === teamSide);
   const first = acting[0];
   const firstExtra = safeParseJSON(first?.extra_data || '{}', {});
@@ -525,44 +527,44 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const firstAllExtra = safeParseJSON(firstAll?.extra_data || '{}', {});
   if (firstAll?.stat_type === 'kickout') {
     const outcome = String(firstAllExtra?.kickout?.outcome || '');
-    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.kickout?.won_by?.team_side === teamSide) return 'Kickout Won';
+    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.kickout?.won_by?.team_side === teamSide) return finish('Kickout Won');
   }
   if (firstAll?.stat_type === 'throw_in') {
     const outcome = String(firstAllExtra?.throw_in?.outcome || '');
-    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return 'Throw In Won';
+    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return finish('Throw In Won');
   }
 
-  if (getTurnoverWinSide(prevExtra, prev) === teamSide) return 'Turnover Won';
+  if (getTurnoverWinSide(prevExtra, prev) === teamSide) return finish('Turnover Won');
   if (prev?.stat_type === 'shot') {
     const result = String(prevExtra?.shot?.result || '');
     const outcome = String(prevExtra?.shot?.outcome || '');
-    if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return 'Shot Short';
-    if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return 'Shot Blocked';
+    if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return finish('Shot Short');
+    if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return finish('Shot Blocked');
   }
   if (prev?.stat_type === 'kickout') {
     const outcome = String(prevExtra?.kickout?.outcome || '');
     const wonSide = prevExtra?.kickout?.won_by?.team_side;
-    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Kickout Won';
+    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return finish('Kickout Won');
   }
   if (prev?.stat_type === 'throw_in') {
     const outcome = String(prevExtra?.throw_in?.outcome || '');
     const wonSide = prevExtra?.throw_in?.won_by?.team_side;
-    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return 'Throw In Won';
+    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return finish('Throw In Won');
   }
 
-  if (getTurnoverWinSide(firstAllExtra, firstAll) === teamSide) return 'Turnover Won';
+  if (getTurnoverWinSide(firstAllExtra, firstAll) === teamSide) return finish('Turnover Won');
 
-  if (!first) return 'Open Play';
-  if (first?.stat_type === 'kickout') return 'Kickout Won';
-  if (first?.stat_type === 'throw_in') return 'Throw In Won';
+  if (!first) return finish('Open Play');
+  if (first?.stat_type === 'kickout') return finish('Kickout Won');
+  if (first?.stat_type === 'throw_in') return finish('Throw In Won');
   if (first?.stat_type === 'shot') {
     const outcome = String(firstExtra?.shot?.outcome || '');
-    if (firstExtra?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
-    if (firstExtra?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
-    return 'Open Play';
+    if (firstExtra?.shot?.result === 'opposition' && outcome === 'short') return finish('Shot Short');
+    if (firstExtra?.shot?.result === 'opposition' && outcome === 'blocked') return finish('Shot Blocked');
+    return finish('Open Play');
   }
-  if (first?.stat_type === 'pass' || first?.stat_type === 'carry') return 'Open Play';
-  return toTitleCase(first?.stat_type || 'Open Play');
+  if (first?.stat_type === 'pass' || first?.stat_type === 'carry') return finish('Open Play');
+  return finish('Open Play');
 }
 
 function selectionKey(sel) {
