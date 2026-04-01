@@ -7,6 +7,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, BarChart3, Clock, MapPin, Settings } from 'lucide-react';
 import { format } from 'date-fns';
 
+function safeFormatDate(value) {
+    if (!value) return '';
+    try {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return format(date, 'dd MMM yyyy');
+    } catch {
+        return String(value);
+    }
+}
+
 export default function MatchHeader({
     match,
     matchTitle,
@@ -63,7 +74,7 @@ export default function MatchHeader({
                                     {match?.date && (
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3.5 h-3.5" />
-                                            {format(new Date(match.date), 'dd MMM yyyy')}
+                                            {safeFormatDate(match.date)}
                                         </span>
                                     )}
                                     {match?.venue && (

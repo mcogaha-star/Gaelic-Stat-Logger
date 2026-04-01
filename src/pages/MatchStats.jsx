@@ -164,6 +164,7 @@ export default function MatchStats() {
 
     const {
         modalOpen,
+        setModalOpen,
         isPassModal,
         clickCoords,
         passEndCoords,
