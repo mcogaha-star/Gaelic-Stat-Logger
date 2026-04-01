@@ -41,6 +41,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -212,36 +213,27 @@ function DefenseTab({
     return [...filteredTurnovers, ...filteredDefActions];
   }, [eventCategory, filteredTurnovers, filteredDefActions]);
 
-  const display = (selector) => {
-    if (teamMode === 'home') return selector(kpis.home);
-    if (teamMode === 'away') return selector(kpis.away);
-    return `${selector(kpis.home)} / ${selector(kpis.away)}`;
-  };
-
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { label: 'Turnovers Won', value: display((k) => String(k.won)) },
-            { label: 'Turnovers Lost', value: display((k) => String(k.lost)) },
-            { label: 'Turnover Differential', value: display((k) => String(k.diff)) },
-            { label: 'Forced Turnover %', value: display((k) => formatPct(k.forcedPct)) },
-            { label: 'Average Regain Height (x)', value: display((k) => Number.isFinite(k.avgHeight) ? k.avgHeight.toFixed(1) : 'NA') },
-            { label: 'Defensive Actions', value: display((k) => String(k.defActionCount)) },
-            { label: 'PPDA', value: display((k) => Number.isFinite(k.ppda) ? k.ppda.toFixed(2) : 'NA') },
-            { label: 'Turnover Rate', value: display((k) => formatPct(Number.isFinite(k.turnoverRate) ? k.turnoverRate * 100 : NaN)) },
-            { label: 'Shots From Regains', value: display((k) => String(k.shotsFrom)) },
-            { label: 'Scores From Regains', value: display((k) => String(k.scoresFrom)) },
-            { label: 'Scores Conceded After Lost Turnovers', value: display((k) => String(k.scoresConceded)) },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ComparisonMetricsCard
+          title="Defense Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
+            { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
+            { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
+            { label: 'Turnover Differential', home: kpis.home.diff, away: kpis.away.diff },
+            { label: 'Forced Turnover %', home: formatPct(kpis.home.forcedPct), away: formatPct(kpis.away.forcedPct) },
+            { label: 'Average Regain Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
+            { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
+            { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
+            { label: 'Turnover Rate', home: formatPct(Number.isFinite(kpis.home.turnoverRate) ? kpis.home.turnoverRate * 100 : NaN), away: formatPct(Number.isFinite(kpis.away.turnoverRate) ? kpis.away.turnoverRate * 100 : NaN) },
+            { label: 'Shots From Regains', home: kpis.home.shotsFrom, away: kpis.away.shotsFrom },
+            { label: 'Scores From Regains', home: kpis.home.scoresFrom, away: kpis.away.scoresFrom },
+            { label: 'Scores Conceded After Lost Turnovers', home: kpis.home.scoresConceded, away: kpis.away.scoresConceded },
+          ]}
+        />
 
         {mapStats.length === 0 ? (
           <Card>

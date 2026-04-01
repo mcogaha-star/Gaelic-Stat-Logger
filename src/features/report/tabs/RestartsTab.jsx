@@ -42,6 +42,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -162,12 +163,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
     return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
   }, [kickouts]);
 
-  const display = (selector) => {
-    if (teamMode === 'home') return selector(kpis.home);
-    if (teamMode === 'away') return selector(kpis.away);
-    return `${selector(kpis.home)} | ${selector(kpis.away)}`;
-  };
-
   const visibleKickouts = useMemo(() => {
     if (teamMode === 'both') return kickouts;
     return kickouts.filter((s) => {
@@ -178,45 +173,44 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
 
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
+        <ComparisonMetricsCard
+          title="Kickout Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
             {
               label: 'Own Kickout Win %',
-              value: display((k) => `${k.ownKickoutsWon}/${k.ownKickoutsTaken} (${formatPct(k.ownKickoutsTaken ? (k.ownKickoutsWon / k.ownKickoutsTaken) * 100 : NaN)})`),
+              home: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)})`,
+              away: `${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Opposition Kickout Disruption %',
-              value: display((k) => `${k.oppDisrupted}/${k.oppKickoutsTaken} (${formatPct(k.oppKickoutsTaken ? (k.oppDisrupted / k.oppKickoutsTaken) * 100 : NaN)})`),
+              home: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)})`,
+              away: `${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Clean Kickout Win %',
-              value: display((k) => `${k.ownCleanWon}/${k.ownKickoutsTaken} (${formatPct(k.ownKickoutsTaken ? (k.ownCleanWon / k.ownKickoutsTaken) * 100 : NaN)})`),
+              home: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)})`,
+              away: `${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Break-Ball Recovery %',
-              value: teamMode === 'home'
-                ? `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)})`
-                : teamMode === 'away'
-                  ? `${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`
-                  : `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)}) | ${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
+              home: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)})`,
+              away: `${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
             },
             {
               label: 'Restart-to-Shot %',
-              value: display((k) => `${k.restartToShot}/${k.restartWins} (${formatPct(k.restartWins ? (k.restartToShot / k.restartWins) * 100 : NaN)})`),
+              home: `${kpis.home.restartToShot}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToShot / kpis.home.restartWins) * 100 : NaN)})`,
+              away: `${kpis.away.restartToShot}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToShot / kpis.away.restartWins) * 100 : NaN)})`,
             },
             {
               label: 'Restart-to-Score %',
-              value: display((k) => `${k.restartToScore}/${k.restartWins} (${formatPct(k.restartWins ? (k.restartToScore / k.restartWins) * 100 : NaN)})`),
+              home: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)})`,
+              away: `${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
             },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+          ]}
+        />
 
         {visibleKickouts.length === 0 ? (
           <Card>

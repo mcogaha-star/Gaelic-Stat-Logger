@@ -42,6 +42,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -90,8 +91,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         if (f?.stat_type === 'turnover') return 'Turnover Won';
         if (f?.stat_type === 'throw_in') return 'Throw In Won';
         if (f?.stat_type === 'foul') return 'Foul Won';
-        if (ex?.pass?.deadball) return 'Restart';
-        return 'Other';
+        if (f?.stat_type === 'shot') {
+          if (ex?.shot?.result === 'retained') return 'Shot Retained';
+          if (ex?.shot?.result === 'opposition') return 'Opposition Shot Won';
+          return 'Shot Phase';
+        }
+        if (f?.stat_type === 'pass' && ex?.pass?.deadball) return 'Restart';
+        if (f?.stat_type === 'carry' && ex?.carry?.solo_plus_go) return 'Restart Carry';
+        if (f?.stat_type === 'pass' || f?.stat_type === 'carry') return 'Open Play';
+        return 'Open Play';
       })();
 
       const isAttack = isAttackPossession(evs, teamSide);
@@ -168,12 +176,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     return { home, away };
   }, [possessionsFiltered]);
 
-  const display = (fmtFn) => {
-    if (teamMode === 'home') return fmtFn(sideKpis.home);
-    if (teamMode === 'away') return fmtFn(sideKpis.away);
-    return `${fmtFn(sideKpis.home)} / ${fmtFn(sideKpis.away)}`;
-  };
-
   const byTeam = (rows) => {
     const out = {
       home: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 },
@@ -196,27 +198,24 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const attackOutcomeData = useMemo(() => byTeam(attacks), [attacks, homeTeam, awayTeam, teamMode]);
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { label: 'Possessions', value: display((k) => String(k.possN)) },
-            { label: 'Attacks', value: display((k) => String(k.attN)) },
-            { label: 'Points Per Possession', value: display((k) => Number.isFinite(k.pointsPerPossession) ? k.pointsPerPossession.toFixed(2) : 'NA') },
-            { label: 'Avg Possession Duration', value: display((k) => Number.isFinite(k.avgDur) ? `${k.avgDur.toFixed(1)}s` : 'NA') },
-            { label: 'Possession To Attack %', value: display((k) => formatPct(k.possToAttack)) },
-            { label: 'Possession To Shot %', value: display((k) => formatPct(k.possToShot)) },
-            { label: 'Attack To Shot %', value: display((k) => formatPct(k.attToShot)) },
-            { label: 'Completed Passes Per Possession', value: display((k) => Number.isFinite(k.passesPerPoss) ? k.passesPerPoss.toFixed(2) : 'NA') },
-            { label: 'Scoring Possession %', value: display((k) => formatPct(k.scoringPoss)) },
-            { label: 'Counter Attack Possession %', value: display((k) => formatPct(k.counterPoss)) },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ComparisonMetricsCard
+          title="Possession Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
+            { label: 'Possessions', home: sideKpis.home.possN, away: sideKpis.away.possN },
+            { label: 'Attacks', home: sideKpis.home.attN, away: sideKpis.away.attN },
+            { label: 'Points Per Possession', home: Number.isFinite(sideKpis.home.pointsPerPossession) ? sideKpis.home.pointsPerPossession.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.pointsPerPossession) ? sideKpis.away.pointsPerPossession.toFixed(2) : 'NA' },
+            { label: 'Avg Possession Duration', home: Number.isFinite(sideKpis.home.avgDur) ? `${sideKpis.home.avgDur.toFixed(1)}s` : 'NA', away: Number.isFinite(sideKpis.away.avgDur) ? `${sideKpis.away.avgDur.toFixed(1)}s` : 'NA' },
+            { label: 'Possession To Attack %', home: formatPct(sideKpis.home.possToAttack), away: formatPct(sideKpis.away.possToAttack) },
+            { label: 'Possession To Shot %', home: formatPct(sideKpis.home.possToShot), away: formatPct(sideKpis.away.possToShot) },
+            { label: 'Attack To Shot %', home: formatPct(sideKpis.home.attToShot), away: formatPct(sideKpis.away.attToShot) },
+            { label: 'Completed Passes Per Possession', home: Number.isFinite(sideKpis.home.passesPerPoss) ? sideKpis.home.passesPerPoss.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.passesPerPoss) ? sideKpis.away.passesPerPoss.toFixed(2) : 'NA' },
+            { label: 'Scoring Possession %', home: formatPct(sideKpis.home.scoringPoss), away: formatPct(sideKpis.away.scoringPoss) },
+            { label: 'Counter Attack Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
+          ]}
+        />
 
         {possessionsFiltered.length === 0 ? (
           <Card>

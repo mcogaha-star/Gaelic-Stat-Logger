@@ -88,6 +88,45 @@ function formatPct(n) {
   return `${n.toFixed(1)}%`;
 }
 
+function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [] }) {
+  const showHome = teamMode === 'both' || teamMode === 'home';
+  const showAway = teamMode === 'both' || teamMode === 'away';
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-xs text-slate-600">
+          <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
+            <span className="truncate">{homeTeam?.name || 'Home'}</span>
+          </div>
+          <div className="font-medium text-center">Metric</div>
+          <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
+            <span className="truncate">{awayTeam?.name || 'Away'}</span>
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {rows.map((row) => (
+            <div key={row.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
+                <div className={`text-left tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
+                  {showHome ? row.home : ''}
+                </div>
+                <div className="text-center text-xs font-medium text-slate-600">{row.label}</div>
+                <div className={`text-right tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
+                  {showAway ? row.away : ''}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function computeImputedNormalizedTimes(stats) {
   const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
   // Sort by play order if possible, otherwise keep stable input order.
@@ -553,7 +592,7 @@ function buildShotAssistCredits(stats) {
         if (extra?.pass?.outcome !== 'completed') continue;
         const passer = extra?.pass?.passer;
         if (passer?.kind === 'player') {
-          out.push({ passer, shot, possessionKey: key, teamSide });
+          out.push({ passer, shot, sourceStat: prev, possessionKey: key, teamSide });
         }
         break;
       }
@@ -1611,6 +1650,7 @@ export {
   formatAddedTime,
   formatMatchClock,
   formatPct,
+  ComparisonMetricsCard,
   computeImputedNormalizedTimes,
   formatTeamLabel,
   humanizeKey,

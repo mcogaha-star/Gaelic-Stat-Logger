@@ -212,19 +212,23 @@ export default function MatchStats() {
         mutationFn: async (data) => {
             const created = await db.entities.StatEntry.create(data);
 
-            // Best-effort server upload (redacted)
-            const serverMatchId = await ensureMatchServerId();
-            if (serverMatchId && match?.public_match_id) {
-                const res = await insertServerStat({
-                    matchId: serverMatchId,
-                    publicMatchId: match.public_match_id,
-                    stat: created,
-                    teamSide: created.team_side || 'unknown',
-                });
-                if (res.ok && res.id) {
-                    await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
-                    return { ...created, server_stat_id: res.id };
+            try {
+                // Best-effort server upload (redacted)
+                const serverMatchId = await ensureMatchServerId();
+                if (serverMatchId && match?.public_match_id) {
+                    const res = await insertServerStat({
+                        matchId: serverMatchId,
+                        publicMatchId: match.public_match_id,
+                        stat: created,
+                        teamSide: created.team_side || 'unknown',
+                    });
+                    if (res.ok && res.id) {
+                        await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
+                        return { ...created, server_stat_id: res.id };
+                    }
                 }
+            } catch (error) {
+                console.warn('Server stat sync failed after local create', error);
             }
 
             return created;
@@ -236,17 +240,21 @@ export default function MatchStats() {
         mutationFn: async ({ id, data }) => {
             const updated = await db.entities.StatEntry.update(id, data);
             if (updated?.server_stat_id) {
-                await updateServerStat(updated.server_stat_id, {
-                    stat_type: updated.stat_type,
-                    is_pass: !!updated.is_pass,
-                    team_side: updated.team_side || 'unknown',
-                    counter_attack: !!updated.counter_attack,
-                    time_s: updated.time_s ?? null,
-                    normalized_time_s: updated.normalized_time_s ?? null,
-                    player_number: updated.player_number ?? null,
-                    recipient_number: updated.recipient_number ?? null,
-                    extra_data: updated.extra_data ?? null,
-                });
+                try {
+                    await updateServerStat(updated.server_stat_id, {
+                        stat_type: updated.stat_type,
+                        is_pass: !!updated.is_pass,
+                        team_side: updated.team_side || 'unknown',
+                        counter_attack: !!updated.counter_attack,
+                        time_s: updated.time_s ?? null,
+                        normalized_time_s: updated.normalized_time_s ?? null,
+                        player_number: updated.player_number ?? null,
+                        recipient_number: updated.recipient_number ?? null,
+                        extra_data: updated.extra_data ?? null,
+                    });
+                } catch (error) {
+                    console.warn('Server stat sync failed after local update', error);
+                }
             }
             return updated;
         },

@@ -41,6 +41,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -109,30 +110,21 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
     return Array.from(rows.values()).sort((a, b) => b.count - a.count);
   }, [visibleFouls]);
 
-  const display = (selector) => {
-    if (teamMode === 'home') return selector(kpis.home);
-    if (teamMode === 'away') return selector(kpis.away);
-    return `${selector(kpis.home)} / ${selector(kpis.away)}`;
-  };
-
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { label: 'Fouls Won', value: display((k) => String(k.won)) },
-            { label: 'Fouls Conceded', value: display((k) => String(k.conceded)) },
-            { label: 'Foul Differential', value: display((k) => String(k.won - k.conceded)) },
-            { label: 'Cards Total', value: display((k) => String(k.yellow + k.black + k.red)) },
-            { label: 'Scorable Frees Conceded', value: display((k) => String(k.scorable)) },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ComparisonMetricsCard
+          title="Foul Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
+            { label: 'Fouls Won', home: kpis.home.won, away: kpis.away.won },
+            { label: 'Fouls Conceded', home: kpis.home.conceded, away: kpis.away.conceded },
+            { label: 'Foul Differential', home: kpis.home.won - kpis.home.conceded, away: kpis.away.won - kpis.away.conceded },
+            { label: 'Cards Total', home: kpis.home.yellow + kpis.home.black + kpis.home.red, away: kpis.away.yellow + kpis.away.black + kpis.away.red },
+            { label: 'Scorable Frees Conceded', home: kpis.home.scorable, away: kpis.away.scorable },
+          ]}
+        />
 
         {visibleFouls.length === 0 ? (
           <Card>

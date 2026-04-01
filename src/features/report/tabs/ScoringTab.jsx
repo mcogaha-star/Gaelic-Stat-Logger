@@ -43,6 +43,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -283,12 +284,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
     return out;
   }, [filteredShots, teamMode]);
 
-  const display = (selector) => {
-    if (teamMode === 'home') return selector(kpis.home);
-    if (teamMode === 'away') return selector(kpis.away);
-    return `${selector(kpis.home)} / ${selector(kpis.away)}`;
-  };
-
   const pieColors = {
     score: '#2563eb',
     wide: '#334155',
@@ -300,29 +295,26 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
 
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { label: 'Shots', value: display((k) => String(k.shotsN)) },
-            { label: 'Scores', value: display((k) => String(k.scoresN)) },
-            { label: 'Shot Conversion %', value: display((k) => formatPct(k.conv)) },
-            { label: 'Points Per Shot', value: display((k) => Number.isFinite(k.pps) ? k.pps.toFixed(2) : 'NA') },
-            { label: 'Average Shot Distance', value: display((k) => Number.isFinite(k.avgDist) ? k.avgDist.toFixed(1) : 'NA') },
-            { label: 'Play-Shot Conversion %', value: display((k) => formatPct(k.playConv)) },
-            { label: '% Shots From Play', value: display((k) => formatPct(k.fromPlayPct)) },
-            { label: 'Placed-Ball Conversion %', value: display((k) => formatPct(k.placedConv)) },
-            { label: '1 Point Scores', value: display((k) => `${k.typeBreakdown.point.scored}/${k.typeBreakdown.point.attempts}`) },
-            { label: '2 Point Scores', value: display((k) => `${k.typeBreakdown['2_point'].scored}/${k.typeBreakdown['2_point'].attempts}`) },
-            { label: 'Goal Scores', value: display((k) => `${k.typeBreakdown.goal.scored}/${k.typeBreakdown.goal.attempts}`) },
-            { label: '% Low Pressure Shots', value: display((k) => formatPct(k.lowPressurePct)) },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ComparisonMetricsCard
+          title="Scoring Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
+            { label: 'Shots', home: kpis.home.shotsN, away: kpis.away.shotsN },
+            { label: 'Scores', home: kpis.home.scoresN, away: kpis.away.scoresN },
+            { label: 'Shot Conversion %', home: formatPct(kpis.home.conv), away: formatPct(kpis.away.conv) },
+            { label: 'Points Per Shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
+            { label: 'Average Shot Distance', home: Number.isFinite(kpis.home.avgDist) ? kpis.home.avgDist.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgDist) ? kpis.away.avgDist.toFixed(1) : 'NA' },
+            { label: 'Play-Shot Conversion %', home: formatPct(kpis.home.playConv), away: formatPct(kpis.away.playConv) },
+            { label: '% Shots From Play', home: formatPct(kpis.home.fromPlayPct), away: formatPct(kpis.away.fromPlayPct) },
+            { label: 'Placed-Ball Conversion %', home: formatPct(kpis.home.placedConv), away: formatPct(kpis.away.placedConv) },
+            { label: '1 Point Scores', home: `${kpis.home.typeBreakdown.point.scored}/${kpis.home.typeBreakdown.point.attempts}`, away: `${kpis.away.typeBreakdown.point.scored}/${kpis.away.typeBreakdown.point.attempts}` },
+            { label: '2 Point Scores', home: `${kpis.home.typeBreakdown['2_point'].scored}/${kpis.home.typeBreakdown['2_point'].attempts}`, away: `${kpis.away.typeBreakdown['2_point'].scored}/${kpis.away.typeBreakdown['2_point'].attempts}` },
+            { label: 'Goal Scores', home: `${kpis.home.typeBreakdown.goal.scored}/${kpis.home.typeBreakdown.goal.attempts}`, away: `${kpis.away.typeBreakdown.goal.scored}/${kpis.away.typeBreakdown.goal.attempts}` },
+            { label: '% Low Pressure Shots', home: formatPct(kpis.home.lowPressurePct), away: formatPct(kpis.away.lowPressurePct) },
+          ]}
+        />
 
         {filteredShots.length === 0 ? (
           <Card>

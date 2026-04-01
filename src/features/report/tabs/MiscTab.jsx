@@ -42,6 +42,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -121,24 +122,22 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
           </Card>
         ) : (
           <>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {[
+            <ComparisonMetricsCard
+              title="Throw-In Metrics"
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              teamMode="both"
+              rows={[
                 {
                   label: 'Throw-In Win %',
-                  value: `${kpis.home.won}/${kpis.home.contested} (${formatPct(kpis.home.contested ? (kpis.home.won / kpis.home.contested) * 100 : NaN)}) • ${kpis.away.won}/${kpis.away.contested} (${formatPct(kpis.away.contested ? (kpis.away.won / kpis.away.contested) * 100 : NaN)})`,
+                  home: `${kpis.home.won}/${kpis.home.contested} (${formatPct(kpis.home.contested ? (kpis.home.won / kpis.home.contested) * 100 : NaN)})`,
+                  away: `${kpis.away.won}/${kpis.away.contested} (${formatPct(kpis.away.contested ? (kpis.away.won / kpis.away.contested) * 100 : NaN)})`,
                 },
-                { label: 'Clean Wins', value: `${kpis.home.cleanWon} • ${kpis.away.cleanWon}` },
-                { label: 'Break Wins', value: `${kpis.home.breakWon} • ${kpis.away.breakWon}` },
-                { label: 'Throw-Ins Contested', value: throwIns.length },
-              ].map((k) => (
-                <Card key={k.label}>
-                  <CardContent className="p-3">
-                    <div className="text-[11px] text-slate-600">{k.label}</div>
-                    <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                { label: 'Clean Wins', home: kpis.home.cleanWon, away: kpis.away.cleanWon },
+                { label: 'Break Wins', home: kpis.home.breakWon, away: kpis.away.breakWon },
+                { label: 'Throw-Ins Contested', home: throwIns.length, away: throwIns.length },
+              ]}
+            />
 
             <div className="grid lg:grid-cols-2 gap-4">
               <Card>

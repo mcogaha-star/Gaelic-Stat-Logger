@@ -18,7 +18,6 @@ import {
   getMatchTimeS,
   normalizeFoulType,
   shotPointsForOutcome,
-  statHasEnteredOpp45,
   buildLegacyPossessionRepairs,
 } from '@/lib/reportAnalytics';
 import {
@@ -267,32 +266,25 @@ export default function MatchReport() {
     const out = { home: { ...empty }, away: { ...empty } };
     const list = Array.isArray(overviewStats) ? overviewStats : [];
 
-    const possessionIdsBySide = {
-      home: new Set(),
-      away: new Set(),
-    };
-
-    // For "attacks": track possessions that enter opposition 45.
-    const attacksBySide = {
-      home: new Set(),
-      away: new Set(),
-    };
+    const groupedPossessions = [];
+    const groups = groupByPossession(list);
+    for (const [key, evs] of groups.entries()) {
+      const [teamSide, pidStr] = String(key).split('-');
+      const pid = Number(pidStr);
+      if ((teamSide !== 'home' && teamSide !== 'away') || !Number.isFinite(pid)) continue;
+      const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+      if (!acting.length) continue;
+      groupedPossessions.push({
+        teamSide,
+        possessionId: pid,
+        isAttack: possessionHasOpp45Entry(acting),
+      });
+    }
 
     for (const s of list) {
       if (!s) continue;
       const side = s.team_side === 'away' ? 'away' : 'home';
       const extra = safeParseJSON(s.extra_data || '{}', {});
-
-      if (side === 'home' || side === 'away') {
-        if (Number.isFinite(Number(s.possession_id)) && (s.possession_team_side === 'home' || s.possession_team_side === 'away')) {
-          possessionIdsBySide[s.possession_team_side].add(String(s.possession_id));
-        }
-      }
-
-      // Determine "attack" per possession team side using normalized coordinates.
-      if ((s.possession_team_side === 'home' || s.possession_team_side === 'away') && s.team_side === s.possession_team_side) {
-        if (statHasEnteredOpp45(s)) attacksBySide[s.possession_team_side].add(String(s.possession_id));
-      }
 
       if (s.stat_type === 'shot') {
         out[side].shots += 1;
@@ -348,11 +340,11 @@ export default function MatchReport() {
     out.home.totalPoints = out.home.goals * 3 + out.home.points1 + out.home.points2 * 2;
     out.away.totalPoints = out.away.goals * 3 + out.away.points1 + out.away.points2 * 2;
 
-    out.home.possessions = possessionIdsBySide.home.size;
-    out.away.possessions = possessionIdsBySide.away.size;
+    out.home.possessions = groupedPossessions.filter((p) => p.teamSide === 'home').length;
+    out.away.possessions = groupedPossessions.filter((p) => p.teamSide === 'away').length;
 
-    out.home.attacks = attacksBySide.home.size;
-    out.away.attacks = attacksBySide.away.size;
+    out.home.attacks = groupedPossessions.filter((p) => p.teamSide === 'home' && p.isAttack).length;
+    out.away.attacks = groupedPossessions.filter((p) => p.teamSide === 'away' && p.isAttack).length;
 
     return out;
   }, [overviewStats]);

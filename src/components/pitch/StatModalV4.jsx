@@ -547,11 +547,15 @@ export default function StatModalV4({
       return p ? `player:${p.id}` : NONE;
     };
 
-    const primaryFromStat = (() => {
-      const side = initialStat.team_side === 'away' ? 'away' : 'home';
-      if (initialStat?.player_number == null) return NONE;
-      return findPlayerByNumber(side, initialStat.player_number);
-    })();
+  const primaryFromStat = (() => {
+    const side = initialStat.team_side === 'away' ? 'away' : 'home';
+    if (initialStat?.player_number == null) return NONE;
+    return findPlayerByNumber(side, initialStat.player_number);
+  })();
+  const previousShotOppositeSide =
+    previousStat?.stat_type === 'shot'
+      ? (previousStat?.team_side === 'home' ? 'away' : previousStat?.team_side === 'away' ? 'home' : null)
+      : null;
 
     setAction(initialStat.stat_type || (isDrag ? 'pass' : 'shot'));
     setCounterAttack(!!initialStat.counter_attack);
@@ -571,7 +575,7 @@ export default function StatModalV4({
     setWonBy(NONE);
     setThrowLostBy(NONE);
     setBrokenBy(NONE);
-    setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || 'home');
+    setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || previousShotOppositeSide || 'home');
     setKickoutOutcome('');
     setIntendedRecipient(NONE);
     setKickoutWonBy(NONE);
@@ -849,7 +853,10 @@ export default function StatModalV4({
     if (action === 'kickout' && !kickoutPress) {
       setKickoutPress('m2m');
     }
-  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type]);
+    if (action === 'kickout' && previousAction !== 'kickout' && previousShotOppositeSide && !initialStat?.id) {
+      setKickoutTeam(previousShotOppositeSide);
+    }
+  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {

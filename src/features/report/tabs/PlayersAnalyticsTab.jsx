@@ -151,7 +151,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     for (const s of base) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
       if (s.stat_type === 'shot') {
-        const p = ex?.shot?.player;
+        const p = ex?.shot?.player || getPrimaryActorSelection(s, ex);
         const r = ensure(p);
         if (r) {
           r.shots += 1;

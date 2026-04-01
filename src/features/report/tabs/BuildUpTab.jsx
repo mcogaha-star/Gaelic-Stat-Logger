@@ -45,6 +45,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -160,12 +161,6 @@ function BuildUpTab({
     };
   }, [kpis]);
 
-  const display = (selector) => {
-    if (teamMode === 'home') return selector(kpis.home);
-    if (teamMode === 'away') return selector(kpis.away);
-    return `${selector(kpis.home)} / ${selector(kpis.away)}`;
-  };
-
   const channelRows = useMemo(() => {
     const homeTotal = Object.values(kpis.home.channels).reduce((a, b) => a + b, 0);
     const awayTotal = Object.values(kpis.away.channels).reduce((a, b) => a + b, 0);
@@ -180,32 +175,29 @@ function BuildUpTab({
 
   return (
     <div className="space-y-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { label: 'Passes Attempted', value: display((k) => String(k.passes)) },
-            { label: 'Pass Completion %', value: display((k) => formatPct(k.passPct)) },
-            { label: 'Carries', value: display((k) => String(k.carries)) },
-            { label: 'Carry Completion %', value: display((k) => formatPct(k.carryPct)) },
-            { label: 'Progressive Passes Attempted', value: display((k) => String(k.progPass)) },
-            { label: 'Progressive Pass Success %', value: display((k) => formatPct(k.progPassPct)) },
-            { label: 'Progressive Carries Attempted', value: display((k) => String(k.progCarry)) },
-            { label: 'Progressive Carry Success %', value: display((k) => formatPct(k.progCarryPct)) },
-            { label: 'Scoring Zone Entries', value: display((k) => String(k.scoringEntries)) },
-            { label: 'Passes Into Scoring Zone', value: display((k) => String(k.passesIntoScoringZone)) },
-            { label: 'Shot Assists', value: display((k) => String(k.shotAssists)) },
-            { label: 'Shots Created', value: display((k) => String(k.shotsCreated)) },
-            { label: 'Field Tilt', value: teamMode === 'home' ? formatPct(fieldTiltPct.home) : teamMode === 'away' ? formatPct(fieldTiltPct.away) : `${formatPct(fieldTiltPct.home)} / ${formatPct(fieldTiltPct.away)}` },
-            { label: 'Build-Up Turnovers', value: display((k) => String(k.turnovers)) },
-            { label: 'Build-Up Speed', value: display((k) => Number.isFinite(k.buildUpSpeed) ? `${k.buildUpSpeed.toFixed(1)}s` : 'NA') },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="p-3">
-                <div className="text-[11px] text-slate-600">{k.label}</div>
-                <div className="text-lg font-semibold text-slate-900 tabular-nums">{k.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ComparisonMetricsCard
+          title="Build-Up Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          rows={[
+            { label: 'Passes Attempted', home: kpis.home.passes, away: kpis.away.passes },
+            { label: 'Pass Completion %', home: formatPct(kpis.home.passPct), away: formatPct(kpis.away.passPct) },
+            { label: 'Carries', home: kpis.home.carries, away: kpis.away.carries },
+            { label: 'Carry Completion %', home: formatPct(kpis.home.carryPct), away: formatPct(kpis.away.carryPct) },
+            { label: 'Progressive Passes Attempted', home: kpis.home.progPass, away: kpis.away.progPass },
+            { label: 'Progressive Pass Success %', home: formatPct(kpis.home.progPassPct), away: formatPct(kpis.away.progPassPct) },
+            { label: 'Progressive Carries Attempted', home: kpis.home.progCarry, away: kpis.away.progCarry },
+            { label: 'Progressive Carry Success %', home: formatPct(kpis.home.progCarryPct), away: formatPct(kpis.away.progCarryPct) },
+            { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
+            { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
+            { label: 'Shot Assists', home: kpis.home.shotAssists, away: kpis.away.shotAssists },
+            { label: 'Shots Created', home: kpis.home.shotsCreated, away: kpis.away.shotsCreated },
+            { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
+            { label: 'Build-Up Turnovers', home: kpis.home.turnovers, away: kpis.away.turnovers },
+            { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
+          ]}
+        />
 
         {filtered.length === 0 ? (
           <Card>

@@ -298,8 +298,15 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               if (act === 'turnover') return 'Turnover Won';
               if (act === 'throw_in') return 'Throw In Won';
               if (act === 'foul') return 'Foul Won';
-              if (extra?.pass?.deadball) return 'Restart';
-              return toTitleCase(act);
+              if (act === 'shot') {
+                if (extra?.shot?.result === 'retained') return 'Shot Retained';
+                if (extra?.shot?.result === 'opposition') return 'Opposition Shot Won';
+                return 'Shot Phase';
+              }
+              if (act === 'pass' && extra?.pass?.deadball) return 'Restart';
+              if (act === 'carry' && extra?.carry?.solo_plus_go) return 'Restart Carry';
+              if (act === 'pass' || act === 'carry') return 'Open Play';
+              return toTitleCase(act || 'Open Play');
             })();
           }
           if (cur._maxPlay == null || pid > cur._maxPlay) {
