@@ -57,11 +57,7 @@ import {
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
-    { k: 'Wide', c: '#f59e0b' },
-    { k: 'Short', c: '#eab308' },
-    { k: 'Blocked', c: '#fb7185' },
-    { k: 'Saved', c: '#38bdf8' },
-    { k: 'Post', c: '#a78bfa' },
+    { k: 'Missed Shot', c: '#eab308' },
     { k: 'Turnover', c: '#f97316' },
     { k: 'Half End', c: '#64748b' },
   ];
@@ -219,7 +215,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     for (const r of rows) {
       const side = r.teamSide;
       if (!out[side]) continue;
-      const k = String(r.outcome || 'Turnover');
+      const raw = String(r.outcome || 'Turnover');
+      const k = ['Wide', 'Short', 'Blocked', 'Saved', 'Post'].includes(raw) ? 'Missed Shot' : raw;
       if (out[side][k] == null) out[side][k] = 0;
       out[side][k] += 1;
     }

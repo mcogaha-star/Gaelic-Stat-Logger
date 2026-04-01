@@ -482,7 +482,7 @@ export default function MatchReport() {
 
   const overviewPossessionOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
-    const init = () => ({ Score: 0, Wide: 0, Short: 0, Blocked: 0, Saved: 0, Post: 0, Turnover: 0, 'Half End': 0 });
+    const init = () => ({ Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 });
     const outcomes = { home: init(), away: init() };
 
     for (const [key, evs] of groups.entries()) {
@@ -491,7 +491,8 @@ export default function MatchReport() {
       const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
       if (!acting.length) continue;
 
-      const outcome = derivePossessionOutcome(evs, teamSide);
+      const rawOutcome = derivePossessionOutcome(evs, teamSide);
+      const outcome = ['Wide', 'Short', 'Blocked', 'Saved', 'Post'].includes(rawOutcome) ? 'Missed Shot' : rawOutcome;
 
       if (outcomes[teamSide][outcome] == null) outcomes[teamSide][outcome] = 0;
       outcomes[teamSide][outcome] += 1;

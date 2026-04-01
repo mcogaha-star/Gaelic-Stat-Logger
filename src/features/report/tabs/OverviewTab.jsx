@@ -14,11 +14,7 @@ export default function OverviewTab({
 }) {
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
-    { k: 'Wide', c: '#f59e0b' },
-    { k: 'Short', c: '#eab308' },
-    { k: 'Blocked', c: '#fb7185' },
-    { k: 'Saved', c: '#38bdf8' },
-    { k: 'Post', c: '#a78bfa' },
+    { k: 'Missed Shot', c: '#eab308' },
     { k: 'Turnover', c: '#f97316' },
     { k: 'Half End', c: '#64748b' },
   ];
