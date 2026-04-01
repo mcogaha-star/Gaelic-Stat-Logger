@@ -42,6 +42,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  teamRowTint,
   ComparisonMetricsCard,
   PitchViz,
   AttackChannelPitch,
@@ -237,10 +238,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
                       {[
-                        { k: 'Score', c: '#1d4ed8' },
-                        { k: 'Missed Shot', c: '#64748b' },
+                        { k: 'Score', c: '#16a34a' },
+                        { k: 'Missed Shot', c: '#f59e0b' },
                         { k: 'Turnover', c: '#dc2626' },
-                        { k: 'Half End', c: '#94a3b8' },
+                        { k: 'Half End', c: '#64748b' },
                       ].map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                       ))}
@@ -260,10 +261,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
                       {[
-                        { k: 'Score', c: '#1d4ed8' },
-                        { k: 'Missed Shot', c: '#64748b' },
+                        { k: 'Score', c: '#16a34a' },
+                        { k: 'Missed Shot', c: '#f59e0b' },
                         { k: 'Turnover', c: '#dc2626' },
-                        { k: 'Half End', c: '#94a3b8' },
+                        { k: 'Half End', c: '#64748b' },
                       ].map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                       ))}
@@ -300,7 +301,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                     {possessionsFiltered.slice(0, 250).map((p) => {
                       const teamName = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
                       return (
-                        <TableRow key={p.key}>
+                        <TableRow key={p.key} style={teamRowTint(p.teamSide, homeTeam?.color, awayTeam?.color, 0.07)}>
                           <TableCell className="font-mono text-xs">#{p.possessionId}</TableCell>
                           <TableCell className="font-medium">{teamName}</TableCell>
                           <TableCell>{toTitleCase(p.half)}</TableCell>

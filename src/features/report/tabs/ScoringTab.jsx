@@ -50,6 +50,7 @@ import {
   ShotMap,
   shotSideFromY,
   shotZoneFromDistance,
+  teamRowTint,
   applyNonTeamReportFilters,
 } from '../shared';
 
@@ -249,6 +250,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
       const cur = rows.get(key) || {
         key,
         player: s.playerLabel || 'NA',
+        team: s.team_side,
         shots: 0,
         scores: 0,
         points: 0,
@@ -301,9 +303,11 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
           awayTeam={awayTeam}
           teamMode={teamMode}
           rows={[
-            { label: 'Shots', home: kpis.home.shotsN, away: kpis.away.shotsN },
-            { label: 'Scores', home: kpis.home.scoresN, away: kpis.away.scoresN },
-            { label: 'Shot Conversion %', home: formatPct(kpis.home.conv), away: formatPct(kpis.away.conv) },
+            {
+              label: 'Shot Scoring',
+              home: `${kpis.home.scoresN}/${kpis.home.shotsN} (${formatPct(kpis.home.conv)})`,
+              away: `${kpis.away.scoresN}/${kpis.away.shotsN} (${formatPct(kpis.away.conv)})`,
+            },
             { label: 'Points Per Shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
             { label: 'Average Shot Distance', home: Number.isFinite(kpis.home.avgDist) ? kpis.home.avgDist.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgDist) ? kpis.away.avgDist.toFixed(1) : 'NA' },
             { label: 'Play-Shot Conversion %', home: formatPct(kpis.home.playConv), away: formatPct(kpis.away.playConv) },
@@ -460,30 +464,34 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                       <TableHead>Player</TableHead>
                       <TableHead className="text-right">Shots</TableHead>
                       <TableHead className="text-right">Scores</TableHead>
-                      <TableHead className="text-right">Conv %</TableHead>
                       <TableHead className="text-right">Points</TableHead>
                       <TableHead className="text-right">Pts/Shot</TableHead>
                       <TableHead className="text-right">Avg Dist</TableHead>
-                      <TableHead className="text-right">1 Pt</TableHead>
-                      <TableHead className="text-right">2 Pt</TableHead>
-                      <TableHead className="text-right">Goals</TableHead>
+                      <TableHead className="text-right">1 Att</TableHead>
+                      <TableHead className="text-right">1 Scored</TableHead>
+                      <TableHead className="text-right">2 Att</TableHead>
+                      <TableHead className="text-right">2 Scored</TableHead>
+                      <TableHead className="text-right">Goal Att</TableHead>
+                      <TableHead className="text-right">Goal Scored</TableHead>
                       <TableHead className="text-right">Play Shots</TableHead>
                       <TableHead className="text-right">Placed Shots</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {playerSummary.map((r) => (
-                      <TableRow key={r.key}>
+                      <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                         <TableCell className="font-medium">{r.player}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.points}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{`${r.pointMade}/${r.pointAtt}`}</TableCell>
-                        <TableCell className="text-right tabular-nums">{`${r.twoMade}/${r.twoAtt}`}</TableCell>
-                        <TableCell className="text-right tabular-nums">{`${r.goalMade}/${r.goalAtt}`}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.pointAtt}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.pointMade}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.twoAtt}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.twoMade}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.goalAtt}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.goalMade}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.playShots}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.placedShots}</TableCell>
                       </TableRow>

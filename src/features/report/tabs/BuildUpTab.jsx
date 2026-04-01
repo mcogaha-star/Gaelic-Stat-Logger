@@ -197,11 +197,8 @@ function BuildUpTab({
             { label: 'Progressive Carry Success %', home: formatPct(kpis.home.progCarryPct), away: formatPct(kpis.away.progCarryPct) },
             { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
-            { label: 'Shot Assists', home: kpis.home.shotAssists, away: kpis.away.shotAssists },
-            { label: 'Shots Created', home: kpis.home.shotsCreated, away: kpis.away.shotsCreated },
             { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
             { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
-            { label: 'Build-Up Turnovers', home: kpis.home.turnovers, away: kpis.away.turnovers },
             { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
           ]}
         />

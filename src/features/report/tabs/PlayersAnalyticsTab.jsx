@@ -46,6 +46,7 @@ import {
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
+  teamRowTint,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -151,7 +152,17 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     for (const s of base) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
       if (s.stat_type === 'shot') {
-        const p = ex?.shot?.player || getPrimaryActorSelection(s, ex);
+        const p = ex?.shot?.player || getPrimaryActorSelection(s, ex) || (
+          (s?.team_side === 'home' || s?.team_side === 'away') && (s?.player_number || s?.player_name)
+            ? {
+                kind: 'player',
+                id: `legacy:${s.team_side}:${s.player_number ?? 'na'}:${String(s.player_name || '').trim() || 'unknown'}`,
+                number: s.player_number ?? null,
+                name: s.player_name || '',
+                team_side: s.team_side,
+              }
+            : null
+        );
         const r = ensure(p);
         if (r) {
           r.shots += 1;
@@ -408,9 +419,14 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'shots', label: 'Shots', numeric: true },
       { key: 'scores', label: 'Scores', numeric: true },
       { key: 'points', label: 'Points', numeric: true },
-      { key: 'shotConvPct', label: 'Shot Conv %', numeric: true, sortValue: (r) => (r.shots ? (r.scores / r.shots) * 100 : -1), render: (r) => r.shots ? formatPct((r.scores / r.shots) * 100) : 'NA' },
       { key: 'pointsPerShot', label: 'Pts/Shot', numeric: true, sortValue: (r) => (r.shots ? r.points / r.shots : -1), render: (r) => r.shots ? (r.points / r.shots).toFixed(2) : 'NA' },
       { key: 'avgShotDist', label: 'Avg Dist', numeric: true, sortValue: (r) => r.avgShotDist, render: (r) => Number.isFinite(r.avgShotDist) ? r.avgShotDist.toFixed(1) : 'NA' },
+      { key: 'pointAtt', label: '1 Att', numeric: true },
+      { key: 'pointMade', label: '1 Scored', numeric: true },
+      { key: 'twoAtt', label: '2 Att', numeric: true },
+      { key: 'twoMade', label: '2 Scored', numeric: true },
+      { key: 'goalAtt', label: 'Goal Att', numeric: true },
+      { key: 'goalMade', label: 'Goal Scored', numeric: true },
     ],
     progression: [
       { key: 'player', label: 'Player' },
@@ -602,7 +618,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               </TableHeader>
               <TableBody>
                 {sortedLeaderboard.slice(0, 250).map((r) => (
-                  <TableRow key={r.key}>
+                  <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                     {currentColumns.map((col) => (
                       <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
                         {col.render ? col.render(r) : r[col.key]}
@@ -646,7 +662,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         </TableHeader>
                         <TableBody>
                           {card.pressRows.map((row) => (
-                            <TableRow key={row.key}>
+                            <TableRow key={row.key} style={teamRowTint(card.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                               <TableCell className="font-medium">{row.press}</TableCell>
                               <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
                               <TableCell className="text-right tabular-nums">{row.short}</TableCell>

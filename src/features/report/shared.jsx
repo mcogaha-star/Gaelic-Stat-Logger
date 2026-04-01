@@ -88,13 +88,37 @@ function formatPct(n) {
   return `${n.toFixed(1)}%`;
 }
 
+function hexToRgba(color, alpha = 0.08) {
+  const value = String(color || '').trim();
+  const fallback = `rgba(148, 163, 184, ${alpha})`;
+  if (!value.startsWith('#')) return fallback;
+  const hex = value.slice(1);
+  const normalized = hex.length === 3
+    ? hex.split('').map((c) => c + c).join('')
+    : hex.length === 6
+      ? hex
+      : null;
+  if (!normalized) return fallback;
+  const int = Number.parseInt(normalized, 16);
+  if (!Number.isFinite(int)) return fallback;
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function teamRowTint(teamSide, homeColor, awayColor, alpha = 0.08) {
+  const color = teamSide === 'away' ? (awayColor || '#ef4444') : (homeColor || '#22c55e');
+  return { backgroundColor: hexToRgba(color, alpha) };
+}
+
 function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [] }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
-  const metricCol = '96px';
+  const metricCol = '180px';
 
   return (
-    <Card>
+    <Card className="w-full lg:w-[48%] lg:max-w-[48%] mr-auto">
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="grid items-center gap-3 text-xs text-slate-600" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
@@ -102,7 +126,7 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
             <span className="truncate">{homeTeam?.name || 'Home'}</span>
           </div>
-          <div className="text-center text-sm font-bold text-slate-700">Metric</div>
+          <div className="text-center text-[1.05rem] font-bold text-slate-700">Metric</div>
           <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
             <span className="truncate">{awayTeam?.name || 'Away'}</span>
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
@@ -1432,13 +1456,13 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   const list = Array.isArray(shots) ? shots : [];
 
   const colors = {
-    score: '#2563eb',
-    wide: '#334155',
-    short: '#64748b',
-    saved: '#f59e0b',
+    score: '#16a34a',
+    wide: '#dc2626',
+    short: '#dc2626',
+    saved: '#dc2626',
     blocked: '#dc2626',
-    post: '#7c3aed',
-    other: '#111827',
+    post: '#dc2626',
+    other: '#dc2626',
   };
 
   const visible = list.filter((s) => {
@@ -1618,7 +1642,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = outcome group, outline = team.' : 'Colour = outcome group.'}
+          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = score / miss, outline = team.' : 'Colour = score / miss.'}
         </div>
       </CardContent>
     </Card>
@@ -1673,6 +1697,7 @@ export {
   formatMatchClock,
   formatPct,
   ComparisonMetricsCard,
+  teamRowTint,
   computeImputedNormalizedTimes,
   formatTeamLabel,
   humanizeKey,
