@@ -99,7 +99,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         if (f?.stat_type === 'throw_in') return 'Throw In Won';
         if (f?.stat_type === 'foul') return 'Foul Won';
         if (f?.stat_type === 'shot') {
+          const outcome = String(ex?.shot?.outcome || '');
           if (ex?.shot?.result === 'retained') return 'Shot Retained';
+          if (ex?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
+          if (ex?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
           if (ex?.shot?.result === 'opposition') return 'Opposition Shot Won';
           return 'Shot Phase';
         }

@@ -89,74 +89,6 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <div className="space-y-4">
-              <Card className="h-full">
-                <CardContent className="p-4 space-y-3 h-full flex flex-col">
-                  <div className="font-semibold text-slate-900">Momentum</div>
-                  {!showMomentum ? (
-                    <div className="text-xs text-slate-500">No timeline data available (no normalized time values).</div>
-                  ) : (
-                    <div className="relative h-[280px] w-full flex-1">
-                    <div className="pointer-events-none absolute left-2 top-1 z-10 text-[11px] font-semibold" style={{ color: homeTeam?.color || '#22c55e' }}>
-                      {homeTeam?.name || 'Home'}
-                    </div>
-                    <div className="pointer-events-none absolute left-2 bottom-7 z-10 text-[11px] font-semibold" style={{ color: awayTeam?.color || '#ef4444' }}>
-                      {awayTeam?.name || 'Away'}
-                    </div>
-                    <ChartContainer
-                      id="momentum"
-                      className="h-full w-full"
-                      config={{
-                        home: { label: homeTeam?.name || 'Home', color: homeTeam?.color || '#22c55e' },
-                        away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
-                      }}
-                    >
-                      <ComposedChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis
-                          dataKey="minute"
-                          type="number"
-                          domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
-                          tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
-                          tickFormatter={(value) => `${Math.round(value)}`}
-                          className="text-xs"
-                        />
-                        <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
-                        <Tooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload?.length) return null;
-                            const row = payload?.[0]?.payload;
-                            if (!row) return null;
-                            return (
-                              <div className="grid min-w-[8rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-                                <div className="font-medium">{`Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`}</div>
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
-                                  <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.home || 50))}%</span>
-                                </div>
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
-                                  <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.away || 50))}%</span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
-                        <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
-                        <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4 }} />
-                      </ComposedChart>
-                    </ChartContainer>
-                  </div>
-                  )}
-                  <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Above the centre line favours home; below favours away.</div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             <Card className="h-full">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
                 <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-xs text-slate-600">
@@ -233,6 +165,72 @@ export default function OverviewTab({
                     ));
                   })()}
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
+            <Card className="h-full">
+              <CardContent className="p-4 space-y-3 h-full flex flex-col">
+                <div className="font-semibold text-slate-900">Momentum</div>
+                {!showMomentum ? (
+                  <div className="text-xs text-slate-500">No timeline data available (no normalized time values).</div>
+                ) : (
+                  <div className="relative h-[280px] w-full flex-1">
+                  <div className="pointer-events-none absolute left-2 top-1 z-10 text-[11px] font-semibold" style={{ color: homeTeam?.color || '#22c55e' }}>
+                    {homeTeam?.name || 'Home'}
+                  </div>
+                  <div className="pointer-events-none absolute left-2 bottom-7 z-10 text-[11px] font-semibold" style={{ color: awayTeam?.color || '#ef4444' }}>
+                    {awayTeam?.name || 'Away'}
+                  </div>
+                  <ChartContainer
+                    id="momentum"
+                    className="h-full w-full"
+                    config={{
+                      home: { label: homeTeam?.name || 'Home', color: homeTeam?.color || '#22c55e' },
+                      away: { label: awayTeam?.name || 'Away', color: awayTeam?.color || '#ef4444' },
+                    }}
+                  >
+                    <ComposedChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis
+                        dataKey="minute"
+                        type="number"
+                        domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
+                        tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
+                        tickFormatter={(value) => `${Math.round(value)}`}
+                        className="text-xs"
+                      />
+                      <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const row = payload?.[0]?.payload;
+                          if (!row) return null;
+                          return (
+                            <div className="grid min-w-[8rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+                              <div className="font-medium">{`Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`}</div>
+                              <div className="flex justify-between gap-4">
+                                <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
+                                <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.home || 50))}%</span>
+                              </div>
+                              <div className="flex justify-between gap-4">
+                                <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
+                                <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.away || 50))}%</span>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4 }} />
+                    </ComposedChart>
+                  </ChartContainer>
+                </div>
+                )}
+                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Above the centre line favours home; below favours away.</div>
               </CardContent>
             </Card>
 

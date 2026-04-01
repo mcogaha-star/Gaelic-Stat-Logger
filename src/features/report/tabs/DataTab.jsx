@@ -299,7 +299,10 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               if (act === 'throw_in') return 'Throw In Won';
               if (act === 'foul') return 'Foul Won';
               if (act === 'shot') {
+                const outcome = String(extra?.shot?.outcome || '');
                 if (extra?.shot?.result === 'retained') return 'Shot Retained';
+                if (extra?.shot?.result === 'opposition' && outcome === 'short') return 'Shot Short';
+                if (extra?.shot?.result === 'opposition' && outcome === 'blocked') return 'Shot Blocked';
                 if (extra?.shot?.result === 'opposition') return 'Opposition Shot Won';
                 return 'Shot Phase';
               }
