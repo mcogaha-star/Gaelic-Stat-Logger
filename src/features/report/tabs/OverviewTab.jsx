@@ -18,8 +18,8 @@ export default function OverviewTab({
       swing: Number.isFinite(Number(row?.home)) ? Number(row.home) - 50 : 0,
       homeSwing: Number.isFinite(Number(row?.home)) ? Math.max(0, Number(row.home) - 50) : 0,
       awaySwing: Number.isFinite(Number(row?.home)) ? Math.min(0, Number(row.home) - 50) : 0,
-      homeLine: Number.isFinite(Number(row?.home)) && Number(row.home) >= 50 ? Number(row.home) - 50 : null,
-      awayLine: Number.isFinite(Number(row?.home)) && Number(row.home) <= 50 ? Number(row.home) - 50 : null,
+      homeLine: Number.isFinite(Number(row?.home)) && Number(row.home) > 50 ? Number(row.home) - 50 : null,
+      awayLine: Number.isFinite(Number(row?.home)) && Number(row.home) < 50 ? Number(row.home) - 50 : null,
     })) : []),
     [overviewMomentum]
   );
@@ -195,33 +195,24 @@ export default function OverviewTab({
                         />
                         <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
                         <Tooltip
-                          content={
-                            <ChartTooltipContent
-                              formatter={(_, __, item) => {
-                                const row = item?.payload;
-                                return (
-                                  <div className="space-y-1">
-                                    <div className="flex w-full justify-between gap-4">
-                                      <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
-                                      <span className="font-mono font-medium tabular-nums text-foreground">
-                                        {Math.round(Number(row?.home || 50))}%
-                                      </span>
-                                    </div>
-                                    <div className="flex w-full justify-between gap-4">
-                                      <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
-                                      <span className="font-mono font-medium tabular-nums text-foreground">
-                                        {Math.round(Number(row?.away || 50))}%
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              }}
-                              labelFormatter={(_, payload) => {
-                                const row = payload?.[0]?.payload;
-                                return `Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`;
-                              }}
-                            />
-                          }
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const row = payload?.[0]?.payload;
+                            if (!row) return null;
+                            return (
+                              <div className="grid min-w-[8rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+                                <div className="font-medium">{`Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`}</div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
+                                  <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.home || 50))}%</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
+                                  <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.away || 50))}%</span>
+                                </div>
+                              </div>
+                            );
+                          }}
                         />
                         <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
                         <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />

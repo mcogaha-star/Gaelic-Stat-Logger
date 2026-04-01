@@ -1523,7 +1523,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const fillColor = outcomeColor;
               const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
               const shape = s.shotType; // point|2_point|goal
-              const size = 2.2;
+              const size = 1.87;
               const blackStrokeWidth = teamMode === 'both' ? 1 : 0.425;
               const teamStrokeWidth = teamMode === 'both' ? 0.95 : 0.6;
               const tip = [

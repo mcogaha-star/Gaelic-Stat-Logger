@@ -525,6 +525,10 @@ export default function StatModalV4({
     try { return JSON.parse(s); } catch { return {}; }
   };
   const shortcuts = useMemo(() => parseShortcutConfig(shortcutConfig), [shortcutConfig]);
+  const previousShotOppositeSide =
+    previousStat?.stat_type === 'shot'
+      ? (previousStat?.team_side === 'home' ? 'away' : previousStat?.team_side === 'away' ? 'home' : null)
+      : null;
   const rosters = useMemo(() => {
     // Prefer explicit rosters (can be ordered), fall back to homePlayers/awayPlayers.
     return {
@@ -553,11 +557,6 @@ export default function StatModalV4({
     if (initialStat?.player_number == null) return NONE;
     return findPlayerByNumber(side, initialStat.player_number);
   })();
-  const previousShotOppositeSide =
-    previousStat?.stat_type === 'shot'
-      ? (previousStat?.team_side === 'home' ? 'away' : previousStat?.team_side === 'away' ? 'home' : null)
-      : null;
-
     setAction(initialStat.stat_type || (isDrag ? 'pass' : 'shot'));
     setCounterAttack(!!initialStat.counter_attack);
 

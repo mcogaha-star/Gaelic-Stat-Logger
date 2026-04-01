@@ -102,6 +102,12 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         turnoversLost: 0,
         foulsWon: 0,
         foulsConceded: 0,
+        pointAtt: 0,
+        pointMade: 0,
+        twoAtt: 0,
+        twoMade: 0,
+        goalAtt: 0,
+        goalMade: 0,
         defActions: 0,
         contacts: 0,
         dispossessions: 0,
@@ -169,6 +175,19 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           const o = ex?.shot?.outcome;
           if (shotOutcomeGroup(o) === 'score') r.scores += 1;
           r.points += shotPointsForOutcome(o);
+          const shotType = String(ex?.shot?.shot_type || ex?.shot?.type || '');
+          if (shotType === 'point') {
+            r.pointAtt += 1;
+            if (o === 'point') r.pointMade += 1;
+          }
+          if (shotType === '2_point') {
+            r.twoAtt += 1;
+            if (o === '2_point') r.twoMade += 1;
+          }
+          if (shotType === 'goal') {
+            r.goalAtt += 1;
+            if (o === 'goal') r.goalMade += 1;
+          }
           const dist = calcDistanceToGoal(Number(s.x_position), Number(s.y_position));
           if (Number.isFinite(dist)) {
             r.avgShotDistTotal += dist;
