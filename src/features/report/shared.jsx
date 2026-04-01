@@ -497,14 +497,17 @@ function derivePossessionOutcome(evs, teamSide) {
   return derivePossessionOutcomeShared(evs, teamSide);
 }
 
-function inferPossessionStartSource(groupStats, teamSide, previousStat) {
+function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const acting = (Array.isArray(groupStats) ? groupStats : []).filter((e) => e && e.team_side === teamSide);
   const first = acting[0];
   const firstExtra = safeParseJSON(first?.extra_data || '{}', {});
-  const prev = previousStat || null;
-  const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
+  const previousStats = Array.isArray(previousContext)
+    ? previousContext.filter(Boolean)
+    : previousContext ? [previousContext] : [];
 
-  if (prev) {
+  for (let idx = previousStats.length - 1; idx >= 0; idx -= 1) {
+    const prev = previousStats[idx];
+    const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
     if (prev?.stat_type === 'turnover') {
       const turnoverType = String(prevExtra?.turnover?.turnover_type || '');
       const recoveredSide = prevExtra?.turnover?.recovered_by?.team_side;

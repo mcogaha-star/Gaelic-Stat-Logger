@@ -274,7 +274,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       keys.forEach((key, idx) => {
         const prevKey = idx > 0 ? keys[idx - 1] : null;
         const prevGroup = prevKey ? statsByPossessionKey.get(prevKey) || [] : [];
-        previousByPossessionKey.set(key, prevGroup.length ? prevGroup[prevGroup.length - 1] : null);
+        previousByPossessionKey.set(key, prevGroup);
       });
     }
 
@@ -328,7 +328,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
             cur.start_source = inferPossessionStartSource(
               statsByPossessionKey.get(key) || [s],
               s?.possession_team_side,
-              previousByPossessionKey.get(key),
+              previousByPossessionKey.get(key) || [],
             );
           }
           if (cur._maxPlay == null || pid > cur._maxPlay) {

@@ -97,7 +97,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         const idx = keys.indexOf(key);
         const prevKey = idx > 0 ? keys[idx - 1] : null;
         const prevGroup = prevKey ? statsByPossessionKey.get(prevKey) || [] : [];
-        previousByPossessionKey.set(key, prevGroup.length ? prevGroup[prevGroup.length - 1] : null);
+        previousByPossessionKey.set(key, prevGroup);
       }
     });
 
@@ -125,7 +125,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
 
-      const startSource = inferPossessionStartSource(evs, teamSide, previousByPossessionKey.get(key));
+      const startSource = inferPossessionStartSource(evs, teamSide, previousByPossessionKey.get(key) || []);
 
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
