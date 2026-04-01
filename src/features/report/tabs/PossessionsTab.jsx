@@ -55,6 +55,16 @@ import {
 } from '../shared';
 
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
+  const outcomeSeries = [
+    { k: 'Score', c: '#059669' },
+    { k: 'Wide', c: '#f59e0b' },
+    { k: 'Short', c: '#eab308' },
+    { k: 'Blocked', c: '#fb7185' },
+    { k: 'Saved', c: '#38bdf8' },
+    { k: 'Post', c: '#a78bfa' },
+    { k: 'Turnover', c: '#f97316' },
+    { k: 'Half End', c: '#64748b' },
+  ];
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }), [reportFilters]);
   const possessionLevelFilters = useMemo(() => ({
     ...scopedReportFilters,
@@ -203,8 +213,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
   const byTeam = (rows) => {
     const out = {
-      home: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 },
-      away: { Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 },
+      home: Object.fromEntries(outcomeSeries.map((o) => [o.k, 0])),
+      away: Object.fromEntries(outcomeSeries.map((o) => [o.k, 0])),
     };
     for (const r of rows) {
       const side = r.teamSide;
@@ -261,12 +271,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <YAxis allowDecimals={false} className="text-xs" />
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
-                      {[
-                        { k: 'Score', c: '#059669' },
-                        { k: 'Missed Shot', c: '#eab308' },
-                        { k: 'Turnover', c: '#7c3aed' },
-                        { k: 'Half End', c: '#64748b' },
-                      ].map((o) => (
+                      {outcomeSeries.map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                       ))}
                     </BarChart>
@@ -284,12 +289,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <YAxis allowDecimals={false} className="text-xs" />
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
-                      {[
-                        { k: 'Score', c: '#059669' },
-                        { k: 'Missed Shot', c: '#eab308' },
-                        { k: 'Turnover', c: '#7c3aed' },
-                        { k: 'Half End', c: '#64748b' },
-                      ].map((o) => (
+                      {outcomeSeries.map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                       ))}
                     </BarChart>

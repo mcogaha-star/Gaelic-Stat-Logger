@@ -243,9 +243,9 @@ export function classifyTerminalOutcome(stat, teamSide) {
   if (stat?.stat_type === 'shot') {
     if (shotOutcomeGroup(ex?.shot?.outcome) === 'score') return 'SCORE';
     const res = String(ex?.shot?.result || '');
-    if (ex?.shot?.outcome === 'wide') return 'MISSED_SHOT';
+    if (ex?.shot?.outcome === 'wide') return 'WIDE';
     if (['saved', 'blocked', 'short', 'post'].includes(String(ex?.shot?.outcome || ''))) {
-      if (res === 'opposition') return 'MISSED_SHOT';
+      if (res === 'opposition') return String(ex?.shot?.outcome || '').toUpperCase();
       return 'CONTINUE';
     }
     return 'OTHER';
@@ -302,7 +302,11 @@ export function derivePossessionOutcome(events, teamSide) {
     const cls = classifyTerminalOutcome(stat, teamSide);
     if (cls === 'CONTINUE' || cls === 'OTHER') continue;
     if (cls === 'SCORE') return 'Score';
-    if (cls === 'MISSED_SHOT') return 'Missed Shot';
+    if (cls === 'WIDE') return 'Wide';
+    if (cls === 'SHORT') return 'Short';
+    if (cls === 'BLOCKED') return 'Blocked';
+    if (cls === 'SAVED') return 'Saved';
+    if (cls === 'POST') return 'Post';
     if (cls === 'TURNOVER') return 'Turnover';
     if (cls === 'HALF_END') return 'Half End';
   }

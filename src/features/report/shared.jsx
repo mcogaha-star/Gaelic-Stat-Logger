@@ -507,7 +507,7 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const prev = previousStats.length ? previousStats[previousStats.length - 1] : null;
   const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
   const getTurnoverWinSide = (extra) => {
-    const turnoverType = String(extra?.turnover?.turnover_type || '');
+    const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
     const recoveredSide = extra?.turnover?.recovered_by?.team_side;
     return turnoverType && turnoverType !== 'foul' ? recoveredSide : null;
   };

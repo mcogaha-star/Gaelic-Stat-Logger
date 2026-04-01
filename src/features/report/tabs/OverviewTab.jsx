@@ -12,6 +12,16 @@ export default function OverviewTab({
   overviewMomentum,
   overviewPossessionOutcome,
 }) {
+  const outcomeSeries = [
+    { k: 'Score', c: '#059669' },
+    { k: 'Wide', c: '#f59e0b' },
+    { k: 'Short', c: '#eab308' },
+    { k: 'Blocked', c: '#fb7185' },
+    { k: 'Saved', c: '#38bdf8' },
+    { k: 'Post', c: '#a78bfa' },
+    { k: 'Turnover', c: '#f97316' },
+    { k: 'Half End', c: '#64748b' },
+  ];
   const momentumRows = React.useMemo(
     () => (Array.isArray(overviewMomentum?.rows) ? overviewMomentum.rows.map((row) => ({
       ...row,
@@ -244,12 +254,7 @@ export default function OverviewTab({
                     <YAxis allowDecimals={false} className="text-xs" />
                     <Tooltip content={<ChartTooltipContent />} />
                     <Legend />
-                    {[
-                      { k: 'Score', c: '#059669' },
-                      { k: 'Missed Shot', c: '#eab308' },
-                      { k: 'Turnover', c: '#f97316' },
-                      { k: 'Half End', c: '#64748b' },
-                    ].map((o) => (
+                    {outcomeSeries.map((o) => (
                       <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
                     ))}
                   </BarChart>
