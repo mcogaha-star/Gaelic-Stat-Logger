@@ -1349,13 +1349,14 @@ export default function StatModalV4({
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
       }
     } else if (action === 'foul') {
-      actingSide = makeSelection(foulBy, ctx).team_side || 'unknown';
-      primary = makeSelection(foulBy, ctx);
+      actingSide = makeSelection(foulOn, ctx).team_side || makeSelection(foulBy, ctx).team_side || 'unknown';
+      primary = makeSelection(foulOn, ctx).kind !== 'none' ? makeSelection(foulOn, ctx) : makeSelection(foulBy, ctx);
       extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     } else if (action === 'turnover') {
       const forced = sel(forcedBy);
-      actingSide = forced.team_side || makeSelection(lostBy, ctx).team_side || 'unknown';
-      primary = forced.kind !== 'none' ? forced : makeSelection(lostBy, ctx);
+      const lost = sel(lostBy);
+      actingSide = lost.team_side || forced.team_side || 'unknown';
+      primary = lost.kind !== 'none' ? lost : forced;
       extra.turnover = {
         turnover_type: turnoverType,
         lost_by: sel(lostBy),

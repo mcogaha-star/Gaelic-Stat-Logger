@@ -146,6 +146,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     },
     onSuccess: async (count) => {
       await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
       toast.success(count === 1 ? 'ID update saved' : `${count} rows updated`);
       setEditOpen(false);
     },

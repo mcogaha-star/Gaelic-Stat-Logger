@@ -339,11 +339,6 @@ export default function MatchStats() {
             const won = extra?.kickout?.won_by;
             if ((o === 'clean' || o === 'break') && won?.team_side && won.team_side !== 'unknown') return won.team_side;
         }
-        if (stat_type === 'turnover') {
-            const t = extra?.turnover?.turnover_type;
-            const rec = extra?.turnover?.recovered_by;
-            if (t && t !== 'foul' && rec?.team_side && rec.team_side !== 'unknown') return rec.team_side;
-        }
         if (stat_type === 'throw_in') {
             const o = extra?.throw_in?.outcome;
             const won = extra?.throw_in?.won_by;
@@ -353,13 +348,21 @@ export default function MatchStats() {
     };
 
     const shouldScheduleNextPossession = ({ stat_type, team_side, extra }) => {
-        if (stat_type !== 'shot') return null;
-        const o = extra?.shot?.outcome;
-        const r = extra?.shot?.result;
-        if (!['short', 'post', 'saved', 'blocked'].includes(o)) return null;
-        if (r !== 'opposition') return null;
-        if (team_side === 'home') return 'away';
-        if (team_side === 'away') return 'home';
+        if (stat_type === 'shot') {
+            const o = extra?.shot?.outcome;
+            const r = extra?.shot?.result;
+            if (!['short', 'post', 'saved', 'blocked'].includes(o)) return null;
+            if (r !== 'opposition') return null;
+            if (team_side === 'home') return 'away';
+            if (team_side === 'away') return 'home';
+            return null;
+        }
+        if (stat_type === 'turnover') {
+            const t = extra?.turnover?.turnover_type;
+            const rec = extra?.turnover?.recovered_by;
+            if (!t || t === 'foul') return null;
+            if (rec?.team_side === 'home' || rec?.team_side === 'away') return rec.team_side;
+        }
         return null;
     };
 
