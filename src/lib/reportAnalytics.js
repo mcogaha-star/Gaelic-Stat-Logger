@@ -262,10 +262,43 @@ export function classifyTerminalOutcome(stat, teamSide) {
 }
 
 export function derivePossessionOutcome(events, teamSide) {
-  const acting = (Array.isArray(events) ? events : []).filter((e) => e && e.team_side === teamSide);
-  if (!acting.length) return 'Other';
-  for (let i = acting.length - 1; i >= 0; i -= 1) {
-    const cls = classifyTerminalOutcome(acting[i], teamSide);
+  const list = Array.isArray(events) ? events.filter(Boolean) : [];
+  const ordered = list.slice().sort((a, b) => {
+    const pa = Number(a?.play_id);
+    const pb = Number(b?.play_id);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    const ta = Number(a?.normalized_time_s);
+    const tb = Number(b?.normalized_time_s);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    const ra = Number(a?.time_s);
+    const rb = Number(b?.time_s);
+    if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+    const tsa = Date.parse(String(a?.timestamp || a?.created_date || ''));
+    const tsb = Date.parse(String(b?.timestamp || b?.created_date || ''));
+    if (Number.isFinite(tsa) && Number.isFinite(tsb) && tsa !== tsb) return tsa - tsb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+
+  const relevant = ordered.filter((stat) => {
+    if (!stat) return false;
+    const { foulBy, foulOn } = getFoulTeams(stat);
+    return stat.team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
+  });
+  if (!relevant.length) return 'Other';
+
+  for (let i = ordered.length - 1; i >= 0; i -= 1) {
+    const stat = ordered[i];
+    if (!stat) continue;
+    const { foulBy, foulOn } = getFoulTeams(stat);
+    const isRelevant = stat.team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
+    if (!isRelevant) continue;
+
+    // If the grouped possession already contains later rows, a foul cannot be
+    // the terminal event for this possession even if the foul metadata alone
+    // looks turnover-like.
+    if ((foulBy === teamSide || foulOn === teamSide) && i < ordered.length - 1) continue;
+
+    const cls = classifyTerminalOutcome(stat, teamSide);
     if (cls === 'CONTINUE' || cls === 'OTHER') continue;
     if (cls === 'SCORE') return 'Score';
     if (cls === 'MISSED_SHOT') return 'Missed Shot';
