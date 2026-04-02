@@ -19,6 +19,7 @@ import {
   normalizeFoulType,
   shotPointsForOutcome,
   buildLegacyPossessionRepairs,
+  rebuildPossessionRows,
   POSSESSION_REBUILD_VERSION,
 } from '@/lib/reportAnalytics';
 import {
@@ -98,23 +99,23 @@ export default function MatchReport() {
     enabled: !!match?.away_team_id,
   });
 
-  const { data: stats = [] } = useQuery({
+  const { data: rawStats = [] } = useQuery({
     queryKey: ['stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
     enabled: !!matchId,
   });
 
+  const stats = useMemo(() => rebuildPossessionRows(rawStats), [rawStats]);
+
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
 
   useEffect(() => {
-    if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
+    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
     const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
-    const manualKey = `gstl-manual-possession-edits:${matchId}`;
     try {
-      if (localStorage.getItem(manualKey) === 'done') return;
       if (localStorage.getItem(rebuildKey) === 'done') return;
     } catch {}
-    const repairs = buildLegacyPossessionRepairs(stats);
+    const repairs = buildLegacyPossessionRepairs(rawStats);
     if (!repairs.length) {
       try { localStorage.setItem(rebuildKey, 'done'); } catch {}
       return;
@@ -139,7 +140,7 @@ export default function MatchReport() {
     })();
 
     return () => { cancelled = true; };
-  }, [matchId, stats, repairingLegacyPossessions, queryClient]);
+  }, [matchId, rawStats, repairingLegacyPossessions, queryClient]);
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
 

@@ -19,7 +19,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, POSSESSION_REBUILD_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, rebuildPossessionRows, POSSESSION_REBUILD_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -63,11 +63,13 @@ export default function MatchStats() {
         queryFn: () => db.entities.Player.list('number')
     });
 
-    const { data: stats = [] } = useQuery({
+    const { data: rawStats = [] } = useQuery({
         queryKey: ['stats', matchId],
         queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
         enabled: !!matchId
     });
+
+    const stats = useMemo(() => rebuildPossessionRows(rawStats), [rawStats]);
 
     const { data: settingsRecords = [] } = useQuery({
         queryKey: ['app-settings'],
@@ -321,14 +323,12 @@ export default function MatchStats() {
     const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
 
     useEffect(() => {
-        if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
+        if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
         const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
-        const manualKey = `gstl-manual-possession-edits:${matchId}`;
         try {
-            if (localStorage.getItem(manualKey) === 'done') return;
             if (localStorage.getItem(rebuildKey) === 'done') return;
         } catch {}
-        const repairs = buildLegacyPossessionRepairs(stats);
+        const repairs = buildLegacyPossessionRepairs(rawStats);
         if (!repairs.length) {
             try { localStorage.setItem(rebuildKey, 'done'); } catch {}
             return;
@@ -340,7 +340,7 @@ export default function MatchStats() {
                 setRepairingLegacyPossessions(true);
                 for (const repair of repairs) {
                     if (cancelled) return;
-                    const current = stats.find((s) => s.id === repair.id);
+                    const current = rawStats.find((s) => s.id === repair.id);
                     await db.entities.StatEntry.update(repair.id, repair.data);
                     if (current?.server_stat_id) {
                         await updateServerStat(current.server_stat_id, repair.data);
@@ -362,7 +362,7 @@ export default function MatchStats() {
         })();
 
         return () => { cancelled = true; };
-    }, [matchId, stats, repairingLegacyPossessions, queryClient]);
+    }, [matchId, rawStats, repairingLegacyPossessions, queryClient]);
 
     const getMostRecentStat = () => {
         if (!stats?.length) return null;
@@ -454,11 +454,12 @@ export default function MatchStats() {
             if (team_side === 'away') return 'home';
             return null;
         }
-        if (stat_type === 'turnover') {
-            const t = extra?.turnover?.turnover_type;
-            const rec = extra?.turnover?.recovered_by;
-            if (!t || t === 'foul') return null;
-            if (rec?.team_side === 'home' || rec?.team_side === 'away') return rec.team_side;
+        const turnoverType = extra?.turnover?.turnover_type;
+        const recoveredBy = extra?.turnover?.recovered_by;
+        const hasTurnover = stat_type === 'turnover' || !!extra?.turnover;
+        if (hasTurnover) {
+            if (!turnoverType || turnoverType === 'foul') return null;
+            if (recoveredBy?.team_side === 'home' || recoveredBy?.team_side === 'away') return recoveredBy.team_side;
         }
         return null;
     };
