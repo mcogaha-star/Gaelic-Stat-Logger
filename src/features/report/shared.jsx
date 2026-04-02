@@ -1262,6 +1262,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
   const maxTouches = nodes.reduce((m, n) => Math.max(m, n.made + n.received), 1);
 
   const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
+  const displayPoint = (x, y) => transformDisplayPoint(x, y, side, true);
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const centralityRows = nodes
@@ -1290,6 +1291,9 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
             const a = nodeById.get(e.a);
             const b = nodeById.get(e.b);
             if (!a || !b) return null;
+            const aPoint = displayPoint(a.x, a.y);
+            const bPoint = displayPoint(b.x, b.y);
+            if (!aPoint || !bPoint) return null;
             const w = 0.35 + (e.total / maxEdge) * 2.4;
             const aLabel = (a.number != null ? `#${a.number}` : 'Player') + (a.name ? ` ${a.name}` : '');
             const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
@@ -1297,10 +1301,10 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
               <g key={`${e.a}|${e.b}`}>
                 <title>{`${aLabel} -> ${bLabel}: ${e.count_ab}\n${bLabel} -> ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
                 <line
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
+                  x1={aPoint.x}
+                  y1={aPoint.y}
+                  x2={bPoint.x}
+                  y2={bPoint.y}
                   stroke={strokeBase}
                   strokeOpacity="0.5"
                   strokeWidth={w}
@@ -1311,17 +1315,19 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
 
           {nodes.map((n) => {
             const touches = n.made + n.received;
+            const point = displayPoint(n.x, n.y);
+            if (!point) return null;
             // Radius scaled by touches (clamped).
             const r = Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
             const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
             return (
               <g key={n.id}>
                 <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nWeighted Degree: ${n.weightedDegree}\nBetweenness: ${n.betweenness.toFixed(2)}`}</title>
-                <circle cx={n.x} cy={n.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
+                <circle cx={point.x} cy={point.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
                 {n.number != null && (
                   <text
-                    x={n.x}
-                    y={n.y}
+                    x={point.x}
+                    y={point.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize="2.8"

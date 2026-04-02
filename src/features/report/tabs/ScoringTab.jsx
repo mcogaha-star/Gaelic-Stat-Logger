@@ -179,67 +179,99 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
   }, [filteredShots]);
 
   const shotTypeSummary = useMemo(() => {
-    const order = ['point', '2_point', 'goal'];
-    const label = { point: '1 Point', '2_point': '2 Point', goal: 'Goal' };
-    const m = new Map();
-    for (const s of filteredShots) {
-      const t = String(s.shotType || 'point');
-      const cur = m.get(t) || { type: t, attempts: 0, scores: 0, points: 0 };
-      cur.attempts += 1;
-      if (s.isScore) cur.scores += 1;
-      cur.points += s.points || 0;
-      m.set(t, cur);
-    }
-    const rows = Array.from(m.values()).map((r) => ({
-      ...r,
-      label: label[r.type] || toTitleCase(r.type),
-      conv: r.attempts ? (r.scores / r.attempts) * 100 : NaN,
-      pps: r.attempts ? r.points / r.attempts : NaN,
-    }));
-    rows.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
-    return rows;
+    const build = (teamSide = null) => {
+      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
+      const order = ['point', '2_point', 'goal'];
+      const label = { point: '1 Point', '2_point': '2 Point', goal: 'Goal' };
+      const m = new Map();
+      for (const s of source) {
+        const t = String(s.shotType || 'point');
+        const cur = m.get(t) || { type: t, attempts: 0, scores: 0, points: 0 };
+        cur.attempts += 1;
+        if (s.isScore) cur.scores += 1;
+        cur.points += s.points || 0;
+        m.set(t, cur);
+      }
+      const rows = Array.from(m.values()).map((r) => ({
+        ...r,
+        label: label[r.type] || toTitleCase(r.type),
+        conv: r.attempts ? (r.scores / r.attempts) * 100 : NaN,
+        pps: r.attempts ? r.points / r.attempts : NaN,
+      }));
+      rows.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
+      return rows;
+    };
+    return {
+      both: build(null),
+      home: build('home'),
+      away: build('away'),
+    };
   }, [filteredShots]);
 
   const pressureSummary = useMemo(() => {
-    const levels = ['low', 'medium', 'high'];
-    return levels.map((p) => {
-      const list = filteredShots.filter((s) => String(s.pressure) === p);
-      const attempts = list.length;
-      const scores = list.filter((s) => s.isScore).length;
-      const points = list.reduce((a, s) => a + (s.points || 0), 0);
-      return {
-        pressure: toTitleCase(p),
-        attempts,
-        scores,
-        conv: attempts ? (scores / attempts) * 100 : NaN,
-        pps: attempts ? points / attempts : NaN,
-      };
-    });
+    const build = (teamSide = null) => {
+      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
+      const levels = ['low', 'medium', 'high'];
+      return levels.map((p) => {
+        const list = source.filter((s) => String(s.pressure) === p);
+        const attempts = list.length;
+        const scores = list.filter((s) => s.isScore).length;
+        const points = list.reduce((a, s) => a + (s.points || 0), 0);
+        return {
+          pressure: toTitleCase(p),
+          attempts,
+          scores,
+          conv: attempts ? (scores / attempts) * 100 : NaN,
+          pps: attempts ? points / attempts : NaN,
+        };
+      });
+    };
+    return {
+      both: build(null),
+      home: build('home'),
+      away: build('away'),
+    };
   }, [filteredShots]);
 
   const outcomeSummary = useMemo(() => {
-    const groups = ['score', 'wide', 'short', 'saved', 'blocked', 'post'];
-    return groups.map((g) => ({
-      key: g,
-      label: toTitleCase(g),
-      count: filteredShots.filter((s) => shotOutcomeGroup(s.outcome) === g).length,
-    }));
+    const build = (teamSide = null) => {
+      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
+      const groups = ['score', 'wide', 'short', 'saved', 'blocked', 'post'];
+      return groups.map((g) => ({
+        key: g,
+        label: toTitleCase(g),
+        count: source.filter((s) => shotOutcomeGroup(s.outcome) === g).length,
+      }));
+    };
+    return {
+      both: build(null),
+      home: build('home'),
+      away: build('away'),
+    };
   }, [filteredShots]);
 
   const situationSummary = useMemo(() => {
-    const cats = ['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'];
-    return cats.map((c) => {
-      const list = filteredShots.filter((s) => String(s.situation) === c);
-      const attempts = list.length;
-      const scores = list.filter((s) => s.isScore).length;
-      const points = list.reduce((a, s) => a + (s.points || 0), 0);
-      return {
-        situation: toTitleCase(c),
-        attempts,
-        conv: attempts ? (scores / attempts) * 100 : NaN,
-        pps: attempts ? points / attempts : NaN,
-      };
-    });
+    const build = (teamSide = null) => {
+      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
+      const cats = ['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'];
+      return cats.map((c) => {
+        const list = source.filter((s) => String(s.situation) === c);
+        const attempts = list.length;
+        const scores = list.filter((s) => s.isScore).length;
+        const points = list.reduce((a, s) => a + (s.points || 0), 0);
+        return {
+          situation: toTitleCase(c),
+          attempts,
+          conv: attempts ? (scores / attempts) * 100 : NaN,
+          pps: attempts ? points / attempts : NaN,
+        };
+      });
+    };
+    return {
+      both: build(null),
+      home: build('home'),
+      away: build('away'),
+    };
   }, [filteredShots]);
 
   const playerSummary = useMemo(() => {
@@ -345,13 +377,13 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {shotTypeSummary.map((r) => (
+                      {(teamMode === 'both' ? shotTypeSummary.home : shotTypeSummary.both).map((r) => (
                         <TableRow key={r.type}>
                           <TableCell className="font-medium">{r.label}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.attempts} / ${(shotTypeSummary.away.find((x) => x.type === r.type)?.attempts) || 0}` : r.attempts}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.scores} / ${(shotTypeSummary.away.find((x) => x.type === r.type)?.scores) || 0}` : r.scores}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${formatPct(r.conv)} / ${formatPct(shotTypeSummary.away.find((x) => x.type === r.type)?.conv)}` : formatPct(r.conv)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'} / ${Number.isFinite(shotTypeSummary.away.find((x) => x.type === r.type)?.pps) ? shotTypeSummary.away.find((x) => x.type === r.type).pps.toFixed(2) : 'NA'}` : (Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA')}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -418,8 +450,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                     <PieChart>
                       <Tooltip content={<ChartTooltipContent />} />
                       <Legend />
-                      <Pie data={outcomeSummary} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={85}>
-                        {outcomeSummary.map((r) => (
+                      <Pie data={teamMode === 'both' ? outcomeSummary.home : outcomeSummary.both} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={85}>
+                        {(teamMode === 'both' ? outcomeSummary.home : outcomeSummary.both).map((r) => (
                           <Cell key={r.key} fill={pieColors[r.key] || '#111827'} />
                         ))}
                       </Pie>
@@ -441,12 +473,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {situationSummary.map((r) => (
+                      {(teamMode === 'both' ? situationSummary.home : situationSummary.both).map((r) => (
                         <TableRow key={r.situation}>
                           <TableCell className="font-medium">{r.situation}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatPct(r.conv)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.attempts} / ${(situationSummary.away.find((x) => x.situation === r.situation)?.attempts) || 0}` : r.attempts}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${formatPct(r.conv)} / ${formatPct(situationSummary.away.find((x) => x.situation === r.situation)?.conv)}` : formatPct(r.conv)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'} / ${Number.isFinite(situationSummary.away.find((x) => x.situation === r.situation)?.pps) ? situationSummary.away.find((x) => x.situation === r.situation).pps.toFixed(2) : 'NA'}` : (Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA')}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

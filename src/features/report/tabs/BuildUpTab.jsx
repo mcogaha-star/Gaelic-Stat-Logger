@@ -135,12 +135,16 @@ function BuildUpTab({
 
       return {
         passes: pass.length,
+        passComp,
         passPct: pass.length ? (passComp / pass.length) * 100 : NaN,
         carries: carry.length,
+        carryComp,
         carryPct: carry.length ? (carryComp / carry.length) * 100 : NaN,
         progPass,
+        progPassComp,
         progPassPct: progPass ? (progPassComp / progPass) * 100 : NaN,
         progCarry,
+        progCarryComp,
         progCarryPct: progCarry ? (progCarryComp / progCarry) * 100 : NaN,
         scoringEntries,
         passesIntoScoringZone,
@@ -179,6 +183,11 @@ function BuildUpTab({
     }));
   }, [kpis]);
 
+  const formatRatioPct = (made, attempts) => {
+    if (!Number.isFinite(Number(attempts)) || Number(attempts) <= 0) return `0/0 (NA)`;
+    return `${made}/${attempts} (${formatPct((Number(made) / Number(attempts)) * 100)})`;
+  };
+
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -187,14 +196,10 @@ function BuildUpTab({
           awayTeam={awayTeam}
           teamMode={teamMode}
           rows={[
-            { label: 'Passes Attempted', home: kpis.home.passes, away: kpis.away.passes },
-            { label: 'Pass Completion %', home: formatPct(kpis.home.passPct), away: formatPct(kpis.away.passPct) },
-            { label: 'Carries', home: kpis.home.carries, away: kpis.away.carries },
-            { label: 'Carry Completion %', home: formatPct(kpis.home.carryPct), away: formatPct(kpis.away.carryPct) },
-            { label: 'Progressive Passes Attempted', home: kpis.home.progPass, away: kpis.away.progPass },
-            { label: 'Progressive Pass Success %', home: formatPct(kpis.home.progPassPct), away: formatPct(kpis.away.progPassPct) },
-            { label: 'Progressive Carries Attempted', home: kpis.home.progCarry, away: kpis.away.progCarry },
-            { label: 'Progressive Carry Success %', home: formatPct(kpis.home.progCarryPct), away: formatPct(kpis.away.progCarryPct) },
+            { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
+            { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
+            { label: 'Progressive Passes', home: formatRatioPct(kpis.home.progPassComp, kpis.home.progPass), away: formatRatioPct(kpis.away.progPassComp, kpis.away.progPass) },
+            { label: 'Progressive Carries', home: formatRatioPct(kpis.home.progCarryComp, kpis.home.progCarry), away: formatRatioPct(kpis.away.progCarryComp, kpis.away.progCarry) },
             { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
             { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
@@ -220,7 +225,7 @@ function BuildUpTab({
                   awayColor={awayTeam?.color}
                   colorBy={teamMode === 'both' ? 'team' : 'outcome'}
                   showColorControls={false}
-                mirrorAwayWhenBoth={teamMode !== 'home'}
+                  mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
                 />
               </CardContent>

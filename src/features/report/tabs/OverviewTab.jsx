@@ -52,6 +52,9 @@ export default function OverviewTab({
                       <CartesianGrid vertical={false} />
                       <XAxis
                         dataKey="x"
+                        type="number"
+                        domain={[0, Math.max(1, ...scoreTimeline.points.map((p) => Number(p?.x) || 0))]}
+                        allowDuplicatedCategory={false}
                         tickFormatter={(v) => (scoreTimeline.mode === 'time' ? formatMMSS(Number(v)) : String(v))}
                         className="text-xs"
                       />
