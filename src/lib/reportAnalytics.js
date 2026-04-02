@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v6';
+export const POSSESSION_REBUILD_VERSION = 'v7';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -518,6 +518,13 @@ export function buildLegacyPossessionRepairs(stats) {
         ) &&
         turnoverType !== 'foul';
       const isAwardedFoul = !!foul && validSide(foulOn) && foulOn !== foulBy;
+      const isEmbeddedActionFoul =
+        (
+          (stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'foul')
+          || (stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'foul')
+          || (stat?.stat_type === 'kickout' && String(extra?.kickout?.outcome || '') === 'foul')
+          || (stat?.stat_type === 'throw_in' && String(extra?.throw_in?.outcome || '') === 'foul')
+        );
 
       const bootstrapTeam =
         validSide(stat?.possession_team_side) ? stat.possession_team_side
@@ -551,9 +558,12 @@ export function buildLegacyPossessionRepairs(stats) {
       } else if (isNonFoulTurnover) {
         rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
         rowPossessionTeam = rowActingTeam;
+      } else if (isEmbeddedActionFoul) {
+        rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
+        rowPossessionTeam = validSide(rowActingTeam) ? rowActingTeam : currentPossessionTeam;
       } else if (isAwardedFoul) {
-        rowActingTeam = inferPrimaryActionTeam(stat, foulOn);
-        rowPossessionTeam = foulOn;
+        rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : foulOn;
+        rowActingTeam = validSide(rowPossessionTeam) ? rowPossessionTeam : inferPrimaryActionTeam(stat, foulOn);
       } else if (!validSide(rowPossessionTeam) && validSide(currentPossessionTeam)) {
         rowPossessionTeam = currentPossessionTeam;
       }
