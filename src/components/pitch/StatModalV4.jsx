@@ -1266,8 +1266,7 @@ export default function StatModalV4({
       setActiveRole(next);
       return;
     }
-    const currentVal = getRoleValue(activeRole);
-    if (isRoleFilled(activeRole, currentVal)) {
+    if (!roleOrder.includes(activeRole)) {
       setActiveRole(next);
     }
   }, [
@@ -1310,7 +1309,7 @@ export default function StatModalV4({
     if (!open) return;
     if (initialStat?.id) return;
     if (action !== 'pass') return;
-    if (activeRole !== 'pass_intended') setActiveRole('pass_intended');
+    if (!activeRole) setActiveRole('pass_intended');
   }, [open, initialStat?.id, action, activeRole]);
 
   // Shot saved-by defaults to opposition #1 (goalkeeper) unless user explicitly set it.
