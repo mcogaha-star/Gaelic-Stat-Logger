@@ -879,6 +879,8 @@ export default function StatModalV4({
     }
   }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
 
+  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
+
   useEffect(() => {
     if (!open) return;
     if (initialStat?.id) return;
@@ -910,8 +912,6 @@ export default function StatModalV4({
     // Only auto-set when the type is one of the score types.
     if (['point', '2_point', 'goal'].includes(shotType)) setShotOutcome(shotType);
   }, [open, initialStat?.id, action, shotType, shotOutcomeTouched]);
-
-  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {

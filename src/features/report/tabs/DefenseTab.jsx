@@ -181,7 +181,9 @@ function DefenseTab({
       const c = classifyTurnover(s);
       if (!teamRelevant(c, teamMode)) continue;
       const typ = toTitleCase(c.typ || 'Unknown');
-      const cur = rows.get(typ) || { type: typ, won: 0, lost: 0 };
+      const cur = rows.get(typ) || { type: typ, home: 0, away: 0, won: 0, lost: 0 };
+      if (c.rec === 'home') cur.home += 1;
+      if (c.rec === 'away') cur.away += 1;
       if (c.rec && (teamMode === 'both' || c.rec === teamMode)) cur.won += 1;
       if (c.lost && (teamMode === 'both' || c.lost === teamMode)) cur.lost += 1;
       rows.set(typ, cur);
@@ -250,7 +252,7 @@ function DefenseTab({
                   awayColor={awayTeam?.color}
                   colorBy={teamMode === 'both' ? 'team' : 'action'}
                   showColorControls={false}
-                mirrorAwayWhenBoth={teamMode !== 'home'}
+                  mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
                 />
               </CardContent>
@@ -262,14 +264,28 @@ function DefenseTab({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Count</TableHead>
+                      {teamMode === 'both' ? (
+                        <>
+                          <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
+                          <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                        </>
+                      ) : (
+                        <TableHead className="text-right">Count</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {typeRows.map((r) => (
                       <TableRow key={r.type}>
                         <TableCell className="font-medium">{r.type}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.won + r.lost}</TableCell>
+                        {teamMode === 'both' ? (
+                          <>
+                            <TableCell className="text-right tabular-nums">{r.home}</TableCell>
+                            <TableCell className="text-right tabular-nums">{r.away}</TableCell>
+                          </>
+                        ) : (
+                          <TableCell className="text-right tabular-nums">{r.won + r.lost}</TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>

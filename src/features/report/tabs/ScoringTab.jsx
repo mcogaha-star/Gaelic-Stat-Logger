@@ -54,6 +54,87 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
+function SideBreakdownTable({ title, rows, columns }) {
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
+                  {column.label}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.key || row.label || row.pressure || row.situation}>
+                {columns.map((column) => (
+                  <TableCell
+                    key={column.key}
+                    className={[
+                      column.align === 'right' ? 'text-right tabular-nums' : '',
+                      column.primary ? 'font-medium' : '',
+                    ].join(' ').trim()}
+                  >
+                    {column.render(row)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PressureChartCard({ title, data }) {
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <ChartContainer
+          id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
+          className="h-[220px] w-full"
+          config={{
+            attempts: { label: 'Attempts', color: '#94a3b8' },
+          }}
+        >
+          <BarChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="pressure" className="text-xs" />
+            <YAxis allowDecimals={false} className="text-xs" />
+            <Tooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value, name, item) => {
+                    const row = item?.payload;
+                    if (!row) return null;
+                    return (
+                      <div className="text-xs space-y-1">
+                        <div>Attempts: <span className="font-mono">{row.attempts}</span></div>
+                        <div>Scores: <span className="font-mono">{row.scores}</span></div>
+                        <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
+                        <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
+                      </div>
+                    );
+                  }}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.pressure || 'Pressure'}
+                />
+              }
+            />
+            <Bar dataKey="attempts" fill="var(--color-attempts)" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -233,23 +314,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
     };
   }, [filteredShots]);
 
-  const outcomeSummary = useMemo(() => {
-    const build = (teamSide = null) => {
-      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
-      const groups = ['score', 'wide', 'short', 'saved', 'blocked', 'post'];
-      return groups.map((g) => ({
-        key: g,
-        label: toTitleCase(g),
-        count: source.filter((s) => shotOutcomeGroup(s.outcome) === g).length,
-      }));
-    };
-    return {
-      both: build(null),
-      home: build('home'),
-      away: build('away'),
-    };
-  }, [filteredShots]);
-
   const situationSummary = useMemo(() => {
     const build = (teamSide = null) => {
       const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
@@ -318,15 +382,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
     return out;
   }, [filteredShots, teamMode]);
 
-  const pieColors = {
-    score: '#2563eb',
-    wide: '#334155',
-    short: '#64748b',
-    saved: '#f59e0b',
-    blocked: '#dc2626',
-    post: '#7c3aed',
-  };
-
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -363,128 +418,91 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
             <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} />
 
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Shot Type Breakdown</div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Attempts</TableHead>
-                        <TableHead className="text-right">Scores</TableHead>
-                        <TableHead className="text-right">Conv %</TableHead>
-                        <TableHead className="text-right">Pts/Shot</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(teamMode === 'both' ? shotTypeSummary.home : shotTypeSummary.both).map((r) => (
-                        <TableRow key={r.type}>
-                          <TableCell className="font-medium">{r.label}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.attempts} / ${(shotTypeSummary.away.find((x) => x.type === r.type)?.attempts) || 0}` : r.attempts}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.scores} / ${(shotTypeSummary.away.find((x) => x.type === r.type)?.scores) || 0}` : r.scores}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${formatPct(r.conv)} / ${formatPct(shotTypeSummary.away.find((x) => x.type === r.type)?.conv)}` : formatPct(r.conv)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'} / ${Number.isFinite(shotTypeSummary.away.find((x) => x.type === r.type)?.pps) ? shotTypeSummary.away.find((x) => x.type === r.type).pps.toFixed(2) : 'NA'}` : (Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA')}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              {teamMode === 'both' ? (
+                <>
+                  <SideBreakdownTable
+                    title={`${homeTeam?.name || 'Home'} Shot Type Breakdown`}
+                    rows={shotTypeSummary.home}
+                    columns={[
+                      { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                  <SideBreakdownTable
+                    title={`${awayTeam?.name || 'Away'} Shot Type Breakdown`}
+                    rows={shotTypeSummary.away}
+                    columns={[
+                      { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                </>
+              ) : (
+                <SideBreakdownTable
+                  title="Shot Type Breakdown"
+                  rows={shotTypeSummary.both}
+                  columns={[
+                    { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                    { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                    { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                    { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                    { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                  ]}
+                />
+              )}
 
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Pressure vs Conversion</div>
-                  <ChartContainer
-                    id="pressure-conv"
-                    className="h-[220px] w-full"
-                    config={{
-                      attempts: { label: 'Attempts', color: '#94a3b8' },
-                    }}
-                  >
-                    <BarChart data={pressureSummary} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="pressure" className="text-xs" />
-                      <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip
-                        content={
-                          <ChartTooltipContent
-                            formatter={(value, name, item) => {
-                              const row = item?.payload;
-                              if (!row) return null;
-                              return (
-                                <div className="text-xs space-y-1">
-                                  <div>Attempts: <span className="font-mono">{row.attempts}</span></div>
-                                  <div>Scores: <span className="font-mono">{row.scores}</span></div>
-                                  <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
-                                  <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
-                                </div>
-                              );
-                            }}
-                            labelFormatter={(_, payload) => payload?.[0]?.payload?.pressure || 'Pressure'}
-                          />
-                        }
-                      />
-                      <Bar dataKey="attempts" fill="var(--color-attempts)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
+              {teamMode === 'both' ? (
+                <>
+                  <PressureChartCard title={`${homeTeam?.name || 'Home'} Pressure vs Conversion`} data={pressureSummary.home} />
+                  <PressureChartCard title={`${awayTeam?.name || 'Away'} Pressure vs Conversion`} data={pressureSummary.away} />
+                </>
+              ) : (
+                <PressureChartCard title="Pressure vs Conversion" data={pressureSummary.both} />
+              )}
             </div>
 
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Shot Outcome Breakdown</div>
-                  <ChartContainer
-                    id="shot-outcomes"
-                    className="h-[240px] w-full"
-                    config={{
-                      score: { label: 'Score', color: pieColors.score },
-                      wide: { label: 'Wide', color: pieColors.wide },
-                      short: { label: 'Short', color: pieColors.short },
-                      saved: { label: 'Saved', color: pieColors.saved },
-                      blocked: { label: 'Blocked', color: pieColors.blocked },
-                      post: { label: 'Post', color: pieColors.post },
-                    }}
-                  >
-                    <PieChart>
-                      <Tooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                      <Pie data={teamMode === 'both' ? outcomeSummary.home : outcomeSummary.both} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={85}>
-                        {(teamMode === 'both' ? outcomeSummary.home : outcomeSummary.both).map((r) => (
-                          <Cell key={r.key} fill={pieColors[r.key] || '#111827'} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Shot Situation Breakdown</div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Situation</TableHead>
-                        <TableHead className="text-right">Attempts</TableHead>
-                        <TableHead className="text-right">Conv %</TableHead>
-                        <TableHead className="text-right">Pts/Shot</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(teamMode === 'both' ? situationSummary.home : situationSummary.both).map((r) => (
-                        <TableRow key={r.situation}>
-                          <TableCell className="font-medium">{r.situation}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${r.attempts} / ${(situationSummary.away.find((x) => x.situation === r.situation)?.attempts) || 0}` : r.attempts}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${formatPct(r.conv)} / ${formatPct(situationSummary.away.find((x) => x.situation === r.situation)?.conv)}` : formatPct(r.conv)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{teamMode === 'both' ? `${Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'} / ${Number.isFinite(situationSummary.away.find((x) => x.situation === r.situation)?.pps) ? situationSummary.away.find((x) => x.situation === r.situation).pps.toFixed(2) : 'NA'}` : (Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA')}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              {teamMode === 'both' ? (
+                <>
+                  <SideBreakdownTable
+                    title={`${homeTeam?.name || 'Home'} Shot Situation Breakdown`}
+                    rows={situationSummary.home}
+                    columns={[
+                      { key: 'situation', label: 'Situation', primary: true, render: (r) => r.situation },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                  <SideBreakdownTable
+                    title={`${awayTeam?.name || 'Away'} Shot Situation Breakdown`}
+                    rows={situationSummary.away}
+                    columns={[
+                      { key: 'situation', label: 'Situation', primary: true, render: (r) => r.situation },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                </>
+              ) : (
+                <SideBreakdownTable
+                  title="Shot Situation Breakdown"
+                  rows={situationSummary.both}
+                  columns={[
+                    { key: 'situation', label: 'Situation', primary: true, render: (r) => r.situation },
+                    { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                    { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                    { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                  ]}
+                />
+              )}
             </div>
 
             <Card>
