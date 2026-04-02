@@ -850,8 +850,8 @@ export default function StatModalV4({
       if (!passStyle) setPassStyle('chest');
       if (!passPressure) setPassPressure('low');
       if (!passOutcome) setPassOutcome('completed');
-      if (deadball) setDeadball(false);
       if (previousAction !== 'pass') {
+        setDeadball(false);
         setPassIntendedRecipient(NONE);
         setPassWonBy(NONE);
       }
