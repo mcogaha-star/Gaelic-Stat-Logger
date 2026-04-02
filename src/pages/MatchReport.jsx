@@ -109,7 +109,9 @@ export default function MatchReport() {
   useEffect(() => {
     if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
     const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
+    const manualKey = `gstl-manual-possession-edits:${matchId}`;
     try {
+      if (localStorage.getItem(manualKey) === 'done') return;
       if (localStorage.getItem(rebuildKey) === 'done') return;
     } catch {}
     const repairs = buildLegacyPossessionRepairs(stats);

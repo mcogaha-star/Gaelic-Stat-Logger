@@ -112,16 +112,51 @@ export default function MatchStats() {
         if (!s || typeof s !== 'string') return [];
         try { const arr = JSON.parse(s); return Array.isArray(arr) ? arr.filter(Boolean) : []; } catch { return []; }
     };
-    const orderByOnField = (players, onFieldIds) => {
-        const set = new Set(onFieldIds || []);
-        const on = players.filter(p => set.has(p.id));
-        const off = players.filter(p => !set.has(p.id));
-        return on.concat(off);
+    const orderByTeamSheet = (players, startersIds, subsIds, onFieldIds) => {
+        const onFieldSet = new Set(onFieldIds || []);
+        const byId = new Map((players || []).map((p) => [p.id, p]));
+
+        const ordered = [];
+        const seen = new Set();
+        const pushId = (id) => {
+            const player = byId.get(id);
+            if (!player || seen.has(id)) return;
+            ordered.push(player);
+            seen.add(id);
+        };
+
+        (onFieldIds || []).forEach(pushId);
+        (startersIds || []).forEach(pushId);
+        (subsIds || []).forEach(pushId);
+
+        const remaining = (players || [])
+            .filter((p) => !seen.has(p.id))
+            .sort((a, b) => {
+                const aOn = onFieldSet.has(a.id) ? 0 : 1;
+                const bOn = onFieldSet.has(b.id) ? 0 : 1;
+                if (aOn !== bOn) return aOn - bOn;
+                return Number(a.number || 0) - Number(b.number || 0);
+            });
+
+        return ordered.concat(remaining);
     };
-    const homeOnField = parseIds(match?.home_on_field);
-    const awayOnField = parseIds(match?.away_on_field);
-    const homePlayers = homeTeam ? orderByOnField(allPlayers.filter(p => p.team_id === homeTeam.id), homeOnField) : [];
-    const awayPlayers = awayTeam ? orderByOnField(allPlayers.filter(p => p.team_id === awayTeam.id), awayOnField) : [];
+    const parseTeamSheetIds = (s) => {
+        if (!s || typeof s !== 'string') return [];
+        try {
+            const arr = JSON.parse(s);
+            return Array.isArray(arr) ? arr.filter(Boolean) : [];
+        } catch {
+            return [];
+        }
+    };
+    const homeStarters = parseTeamSheetIds(homeTeam?.starters);
+    const homeSubs = parseTeamSheetIds(homeTeam?.subs);
+    const awayStarters = parseTeamSheetIds(awayTeam?.starters);
+    const awaySubs = parseTeamSheetIds(awayTeam?.subs);
+    const homeOnField = parseIds(match?.home_on_field).length ? parseIds(match?.home_on_field) : homeStarters.slice(0, 15);
+    const awayOnField = parseIds(match?.away_on_field).length ? parseIds(match?.away_on_field) : awayStarters.slice(0, 15);
+    const homePlayers = homeTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === homeTeam.id), homeStarters, homeSubs, homeOnField) : [];
+    const awayPlayers = awayTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
     const previousStat = useMemo(() => {
         const ordered = [...(stats || [])]
             .filter((s) => s?.stat_type !== 'substitution')
@@ -282,7 +317,9 @@ export default function MatchStats() {
     useEffect(() => {
         if (!matchId || !Array.isArray(stats) || !stats.length || repairingLegacyPossessions) return;
         const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
+        const manualKey = `gstl-manual-possession-edits:${matchId}`;
         try {
+            if (localStorage.getItem(manualKey) === 'done') return;
             if (localStorage.getItem(rebuildKey) === 'done') return;
         } catch {}
         const repairs = buildLegacyPossessionRepairs(stats);

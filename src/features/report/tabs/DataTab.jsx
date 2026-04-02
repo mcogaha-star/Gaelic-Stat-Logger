@@ -151,12 +151,21 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 
   const persistMutation = useMutation({
     mutationFn: async (updates) => {
+      const touchedManualIds = updates.some((update) => {
+        const data = update?.data || {};
+        return Object.prototype.hasOwnProperty.call(data, 'play_id')
+          || Object.prototype.hasOwnProperty.call(data, 'possession_id')
+          || Object.prototype.hasOwnProperty.call(data, 'possession_team_side');
+      });
       for (const update of updates) {
         await db.entities.StatEntry.update(update.id, update.data);
       }
-      return updates.length;
+      return { count: updates.length, touchedManualIds };
     },
-    onSuccess: async (count) => {
+    onSuccess: async ({ count, touchedManualIds }) => {
+      if (touchedManualIds) {
+        try { localStorage.setItem(`gstl-manual-possession-edits:${matchId}`, 'done'); } catch {}
+      }
       await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
       await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
       toast.success(count === 1 ? 'ID update saved' : `${count} rows updated`);

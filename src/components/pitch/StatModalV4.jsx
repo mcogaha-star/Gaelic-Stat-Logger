@@ -1161,7 +1161,6 @@ export default function StatModalV4({
       return side === 'home' || side === 'away' ? side : null;
     }
     if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
-    if (k === 'kickout_won_by') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
     if (k === 'recovered_by') {
       const lostSide = makeSelection(lostBy, ctx).team_side;
       if (lostSide === 'home') return 'away';
