@@ -19,7 +19,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, rebuildPossessionRows, POSSESSION_REBUILD_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, rebuildPossessionRows, sequencePossessionRows, POSSESSION_REBUILD_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -430,20 +430,6 @@ export default function MatchStats() {
 
     const safeParse = (s) => { try { return JSON.parse(s); } catch { return {}; } };
 
-    const inferPossessionStart = ({ stat_type, extra }) => {
-        if (stat_type === 'kickout') {
-            const o = extra?.kickout?.outcome;
-            const won = extra?.kickout?.won_by;
-            if ((o === 'clean' || o === 'break') && won?.team_side && won.team_side !== 'unknown') return won.team_side;
-        }
-        if (stat_type === 'throw_in') {
-            const o = extra?.throw_in?.outcome;
-            const won = extra?.throw_in?.won_by;
-            if ((o === 'clean' || o === 'break') && won?.team_side && won.team_side !== 'unknown') return won.team_side;
-        }
-        return null;
-    };
-
     const shouldScheduleNextPossession = ({ stat_type, team_side, extra }) => {
         if (stat_type === 'shot') {
             const o = extra?.shot?.outcome;
@@ -573,34 +559,6 @@ export default function MatchStats() {
         const hasEnd = !!rawEnd;
         const end = hasEnd ? normalizeForTeam(rawEnd, teamSide) : null;
 
-        // Apply pending next-possession (from prior shot) if present.
-        let nextPossessionId = currentPossessionId;
-        let nextPossessionTeam = currentPossessionTeamSide;
-        let nextPossessionCounter = possessionCounter;
-        let pending = pendingNextPossessionTeamSide;
-
-        if (!nextPossessionId) {
-            nextPossessionId = 1;
-            nextPossessionCounter = Math.max(nextPossessionCounter, 1);
-            nextPossessionTeam = (teamSide === 'home' || teamSide === 'away') ? teamSide : 'unknown';
-        }
-
-        const pendingWasApplied = !!pending;
-        if (pending) {
-            nextPossessionId = nextPossessionCounter + 1;
-            nextPossessionCounter = nextPossessionId;
-            nextPossessionTeam = pending;
-            pending = null;
-        }
-
-        // Immediate possession start rules on the same row
-        const startTeam = inferPossessionStart(payload);
-        if (startTeam && (!pendingWasApplied || startTeam !== nextPossessionTeam)) {
-            nextPossessionId = nextPossessionCounter + 1;
-            nextPossessionCounter = nextPossessionId;
-            nextPossessionTeam = startTeam;
-        }
-
         const nextPlayId = playCounter + 1;
 
         const extra = { ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
@@ -610,7 +568,9 @@ export default function MatchStats() {
             payload.stat_type === 'pass' ? payload.extra?.pass?.intended_recipient
                 : (payload.stat_type === 'kickout' ? payload.extra?.kickout?.intended_recipient : null);
 
-        const statData = {
+        const draftId = `draft:${nextPlayId}:${Date.now()}`;
+        const draftStat = {
+            id: draftId,
             match_id: matchId,
             stat_type: payload.stat_type,
             is_pass: !!payload.is_pass,
@@ -618,8 +578,8 @@ export default function MatchStats() {
             timestamp: new Date().toISOString(),
 
             play_id: nextPlayId,
-            possession_id: nextPossessionId,
-            possession_team_side: nextPossessionTeam,
+            possession_id: currentPossessionId || 0,
+            possession_team_side: currentPossessionTeamSide || 'unknown',
             team_side: teamSide,
             counter_attack: !!payload.counter_attack,
 
@@ -644,6 +604,22 @@ export default function MatchStats() {
             extra_data: JSON.stringify(extra),
         };
 
+        const sequenced = sequencePossessionRows([...(stats || []), draftStat]);
+        const sequencedDraft = sequenced.find((row) => row?.id === draftId) || draftStat;
+        const nextPossessionCounter = sequenced.reduce((max, row) => {
+            const pid = Number(row?.possession_id);
+            return Number.isFinite(pid) ? Math.max(max, pid) : max;
+        }, 0);
+
+        const statData = {
+            ...draftStat,
+            team_side: sequencedDraft.team_side || draftStat.team_side,
+            possession_id: Number.isFinite(Number(sequencedDraft.possession_id)) ? Number(sequencedDraft.possession_id) : draftStat.possession_id,
+            possession_team_side: sequencedDraft.possession_team_side || draftStat.possession_team_side,
+            extra_data: sequencedDraft.extra_data || draftStat.extra_data,
+        };
+        delete statData.id;
+
         setModalOpen(false);
         setClickCoords(null);
         setPassEndCoords(null);
@@ -653,9 +629,15 @@ export default function MatchStats() {
 
         setPlayCounter(nextPlayId);
         setPossessionCounter(nextPossessionCounter);
-        setCurrentPossessionId(nextPossessionId);
-        setCurrentPossessionTeamSide(nextPossessionTeam);
-        setPendingNextPossessionTeamSide(shouldScheduleNextPossession({ ...payload, extra }) || pending);
+        setCurrentPossessionId(statData.possession_id);
+        setCurrentPossessionTeamSide(statData.possession_team_side);
+        setPendingNextPossessionTeamSide(
+            shouldScheduleNextPossession({
+                stat_type: statData.stat_type,
+                team_side: statData.team_side,
+                extra: safeParse(statData.extra_data),
+            }) || null
+        );
 
         const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
         setLastReceiver(lr || null);

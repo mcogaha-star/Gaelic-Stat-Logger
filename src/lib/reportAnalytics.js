@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v7';
+export const POSSESSION_REBUILD_VERSION = 'v8';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -439,10 +439,10 @@ export function buildLegacyPossessionRepairs(stats) {
   const inferPrimaryActionTeam = (stat, fallbackTeam) => {
     const extra = parseExtra(stat);
     if (stat?.stat_type === 'pass') {
-      return extra?.pass?.passer?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+      return extra?.pass?.passer?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     }
     if (stat?.stat_type === 'carry') {
-      return extra?.carry?.carrier?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+      return extra?.carry?.carrier?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     }
     if (stat?.stat_type === 'shot') {
       return extra?.shot?.player?.team_side || stat?.team_side || fallbackTeam || 'unknown';
@@ -462,23 +462,32 @@ export function buildLegacyPossessionRepairs(stats) {
     if (stat?.stat_type === 'kickout') {
       const outcome = String(extra?.kickout?.outcome || '');
       const wonSide = extra?.kickout?.won_by?.team_side;
-      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return wonSide;
+      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return { team: wonSide, source: 'Kickout Won' };
     }
     if (stat?.stat_type === 'throw_in') {
       const outcome = String(extra?.throw_in?.outcome || '');
       const wonSide = extra?.throw_in?.won_by?.team_side;
-      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return wonSide;
+      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return { team: wonSide, source: 'Throw In Won' };
     }
     return null;
   };
 
-  const inferPendingNextPossessionFromStat = (stat, rowActingTeam) => {
+  const inferNextRowPossessionFromTerminalStat = (stat, rowActingTeam) => {
     const extra = parseExtra(stat);
     if (stat?.stat_type === 'shot') {
       const outcome = String(extra?.shot?.outcome || '');
       const result = String(extra?.shot?.result || '');
+      if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide') {
+        return { forceStart: true, team: null, source: 'Open Play' };
+      }
       if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
-        return extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
+        const recovered = extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
+        const labelMap = { short: 'Shot Short', blocked: 'Shot Blocked', post: 'Shot Post', saved: 'Shot Saved' };
+        return {
+          forceStart: true,
+          team: validSide(recovered) ? recovered : null,
+          source: labelMap[outcome] || 'Open Play',
+        };
       }
       return null;
     }
@@ -487,114 +496,36 @@ export function buildLegacyPossessionRepairs(stats) {
     if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover) {
       const turnoverType = String(extra?.turnover?.turnover_type || '');
       const recoveredSide = extra?.turnover?.recovered_by?.team_side;
-      if (turnoverType === 'foul') return null;
-      if (validSide(recoveredSide)) return recoveredSide;
-      return oppositeSide(rowActingTeam || stat?.team_side);
+      const forcedSide = extra?.turnover?.forced_by?.team_side;
+      if (turnoverType === 'foul') {
+        const foul = extractFoulFromStat(stat);
+        const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+        return {
+          forceStart: true,
+          team: validSide(foulOn) ? foulOn : (validSide(forcedSide) ? forcedSide : oppositeSide(rowActingTeam || stat?.team_side)),
+          source: 'Turnover Won',
+        };
+      }
+      return {
+        forceStart: true,
+        team: validSide(recoveredSide) ? recoveredSide : (validSide(forcedSide) ? forcedSide : oppositeSide(rowActingTeam || stat?.team_side)),
+        source: 'Turnover Won',
+      };
+    }
+    if (stat?.stat_type === 'period_end') {
+      return { forceStart: true, team: null, source: 'Open Play' };
     }
     return null;
   };
 
-  const rebuildPossessionSequence = (rows) => {
-    const rebuilt = [];
-    let currentPossessionId = 0;
-    let currentPossessionTeam = 'unknown';
-    let pendingNextPossessionTeam = null;
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const stat = rows[i];
-      if (!stat) continue;
-
-      const extra = parseExtra(stat);
-      const { foul, foulBy, foulOn } = getFoulTeams(stat);
-      const immediateStartTeam = inferImmediatePossessionStartFromStat(stat);
-      const turnoverType = String(extra?.turnover?.turnover_type || '');
-      const turnoverLostSide = extra?.turnover?.lost_by?.team_side;
-      const isNonFoulTurnover =
-        (
-          !!extra?.turnover
-          || stat?.stat_type === 'turnover'
-          || (stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover')
-          || (stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover')
-        ) &&
-        turnoverType !== 'foul';
-      const isAwardedFoul = !!foul && validSide(foulOn) && foulOn !== foulBy;
-      const isEmbeddedActionFoul =
-        (
-          (stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'foul')
-          || (stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'foul')
-          || (stat?.stat_type === 'kickout' && String(extra?.kickout?.outcome || '') === 'foul')
-          || (stat?.stat_type === 'throw_in' && String(extra?.throw_in?.outcome || '') === 'foul')
-        );
-
-      const bootstrapTeam =
-        validSide(stat?.possession_team_side) ? stat.possession_team_side
-          : inferPrimaryActionTeam(stat, stat?.team_side);
-
-      const startTeam = validSide(immediateStartTeam)
-        ? immediateStartTeam
-        : (validSide(pendingNextPossessionTeam) ? pendingNextPossessionTeam : null);
-
-      if (validSide(startTeam)) {
-        if (
-          currentPossessionId <= 0
-          || startTeam !== currentPossessionTeam
-          || validSide(immediateStartTeam)
-          || validSide(pendingNextPossessionTeam)
-        ) {
-          currentPossessionId = currentPossessionId > 0 ? currentPossessionId + 1 : 1;
-          currentPossessionTeam = startTeam;
-        }
-      } else if (currentPossessionId <= 0) {
-        currentPossessionId = 1;
-        currentPossessionTeam = validSide(bootstrapTeam) ? bootstrapTeam : 'unknown';
-      }
-
-      let rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
-      let rowPossessionTeam = rowActingTeam;
-
-      if (validSide(immediateStartTeam)) {
-        rowPossessionTeam = immediateStartTeam;
-        rowActingTeam = immediateStartTeam;
-      } else if (isNonFoulTurnover) {
-        rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
-        rowPossessionTeam = rowActingTeam;
-      } else if (isEmbeddedActionFoul) {
-        rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
-        rowPossessionTeam = validSide(rowActingTeam) ? rowActingTeam : currentPossessionTeam;
-      } else if (isAwardedFoul) {
-        rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : foulOn;
-        rowActingTeam = validSide(rowPossessionTeam) ? rowPossessionTeam : inferPrimaryActionTeam(stat, foulOn);
-      } else if (!validSide(rowPossessionTeam) && validSide(currentPossessionTeam)) {
-        rowPossessionTeam = currentPossessionTeam;
-      }
-
-      if (!validSide(rowActingTeam) && validSide(rowPossessionTeam)) rowActingTeam = rowPossessionTeam;
-      if (!validSide(rowPossessionTeam) && validSide(rowActingTeam)) rowPossessionTeam = rowActingTeam;
-
-      const sanitizedExtra = sanitizeLegacyExtra(stat);
-      rebuilt.push({
-        ...stat,
-        team_side: rowActingTeam,
-        possession_team_side: rowPossessionTeam,
-        possession_id: currentPossessionId,
-        extra_data: sanitizedExtra != null ? sanitizedExtra : (stat?.extra_data || ''),
-      });
-
-      pendingNextPossessionTeam = inferPendingNextPossessionFromStat(
-        {
-          ...stat,
-          team_side: rowActingTeam,
-          possession_team_side: rowPossessionTeam,
-          extra_data: sanitizedExtra != null ? sanitizedExtra : (stat?.extra_data || ''),
-        },
-        rowActingTeam,
-      );
-    }
-
-    return rebuilt;
-  };
-
-  const rebuilt = rebuildPossessionSequence(ordered);
+  const rebuilt = sequencePossessionRows(ordered, {
+    parseExtra,
+    validSide,
+    inferPrimaryActionTeam,
+    inferImmediatePossessionStartFromStat,
+    inferNextRowPossessionFromTerminalStat,
+    sanitizeLegacyExtra,
+  });
   const updates = [];
 
   for (let i = 0; i < ordered.length; i += 1) {
@@ -613,10 +544,182 @@ export function buildLegacyPossessionRepairs(stats) {
 }
 
 export function rebuildPossessionRows(stats) {
-  const repairs = buildLegacyPossessionRepairs(stats);
-  if (!repairs.length) return Array.isArray(stats) ? stats : [];
-  const repairMap = new Map(repairs.map((repair) => [repair.id, repair.data]));
-  return (Array.isArray(stats) ? stats : []).map((stat) => (
-    repairMap.has(stat?.id) ? { ...stat, ...repairMap.get(stat.id) } : stat
-  ));
+  const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+    const pa = Number(a?.play_id);
+    const pb = Number(b?.play_id);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    const ta = Number(a?.normalized_time_s);
+    const tb = Number(b?.normalized_time_s);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    const ra = Number(a?.time_s);
+    const rb = Number(b?.time_s);
+    if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+    const tsa = Date.parse(String(a?.timestamp || a?.created_date || ''));
+    const tsb = Date.parse(String(b?.timestamp || b?.created_date || ''));
+    if (Number.isFinite(tsa) && Number.isFinite(tsb) && tsa !== tsb) return tsa - tsb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+  const sequenced = sequencePossessionRows(ordered);
+  const map = new Map(sequenced.map((row) => [row.id, row]));
+  return (Array.isArray(stats) ? stats : []).map((stat) => map.get(stat?.id) || stat);
+}
+
+export function sequencePossessionRows(stats, injected = {}) {
+  const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+    const pa = Number(a?.play_id);
+    const pb = Number(b?.play_id);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    const ta = Number(a?.normalized_time_s);
+    const tb = Number(b?.normalized_time_s);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    const ra = Number(a?.time_s);
+    const rb = Number(b?.time_s);
+    if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+    const tsa = Date.parse(String(a?.timestamp || a?.created_date || ''));
+    const tsb = Date.parse(String(b?.timestamp || b?.created_date || ''));
+    if (Number.isFinite(tsa) && Number.isFinite(tsb) && tsa !== tsb) return tsa - tsb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+  const parseExtra = injected.parseExtra || ((stat) => safeParseJSONLocal(stat?.extra_data || '{}', {}));
+  const validSide = injected.validSide || ((side) => side === 'home' || side === 'away');
+  const inferPrimaryActionTeam = injected.inferPrimaryActionTeam || ((stat, fallbackTeam) => {
+    const extra = parseExtra(stat);
+    if (stat?.stat_type === 'pass') return extra?.pass?.passer?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    if (stat?.stat_type === 'carry') return extra?.carry?.carrier?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    if (stat?.stat_type === 'shot') return extra?.shot?.player?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    if (stat?.stat_type === 'turnover' || extra?.turnover) return extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    if (stat?.stat_type === 'foul') {
+      const { foulOn } = getFoulTeams(stat);
+      return foulOn || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    return stat?.team_side || fallbackTeam || 'unknown';
+  });
+  const inferImmediatePossessionStartFromStat = injected.inferImmediatePossessionStartFromStat || ((stat) => {
+    const extra = parseExtra(stat);
+    if (stat?.stat_type === 'kickout') {
+      const outcome = String(extra?.kickout?.outcome || '');
+      const wonSide = extra?.kickout?.won_by?.team_side;
+      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return { team: wonSide, source: 'Kickout Won' };
+    }
+    if (stat?.stat_type === 'throw_in') {
+      const outcome = String(extra?.throw_in?.outcome || '');
+      const wonSide = extra?.throw_in?.won_by?.team_side;
+      if ((outcome === 'clean' || outcome === 'break') && validSide(wonSide)) return { team: wonSide, source: 'Throw In Won' };
+    }
+    return null;
+  });
+  const inferNextRowPossessionFromTerminalStat = injected.inferNextRowPossessionFromTerminalStat || ((stat, rowActingTeam) => {
+    const extra = parseExtra(stat);
+    if (stat?.stat_type === 'shot') {
+      const outcome = String(extra?.shot?.outcome || '');
+      const result = String(extra?.shot?.result || '');
+      if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide') {
+        return { forceStart: true, team: null, source: 'Open Play' };
+      }
+      if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
+        const recovered = extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
+        const labelMap = { short: 'Shot Short', blocked: 'Shot Blocked', post: 'Shot Post', saved: 'Shot Saved' };
+        return { forceStart: true, team: validSide(recovered) ? recovered : null, source: labelMap[outcome] || 'Open Play' };
+      }
+      return null;
+    }
+    const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
+    const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
+    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover) {
+      const turnoverType = String(extra?.turnover?.turnover_type || '');
+      const recoveredSide = extra?.turnover?.recovered_by?.team_side;
+      const forcedSide = extra?.turnover?.forced_by?.team_side;
+      if (turnoverType === 'foul') {
+        const foul = extractFoulFromStat(stat);
+        const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+        return { forceStart: true, team: validSide(foulOn) ? foulOn : (validSide(forcedSide) ? forcedSide : oppositeSide(rowActingTeam || stat?.team_side)), source: 'Turnover Won' };
+      }
+      return { forceStart: true, team: validSide(recoveredSide) ? recoveredSide : (validSide(forcedSide) ? forcedSide : oppositeSide(rowActingTeam || stat?.team_side)), source: 'Turnover Won' };
+    }
+    if (stat?.stat_type === 'period_end') return { forceStart: true, team: null, source: 'Open Play' };
+    return null;
+  });
+  const sanitizeLegacyExtra = injected.sanitizeLegacyExtra || ((stat) => null);
+
+  const rebuilt = [];
+  let currentPossessionId = 0;
+  let currentPossessionTeam = 'unknown';
+  let nextPossession = null;
+  let currentStartSource = 'Open Play';
+
+  for (const original of ordered) {
+    if (!original) continue;
+    const stat = original;
+    const extra = parseExtra(stat);
+    const { foul, foulBy, foulOn } = getFoulTeams(stat);
+    const immediateStart = inferImmediatePossessionStartFromStat(stat);
+    const sanitizedExtra = sanitizeLegacyExtra(stat);
+    const extraData = sanitizedExtra != null ? sanitizedExtra : (stat?.extra_data || '');
+    const actorFromData = inferPrimaryActionTeam({ ...stat, extra_data: extraData }, currentPossessionTeam);
+    const isEmbeddedActionFoul =
+      (stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'foul')
+      || (stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'foul')
+      || (stat?.stat_type === 'kickout' && String(extra?.kickout?.outcome || '') === 'foul')
+      || (stat?.stat_type === 'throw_in' && String(extra?.throw_in?.outcome || '') === 'foul');
+    const isStandaloneFoul = !!foul && !isEmbeddedActionFoul;
+
+    let startInfo = null;
+    if (immediateStart?.team && validSide(immediateStart.team)) {
+      startInfo = immediateStart;
+    } else if (nextPossession?.forceStart) {
+      const fallbackTeam = validSide(actorFromData) ? actorFromData : (validSide(currentPossessionTeam) ? currentPossessionTeam : stat?.team_side);
+      startInfo = {
+        team: validSide(nextPossession.team) ? nextPossession.team : fallbackTeam,
+        source: nextPossession.source || 'Open Play',
+      };
+    } else if (currentPossessionId <= 0) {
+      startInfo = {
+        team: validSide(actorFromData) ? actorFromData : (validSide(stat?.possession_team_side) ? stat.possession_team_side : stat?.team_side),
+        source: 'Open Play',
+      };
+    }
+
+    if (startInfo?.team && validSide(startInfo.team)) {
+      currentPossessionId += 1;
+      currentPossessionTeam = startInfo.team;
+      currentStartSource = startInfo.source || 'Open Play';
+    } else if (!validSide(currentPossessionTeam) && validSide(actorFromData)) {
+      currentPossessionId += currentPossessionId > 0 ? 1 : 1;
+      currentPossessionTeam = actorFromData;
+      currentStartSource = 'Open Play';
+    }
+
+    nextPossession = null;
+
+    let rowActingTeam = actorFromData;
+    let rowPossessionTeam = currentPossessionTeam;
+
+    if (immediateStart?.team && validSide(immediateStart.team)) {
+      rowActingTeam = immediateStart.team;
+      rowPossessionTeam = immediateStart.team;
+    } else if (isStandaloneFoul) {
+      rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : (validSide(foulOn) ? foulOn : actorFromData);
+      rowActingTeam = rowPossessionTeam;
+    } else if (isEmbeddedActionFoul) {
+      rowPossessionTeam = validSide(actorFromData) ? actorFromData : currentPossessionTeam;
+      rowActingTeam = validSide(actorFromData) ? actorFromData : rowPossessionTeam;
+    } else {
+      if (!validSide(rowPossessionTeam) && validSide(actorFromData)) rowPossessionTeam = actorFromData;
+      if (!validSide(rowActingTeam) && validSide(rowPossessionTeam)) rowActingTeam = rowPossessionTeam;
+    }
+
+    const row = {
+      ...stat,
+      team_side: rowActingTeam,
+      possession_team_side: rowPossessionTeam,
+      possession_id: currentPossessionId,
+      extra_data: extraData,
+      __possession_start_source: currentStartSource,
+    };
+
+    rebuilt.push(row);
+    nextPossession = inferNextRowPossessionFromTerminalStat(row, rowActingTeam);
+  }
+
+  return rebuilt;
 }

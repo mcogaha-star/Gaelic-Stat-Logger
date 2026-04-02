@@ -498,8 +498,10 @@ function derivePossessionOutcome(evs, teamSide) {
 }
 
 function inferPossessionStartSource(groupStats, teamSide, previousContext) {
-  const ALLOWED = new Set(['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Open Play']);
+  const ALLOWED = new Set(['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved', 'Open Play']);
   const finish = (label) => (ALLOWED.has(label) ? label : 'Open Play');
+  const firstAny = Array.isArray(groupStats) && groupStats.length ? groupStats[0] : null;
+  if (firstAny?.__possession_start_source) return finish(firstAny.__possession_start_source);
   const acting = (Array.isArray(groupStats) ? groupStats : []).filter((e) => e && e.team_side === teamSide);
   const first = acting[0];
   const firstExtra = safeParseJSON(first?.extra_data || '{}', {});
@@ -523,7 +525,7 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     return null;
   };
 
-  const firstAll = Array.isArray(groupStats) && groupStats.length ? groupStats[0] : null;
+  const firstAll = firstAny;
   const firstAllExtra = safeParseJSON(firstAll?.extra_data || '{}', {});
   if (firstAll?.stat_type === 'kickout') {
     const outcome = String(firstAllExtra?.kickout?.outcome || '');
@@ -540,6 +542,8 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const outcome = String(prevExtra?.shot?.outcome || '');
     if (result === 'opposition' && outcome === 'short' && prev?.team_side !== teamSide) return finish('Shot Short');
     if (result === 'opposition' && outcome === 'blocked' && prev?.team_side !== teamSide) return finish('Shot Blocked');
+    if (result === 'opposition' && outcome === 'post' && prev?.team_side !== teamSide) return finish('Shot Post');
+    if (result === 'opposition' && outcome === 'saved' && prev?.team_side !== teamSide) return finish('Shot Saved');
   }
   if (prev?.stat_type === 'kickout') {
     const outcome = String(prevExtra?.kickout?.outcome || '');
@@ -561,6 +565,8 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     const outcome = String(firstExtra?.shot?.outcome || '');
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'short') return finish('Shot Short');
     if (firstExtra?.shot?.result === 'opposition' && outcome === 'blocked') return finish('Shot Blocked');
+    if (firstExtra?.shot?.result === 'opposition' && outcome === 'post') return finish('Shot Post');
+    if (firstExtra?.shot?.result === 'opposition' && outcome === 'saved') return finish('Shot Saved');
     return finish('Open Play');
   }
   if (first?.stat_type === 'pass' || first?.stat_type === 'carry') return finish('Open Play');
