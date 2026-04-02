@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v5';
+export const POSSESSION_REBUILD_VERSION = 'v6';
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
@@ -436,6 +436,27 @@ export function buildLegacyPossessionRepairs(stats) {
     return JSON.stringify(next);
   };
 
+  const inferPrimaryActionTeam = (stat, fallbackTeam) => {
+    const extra = parseExtra(stat);
+    if (stat?.stat_type === 'pass') {
+      return extra?.pass?.passer?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    if (stat?.stat_type === 'carry') {
+      return extra?.carry?.carrier?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    if (stat?.stat_type === 'shot') {
+      return extra?.shot?.player?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    if (stat?.stat_type === 'turnover' || extra?.turnover) {
+      return extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    if (stat?.stat_type === 'foul') {
+      const { foulOn } = getFoulTeams(stat);
+      return foulOn || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    return stat?.team_side || fallbackTeam || 'unknown';
+  };
+
   const inferImmediatePossessionStartFromStat = (stat) => {
     const extra = parseExtra(stat);
     if (stat?.stat_type === 'kickout') {
@@ -457,32 +478,20 @@ export function buildLegacyPossessionRepairs(stats) {
       const outcome = String(extra?.shot?.outcome || '');
       const result = String(extra?.shot?.result || '');
       if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
-        return oppositeSide(rowActingTeam || stat?.team_side);
+        return extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
       }
       return null;
     }
-    if (stat?.stat_type === 'turnover' || extra?.turnover) {
+    const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
+    const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
+    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover) {
       const turnoverType = String(extra?.turnover?.turnover_type || '');
       const recoveredSide = extra?.turnover?.recovered_by?.team_side;
-      if (turnoverType && turnoverType !== 'foul' && validSide(recoveredSide)) return recoveredSide;
+      if (turnoverType === 'foul') return null;
+      if (validSide(recoveredSide)) return recoveredSide;
+      return oppositeSide(rowActingTeam || stat?.team_side);
     }
     return null;
-  };
-
-  const getCanonicalActingSide = (stat, fallbackPossessionTeam) => {
-    const extra = parseExtra(stat);
-    const { foulBy, foulOn } = getFoulTeams(stat);
-    if (validSide(foulOn) && foulOn !== foulBy) return foulOn;
-
-    if (stat?.stat_type === 'turnover' || extra?.turnover) {
-      const turnoverType = String(extra?.turnover?.turnover_type || '');
-      const lostSide = extra?.turnover?.lost_by?.team_side;
-      if (turnoverType && turnoverType !== 'foul' && validSide(lostSide)) return lostSide;
-    }
-
-    if (validSide(stat?.team_side)) return stat.team_side;
-    if (validSide(fallbackPossessionTeam)) return fallbackPossessionTeam;
-    return 'unknown';
   };
 
   const rebuildPossessionSequence = (rows) => {
@@ -501,15 +510,18 @@ export function buildLegacyPossessionRepairs(stats) {
       const turnoverType = String(extra?.turnover?.turnover_type || '');
       const turnoverLostSide = extra?.turnover?.lost_by?.team_side;
       const isNonFoulTurnover =
-        (!!extra?.turnover || stat?.stat_type === 'turnover') &&
-        turnoverType &&
-        turnoverType !== 'foul' &&
-        validSide(turnoverLostSide);
+        (
+          !!extra?.turnover
+          || stat?.stat_type === 'turnover'
+          || (stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover')
+          || (stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover')
+        ) &&
+        turnoverType !== 'foul';
       const isAwardedFoul = !!foul && validSide(foulOn) && foulOn !== foulBy;
 
       const bootstrapTeam =
         validSide(stat?.possession_team_side) ? stat.possession_team_side
-          : getCanonicalActingSide(stat, stat?.team_side);
+          : inferPrimaryActionTeam(stat, stat?.team_side);
 
       const startTeam = validSide(immediateStartTeam)
         ? immediateStartTeam
@@ -530,20 +542,24 @@ export function buildLegacyPossessionRepairs(stats) {
         currentPossessionTeam = validSide(bootstrapTeam) ? bootstrapTeam : 'unknown';
       }
 
-      let rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : (validSide(bootstrapTeam) ? bootstrapTeam : 'unknown');
-      let rowActingTeam = getCanonicalActingSide(stat, rowPossessionTeam);
+      let rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
+      let rowPossessionTeam = rowActingTeam;
 
       if (validSide(immediateStartTeam)) {
         rowPossessionTeam = immediateStartTeam;
         rowActingTeam = immediateStartTeam;
       } else if (isNonFoulTurnover) {
-        rowPossessionTeam = turnoverLostSide;
-        rowActingTeam = turnoverLostSide;
+        rowActingTeam = inferPrimaryActionTeam(stat, currentPossessionTeam);
+        rowPossessionTeam = rowActingTeam;
       } else if (isAwardedFoul) {
-        rowActingTeam = foulOn;
-        rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : foulOn;
-        if (!validSide(currentPossessionTeam) && validSide(foulOn)) currentPossessionTeam = foulOn;
+        rowActingTeam = inferPrimaryActionTeam(stat, foulOn);
+        rowPossessionTeam = foulOn;
+      } else if (!validSide(rowPossessionTeam) && validSide(currentPossessionTeam)) {
+        rowPossessionTeam = currentPossessionTeam;
       }
+
+      if (!validSide(rowActingTeam) && validSide(rowPossessionTeam)) rowActingTeam = rowPossessionTeam;
+      if (!validSide(rowPossessionTeam) && validSide(rowActingTeam)) rowPossessionTeam = rowActingTeam;
 
       const sanitizedExtra = sanitizeLegacyExtra(stat);
       rebuilt.push({
