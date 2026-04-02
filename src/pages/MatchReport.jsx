@@ -924,9 +924,10 @@ export default function MatchReport() {
               setCounterFilter={setPossessionsCounterFilter}
               onVisualisePossession={(p) => {
                 const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+                const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => s?.team_side === p?.teamSide);
                 openPossessionVisualiser({
                   title: `Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`,
-                  stats: p?.stats,
+                  stats: possessionStats,
                 });
               }}
             />
