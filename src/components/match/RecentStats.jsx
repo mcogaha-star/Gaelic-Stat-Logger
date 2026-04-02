@@ -68,11 +68,11 @@ export default function RecentStats({ stats, statsCount, onDelete, onEdit, onExp
                                     : formatStatType(stat.stat_type);
 
                             return (
-                        <div 
+                        <div
                             key={stat.id}
-                            className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 group transition-colors"
+                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 p-3 rounded-lg hover:bg-slate-50 group transition-colors"
                         >
-                            <div className="flex-1 min-w-0">
+                            <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="font-medium text-slate-900 truncate">
                                         {primaryTitle}
@@ -97,7 +97,7 @@ export default function RecentStats({ stats, statsCount, onDelete, onEdit, onExp
                                     </span>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-1 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                 <Button
                                     variant="ghost"
                                     size="icon"

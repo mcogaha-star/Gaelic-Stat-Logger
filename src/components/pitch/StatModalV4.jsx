@@ -383,6 +383,7 @@ function CustomFieldInput({ label, config, value, onChange }) {
 const FOUL_TYPES = [
   { value: 'push', label: 'Push' },
   { value: 'pull', label: 'Pull' },
+  { value: 'bodycheck', label: 'Bodycheck' },
   { value: 'tackle', label: 'Tackle' },
   { value: 'high_tackle', label: 'High Tackle' },
   { value: 'overcarry', label: 'Overcarry' },
@@ -810,6 +811,7 @@ export default function StatModalV4({
     setPassStyle('chest');
     setPassPressure('low');
     setPassOutcome('completed');
+    setDeadball(false);
     setCarrierPressure('low');
     setCarryOutcome('completed');
     setShotSituation('play');
