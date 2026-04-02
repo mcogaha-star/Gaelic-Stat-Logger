@@ -76,6 +76,7 @@ function BuildUpTab({
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
+  const [pnHalf, setPnHalf] = useState('all');
   const events = useMemo(() => base.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry')), [base]);
 
   const filtered = useMemo(() => events.filter((s) => {
@@ -188,6 +189,15 @@ function BuildUpTab({
     return `${made}/${attempts} (${formatPct((Number(made) / Number(attempts)) * 100)})`;
   };
 
+  const networkPasses = useMemo(() => {
+    const targetHalf = String(pnHalf || 'all');
+    return filtered.filter((s) => {
+      if (s.stat_type !== 'pass') return false;
+      if (targetHalf === 'all') return true;
+      return String(s.half || '').toLowerCase() === targetHalf;
+    });
+  }, [filtered, pnHalf]);
+
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -269,9 +279,22 @@ function BuildUpTab({
                         className="h-8 text-xs"
                       />
                     </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Half</Label>
+                      <Select value={pnHalf} onValueChange={setPnHalf}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="first">First</SelectItem>
+                          <SelectItem value="second">Second</SelectItem>
+                          <SelectItem value="et1">ET1</SelectItem>
+                          <SelectItem value="et2">ET2</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <PassNetwork
-                    passes={filtered.filter((s) => s.stat_type === 'pass')}
+                    passes={networkPasses}
                     side={teamMode === 'both' ? pnSide : teamMode}
                     minCount={pnMin}
                     teamLabel={(teamMode === 'both' ? pnSide : teamMode) === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}

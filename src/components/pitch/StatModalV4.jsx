@@ -851,6 +851,10 @@ export default function StatModalV4({
       if (!passPressure) setPassPressure('low');
       if (!passOutcome) setPassOutcome('completed');
       if (deadball) setDeadball(false);
+      if (previousAction !== 'pass') {
+        setPassIntendedRecipient(NONE);
+        setPassWonBy(NONE);
+      }
     }
     if (action === 'carry') {
       if (!carrierPressure) setCarrierPressure('low');
@@ -859,6 +863,7 @@ export default function StatModalV4({
         setSoloPlusGo(false);
         setTakeOnAttempted(false);
         setTakeOnCompleted(false);
+        setDefender(NONE);
       }
     }
     if (action === 'shot') {
@@ -877,7 +882,19 @@ export default function StatModalV4({
     if (action === 'kickout' && previousAction !== 'kickout' && previousShotOppositeSide && !initialStat?.id) {
       setKickoutTeam(previousShotOppositeSide);
     }
+    if (action === 'kickout' && previousAction !== 'kickout') {
+      setIntendedRecipient(NONE);
+      setKickoutWonBy(NONE);
+    }
   }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+
+  useEffect(() => {
+    if (action !== 'carry') return;
+    if (!takeOnAttempted) {
+      if (takeOnCompleted) setTakeOnCompleted(false);
+      if (defender !== NONE) setDefender(NONE);
+    }
+  }, [action, takeOnAttempted, takeOnCompleted, defender]);
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
@@ -1045,7 +1062,7 @@ export default function StatModalV4({
   useEffect(() => {
     if (!open) return;
     if (action !== 'shot') return;
-    if (shotOutcome !== 'blocked') return;
+    if (!['blocked', 'short'].includes(String(shotOutcome || ''))) return;
     if (!['retained', 'opposition'].includes(String(shotResult || ''))) return;
     if (touchedRoles?.shot_recovered_by) return;
     const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
@@ -1194,7 +1211,7 @@ export default function StatModalV4({
       const forcedSide = makeSelection(forcedBy, ctx).team_side;
       return forcedSide === 'home' || forcedSide === 'away' ? forcedSide : null;
     }
-    if (k === 'shot_recovered_by' && shotOutcome === 'blocked') {
+    if (k === 'shot_recovered_by' && ['blocked', 'short'].includes(String(shotOutcome || ''))) {
       const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
       if (shooterSide !== 'home' && shooterSide !== 'away') return null;
       if (shotResult === 'retained') return shooterSide;

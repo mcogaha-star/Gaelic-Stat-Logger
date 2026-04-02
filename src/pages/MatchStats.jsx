@@ -153,8 +153,14 @@ export default function MatchStats() {
     const homeSubs = parseTeamSheetIds(homeTeam?.subs);
     const awayStarters = parseTeamSheetIds(awayTeam?.starters);
     const awaySubs = parseTeamSheetIds(awayTeam?.subs);
-    const homeOnField = parseIds(match?.home_on_field).length ? parseIds(match?.home_on_field) : homeStarters.slice(0, 15);
-    const awayOnField = parseIds(match?.away_on_field).length ? parseIds(match?.away_on_field) : awayStarters.slice(0, 15);
+    const substitutionStats = (stats || []).filter((s) => s?.stat_type === 'substitution');
+    const hasMatchSubs = substitutionStats.length > 0;
+    const homeOnField = hasMatchSubs
+        ? (parseIds(match?.home_on_field).length ? parseIds(match?.home_on_field) : homeStarters.slice(0, 15))
+        : homeStarters.slice(0, 15);
+    const awayOnField = hasMatchSubs
+        ? (parseIds(match?.away_on_field).length ? parseIds(match?.away_on_field) : awayStarters.slice(0, 15))
+        : awayStarters.slice(0, 15);
     const homePlayers = homeTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === homeTeam.id), homeStarters, homeSubs, homeOnField) : [];
     const awayPlayers = awayTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
     const previousStat = useMemo(() => {
