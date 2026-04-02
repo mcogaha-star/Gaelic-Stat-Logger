@@ -474,6 +474,7 @@ export default function StatModalV4({
 
   // Shot
   const [shotType, setShotType] = useState('');
+  const [shotTypeTouched, setShotTypeTouched] = useState(false);
   const [shotSituation, setShotSituation] = useState('play');
   const [shotMethod, setShotMethod] = useState('right');
   const [shotPressure, setShotPressure] = useState('');
@@ -590,6 +591,7 @@ export default function StatModalV4({
     setKickoutMark(false);
     setKickoutPress('m2m');
     setShotType('');
+    setShotTypeTouched(false);
     setShotSituation('play');
     setShotMethod('right');
     setShotPressure('low');
@@ -649,6 +651,7 @@ export default function StatModalV4({
     if (type === 'shot') {
       setPrimaryPlayer(primaryFromStat);
       setShotType(extra?.shot?.shot_type || '');
+      setShotTypeTouched(true);
       setShotSituation(extra?.shot?.situation || '');
       setShotMethod(extra?.shot?.method || '');
       setShotPressure(extra?.shot?.pressure || '');
@@ -825,6 +828,7 @@ export default function StatModalV4({
     setActiveRole(null);
     setTouchedRoles({});
     setShotOutcomeTouched(false);
+    setShotTypeTouched(false);
     setVideoTimeTouched(false);
     if (Number.isFinite(Number(currentVideoTimeS))) {
       setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
@@ -846,6 +850,7 @@ export default function StatModalV4({
       if (!passStyle) setPassStyle('chest');
       if (!passPressure) setPassPressure('low');
       if (!passOutcome) setPassOutcome('completed');
+      if (deadball) setDeadball(false);
     }
     if (action === 'carry') {
       if (!carrierPressure) setCarrierPressure('low');
@@ -872,7 +877,28 @@ export default function StatModalV4({
     if (action === 'kickout' && previousAction !== 'kickout' && previousShotOppositeSide && !initialStat?.id) {
       setKickoutTeam(previousShotOppositeSide);
     }
-  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action !== 'shot') return;
+    if (shotTypeTouched) return;
+    if (!startCoords) return;
+
+    const actingShotSide = makeSelection(primaryPlayer, ctx).team_side || teamSide || 'home';
+    const rawX = Number(startCoords?.x);
+    const rawY = Number(startCoords?.y);
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return;
+
+    const normX = actingShotSide === 'away' ? 145 - rawX : rawX;
+    const normY = actingShotSide === 'away' ? 85 - rawY : rawY;
+    const dx = 145 - normX;
+    const dy = 42.5 - normY;
+    const distance = Math.sqrt((dx * dx) + (dy * dy));
+    const inferred = distance > 40 ? '2_point' : (distance < 10 ? 'goal' : 'point');
+    if (shotType !== inferred) setShotType(inferred);
+  }, [open, initialStat?.id, action, shotTypeTouched, startCoords, primaryPlayer, ctx, teamSide, shotType]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {
@@ -1121,7 +1147,7 @@ export default function StatModalV4({
     }
     if (action === 'pass') {
       // For turnover, "won by" is not required/used.
-      const base = passOutcome === 'turnover' ? ['passer', 'pass_intended'] : ['passer', 'pass_intended', 'pass_won_by'];
+      const base = passOutcome === 'turnover' ? ['pass_intended', 'passer'] : ['pass_intended', 'passer', 'pass_won_by'];
       if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
@@ -1262,6 +1288,13 @@ export default function StatModalV4({
     shotSavedBy,
     touchedRoles,
   ]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action !== 'pass') return;
+    if (activeRole !== 'pass_intended') setActiveRole('pass_intended');
+  }, [open, initialStat?.id, action, activeRole]);
 
   // Shot saved-by defaults to opposition #1 (goalkeeper) unless user explicitly set it.
   useEffect(() => {
@@ -1641,7 +1674,7 @@ export default function StatModalV4({
             <div className="space-y-2">
               {action === 'shot' && !isDrag && (
                 <>
-                  <Buttons label="Shot Type" value={shotType} onChange={setShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+                  <Buttons label="Shot Type" value={shotType} onChange={(value) => { setShotType(value); setShotTypeTouched(true); }} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
                   <div className="grid sm:grid-cols-2 gap-2">
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Situation</Label>
