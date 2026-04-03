@@ -15,6 +15,7 @@ import {
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  inferRestartWinnerSide,
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
@@ -56,6 +57,23 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const throwIns = useMemo(() => base.filter((s) => s?.stat_type === 'throw_in'), [base]);
+  const nextStatById = useMemo(() => {
+    const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      const ra = Number(a?.time_s);
+      const rb = Number(b?.time_s);
+      if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const out = new Map();
+    for (let i = 0; i < ordered.length; i += 1) out.set(ordered[i]?.id, ordered[i + 1] || null);
+    return out;
+  }, [stats]);
 
   const kpis = useMemo(() => {
     const calc = (teamSide) => {
@@ -63,25 +81,25 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
       const won = throwIns.filter((s) => {
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const out = ex?.throw_in?.outcome;
-        const w = ex?.throw_in?.won_by;
-        return (out === 'clean' || out === 'break') && w?.team_side === teamSide;
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        return wonSide === teamSide;
       }).length;
       const cleanWon = throwIns.filter((s) => {
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const out = ex?.throw_in?.outcome;
-        const w = ex?.throw_in?.won_by;
-        return out === 'clean' && w?.team_side === teamSide;
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        return out === 'clean' && wonSide === teamSide;
       }).length;
       const breakWon = throwIns.filter((s) => {
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const out = ex?.throw_in?.outcome;
-        const w = ex?.throw_in?.won_by;
-        return out === 'break' && w?.team_side === teamSide;
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        return out === 'break' && wonSide === teamSide;
       }).length;
       return { contested, won, cleanWon, breakWon };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [throwIns]);
+  }, [throwIns, nextStatById]);
 
   const outcomeRows = useMemo(() => {
     const rows = new Map();

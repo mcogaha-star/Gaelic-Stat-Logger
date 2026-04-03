@@ -41,6 +41,16 @@ const ID_EDIT_GUIDE = [
   ['Best Workflow', 'Fix ordering first if the sequence is wrong, then fix possession grouping, then recheck the Possessions and Visualiser views to make sure the cleanup behaved as expected.'],
 ];
 
+const POSSESSION_LOGIC_GUIDE = [
+  ['Keep Starts Narrow', 'Treat possession starts as only coming from clear transition events: `Turnover Won`, `Kickout Won`, `Throw In Won`, or `Shot Short/Blocked/Post/Saved` with `result = opposition`. This keeps the model stable and avoids fuzzy starts like generic fouls or restart carries.'],
+  ['Keep Ends Narrow', 'Treat possession ends as only coming from terminal events: score, wide, turnover, half end, or `short/blocked/post/saved + opposition`. Retained shots do not end the possession. Non-turnover fouls do not end the possession.'],
+  ['Advantage Recommendation', 'Do not add an advantage button yet unless you need it for reporting discipline or referee decisions. With the current workflow, the safer rule is: if advantage is brought back, keep it as the same possession and do not log a temporary turnover that will later be cancelled.'],
+  ['Fallback Order', 'When possession ownership is unclear, use this order: explicit winner or recovery data first, explicit foul-by logic second, and only then a next-play fallback. The fallback should be based on who truly has the ball on the next action, not just whichever team appears in the next row summary.'],
+  ['Be Careful With Next Play', 'If the next play is itself a turnover, infer the next possession from who lost it and who recovered or won it, rather than blindly using the row team. This matters most after restart fouls or messy legacy rows.'],
+  ['Kickout And Throw-In Fouls', 'For kickouts and throw-ins, use the same logic. If explicit foul players are present, infer the winner from `foul_by` and `foul_on`. If they are blank, fall back to the next true ball-action team. Sideline-for should behave like a retained restart; sideline-against should behave like a lost restart.'],
+  ['Manual Fixes Win', 'Once you have manually corrected possession IDs in Data, treat those edits as the authority for that match. Automatic rebuilds should not keep overriding careful manual repairs.'],
+];
+
 export default function About() {
   return (
     <div className="min-h-screen bg-slate-50">
@@ -110,6 +120,23 @@ export default function About() {
             </div>
             <div className="space-y-3">
               {ID_EDIT_GUIDE.map(([term, meaning]) => (
+                <div key={term} className="rounded-xl border border-slate-200 p-4">
+                  <div className="font-semibold text-slate-900">{term}</div>
+                  <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <div className="text-xl font-semibold text-slate-900">Possession Logic Guide</div>
+              <div className="text-sm text-slate-500 mt-1">Practical rules for tagging possession starts, ends, advantage, and fallback inference safely.</div>
+            </div>
+            <div className="space-y-3">
+              {POSSESSION_LOGIC_GUIDE.map(([term, meaning]) => (
                 <div key={term} className="rounded-xl border border-slate-200 p-4">
                   <div className="font-semibold text-slate-900">{term}</div>
                   <div className="text-sm text-slate-600 mt-1">{meaning}</div>

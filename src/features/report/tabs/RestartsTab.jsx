@@ -15,6 +15,7 @@ import {
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  inferRestartWinnerSide,
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
@@ -58,6 +59,23 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
   const teamMode = String(reportFilters?.team || 'both');
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
+  const nextStatById = useMemo(() => {
+    const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      const ra = Number(a?.time_s);
+      const rb = Number(b?.time_s);
+      if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const out = new Map();
+    for (let i = 0; i < ordered.length; i += 1) out.set(ordered[i]?.id, ordered[i + 1] || null);
+    return out;
+  }, [stats]);
 
   const kpis = useMemo(() => {
     const byPoss = groupByPossession(base);
@@ -69,20 +87,20 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const koTeam = ex?.kickout?.team_side;
         const o = ex?.kickout?.outcome;
-        const won = ex?.kickout?.won_by;
-        if (koTeam === teamSide) ownKickouts.push({ o, won, koTeam });
-        if (koTeam && koTeam !== teamSide) oppKickouts.push({ o, won, koTeam });
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        if (koTeam === teamSide) ownKickouts.push({ o, wonSide, koTeam });
+        if (koTeam && koTeam !== teamSide) oppKickouts.push({ o, wonSide, koTeam });
       }
 
       const ownTaken = ownKickouts.length;
-      const ownWon = ownKickouts.filter((r) => (r.o === 'clean' || r.o === 'break') && r.won?.team_side === teamSide).length;
-      const ownCleanWon = ownKickouts.filter((r) => r.o === 'clean' && r.won?.team_side === teamSide).length;
+      const ownWon = ownKickouts.filter((r) => r.wonSide === teamSide).length;
+      const ownCleanWon = ownKickouts.filter((r) => r.o === 'clean' && r.wonSide === teamSide).length;
 
       const oppTaken = oppKickouts.length;
       const oppDisrupted = oppKickouts.filter((r) => {
         const oppSide = r.koTeam;
         if (r.o !== 'clean') return true;
-        return r.won?.team_side !== oppSide;
+        return r.wonSide !== oppSide;
       }).length;
 
       // Restart-to-shot/score (best-effort): check possessions associated with won restarts.
@@ -91,9 +109,8 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const koTeam = ex?.kickout?.team_side;
         if (koTeam !== teamSide) continue;
-        const o = ex?.kickout?.outcome;
-        const won = ex?.kickout?.won_by;
-        if (!((o === 'clean' || o === 'break') && won?.team_side === teamSide)) continue;
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        if (wonSide !== teamSide) continue;
         const pid = Number(s?.possession_id);
         const pside = s?.possession_team_side;
         if (Number.isFinite(pid) && pside === teamSide) restartPossKeys.add(`${pside}-${pid}`);
@@ -122,16 +139,8 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
 
     // Break-ball recovery % across both restarts (best-effort).
     const breakAll = kickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
-    const breakWonHome = breakAll.filter((s) => {
-      const ex = safeParseJSON(s.extra_data || '{}', {});
-      const won = ex?.kickout?.won_by;
-      return won?.team_side === 'home';
-    }).length;
-    const breakWonAway = breakAll.filter((s) => {
-      const ex = safeParseJSON(s.extra_data || '{}', {});
-      const won = ex?.kickout?.won_by;
-      return won?.team_side === 'away';
-    }).length;
+    const breakWonHome = breakAll.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'home').length;
+    const breakWonAway = breakAll.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'away').length;
 
     return {
       home: calcForTeam('home'),
@@ -140,7 +149,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
       breakWonHome,
       breakWonAway,
     };
-  }, [kickouts, base]);
+  }, [kickouts, base, nextStatById]);
 
   const kickoutTargets = useMemo(() => {
     const rows = new Map();
@@ -153,15 +162,15 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
       const cur = rows.get(`${koTeam}|${key}`) || { team: koTeam, key, label: formatExtraValue(r), targeted: 0, won: 0, clean: 0, break: 0, marks: 0 };
       cur.targeted += 1;
       const o = ex?.kickout?.outcome;
-      const wonBy = ex?.kickout?.won_by;
-      if ((o === 'clean' || o === 'break') && wonBy?.team_side === koTeam) cur.won += 1;
-      if (o === 'clean' && wonBy?.team_side === koTeam) cur.clean += 1;
-      if (o === 'break' && wonBy?.team_side === koTeam) cur.break += 1;
+      const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+      if (wonSide === koTeam) cur.won += 1;
+      if (o === 'clean' && wonSide === koTeam) cur.clean += 1;
+      if (o === 'break' && wonSide === koTeam) cur.break += 1;
       if (ex?.kickout?.mark) cur.marks += 1;
       rows.set(`${koTeam}|${key}`, cur);
     }
     return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
-  }, [kickouts]);
+  }, [kickouts, nextStatById]);
 
   const visibleKickouts = useMemo(() => {
     if (teamMode === 'both') return kickouts;
@@ -225,6 +234,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                 <div className="font-semibold text-slate-900">Kickout Map</div>
                 <PitchViz
                   stats={visibleKickouts}
+                  contextStats={stats}
                   homeColor={homeTeam?.color}
                   awayColor={awayTeam?.color}
                   colorBy={teamMode === 'both' ? 'team' : 'outcome'}

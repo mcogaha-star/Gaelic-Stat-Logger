@@ -456,6 +456,7 @@ export default function StatModalV4({
   const [forcedBy, setForcedBy] = useState(NONE);
   const [recoveredBy, setRecoveredBy] = useState(NONE);
   const [unforced, setUnforced] = useState(false);
+  const [broughtBackAdv, setBroughtBackAdv] = useState(false);
 
   // Throw in
   const [throwOutcome, setThrowOutcome] = useState('');
@@ -522,6 +523,7 @@ export default function StatModalV4({
   const preferredSideRef = useRef(null);
   const preferredSideTimerRef = useRef(null);
   const previousActionRef = useRef(action);
+  const previousTurnoverContextRef = useRef(false);
 
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
@@ -579,6 +581,7 @@ export default function StatModalV4({
     setForcedBy(NONE);
     setRecoveredBy(NONE);
     setUnforced(false);
+    setBroughtBackAdv(false);
     setThrowOutcome('');
     setWonBy(NONE);
     setThrowLostBy(NONE);
@@ -679,6 +682,7 @@ export default function StatModalV4({
       setForcedBy(selectionToValue(extra?.turnover?.forced_by));
       setRecoveredBy(selectionToValue(extra?.turnover?.recovered_by));
       setUnforced(!!extra?.turnover?.unforced);
+      setBroughtBackAdv(!!extra?.turnover?.brought_back_adv);
     } else if (type === 'throw_in') {
       setThrowOutcome(extra?.throw_in?.outcome || '');
       setWonBy(selectionToValue(extra?.throw_in?.won_by));
@@ -832,6 +836,7 @@ export default function StatModalV4({
     setShotOutcomeTouched(false);
     setShotTypeTouched(false);
     setVideoTimeTouched(false);
+    setBroughtBackAdv(false);
     if (Number.isFinite(Number(currentVideoTimeS))) {
       setVideoTimeText(formatMMSS(Number(currentVideoTimeS)));
     } else {
@@ -897,6 +902,21 @@ export default function StatModalV4({
       if (defender !== NONE) setDefender(NONE);
     }
   }, [action, takeOnAttempted, takeOnCompleted, defender]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    const turnoverContext =
+      action === 'turnover'
+      || (action === 'pass' && passOutcome === 'turnover')
+      || (action === 'carry' && carryOutcome === 'turnover');
+    if (turnoverContext && !previousTurnoverContextRef.current) {
+      setBroughtBackAdv(false);
+    } else if (!turnoverContext && broughtBackAdv) {
+      setBroughtBackAdv(false);
+    }
+    previousTurnoverContextRef.current = turnoverContext;
+  }, [open, initialStat?.id, action, passOutcome, carryOutcome, broughtBackAdv]);
 
   const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
@@ -1403,6 +1423,7 @@ export default function StatModalV4({
         </Select>
       </div>
       <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
+      <YesNo label="Brought Back - Adv." value={broughtBackAdv} onChange={setBroughtBackAdv} />
     </div>
   );
 
@@ -1535,6 +1556,7 @@ export default function StatModalV4({
         // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
         recovered_by: sel(turnoverType === 'foul' ? forcedBy : recoveredBy),
         unforced: !!unforced,
+        brought_back_adv: !!broughtBackAdv,
       };
       if (turnoverType === 'foul') {
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1587,6 +1609,7 @@ export default function StatModalV4({
         // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
         const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
         extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+        extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (carryOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     } else if (action === 'pass') {
@@ -1607,6 +1630,7 @@ export default function StatModalV4({
         // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
         const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
         extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+        extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     }

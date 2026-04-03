@@ -18,6 +18,7 @@ import {
   classifyTerminalOutcome,
   derivePossessionOutcome as derivePossessionOutcomeShared,
   extractFoulFromStat,
+  inferRestartWinnerSide,
   isAttackPossession,
   getMatchSectionOffsets,
   getMatchTimeS,
@@ -509,7 +510,6 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     ? previousContext.filter(Boolean)
     : previousContext ? [previousContext] : [];
   const prev = previousStats.length ? previousStats[previousStats.length - 1] : null;
-  const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
   const getTurnoverWinSide = (extra, stat = null) => {
     const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
     if (!turnoverType) return null;
@@ -528,14 +528,13 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const firstAll = firstAny;
   const firstAllExtra = safeParseJSON(firstAll?.extra_data || '{}', {});
   if (firstAll?.stat_type === 'kickout') {
-    const outcome = String(firstAllExtra?.kickout?.outcome || '');
-    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.kickout?.won_by?.team_side === teamSide) return finish('Kickout Won');
+    if (inferRestartWinnerSide(firstAll, null) === teamSide) return finish('Kickout Won');
   }
   if (firstAll?.stat_type === 'throw_in') {
-    const outcome = String(firstAllExtra?.throw_in?.outcome || '');
-    if ((outcome === 'clean' || outcome === 'break') && firstAllExtra?.throw_in?.won_by?.team_side === teamSide) return finish('Throw In Won');
+    if (inferRestartWinnerSide(firstAll, null) === teamSide) return finish('Throw In Won');
   }
 
+  const prevExtra = safeParseJSON(prev?.extra_data || '{}', {});
   if (getTurnoverWinSide(prevExtra, prev) === teamSide) return finish('Turnover Won');
   if (prev?.stat_type === 'shot') {
     const result = String(prevExtra?.shot?.result || '');
@@ -546,14 +545,10 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
     if (result === 'opposition' && outcome === 'saved' && prev?.team_side !== teamSide) return finish('Shot Saved');
   }
   if (prev?.stat_type === 'kickout') {
-    const outcome = String(prevExtra?.kickout?.outcome || '');
-    const wonSide = prevExtra?.kickout?.won_by?.team_side;
-    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return finish('Kickout Won');
+    if (inferRestartWinnerSide(prev, firstAll) === teamSide) return finish('Kickout Won');
   }
   if (prev?.stat_type === 'throw_in') {
-    const outcome = String(prevExtra?.throw_in?.outcome || '');
-    const wonSide = prevExtra?.throw_in?.won_by?.team_side;
-    if ((outcome === 'clean' || outcome === 'break') && wonSide === teamSide) return finish('Throw In Won');
+    if (inferRestartWinnerSide(prev, firstAll) === teamSide) return finish('Throw In Won');
   }
 
   if (getTurnoverWinSide(firstAllExtra, firstAll) === teamSide) return finish('Turnover Won');
@@ -811,6 +806,7 @@ function selectionTooltipLabel(sel) {
 
 function PitchViz({
   stats,
+  contextStats = null,
   homeColor,
   awayColor,
   colorBy,
@@ -869,6 +865,26 @@ function PitchViz({
     home: homeColor || '#22c55e',
     away: awayColor || '#ef4444',
   }));
+
+  const nextContextById = useMemo(() => {
+    const ordered = (Array.isArray(contextStats) && contextStats.length ? contextStats : stats || []).slice().sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      const ra = Number(a?.time_s);
+      const rb = Number(b?.time_s);
+      if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const out = new Map();
+    for (let i = 0; i < ordered.length; i += 1) {
+      out.set(ordered[i]?.id, ordered[i + 1] || null);
+    }
+    return out;
+  }, [contextStats, stats]);
 
   const persist = (key, obj) => {
     try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
@@ -956,9 +972,10 @@ function PitchViz({
               const kickoutTeamColor = kickTeamSide === 'away'
                 ? (teamPalette?.away || awayColor || '#ef4444')
                 : (teamPalette?.home || homeColor || '#22c55e');
-              const kickWonSide = extra?.kickout?.won_by?.team_side;
+              const kickWonSide = inferRestartWinnerSide(s, nextContextById.get(s.id));
+              const kickoutDotUsesOutcome = ['clean', 'break', 'sideline_for', 'sideline_against', 'foul'].includes(kickOutcome);
               const kickoutEndColor = kickoutOutcomeDots && s.stat_type === 'kickout'
-                ? (kickWonSide && kickTeamSide && kickWonSide === kickTeamSide ? '#16a34a' : '#dc2626')
+                ? (kickoutDotUsesOutcome && kickWonSide && kickTeamSide && kickWonSide === kickTeamSide ? '#16a34a' : '#dc2626')
                 : col;
               const lineColor = s.stat_type === 'kickout' && kickoutOutcomeDots ? kickoutTeamColor : col;
               return (

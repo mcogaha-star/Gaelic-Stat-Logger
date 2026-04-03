@@ -69,8 +69,10 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
       ];
       for (const [x, y] of points) {
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-        const cx = Math.max(0, Math.min(cols - 1, Math.floor((x / PITCH_W) * cols)));
-        const cy = Math.max(0, Math.min(rows - 1, Math.floor((y / PITCH_H) * rows)));
+        const displayX = side === 'away' ? (PITCH_W - x) : x;
+        const displayY = side === 'away' ? (PITCH_H - y) : y;
+        const cx = Math.max(0, Math.min(cols - 1, Math.floor((displayX / PITCH_W) * cols)));
+        const cy = Math.max(0, Math.min(rows - 1, Math.floor((displayY / PITCH_H) * rows)));
         counts[cy][cx] += 1;
       }
     }
@@ -125,19 +127,6 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
                     stroke="rgba(255,255,255,0.18)"
                     strokeWidth="0.2"
                   />
-                  {count > 0 ? (
-                    <text
-                      x={x + width / 2}
-                      y={y + height / 2}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize="3"
-                      fontWeight="700"
-                      fill="#0f172a"
-                    >
-                      {count}
-                    </text>
-                  ) : null}
                 </g>
               );
             }))}

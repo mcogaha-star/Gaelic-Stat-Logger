@@ -442,12 +442,14 @@ export default function MatchStats() {
         }
         const turnoverType = extra?.turnover?.turnover_type;
         const recoveredBy = extra?.turnover?.recovered_by;
+        const broughtBackAdv = !!extra?.turnover?.brought_back_adv;
         const hasTurnover =
             stat_type === 'turnover'
             || !!extra?.turnover
             || (stat_type === 'pass' && extra?.pass?.outcome === 'turnover')
             || (stat_type === 'carry' && extra?.carry?.outcome === 'turnover');
         if (hasTurnover) {
+            if (broughtBackAdv) return null;
             if (!turnoverType || turnoverType === 'foul') return null;
             if (recoveredBy?.team_side === 'home' || recoveredBy?.team_side === 'away') return recoveredBy.team_side;
             if (team_side === 'home') return 'away';
