@@ -430,35 +430,6 @@ export default function MatchStats() {
 
     const safeParse = (s) => { try { return JSON.parse(s); } catch { return {}; } };
 
-    const shouldScheduleNextPossession = ({ stat_type, team_side, extra }) => {
-        if (stat_type === 'shot') {
-            if (extra?.shot?.brought_back_adv) return null;
-            const o = extra?.shot?.outcome;
-            const r = extra?.shot?.result;
-            if (!['short', 'post', 'saved', 'blocked'].includes(o)) return null;
-            if (r !== 'opposition') return null;
-            if (team_side === 'home') return 'away';
-            if (team_side === 'away') return 'home';
-            return null;
-        }
-        const turnoverType = extra?.turnover?.turnover_type;
-        const recoveredBy = extra?.turnover?.recovered_by;
-        const broughtBackAdv = !!extra?.turnover?.brought_back_adv;
-        const hasTurnover =
-            stat_type === 'turnover'
-            || !!extra?.turnover
-            || (stat_type === 'pass' && extra?.pass?.outcome === 'turnover')
-            || (stat_type === 'carry' && extra?.carry?.outcome === 'turnover');
-        if (hasTurnover) {
-            if (broughtBackAdv) return null;
-            if (!turnoverType || turnoverType === 'foul') return null;
-            if (recoveredBy?.team_side === 'home' || recoveredBy?.team_side === 'away') return recoveredBy.team_side;
-            if (team_side === 'home') return 'away';
-            if (team_side === 'away') return 'home';
-        }
-        return null;
-    };
-
     const updateLastReceiverFrom = ({ stat_type, extra }) => {
         if (stat_type === 'pass') {
             if (extra?.pass?.outcome === 'completed' && extra?.pass?.intended_recipient?.kind === 'player') return extra.pass.intended_recipient;
@@ -634,13 +605,45 @@ export default function MatchStats() {
         setPossessionCounter(nextPossessionCounter);
         setCurrentPossessionId(statData.possession_id);
         setCurrentPossessionTeamSide(statData.possession_team_side);
-        setPendingNextPossessionTeamSide(
-            shouldScheduleNextPossession({
-                stat_type: statData.stat_type,
-                team_side: statData.team_side,
-                extra: safeParse(statData.extra_data),
-            }) || null
-        );
+        const statForProbe = { ...statData, id: draftId };
+        const nextProbe = {
+            id: `probe:${nextPlayId + 1}:${Date.now()}`,
+            match_id: matchId,
+            stat_type: 'probe',
+            is_pass: false,
+            half,
+            timestamp: new Date().toISOString(),
+            play_id: nextPlayId + 1,
+            possession_id: statData.possession_id,
+            possession_team_side: statData.possession_team_side,
+            team_side: 'unknown',
+            counter_attack: false,
+            raw_x_position: null,
+            raw_y_position: null,
+            raw_end_x_position: null,
+            raw_end_y_position: null,
+            x_position: null,
+            y_position: null,
+            end_x_position: null,
+            end_y_position: null,
+            time_s: null,
+            normalized_time_s: null,
+            player_name: null,
+            player_number: null,
+            recipient_name: null,
+            recipient_number: null,
+            extra_data: '{}',
+        };
+        const probeSequenced = sequencePossessionRows([...(stats || []), statForProbe, nextProbe]);
+        const sequencedProbe = probeSequenced.find((row) => row?.id === nextProbe.id);
+        const pendingTeam = (sequencedProbe?.possession_team_side === 'home' || sequencedProbe?.possession_team_side === 'away')
+            && (
+                Number(sequencedProbe?.possession_id) !== Number(statData.possession_id)
+                || sequencedProbe?.possession_team_side !== statData.possession_team_side
+            )
+            ? sequencedProbe.possession_team_side
+            : null;
+        setPendingNextPossessionTeamSide(pendingTeam);
 
         const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
         setLastReceiver(lr || null);

@@ -50,6 +50,7 @@ import {
   ShotMap,
   shotSideFromY,
   shotZoneFromDistance,
+  teamRowTint,
   applyNonTeamReportFilters,
 } from '../shared';
 
@@ -264,7 +265,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                   </TableHeader>
                   <TableBody>
                     {kickoutTargets.filter((r) => teamMode === 'both' || r.team === teamMode).slice(0, 200).map((r, idx) => (
-                      <TableRow key={`${r.team}-${r.key}-${idx}`}>
+                      <TableRow key={`${r.team}-${r.key}-${idx}`} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                         <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
                         <TableCell className="font-medium">{r.label || 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.targeted}</TableCell>

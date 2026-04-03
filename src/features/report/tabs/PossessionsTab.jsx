@@ -218,6 +218,39 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
   const possessionOutcomeData = useMemo(() => byTeam(possessionsFiltered), [possessionsFiltered, homeTeam, awayTeam, teamMode]);
   const attackOutcomeData = useMemo(() => byTeam(attacks), [attacks, homeTeam, awayTeam, teamMode]);
+  const startZoneData = useMemo(() => {
+    const zones = ['Defensive Third', 'Middle Third', 'Attacking Third'];
+    const counts = {
+      home: Object.fromEntries(zones.map((z) => [z, 0])),
+      away: Object.fromEntries(zones.map((z) => [z, 0])),
+    };
+    for (const p of possessionsFiltered) {
+      if (!counts[p.teamSide] || counts[p.teamSide][p.startZone] == null) continue;
+      counts[p.teamSide][p.startZone] += 1;
+    }
+    const rows = [];
+    if (teamMode === 'both' || teamMode === 'home') {
+      rows.push({ team: homeTeam?.name || 'Home', side: 'home', ...counts.home });
+    }
+    if (teamMode === 'both' || teamMode === 'away') {
+      rows.push({ team: awayTeam?.name || 'Away', side: 'away', ...counts.away });
+    }
+    return rows;
+  }, [possessionsFiltered, homeTeam, awayTeam, teamMode]);
+
+  const originTableRows = useMemo(() => {
+    const allowed = ['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved', 'Open Play'];
+    const counts = {};
+    for (const key of allowed) counts[key] = { label: key, home: 0, away: 0 };
+    for (const p of possessionsFiltered) {
+      const source = allowed.includes(p.startSource) ? p.startSource : 'Open Play';
+      if (p.teamSide === 'home') counts[source].home += 1;
+      if (p.teamSide === 'away') counts[source].away += 1;
+    }
+    return allowed
+      .map((key) => counts[key])
+      .filter((row) => row.home > 0 || row.away > 0 || row.label === 'Open Play');
+  }, [possessionsFiltered]);
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -281,6 +314,50 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       ))}
                     </BarChart>
                   </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Possession Start Zones</div>
+                  <ChartContainer id="possession-start-zones" className="h-[240px] w-full" config={{}}>
+                    <BarChart data={startZoneData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="team" className="text-xs" />
+                      <YAxis allowDecimals={false} className="text-xs" />
+                      <Tooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      <Bar dataKey="Defensive Third" stackId="a" fill="#60a5fa" />
+                      <Bar dataKey="Middle Third" stackId="a" fill="#f59e0b" />
+                      <Bar dataKey="Attacking Third" stackId="a" fill="#22c55e" />
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Possession Origins</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Event</TableHead>
+                        <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
+                        <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {originTableRows.map((row) => (
+                        <TableRow key={row.label}>
+                          <TableCell className="font-medium">{row.label}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.home}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.away}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </div>
