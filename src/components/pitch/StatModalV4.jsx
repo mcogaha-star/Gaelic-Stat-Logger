@@ -486,6 +486,7 @@ export default function StatModalV4({
   const [shotRecoveredBy, setShotRecoveredBy] = useState(NONE);
   const [shotBlockedBy, setShotBlockedBy] = useState(NONE);
   const [shotSavedBy, setShotSavedBy] = useState(NONE);
+  const [shotBroughtBackAdv, setShotBroughtBackAdv] = useState(false);
 
   const parsedVideoTimeS = useMemo(() => parseMMSS(videoTimeText), [videoTimeText]);
   const videoTimeInvalid = !!String(videoTimeText || '').trim() && !Number.isFinite(parsedVideoTimeS);
@@ -605,6 +606,7 @@ export default function StatModalV4({
     setShotRecoveredBy(NONE);
     setShotBlockedBy(NONE);
     setShotSavedBy(NONE);
+    setShotBroughtBackAdv(false);
     setDefType('contact');
     setCarrier(NONE);
     setCarrierPressure('low');
@@ -665,6 +667,7 @@ export default function StatModalV4({
       setShotRecoveredBy(selectionToValue(extra?.shot?.recovered_by));
       setShotBlockedBy(selectionToValue(extra?.shot?.blocked_by));
       setShotSavedBy(selectionToValue(extra?.shot?.saved_by));
+      setShotBroughtBackAdv(!!extra?.shot?.brought_back_adv);
     } else if (type === 'kickout') {
       setKickoutTeam(extra?.kickout?.team_side || initialStat.team_side || 'home');
       setKickoutOutcome(extra?.kickout?.outcome || '');
@@ -749,6 +752,12 @@ export default function StatModalV4({
       setVideoTimeTouched(false);
     }
   }, [open, initialStat?.id, previousShotNeedsKickout]);
+
+  useEffect(() => {
+    if (!open || action !== 'shot') return;
+    if (initialStat?.id) return;
+    setShotBroughtBackAdv(false);
+  }, [open, action, initialStat?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -1587,6 +1596,7 @@ export default function StatModalV4({
         recovered_by: sel(shotRecoveredBy),
         blocked_by: sel(shotBlockedBy),
         saved_by: sel(shotSavedBy),
+        brought_back_adv: !!shotBroughtBackAdv,
       };
     } else if (action === 'defensive_contact') {
       actingSide = makeSelection(primaryPlayer, ctx).team_side || 'unknown';
@@ -1756,6 +1766,7 @@ export default function StatModalV4({
                     normalizedVideoTimeS={normalizedVideoTimeS}
                     videoTimeInvalid={videoTimeInvalid}
                   />
+                  <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />
                 </>
               )}
 

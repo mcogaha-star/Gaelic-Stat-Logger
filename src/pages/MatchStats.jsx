@@ -432,6 +432,7 @@ export default function MatchStats() {
 
     const shouldScheduleNextPossession = ({ stat_type, team_side, extra }) => {
         if (stat_type === 'shot') {
+            if (extra?.shot?.brought_back_adv) return null;
             const o = extra?.shot?.outcome;
             const r = extra?.shot?.result;
             if (!['short', 'post', 'saved', 'blocked'].includes(o)) return null;

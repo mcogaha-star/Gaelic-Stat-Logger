@@ -316,6 +316,7 @@ export function classifyTerminalOutcome(stat, teamSide) {
   if (stat?.stat_type === 'period_end') return 'HALF_END';
 
   if (stat?.stat_type === 'shot') {
+    if (ex?.shot?.brought_back_adv) return 'CONTINUE';
     if (shotOutcomeGroup(ex?.shot?.outcome) === 'score') return 'SCORE';
     const res = String(ex?.shot?.result || '');
     if (ex?.shot?.outcome === 'wide') return 'WIDE';
@@ -542,6 +543,7 @@ export function buildLegacyPossessionRepairs(stats) {
   const inferNextRowPossessionFromTerminalStat = (stat, rowActingTeam, nextStat) => {
     const extra = parseExtra(stat);
     if (stat?.stat_type === 'shot') {
+      if (extra?.shot?.brought_back_adv) return null;
       const outcome = String(extra?.shot?.outcome || '');
       const result = String(extra?.shot?.result || '');
       if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide') {
@@ -676,6 +678,7 @@ export function sequencePossessionRows(stats, injected = {}) {
   const inferNextRowPossessionFromTerminalStat = injected.inferNextRowPossessionFromTerminalStat || ((stat, rowActingTeam, nextStat) => {
     const extra = parseExtra(stat);
     if (stat?.stat_type === 'shot') {
+      if (extra?.shot?.brought_back_adv) return null;
       const outcome = String(extra?.shot?.outcome || '');
       const result = String(extra?.shot?.result || '');
       if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide') {
