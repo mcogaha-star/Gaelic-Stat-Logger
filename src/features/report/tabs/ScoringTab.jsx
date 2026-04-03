@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
+import { ChartContainer } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
 import {
   PITCH_W,
@@ -92,7 +92,71 @@ function SideBreakdownTable({ title, rows, columns }) {
   );
 }
 
-function PressureChartCard({ title, data }) {
+function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows, columns }) {
+  const renderSection = (label, rows) => (
+    <>
+      <TableRow>
+        <TableCell colSpan={columns.length} className="bg-slate-50 px-4 py-2">
+          <div className="font-semibold text-slate-900">{label}</div>
+        </TableCell>
+      </TableRow>
+      {rows.map((row) => (
+        <TableRow key={`${label}-${row.key || row.label || row.pressure || row.situation}`}>
+          {columns.map((column) => (
+            <TableCell
+              key={column.key}
+              className={[
+                column.align === 'right' ? 'text-right tabular-nums' : '',
+                column.primary ? 'font-medium' : '',
+              ].join(' ').trim()}
+            >
+              {column.render(row)}
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
+  );
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
+                  {column.label}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {renderSection(homeLabel, homeRows)}
+            {renderSection(awayLabel, awayRows)}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }) {
+  const homeFill = homeColor || '#f97316';
+  const awayFill = awayColor || '#7f1d3a';
+  const faded = (hex, alpha) => {
+    if (!String(hex || '').startsWith('#')) return hex;
+    const raw = String(hex).slice(1);
+    const normalized = raw.length === 3 ? raw.split('').map((c) => c + c).join('') : raw;
+    const int = Number.parseInt(normalized, 16);
+    if (!Number.isFinite(int)) return hex;
+    const r = (int >> 16) & 255;
+    const g = (int >> 8) & 255;
+    const b = int & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
@@ -101,33 +165,62 @@ function PressureChartCard({ title, data }) {
           id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
           className="h-[220px] w-full"
           config={{
-            attempts: { label: 'Attempts', color: '#94a3b8' },
+            home_scored_pct: { label: 'Home Scored %', color: homeFill },
+            home_missed_pct: { label: 'Home No Score %', color: faded(homeFill, 0.28) },
+            away_scored_pct: { label: 'Away Scored %', color: awayFill },
+            away_missed_pct: { label: 'Away No Score %', color: faded(awayFill, 0.28) },
+            scored_pct: { label: 'Scored %', color: teamMode === 'away' ? awayFill : homeFill },
+            missed_pct: { label: 'No Score %', color: faded(teamMode === 'away' ? awayFill : homeFill, 0.28) },
           }}
         >
-          <BarChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 6 }}>
+          <BarChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 6 }} barGap={10} barCategoryGap="28%">
             <CartesianGrid vertical={false} />
             <XAxis dataKey="pressure" className="text-xs" />
-            <YAxis allowDecimals={false} className="text-xs" />
+            <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} className="text-xs" />
             <Tooltip
-              content={
-                <ChartTooltipContent
-                  formatter={(value, name, item) => {
-                    const row = item?.payload;
-                    if (!row) return null;
-                    return (
-                      <div className="text-xs space-y-1">
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0]?.payload;
+                if (!row) return null;
+                return (
+                  <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-sm">
+                    <div className="mb-2 font-semibold text-slate-900">{label || row.pressure || 'Pressure'}</div>
+                    {teamMode === 'both' ? (
+                      <div className="space-y-2">
+                        <div>
+                          <div>{row.home_label || 'Home'}: <span className="font-mono">{row.home_scores}/{row.home_attempts}</span></div>
+                          <div>Conversion: <span className="font-mono">{formatPct(row.home_conv)}</span></div>
+                        </div>
+                        <div>
+                          <div>{row.away_label || 'Away'}: <span className="font-mono">{row.away_scores}/{row.away_attempts}</span></div>
+                          <div>Conversion: <span className="font-mono">{formatPct(row.away_conv)}</span></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
                         <div>Attempts: <span className="font-mono">{row.attempts}</span></div>
                         <div>Scores: <span className="font-mono">{row.scores}</span></div>
                         <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
-                        <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
                       </div>
-                    );
-                  }}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.pressure || 'Pressure'}
-                />
-              }
+                    )}
+                  </div>
+                );
+              }}
             />
-            <Bar dataKey="attempts" fill="var(--color-attempts)" radius={[4, 4, 0, 0]} />
+            {teamMode === 'both' ? (
+              <>
+                <Bar dataKey="home_scored_pct" stackId="home" name="Home Scored %" fill="var(--color-home_scored_pct)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="home_missed_pct" stackId="home" name="Home No Score %" fill="var(--color-home_missed_pct)" radius={[0, 0, 4, 4]} />
+                <Bar dataKey="away_scored_pct" stackId="away" name="Away Scored %" fill="var(--color-away_scored_pct)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="away_missed_pct" stackId="away" name="Away No Score %" fill="var(--color-away_missed_pct)" radius={[0, 0, 4, 4]} />
+              </>
+            ) : (
+              <>
+                <Bar dataKey="scored_pct" stackId="single" name="Scored %" fill="var(--color-scored_pct)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="missed_pct" stackId="single" name="No Score %" fill="var(--color-missed_pct)" radius={[0, 0, 4, 4]} />
+              </>
+            )}
+            <Legend />
           </BarChart>
         </ChartContainer>
       </CardContent>
@@ -303,16 +396,31 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
           attempts,
           scores,
           conv: attempts ? (scores / attempts) * 100 : NaN,
+          scored_pct: attempts ? (scores / attempts) * 100 : 0,
+          missed_pct: attempts ? ((attempts - scores) / attempts) * 100 : 0,
           pps: attempts ? points / attempts : NaN,
         };
       });
     };
-    return {
-      both: build(null),
-      home: build('home'),
-      away: build('away'),
-    };
-  }, [filteredShots]);
+    const home = build('home');
+    const away = build('away');
+    const both = ['low', 'medium', 'high'].map((level, idx) => ({
+      pressure: toTitleCase(level),
+      home_attempts: home[idx]?.attempts || 0,
+      home_scores: home[idx]?.scores || 0,
+      home_conv: home[idx]?.conv,
+      home_scored_pct: home[idx]?.scored_pct || 0,
+      home_missed_pct: home[idx]?.missed_pct || 0,
+      away_attempts: away[idx]?.attempts || 0,
+      away_scores: away[idx]?.scores || 0,
+      away_conv: away[idx]?.conv,
+      away_scored_pct: away[idx]?.scored_pct || 0,
+      away_missed_pct: away[idx]?.missed_pct || 0,
+      home_label: homeTeam?.name || 'Home',
+      away_label: awayTeam?.name || 'Away',
+    }));
+    return { both, home, away };
+  }, [filteredShots, homeTeam?.name, awayTeam?.name]);
 
   const situationSummary = useMemo(() => {
     const build = (teamSide = null) => {
@@ -420,9 +528,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
             <div className="grid lg:grid-cols-2 gap-4">
               {teamMode === 'both' ? (
                 <>
-                  <SideBreakdownTable
-                    title={`${homeTeam?.name || 'Home'} Shot Type Breakdown`}
-                    rows={shotTypeSummary.home}
+                  <TwoTeamBreakdownTable
+                    title="Shot Type Breakdown"
+                    homeLabel={homeTeam?.name || 'Home'}
+                    awayLabel={awayTeam?.name || 'Away'}
+                    homeRows={shotTypeSummary.home}
+                    awayRows={shotTypeSummary.away}
                     columns={[
                       { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
                       { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
@@ -431,39 +542,35 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                       { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
                     ]}
                   />
-                  <SideBreakdownTable
-                    title={`${awayTeam?.name || 'Away'} Shot Type Breakdown`}
-                    rows={shotTypeSummary.away}
-                    columns={[
-                      { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
-                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
-                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    ]}
+                  <PressureConversionChart
+                    title="Pressure vs Conversion"
+                    data={pressureSummary.both}
+                    homeColor={homeTeam?.color}
+                    awayColor={awayTeam?.color}
+                    teamMode={teamMode}
                   />
                 </>
               ) : (
-                <SideBreakdownTable
-                  title="Shot Type Breakdown"
-                  rows={shotTypeSummary.both}
-                  columns={[
-                    { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
-                    { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                    { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
-                    { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                    { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                  ]}
-                />
-              )}
-
-              {teamMode === 'both' ? (
                 <>
-                  <PressureChartCard title={`${homeTeam?.name || 'Home'} Pressure vs Conversion`} data={pressureSummary.home} />
-                  <PressureChartCard title={`${awayTeam?.name || 'Away'} Pressure vs Conversion`} data={pressureSummary.away} />
+                  <SideBreakdownTable
+                    title="Shot Type Breakdown"
+                    rows={shotTypeSummary.both}
+                    columns={[
+                      { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                  <PressureConversionChart
+                    title="Pressure vs Conversion"
+                    data={teamMode === 'away' ? pressureSummary.away : pressureSummary.home}
+                    homeColor={homeTeam?.color}
+                    awayColor={awayTeam?.color}
+                    teamMode={teamMode}
+                  />
                 </>
-              ) : (
-                <PressureChartCard title="Pressure vs Conversion" data={pressureSummary.both} />
               )}
             </div>
 

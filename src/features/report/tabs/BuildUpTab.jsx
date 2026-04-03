@@ -47,6 +47,7 @@ import {
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
+  DirectionBadge,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -109,6 +110,7 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
             backgroundPosition: 'center',
           }}
         >
+          <DirectionBadge label={side === 'away' ? 'AWAY <-' : 'HOME ->'} />
           <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
             {zoneCounts.map((line, rowIndex) => line.map((count, colIndex) => {
               const x = (colIndex * PITCH_W) / cols;

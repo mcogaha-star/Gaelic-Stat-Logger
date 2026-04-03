@@ -19,6 +19,7 @@ import {
   derivePossessionOutcome as derivePossessionOutcomeShared,
   extractFoulFromStat,
   inferRestartWinnerSide,
+  oppositeTeamSide,
   isAttackPossession,
   getMatchSectionOffsets,
   getMatchTimeS,
@@ -793,6 +794,23 @@ function transformDisplayPoint(x, y, teamSide, mirrorAway = true) {
   return { x: xx, y: yy };
 }
 
+function inferRestartTeamSide(stat, extra) {
+  const restart = stat?.stat_type === 'kickout' ? extra?.kickout : stat?.stat_type === 'throw_in' ? extra?.throw_in : null;
+  if (!restart) return stat?.team_side || null;
+  const explicit = restart?.team_side;
+  if (explicit === 'home' || explicit === 'away') return explicit;
+  const lostSide = restart?.lost_by?.team_side;
+  if (lostSide === 'home' || lostSide === 'away') return lostSide;
+  const intendedSide = restart?.intended_recipient?.team_side;
+  if (intendedSide === 'home' || intendedSide === 'away') return intendedSide;
+  const wonSide = restart?.won_by?.team_side;
+  if (wonSide === 'home' || wonSide === 'away') {
+    const opposite = oppositeTeamSide(wonSide);
+    if (opposite === 'home' || opposite === 'away') return opposite;
+  }
+  return stat?.team_side || null;
+}
+
 function selectionTooltipLabel(sel) {
   if (!sel || typeof sel !== 'object') return '';
   if (sel.kind === 'player') {
@@ -968,7 +986,7 @@ function PitchViz({
             if (isLineAction && hasEnd && String(s.stat_type || '') !== 'throw_in') {
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
               const kickOutcome = String(extra?.kickout?.outcome || '');
-              const kickTeamSide = extra?.kickout?.team_side || s.team_side;
+              const kickTeamSide = inferRestartTeamSide(s, extra);
               const kickoutTeamColor = kickTeamSide === 'away'
                 ? (teamPalette?.away || awayColor || '#ef4444')
                 : (teamPalette?.home || homeColor || '#22c55e');
