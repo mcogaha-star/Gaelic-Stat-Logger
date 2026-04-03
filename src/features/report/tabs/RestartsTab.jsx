@@ -229,7 +229,8 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                   awayColor={awayTeam?.color}
                   colorBy={teamMode === 'both' ? 'team' : 'outcome'}
                   showColorControls={false}
-                mirrorAwayWhenBoth={teamMode !== 'home'}
+                  mirrorAwayWhenBoth={teamMode !== 'home'}
+                  kickoutOutcomeDots
                   directionLabel="Home ->"
                 />
               </CardContent>

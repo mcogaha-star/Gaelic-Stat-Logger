@@ -222,6 +222,8 @@ export default function MatchReport() {
     setBuildPnSide,
     buildPnMin,
     setBuildPnMin,
+    buildPnHalf,
+    setBuildPnHalf,
     defenseEventCategory,
     setDefenseEventCategory,
     defenseTurnoverResult,
@@ -234,6 +236,7 @@ export default function MatchReport() {
     setPlayersFocusPlayerId,
     filteredForViz,
     showTopFiltersButton,
+    resetAllFilters,
   } = reportState;
 
   const { overviewStats, filteredForReport } = useFilteredReportStats({
@@ -765,6 +768,19 @@ export default function MatchReport() {
                           <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
                           <Input className="h-8 text-xs" inputMode="numeric" value={String(buildPnMin)} onChange={(e) => setBuildPnMin(Math.max(1, Number(e.target.value) || 1))} />
                         </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Network Half</Label>
+                          <Select value={buildPnHalf} onValueChange={setBuildPnHalf}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              <SelectItem value="first">First</SelectItem>
+                              <SelectItem value="second">Second</SelectItem>
+                              <SelectItem value="et_first">ET1</SelectItem>
+                              <SelectItem value="et_second">ET2</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </>
                     )}
                     {activeTab === 'kickouts' && (
@@ -867,6 +883,11 @@ export default function MatchReport() {
                         <div className="text-xs text-slate-500">Showing {filteredForViz.length} events.</div>
                       </>
                     )}
+                    <div className="border-t pt-3">
+                      <Button type="button" variant="outline" className="w-full" onClick={resetAllFilters}>
+                        Reset All Filters
+                      </Button>
+                    </div>
                   </div>
                 </PopoverContent>
               </Popover>
@@ -952,6 +973,8 @@ export default function MatchReport() {
               setPnSide={setBuildPnSide}
               pnMin={buildPnMin}
               setPnMin={setBuildPnMin}
+              pnHalf={buildPnHalf}
+              setPnHalf={setBuildPnHalf}
             />
           </TabsContent>
 

@@ -32,6 +32,7 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [buildProgressiveOnly, setBuildProgressiveOnly] = useState(false);
   const [buildPnSide, setBuildPnSide] = useState('home');
   const [buildPnMin, setBuildPnMin] = useState(3);
+  const [buildPnHalf, setBuildPnHalf] = useState('all');
   const [defenseEventCategory, setDefenseEventCategory] = useState('all');
   const [defenseTurnoverResult, setDefenseTurnoverResult] = useState('both');
   const [defenseTurnoverTypes, setDefenseTurnoverTypes] = useState([]);
@@ -129,6 +130,49 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     });
   }, [stats, vizTeam, vizActions, vizHalves, vizCounters, vizPlayerIds]);
 
+  const resetAllFilters = () => {
+    setTopFiltersOpen(false);
+    setOverviewHalf('all');
+
+    setReportTeam('both');
+    setReportHalves([]);
+    setReportPlayerIds([]);
+    setReportActionTypes([]);
+    setReportOutcomes([]);
+    setReportTimeMin('');
+    setReportTimeMax('');
+
+    setScoringShotType([]);
+    setScoringSituation([]);
+    setScoringPressure([]);
+    setScoringOutcome([]);
+    setScoringZone([]);
+
+    setPossessionsCounterFilter('any');
+
+    setBuildEventTypes([]);
+    setBuildPressure([]);
+    setBuildOutcome([]);
+    setBuildProgressiveOnly(false);
+    setBuildPnSide('home');
+    setBuildPnMin(3);
+    setBuildPnHalf('all');
+
+    setDefenseEventCategory('all');
+    setDefenseTurnoverResult('both');
+    setDefenseTurnoverTypes([]);
+    setDefenseDefTypes([]);
+
+    setPlayersFocusPlayerId('all');
+
+    setVizTeam('both');
+    setVizActions([]);
+    setVizHalves([]);
+    setVizCounters([]);
+    setVizPlayerIds([]);
+    setVizColorBy('team');
+  };
+
   return {
     activeTab,
     setActiveTab,
@@ -173,6 +217,8 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     setBuildPnSide,
     buildPnMin,
     setBuildPnMin,
+    buildPnHalf,
+    setBuildPnHalf,
     defenseEventCategory,
     setDefenseEventCategory,
     defenseTurnoverResult,
@@ -185,6 +231,7 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     setPlayersFocusPlayerId,
     filteredForViz,
     showTopFiltersButton: activeTab !== 'data',
+    resetAllFilters,
   };
 }
 

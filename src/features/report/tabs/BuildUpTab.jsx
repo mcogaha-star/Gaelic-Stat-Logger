@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
+import pitchImg from '@/assets/pitch.png';
 import {
   OPP_45_X,
   PITCH_W,
@@ -55,6 +56,98 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
+function PassHeatmapCard({ title, stats, side, teamColor }) {
+  const cols = 6;
+  const rows = 5;
+  const zoneCounts = useMemo(() => {
+    const counts = Array.from({ length: rows }, () => Array(cols).fill(0));
+    for (const stat of Array.isArray(stats) ? stats : []) {
+      if (!stat || stat.stat_type !== 'pass' || stat.team_side !== side) continue;
+      const points = [
+        [Number(stat.x_position), Number(stat.y_position)],
+        [Number(stat.end_x_position), Number(stat.end_y_position)],
+      ];
+      for (const [x, y] of points) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const cx = Math.max(0, Math.min(cols - 1, Math.floor((x / PITCH_W) * cols)));
+        const cy = Math.max(0, Math.min(rows - 1, Math.floor((y / PITCH_H) * rows)));
+        counts[cy][cx] += 1;
+      }
+    }
+    return counts;
+  }, [stats, side]);
+
+  const maxCount = Math.max(1, ...zoneCounts.flat());
+  const fillFor = (count) => {
+    if (!count) return 'rgba(255,255,255,0.05)';
+    const alpha = 0.18 + (count / maxCount) * 0.72;
+    const value = String(teamColor || '#2563eb').trim();
+    if (!value.startsWith('#')) return `rgba(37,99,235,${alpha})`;
+    const hex = value.slice(1);
+    const normalized = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    const int = Number.parseInt(normalized, 16);
+    if (!Number.isFinite(int)) return `rgba(37,99,235,${alpha})`;
+    const r = (int >> 16) & 255;
+    const g = (int >> 8) & 255;
+    const b = int & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <div
+          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden"
+          style={{
+            width: '73%',
+            aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+            backgroundImage: `url(${pitchImg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+            {zoneCounts.map((line, rowIndex) => line.map((count, colIndex) => {
+              const x = (colIndex * PITCH_W) / cols;
+              const y = (rowIndex * PITCH_H) / rows;
+              const width = PITCH_W / cols;
+              const height = PITCH_H / rows;
+              return (
+                <g key={`${rowIndex}-${colIndex}`}>
+                  <title>{`Zone ${rowIndex + 1}-${colIndex + 1}: ${count} pass touches`}</title>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={width}
+                    height={height}
+                    fill={fillFor(count)}
+                    stroke="rgba(255,255,255,0.18)"
+                    strokeWidth="0.2"
+                  />
+                  {count > 0 ? (
+                    <text
+                      x={x + width / 2}
+                      y={y + height / 2}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="3"
+                      fontWeight="700"
+                      fill="#0f172a"
+                    >
+                      {count}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            }))}
+          </svg>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function BuildUpTab({
   stats,
   homeTeam,
@@ -72,11 +165,12 @@ function BuildUpTab({
   setPnSide,
   pnMin,
   setPnMin,
+  pnHalf,
+  setPnHalf,
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
-  const [pnHalf, setPnHalf] = useState('all');
   const events = useMemo(() => base.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry')), [base]);
 
   const filtered = useMemo(() => events.filter((s) => {
@@ -250,6 +344,30 @@ function BuildUpTab({
               rows={channelRows}
             />
 
+            {teamMode === 'both' ? (
+              <div className="grid lg:grid-cols-2 gap-4">
+                <PassHeatmapCard
+                  title={`${homeTeam?.name || 'Home'} Pass Heatmap`}
+                  stats={filtered}
+                  side="home"
+                  teamColor={homeTeam?.color || '#2563eb'}
+                />
+                <PassHeatmapCard
+                  title={`${awayTeam?.name || 'Away'} Pass Heatmap`}
+                  stats={filtered}
+                  side="away"
+                  teamColor={awayTeam?.color || '#ef4444'}
+                />
+              </div>
+            ) : (
+              <PassHeatmapCard
+                title={`${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Heatmap`}
+                stats={filtered}
+                side={teamMode === 'away' ? 'away' : 'home'}
+                teamColor={teamMode === 'away' ? (awayTeam?.color || '#ef4444') : (homeTeam?.color || '#2563eb')}
+              />
+            )}
+
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="grid lg:grid-cols-[180px_minmax(0,1fr)] gap-4 items-start">
@@ -281,17 +399,17 @@ function BuildUpTab({
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Half</Label>
-                      <Select value={pnHalf} onValueChange={setPnHalf}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          <SelectItem value="first">First</SelectItem>
-                          <SelectItem value="second">Second</SelectItem>
-                          <SelectItem value="et1">ET1</SelectItem>
-                          <SelectItem value="et2">ET2</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        <Select value={pnHalf} onValueChange={setPnHalf}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All</SelectItem>
+                            <SelectItem value="first">First</SelectItem>
+                            <SelectItem value="second">Second</SelectItem>
+                            <SelectItem value="et_first">ET1</SelectItem>
+                            <SelectItem value="et_second">ET2</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                   </div>
                   <PassNetwork
                     passes={networkPasses}

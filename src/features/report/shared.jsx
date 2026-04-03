@@ -798,6 +798,17 @@ function transformDisplayPoint(x, y, teamSide, mirrorAway = true) {
   return { x: xx, y: yy };
 }
 
+function selectionTooltipLabel(sel) {
+  if (!sel || typeof sel !== 'object') return '';
+  if (sel.kind === 'player') {
+    const number = sel.number != null && sel.number !== '' ? `#${sel.number}` : '';
+    const name = String(sel.name || '').trim();
+    return [number, name].filter(Boolean).join(' ').trim();
+  }
+  if (sel.kind === 'team') return toTitleCase(sel.team_side || 'team');
+  return '';
+}
+
 function PitchViz({
   stats,
   homeColor,
@@ -807,6 +818,7 @@ function PitchViz({
   verticalScale = REPORT_PITCH_VERTICAL_SCALE,
   mirrorAwayWhenBoth = true,
   directionLabel = 'Home ->',
+  kickoutOutcomeDots = false,
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -870,7 +882,13 @@ function PitchViz({
     lines.push(`Action: ${toTitleCase(s.stat_type)}`);
     const out = deriveOutcome(s, extra);
     if (out) lines.push(`Outcome: ${toTitleCase(out)}`);
-    if (s.player_number) lines.push(`Player: #${s.player_number}`);
+    const actor = getPrimaryActorSelection(s, extra);
+    const actorLabel = selectionTooltipLabel(actor);
+    if (actorLabel) lines.push(`Player: ${actorLabel}`);
+    else if (s.player_name || s.player_number) lines.push(`Player: ${[s.player_number ? `#${s.player_number}` : '', s.player_name || ''].filter(Boolean).join(' ')}`);
+    const recipient = getCompletedReceiptSelection(s, extra);
+    const recipientLabel = selectionTooltipLabel(recipient);
+    if (recipientLabel && s.stat_type !== 'shot') lines.push(`Recipient: ${recipientLabel}`);
     // Prefer normalized match time for display across the Stats pages.
     const normT = Number(s.normalized_time_s);
     const rawT = Number(s.time_s);
@@ -933,6 +951,16 @@ function PitchViz({
             const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
             if (isLineAction && hasEnd && String(s.stat_type || '') !== 'throw_in') {
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
+              const kickOutcome = String(extra?.kickout?.outcome || '');
+              const kickTeamSide = extra?.kickout?.team_side || s.team_side;
+              const kickoutTeamColor = kickTeamSide === 'away'
+                ? (teamPalette?.away || awayColor || '#ef4444')
+                : (teamPalette?.home || homeColor || '#22c55e');
+              const kickWonSide = extra?.kickout?.won_by?.team_side;
+              const kickoutEndColor = kickoutOutcomeDots && s.stat_type === 'kickout'
+                ? (kickWonSide && kickTeamSide && kickWonSide === kickTeamSide ? '#16a34a' : '#dc2626')
+                : col;
+              const lineColor = s.stat_type === 'kickout' && kickoutOutcomeDots ? kickoutTeamColor : col;
               return (
                 <g key={s.id}>
                   <title>{tip}</title>
@@ -941,15 +969,15 @@ function PitchViz({
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke={col}
+                    stroke={lineColor}
                     strokeWidth={strokeW}
                     opacity="0.95"
                     markerEnd="url(#gstl_arrow)"
                   />
                   {(s.stat_type === 'kickout') && (
                     <>
-                      <circle cx={x1} cy={y1} r="1.15" fill={col} />
-                      <circle cx={x2} cy={y2} r="1.15" fill={col} />
+                      <circle cx={x1} cy={y1} r="1.15" fill={lineColor} />
+                      <circle cx={x2} cy={y2} r="1.15" fill={kickoutEndColor} stroke={lineColor} strokeWidth="0.35" />
                     </>
                   )}
                 </g>
