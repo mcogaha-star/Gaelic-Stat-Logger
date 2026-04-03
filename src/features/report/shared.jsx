@@ -986,7 +986,9 @@ function PitchViz({
             if (isLineAction && hasEnd && String(s.stat_type || '') !== 'throw_in') {
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
               const kickOutcome = String(extra?.kickout?.outcome || '');
-              const kickTeamSide = inferRestartTeamSide(s, extra);
+              const kickTeamSide = s.stat_type === 'kickout'
+                ? (x1 <= (PITCH_W / 2) ? 'home' : 'away')
+                : inferRestartTeamSide(s, extra);
               const kickoutTeamColor = kickTeamSide === 'away'
                 ? (teamPalette?.away || awayColor || '#ef4444')
                 : (teamPalette?.home || homeColor || '#22c55e');
