@@ -209,43 +209,39 @@ function DefenseTab({
     return defTypes.includes(String(ex?.defensive_contact?.type || ''));
   }), [defActions, defTypes, teamMode]);
 
-  const mapStats = useMemo(() => {
-    if (eventCategory === 'turnovers') return filteredTurnovers;
-    if (eventCategory === 'def_actions') return filteredDefActions;
-    return [...filteredTurnovers, ...filteredDefActions];
-  }, [eventCategory, filteredTurnovers, filteredDefActions]);
+  const mapStats = useMemo(() => filteredTurnovers, [filteredTurnovers]);
 
   return (
     <div className="space-y-4">
-        <ComparisonMetricsCard
-          title="Defense Metrics"
-          homeTeam={homeTeam}
-          awayTeam={awayTeam}
-          teamMode={teamMode}
-          rows={[
-            { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
-            { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
-            { label: 'Turnover Differential', home: kpis.home.diff, away: kpis.away.diff },
-            { label: 'Forced Turnover %', home: formatPct(kpis.home.forcedPct), away: formatPct(kpis.away.forcedPct) },
-            { label: 'Average Regain Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
-            { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
-            { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
-            { label: 'Turnover Rate', home: formatPct(Number.isFinite(kpis.home.turnoverRate) ? kpis.home.turnoverRate * 100 : NaN), away: formatPct(Number.isFinite(kpis.away.turnoverRate) ? kpis.away.turnoverRate * 100 : NaN) },
-            { label: 'Shots From Regains', home: kpis.home.shotsFrom, away: kpis.away.shotsFrom },
-            { label: 'Scores From Regains', home: kpis.home.scoresFrom, away: kpis.away.scoresFrom },
-            { label: 'Scores Conceded After Lost Turnovers', home: kpis.home.scoresConceded, away: kpis.away.scoresConceded },
-          ]}
-        />
+        <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4 items-start">
+          <ComparisonMetricsCard
+            title="Defense Metrics"
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            teamMode={teamMode}
+            rows={[
+              { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
+              { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
+              { label: 'Turnover Differential', home: kpis.home.diff, away: kpis.away.diff },
+              { label: 'Forced Turnover %', home: formatPct(kpis.home.forcedPct), away: formatPct(kpis.away.forcedPct) },
+              { label: 'Average Regain Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
+              { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
+              { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
+              { label: 'Turnover Rate', home: formatPct(Number.isFinite(kpis.home.turnoverRate) ? kpis.home.turnoverRate * 100 : NaN), away: formatPct(Number.isFinite(kpis.away.turnoverRate) ? kpis.away.turnoverRate * 100 : NaN) },
+              { label: 'Shots From Regains', home: kpis.home.shotsFrom, away: kpis.away.shotsFrom },
+              { label: 'Scores From Regains', home: kpis.home.scoresFrom, away: kpis.away.scoresFrom },
+              { label: 'Scores Conceded After Lost Turnovers', home: kpis.home.scoresConceded, away: kpis.away.scoresConceded },
+            ]}
+          />
 
-        {mapStats.length === 0 ? (
-          <Card>
-            <CardContent className="p-6 text-sm text-slate-600 text-center">No defensive events available for current filters.</CardContent>
-          </Card>
-        ) : (
-          <>
+          {mapStats.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-sm text-slate-600 text-center">No turnover events available for current filters.</CardContent>
+            </Card>
+          ) : (
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Defensive Map</div>
+                <div className="font-semibold text-slate-900">Turnover Map</div>
                 <PitchViz
                   stats={mapStats}
                   homeColor={homeTeam?.color}
@@ -254,47 +250,49 @@ function DefenseTab({
                   showColorControls={false}
                   mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
+                  turnoverEndpointOnly
                 />
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Turnover Type Breakdown</div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      {teamMode === 'both' ? (
-                        <>
-                          <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
-                          <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
-                        </>
-                      ) : (
-                        <TableHead className="text-right">Count</TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {typeRows.map((r) => (
-                      <TableRow key={r.type}>
-                        <TableCell className="font-medium">{r.type}</TableCell>
-                        {teamMode === 'both' ? (
-                          <>
-                            <TableCell className="text-right tabular-nums">{r.home}</TableCell>
-                            <TableCell className="text-right tabular-nums">{r.away}</TableCell>
-                          </>
-                        ) : (
-                          <TableCell className="text-right tabular-nums">{r.won + r.lost}</TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <div className="text-[11px] text-slate-500">Counts are best-effort from turnover.type and embedded turnover fields.</div>
-              </CardContent>
-            </Card>
-          </>
-        )}
+          )}
+        </div>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Turnover Type Breakdown</div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  {teamMode === 'both' ? (
+                    <>
+                      <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
+                      <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                    </>
+                  ) : (
+                    <TableHead className="text-right">Count</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {typeRows.map((r) => (
+                  <TableRow key={r.type}>
+                    <TableCell className="font-medium">{r.type}</TableCell>
+                    {teamMode === 'both' ? (
+                      <>
+                        <TableCell className="text-right tabular-nums">{r.home}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.away}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell className="text-right tabular-nums">{r.won + r.lost}</TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="text-[11px] text-slate-500">Counts are best-effort from turnover.type and embedded turnover fields.</div>
+          </CardContent>
+        </Card>
     </div>
   );
 }

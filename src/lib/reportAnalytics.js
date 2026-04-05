@@ -260,6 +260,14 @@ export function inferPossessionOwnerFromNextPlay(stat) {
   return validTeamSide(stat?.team_side) ? stat.team_side : null;
 }
 
+function isTurnoverLikeStat(stat, ex = null) {
+  if (!stat) return false;
+  const extra = ex || safeParseJSONLocal(stat?.extra_data || '{}', {});
+  const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
+  const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
+  return stat?.stat_type === 'turnover' || !!extra?.turnover || passTurnover || carryTurnover;
+}
+
 export function inferRestartWinnerSide(stat, nextStat = null) {
   if (!stat) return null;
   const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
@@ -328,12 +336,17 @@ export function classifyTerminalOutcome(stat, teamSide) {
   }
 
   if (ex?.turnover?.brought_back_adv) return 'CONTINUE';
+  if (stat?.stat_type === 'foul') return 'CONTINUE';
+  if (stat?.stat_type === 'pass' && outcome === 'foul') return 'CONTINUE';
+  if (stat?.stat_type === 'carry' && outcome === 'foul') return 'CONTINUE';
+  if (stat?.stat_type === 'kickout' && outcome === 'foul') return 'CONTINUE';
+  if (stat?.stat_type === 'throw_in' && outcome === 'foul') return 'CONTINUE';
+  if (isTurnoverLikeStat(stat, ex)) return 'TURNOVER';
   const { foulBy, foulOn } = getFoulTeams(stat);
-  if (foulBy === teamSide) return 'TURNOVER';
   if (foulOn === teamSide) return 'CONTINUE';
-  if (stat?.stat_type === 'turnover' || ex?.turnover) return 'TURNOVER';
   if (outcome === 'sideline_against' || outcome === 'goal_kick_against') return 'TURNOVER';
   if (outcome === 'sideline_for' || outcome === '45_for' || outcome === '45' || outcome === 'goal_kick_for') return 'CONTINUE';
+  if (foulBy === teamSide) return 'CONTINUE';
 
   return 'OTHER';
 }
@@ -514,6 +527,12 @@ export function buildLegacyPossessionRepairs(stats) {
 
   const inferPrimaryActionTeam = (stat, fallbackTeam) => {
     const extra = parseExtra(stat);
+    if (stat?.stat_type === 'kickout') {
+      return extra?.kickout?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
+    if (stat?.stat_type === 'throw_in') {
+      return extra?.throw_in?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    }
     if (stat?.stat_type === 'pass') {
       return extra?.pass?.passer?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     }
@@ -659,6 +678,8 @@ export function sequencePossessionRows(stats, injected = {}) {
   const validSide = injected.validSide || ((side) => side === 'home' || side === 'away');
   const inferPrimaryActionTeam = injected.inferPrimaryActionTeam || ((stat, fallbackTeam) => {
     const extra = parseExtra(stat);
+    if (stat?.stat_type === 'kickout') return extra?.kickout?.team_side || stat?.team_side || fallbackTeam || 'unknown';
+    if (stat?.stat_type === 'throw_in') return extra?.throw_in?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     if (stat?.stat_type === 'pass') return extra?.pass?.passer?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     if (stat?.stat_type === 'carry') return extra?.carry?.carrier?.team_side || extra?.turnover?.lost_by?.team_side || stat?.team_side || fallbackTeam || 'unknown';
     if (stat?.stat_type === 'shot') return extra?.shot?.player?.team_side || stat?.team_side || fallbackTeam || 'unknown';
@@ -779,7 +800,7 @@ export function sequencePossessionRows(stats, injected = {}) {
     let rowPossessionTeam = currentPossessionTeam;
 
     if (immediateStart?.team && validSide(immediateStart.team)) {
-      rowActingTeam = immediateStart.team;
+      rowActingTeam = validSide(actorFromData) ? actorFromData : immediateStart.team;
       rowPossessionTeam = immediateStart.team;
     } else if (isStandaloneFoul) {
       rowPossessionTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : (validSide(foulOn) ? foulOn : actorFromData);

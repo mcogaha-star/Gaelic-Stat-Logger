@@ -942,16 +942,20 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
-              counterFilter={possessionsCounterFilter}
-              setCounterFilter={setPossessionsCounterFilter}
-              onVisualisePossession={(p) => {
-                const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-                const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => s?.team_side === p?.teamSide);
-                openPossessionVisualiser({
-                  title: `Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`,
-                  stats: possessionStats,
-                });
-              }}
+	              counterFilter={possessionsCounterFilter}
+	              setCounterFilter={setPossessionsCounterFilter}
+	              onVisualisePossession={(p) => {
+	                const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+	                const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => {
+	                  if (!s) return false;
+	                  if (s?.team_side === p?.teamSide) return true;
+	                  return (s?.stat_type === 'kickout' || s?.stat_type === 'throw_in') && s?.possession_team_side === p?.teamSide;
+	                });
+	                openPossessionVisualiser({
+	                  title: `Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`,
+	                  stats: possessionStats,
+	                });
+	              }}
             />
           </TabsContent>
 

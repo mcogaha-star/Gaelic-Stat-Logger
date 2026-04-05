@@ -110,6 +110,30 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
     return Array.from(rows.values()).sort((a, b) => b.count - a.count);
   }, [visibleFouls]);
 
+  const foulMapStats = useMemo(() => {
+    return visibleFouls.map((stat) => {
+      const foul = extractFoulFromStat(stat);
+      const foulBySide = foul?.foul_by?.team_side || stat?.team_side;
+      const useEndPoint = stat?.stat_type === 'pass' || stat?.stat_type === 'carry';
+      const x = useEndPoint ? stat?.end_x_position : stat?.x_position;
+      const y = useEndPoint ? stat?.end_y_position : stat?.y_position;
+      const rawX = useEndPoint ? stat?.raw_end_x_position : stat?.raw_x_position;
+      const rawY = useEndPoint ? stat?.raw_end_y_position : stat?.raw_y_position;
+      return {
+        ...stat,
+        team_side: foulBySide || stat?.team_side,
+        x_position: x,
+        y_position: y,
+        raw_x_position: rawX,
+        raw_y_position: rawY,
+        end_x_position: null,
+        end_y_position: null,
+        raw_end_x_position: null,
+        raw_end_y_position: null,
+      };
+    }).filter((s) => Number.isFinite(Number(s?.x_position)) && Number.isFinite(Number(s?.y_position)));
+  }, [visibleFouls]);
+
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -134,7 +158,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Foul Map</div>
                 <PitchViz
-                  stats={visibleFouls}
+                  stats={foulMapStats}
                   homeColor={homeTeam?.color}
                   awayColor={awayTeam?.color}
                   colorBy="team"

@@ -20,7 +20,21 @@ export function useStatLogging({ matchId, stats }) {
     setPlayCounter(maxPlay);
     setPossessionCounter(maxPoss);
 
-    const ordered = [...(stats || [])].sort((a, b) => String(a?.timestamp || '').localeCompare(String(b?.timestamp || '')));
+    const ordered = [...(stats || [])].sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      const ra = Number(a?.time_s);
+      const rb = Number(b?.time_s);
+      if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+      const tsa = Date.parse(String(a?.timestamp || a?.created_date || ''));
+      const tsb = Date.parse(String(b?.timestamp || b?.created_date || ''));
+      if (Number.isFinite(tsa) && Number.isFinite(tsb) && tsa !== tsb) return tsa - tsb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
     const last = ordered[ordered.length - 1];
     setCurrentPossessionId(Number(last?.possession_id || 0));
     setCurrentPossessionTeamSide(last?.possession_team_side || 'unknown');

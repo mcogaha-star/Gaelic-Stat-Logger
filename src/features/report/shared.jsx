@@ -833,6 +833,7 @@ function PitchViz({
   mirrorAwayWhenBoth = true,
   directionLabel = 'Home ->',
   kickoutOutcomeDots = false,
+  turnoverEndpointOnly = false,
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -984,10 +985,23 @@ function PitchViz({
             const hasEnd = !!end && !(Number(end?.x) === 0 && Number(end?.y) === 0);
             const isLineAction = ['pass', 'carry', 'kickout', 'throw_in'].includes(String(s.stat_type || ''));
             if (isLineAction && hasEnd && String(s.stat_type || '') !== 'throw_in') {
+              const isEmbeddedTurnover =
+                String(extra?.pass?.outcome || '') === 'turnover'
+                || String(extra?.carry?.outcome || '') === 'turnover'
+                || s.stat_type === 'turnover'
+                || !!extra?.turnover;
+              if (turnoverEndpointOnly && isEmbeddedTurnover) {
+                return (
+                  <g key={s.id}>
+                    <title>{tip}</title>
+                    <circle cx={x2} cy={y2} r="1.6" fill={col} opacity="0.95" />
+                  </g>
+                );
+              }
               const strokeW = s.stat_type === 'pass' ? 0.55 : (s.stat_type === 'carry' ? 0.65 : 0.75);
               const kickOutcome = String(extra?.kickout?.outcome || '');
               const kickTeamSide = s.stat_type === 'kickout'
-                ? (x1 <= (PITCH_W / 2) ? 'home' : 'away')
+                ? inferRestartTeamSide(s, extra)
                 : inferRestartTeamSide(s, extra);
               const kickoutTeamColor = kickTeamSide === 'away'
                 ? (teamPalette?.away || awayColor || '#ef4444')
