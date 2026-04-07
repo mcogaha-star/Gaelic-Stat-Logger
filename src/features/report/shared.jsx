@@ -948,7 +948,8 @@ function PitchViz({
       return outcomePalette?.[o] || defaultOutcomePalette[o] || '#111827';
     }
     // default: team
-    return s.team_side === 'away'
+    const colorSide = s?.color_team_side || s?.team_side;
+    return colorSide === 'away'
       ? (teamPalette?.away || awayColor || '#ef4444')
       : (teamPalette?.home || homeColor || '#22c55e');
   };
@@ -1696,7 +1697,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const tip = [
                 `Player: ${s.playerLabel || 'NA'}`,
                 `Time: ${s.timeLabel || 'NA'}`,
-                `Shot Type: ${toTitleCase(shape)}`,
+                `Shot Type: ${toTitleCase(s.shotType)}`,
                 `Situation: ${toTitleCase(s.situation)}`,
                 `Pressure: ${toTitleCase(s.pressure)}`,
                 `Outcome: ${toTitleCase(s.outcome)}`,

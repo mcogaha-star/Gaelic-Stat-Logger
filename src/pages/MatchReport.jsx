@@ -382,14 +382,12 @@ export default function MatchReport() {
 
     const allHaveTime = scoring.every((e) => Number.isFinite(getMatchTimeS(e.s, match, imputedTimeById)));
     const mode = allHaveTime ? 'time' : 'play';
-    // When the user filters to a specific half, use that half's anchor so the chart "starts at 00:00".
-    // In "All Halves" mode, we anchor from the first-half start.
-    const preferAnchorKey = overviewHalf === 'second' ? 'second' : 'first';
+    // Use match-section offsets here, not video anchors. The timeline x-axis is match clock based.
+    const sectionOffsets = getMatchSectionOffsets(match);
     const t0 = (() => {
-      const v = Number(halfAnchors?.[preferAnchorKey]);
-      if (Number.isFinite(v)) return v;
-      const v1 = Number(halfAnchors?.first);
-      if (Number.isFinite(v1)) return v1;
+      if (overviewHalf === 'second') return Number(sectionOffsets?.second || 0);
+      if (overviewHalf === 'et_first') return Number(sectionOffsets?.et_first || 0);
+      if (overviewHalf === 'et_second') return Number(sectionOffsets?.et_second || 0);
       return 0;
     })();
 
@@ -445,13 +443,13 @@ export default function MatchReport() {
     const htX = (() => {
       if (mode !== 'time') return null;
       if (overviewHalf !== 'all') return null;
-      const second = Number(halfAnchors?.second);
+      const second = Number(sectionOffsets?.second);
       if (!Number.isFinite(second)) return null;
       return Math.max(0, second - t0);
     })();
 
     return { mode, points, htX };
-  }, [overviewStats, halfAnchors, overviewHalf, match, imputedTimeById]);
+  }, [overviewStats, overviewHalf, match, imputedTimeById]);
 
   const overviewAttackOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);

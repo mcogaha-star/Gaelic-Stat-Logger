@@ -123,7 +123,8 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
       return {
         ...stat,
         stat_type: 'foul',
-        team_side: foulBySide || stat?.team_side,
+        team_side: stat?.team_side,
+        color_team_side: foulBySide || stat?.team_side,
         player_name: foulBy?.name || stat?.player_name || '',
         player_number: foulBy?.number ?? stat?.player_number ?? '',
         x_position: x,
