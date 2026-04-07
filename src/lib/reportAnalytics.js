@@ -260,6 +260,20 @@ export function inferPossessionOwnerFromNextPlay(stat) {
   return validTeamSide(stat?.team_side) ? stat.team_side : null;
 }
 
+function isNonBallInterruption(stat) {
+  return String(stat?.stat_type || '') === 'substitution';
+}
+
+function getNextBallActionStat(list, startIndex) {
+  if (!Array.isArray(list)) return null;
+  for (let i = startIndex + 1; i < list.length; i += 1) {
+    const stat = list[i];
+    if (!stat || isNonBallInterruption(stat)) continue;
+    return stat;
+  }
+  return null;
+}
+
 function isTurnoverLikeStat(stat, ex = null) {
   if (!stat) return false;
   const extra = ex || safeParseJSONLocal(stat?.extra_data || '{}', {});
@@ -427,7 +441,7 @@ export function findScorableFreeConcededRows(stats) {
   const out = [];
   for (let i = 0; i < list.length - 1; i += 1) {
     const foulStat = list[i];
-    const next = list[i + 1];
+    const next = getNextBallActionStat(list, i);
     const { foul, foulBy, foulOn } = getFoulTeams(foulStat);
     if (!foul || !foulBy || !foulOn || foulBy === foulOn) continue;
     if (!next || next?.team_side !== foulOn) continue;
@@ -754,7 +768,7 @@ export function sequencePossessionRows(stats, injected = {}) {
     const original = ordered[idx];
     if (!original) continue;
     const stat = original;
-    const nextStat = ordered[idx + 1] || null;
+    const nextStat = getNextBallActionStat(ordered, idx);
     const extra = parseExtra(stat);
     const { foul, foulBy, foulOn } = getFoulTeams(stat);
     const immediateStart = inferImmediatePossessionStartFromStat(stat, nextStat);
