@@ -921,9 +921,13 @@ function PitchViz({
     const actorLabel = selectionTooltipLabel(actor);
     if (actorLabel) lines.push(`Player: ${actorLabel}`);
     else if (s.player_name || s.player_number) lines.push(`Player: ${[s.player_number ? `#${s.player_number}` : '', s.player_name || ''].filter(Boolean).join(' ')}`);
+    const kickoutWinner = s.stat_type === 'kickout'
+      ? selectionTooltipLabel(extra?.kickout?.won_by)
+      : '';
     const recipient = getCompletedReceiptSelection(s, extra);
     const recipientLabel = selectionTooltipLabel(recipient);
-    if (recipientLabel && s.stat_type !== 'shot') lines.push(`Recipient: ${recipientLabel}`);
+    if (kickoutWinner) lines.push(`Won By: ${kickoutWinner}`);
+    else if (recipientLabel && s.stat_type !== 'shot') lines.push(`Recipient: ${recipientLabel}`);
     // Prefer normalized match time for display across the Stats pages.
     const normT = Number(s.normalized_time_s);
     const rawT = Number(s.time_s);

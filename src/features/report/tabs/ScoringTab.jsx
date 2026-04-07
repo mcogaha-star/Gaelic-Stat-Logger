@@ -245,10 +245,12 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
                         <div>
                           <div>{row.home_label || 'Home'}: <span className="font-mono">{row.home_scores}/{row.home_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.home_conv)}</span></div>
+                          <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.home_pps) ? row.home_pps.toFixed(2) : 'NA'}</span></div>
                         </div>
                         <div>
                           <div>{row.away_label || 'Away'}: <span className="font-mono">{row.away_scores}/{row.away_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.away_conv)}</span></div>
+                          <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.away_pps) ? row.away_pps.toFixed(2) : 'NA'}</span></div>
                         </div>
                       </div>
                     ) : (
@@ -256,6 +258,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
                         <div>Attempts: <span className="font-mono">{row.attempts}</span></div>
                         <div>Scores: <span className="font-mono">{row.scores}</span></div>
                         <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
+                        <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
                       </div>
                     )}
                   </div>
@@ -472,11 +475,13 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
       home_conv: home[idx]?.conv,
       home_scored_pct: home[idx]?.scored_pct || 0,
       home_missed_pct: home[idx]?.missed_pct || 0,
+      home_pps: home[idx]?.pps,
       away_attempts: away[idx]?.attempts || 0,
       away_scores: away[idx]?.scores || 0,
       away_conv: away[idx]?.conv,
       away_scored_pct: away[idx]?.scored_pct || 0,
       away_missed_pct: away[idx]?.missed_pct || 0,
+      away_pps: away[idx]?.pps,
       home_label: homeTeam?.name || 'Home',
       away_label: awayTeam?.name || 'Away',
     }));
