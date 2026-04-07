@@ -114,6 +114,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
     return visibleFouls.map((stat) => {
       const foul = extractFoulFromStat(stat);
       const foulBySide = foul?.foul_by?.team_side || stat?.team_side;
+      const foulBy = foul?.foul_by;
       const useEndPoint = stat?.stat_type === 'pass' || stat?.stat_type === 'carry';
       const x = useEndPoint ? stat?.end_x_position : stat?.x_position;
       const y = useEndPoint ? stat?.end_y_position : stat?.y_position;
@@ -121,15 +122,18 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
       const rawY = useEndPoint ? stat?.raw_end_y_position : stat?.raw_y_position;
       return {
         ...stat,
+        stat_type: 'foul',
         team_side: foulBySide || stat?.team_side,
+        player_name: foulBy?.name || stat?.player_name || '',
+        player_number: foulBy?.number ?? stat?.player_number ?? '',
         x_position: x,
         y_position: y,
         raw_x_position: rawX,
         raw_y_position: rawY,
-        end_x_position: null,
-        end_y_position: null,
-        raw_end_x_position: null,
-        raw_end_y_position: null,
+        end_x_position: undefined,
+        end_y_position: undefined,
+        raw_end_x_position: undefined,
+        raw_end_y_position: undefined,
       };
     }).filter((s) => Number.isFinite(Number(s?.x_position)) && Number.isFinite(Number(s?.y_position)));
   }, [visibleFouls]);

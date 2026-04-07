@@ -1687,7 +1687,9 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
               const fillColor = outcomeColor;
               const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
-              const shape = s.shotType; // point|2_point|goal
+              const shape = ['point', '2_point', 'goal'].includes(String(s.outcome || ''))
+                ? String(s.outcome)
+                : s.shotType; // point|2_point|goal
               const size = 1.87;
               const blackStrokeWidth = teamMode === 'both' ? 1 : 0.425;
               const teamStrokeWidth = teamMode === 'both' ? 0.95 : 0.6;

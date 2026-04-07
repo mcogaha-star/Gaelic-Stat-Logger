@@ -380,7 +380,7 @@ export default function MatchReport() {
       return { mode: 'none', points: [] };
     }
 
-    const allHaveTime = scoring.every((e) => Number.isFinite(Number(e.s.time_s)));
+    const allHaveTime = scoring.every((e) => Number.isFinite(getMatchTimeS(e.s, match, imputedTimeById)));
     const mode = allHaveTime ? 'time' : 'play';
     // When the user filters to a specific half, use that half's anchor so the chart "starts at 00:00".
     // In "All Halves" mode, we anchor from the first-half start.
@@ -394,7 +394,7 @@ export default function MatchReport() {
     })();
 
     const getX = (e) => {
-      if (mode === 'time') return Math.max(0, Number(e.s.time_s) - t0);
+      if (mode === 'time') return Math.max(0, getMatchTimeS(e.s, match, imputedTimeById) - t0);
       return Number.isFinite(Number(e.s.play_id)) ? Number(e.s.play_id) : 0;
     };
 
@@ -451,7 +451,7 @@ export default function MatchReport() {
     })();
 
     return { mode, points, htX };
-  }, [overviewStats, halfAnchors, overviewHalf]);
+  }, [overviewStats, halfAnchors, overviewHalf, match, imputedTimeById]);
 
   const overviewAttackOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
