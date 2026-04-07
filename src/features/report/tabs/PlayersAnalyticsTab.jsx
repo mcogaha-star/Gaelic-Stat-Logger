@@ -431,6 +431,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     });
   };
 
+  const renderScoringFraction = (made, attempts) => {
+    if (!Number.isFinite(Number(attempts)) || Number(attempts) <= 0) return '0/0 (NA)';
+    return `${made}/${attempts} (${formatPct((Number(made) / Number(attempts)) * 100)})`;
+  };
+
   const bucketColumns = useMemo(() => ({
     scoring: [
       { key: 'player', label: 'Player' },
@@ -440,12 +445,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'points', label: 'Points', numeric: true },
       { key: 'pointsPerShot', label: 'Pts/Shot', numeric: true, sortValue: (r) => (r.shots ? r.points / r.shots : -1), render: (r) => r.shots ? (r.points / r.shots).toFixed(2) : 'NA' },
       { key: 'avgShotDist', label: 'Avg Dist', numeric: true, sortValue: (r) => r.avgShotDist, render: (r) => Number.isFinite(r.avgShotDist) ? r.avgShotDist.toFixed(1) : 'NA' },
-      { key: 'pointAtt', label: '1 Att', numeric: true },
-      { key: 'pointMade', label: '1 Scored', numeric: true },
-      { key: 'twoAtt', label: '2 Att', numeric: true },
-      { key: 'twoMade', label: '2 Scored', numeric: true },
-      { key: 'goalAtt', label: 'Goal Att', numeric: true },
-      { key: 'goalMade', label: 'Goal Scored', numeric: true },
+      { key: 'pointFraction', label: '1 Point', numeric: true, sortValue: (r) => (r.pointAtt ? r.pointMade / r.pointAtt : -1), render: (r) => renderScoringFraction(r.pointMade, r.pointAtt) },
+      { key: 'twoFraction', label: '2 Point', numeric: true, sortValue: (r) => (r.twoAtt ? r.twoMade / r.twoAtt : -1), render: (r) => renderScoringFraction(r.twoMade, r.twoAtt) },
+      { key: 'goalFraction', label: 'Goal', numeric: true, sortValue: (r) => (r.goalAtt ? r.goalMade / r.goalAtt : -1), render: (r) => renderScoringFraction(r.goalMade, r.goalAtt) },
     ],
     progression: [
       { key: 'player', label: 'Player' },

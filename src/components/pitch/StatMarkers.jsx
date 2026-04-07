@@ -89,12 +89,14 @@ export default function StatMarkers({ stats, clickStats, dragStats }) {
                     );
                 }
                 
+                const kickoutDot = stat.stat_type === 'kickout' && hasMeaningfulEnd ? end : start;
+
                 // Show only the most recent marker as a dot.
                 return (
                     <circle
                         key={index}
-                        cx={start.x}
-                        cy={start.y}
+                        cx={kickoutDot.x}
+                        cy={kickoutDot.y}
                         r="1.5"
                         fill={color}
                         stroke="white"

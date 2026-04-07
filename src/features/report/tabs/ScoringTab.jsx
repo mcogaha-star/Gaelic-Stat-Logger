@@ -228,7 +228,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
             missed_pct: { label: 'No Score %', color: faded(teamMode === 'away' ? awayFill : homeFill, 0.28) },
           }}
         >
-          <BarChart data={data} margin={{ top: 28, right: 12, left: 0, bottom: 6 }} barGap={10} barCategoryGap="28%">
+          <BarChart data={data} margin={{ top: 42, right: 12, left: 0, bottom: 6 }} barGap={10} barCategoryGap="28%">
             <CartesianGrid vertical={false} />
             <XAxis dataKey="pressure" className="text-xs" />
             <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} className="text-xs" />
@@ -269,18 +269,18 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
               <>
                 <Bar dataKey="home_scored_pct" stackId="home" name="Home Scored %" fill="var(--color-home_scored_pct)" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="home_missed_pct" stackId="home" name="Home No Score %" fill="var(--color-home_missed_pct)" radius={[0, 0, 4, 4]}>
-                  <LabelList dataKey="home_attempts" position="insideTop" className="fill-slate-700 text-[11px]" />
+                  <LabelList dataKey="home_attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
                 <Bar dataKey="away_scored_pct" stackId="away" name="Away Scored %" fill="var(--color-away_scored_pct)" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="away_missed_pct" stackId="away" name="Away No Score %" fill="var(--color-away_missed_pct)" radius={[0, 0, 4, 4]}>
-                  <LabelList dataKey="away_attempts" position="insideTop" className="fill-slate-700 text-[11px]" />
+                  <LabelList dataKey="away_attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
               </>
             ) : (
               <>
                 <Bar dataKey="scored_pct" stackId="single" name="Scored %" fill="var(--color-scored_pct)" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="missed_pct" stackId="single" name="No Score %" fill="var(--color-missed_pct)" radius={[0, 0, 4, 4]}>
-                  <LabelList dataKey="attempts" position="insideTop" className="fill-slate-700 text-[11px]" />
+                  <LabelList dataKey="attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
               </>
             )}

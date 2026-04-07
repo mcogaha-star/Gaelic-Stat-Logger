@@ -457,6 +457,7 @@ export function findScorableFreeConcededRows(stats) {
     const y = Number(next?.y_position);
     const distance = calcDistanceToGoal(x, y);
     if (!Number.isFinite(distance) || distance > 45) continue;
+    if (!Number.isFinite(y) || y < 5 || y > 80) continue;
 
     out.push({
       foulStat,

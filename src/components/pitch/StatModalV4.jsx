@@ -804,7 +804,7 @@ export default function StatModalV4({
         if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
         numberBufferTimerRef.current = setTimeout(() => {
           numberBufferRef.current = '';
-        }, 800);
+        }, 1400);
       }
     };
     window.addEventListener('keydown', onKeyDown, true);
@@ -881,6 +881,9 @@ export default function StatModalV4({
         setTakeOnCompleted(false);
         setDefender(NONE);
       }
+    }
+    if (action === 'foul' && previousAction !== 'foul') {
+      setCard('none');
     }
     if (action === 'shot') {
       if (!shotPressure) setShotPressure('low');
@@ -1005,6 +1008,13 @@ export default function StatModalV4({
       if (recoveredBy === NONE) setRecoveredBy(passWonBy);
     }
   }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy]);
+
+  useEffect(() => {
+    if (!isDrag) return;
+    if (action !== 'carry') return;
+    if (carryOutcome !== 'turnover') return;
+    if (lostBy === NONE && carrier !== NONE) setLostBy(carrier);
+  }, [isDrag, action, carryOutcome, carrier, lostBy]);
 
   // Pass default: "Won By" should default to the intended recipient (when it's a player) if not set.
   useEffect(() => {

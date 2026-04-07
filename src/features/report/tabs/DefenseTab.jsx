@@ -213,7 +213,7 @@ function DefenseTab({
 
   return (
     <div className="space-y-4">
-        <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4 items-start">
+        <div className="grid lg:grid-cols-[0.95fr_1.05fr] gap-4 items-start">
           <ComparisonMetricsCard
             title="Defense Metrics"
             homeTeam={homeTeam}
@@ -240,7 +240,7 @@ function DefenseTab({
             </Card>
           ) : (
             <Card>
-              <CardContent className="p-4 space-y-3">
+              <CardContent className="p-4 space-y-3 h-full">
                 <div className="font-semibold text-slate-900">Turnover Map</div>
                 <PitchViz
                   stats={mapStats}

@@ -54,8 +54,19 @@ export default function MatchStatsDialogs({
     subIn,
     setSubIn,
     allPlayers,
+    homePlayers,
+    awayPlayers,
+    homeTeamName,
+    awayTeamName,
     logSubstitution,
   } = subDialogProps;
+
+  const [subTeamFilter, setSubTeamFilter] = React.useState('all');
+  const visibleSubPlayers = React.useMemo(() => {
+    if (subTeamFilter === 'home') return homePlayers || [];
+    if (subTeamFilter === 'away') return awayPlayers || [];
+    return allPlayers || [];
+  }, [subTeamFilter, allPlayers, homePlayers, awayPlayers]);
 
   const {
     endPeriodPrompt,
@@ -148,11 +159,22 @@ export default function MatchStatsDialogs({
           <DialogHeader><DialogTitle>Substitution</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
+              <Label>Team Filter</Label>
+              <Select value={subTeamFilter} onValueChange={setSubTeamFilter}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Players</SelectItem>
+                  <SelectItem value="home">{homeTeamName || 'Home'}</SelectItem>
+                  <SelectItem value="away">{awayTeamName || 'Away'}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>Player subbed out</Label>
               <Select value={subOut} onValueChange={setSubOut}>
                 <SelectTrigger><SelectValue placeholder="Select player..." /></SelectTrigger>
                 <SelectContent>
-                  {allPlayers.map((p) => (
+                  {visibleSubPlayers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>#{p.number} {p.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -163,7 +185,7 @@ export default function MatchStatsDialogs({
               <Select value={subIn} onValueChange={setSubIn}>
                 <SelectTrigger><SelectValue placeholder="Select player..." /></SelectTrigger>
                 <SelectContent>
-                  {allPlayers.map((p) => (
+                  {visibleSubPlayers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>#{p.number} {p.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -173,7 +195,7 @@ export default function MatchStatsDialogs({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); }}
+                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); setSubTeamFilter('all'); }}
               >
                 Cancel
               </Button>

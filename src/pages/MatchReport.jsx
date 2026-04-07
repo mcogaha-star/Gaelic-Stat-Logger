@@ -550,9 +550,16 @@ export default function MatchReport() {
     const axisMax = Math.max(baseMax, actualMax);
     const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
 
+    const getSectionStart = (t) => {
+      if (t >= Number(offsets?.et_second || Infinity)) return Number(offsets?.et_second || 0);
+      if (t >= Number(offsets?.et_first || Infinity)) return Number(offsets?.et_first || 0);
+      if (t >= Number(offsets?.second || Infinity)) return Number(offsets?.second || 0);
+      return 0;
+    };
+
     const rows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
       const minuteMark = minuteIndex * 60;
-      const windowStart = Math.max(0, minuteMark - 5 * 60);
+      const windowStart = Math.max(getSectionStart(minuteMark), minuteMark - 5 * 60);
       const windowStats = withTime.filter((entry) => entry.matchTime > windowStart && entry.matchTime <= minuteMark);
       const statsBySide = {
         home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },

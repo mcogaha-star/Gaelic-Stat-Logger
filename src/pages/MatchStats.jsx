@@ -945,6 +945,10 @@ export default function MatchStats() {
                     subIn,
                     setSubIn,
                     allPlayers,
+                    homePlayers,
+                    awayPlayers,
+                    homeTeamName: homeTeam?.name || 'Home',
+                    awayTeamName: awayTeam?.name || 'Away',
                     logSubstitution,
                 }}
                 endPeriodPromptProps={{

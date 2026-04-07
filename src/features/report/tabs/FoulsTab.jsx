@@ -103,8 +103,11 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
     for (const s of visibleFouls) {
       const f = extractFoulFromStat(s);
       const typ = toTitleCase(f?.foul_type || 'Unknown');
-      const cur = rows.get(typ) || { type: typ, count: 0 };
+      const cur = rows.get(typ) || { type: typ, count: 0, home: 0, away: 0 };
       cur.count += 1;
+      const foulBySide = f?.foul_by?.team_side;
+      if (foulBySide === 'home') cur.home += 1;
+      if (foulBySide === 'away') cur.away += 1;
       rows.set(typ, cur);
     }
     return Array.from(rows.values()).sort((a, b) => b.count - a.count);
@@ -180,14 +183,28 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
                   <TableHeader>
                     <TableRow>
                       <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Count</TableHead>
+                      {teamMode === 'both' ? (
+                        <>
+                          <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
+                          <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                        </>
+                      ) : (
+                        <TableHead className="text-right">Count</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {typeRows.map((r) => (
                       <TableRow key={r.type}>
                         <TableCell className="font-medium">{r.type}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                        {teamMode === 'both' ? (
+                          <>
+                            <TableCell className="text-right tabular-nums">{r.home}</TableCell>
+                            <TableCell className="text-right tabular-nums">{r.away}</TableCell>
+                          </>
+                        ) : (
+                          <TableCell className="text-right tabular-nums">{teamMode === 'home' ? r.home : r.away}</TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>

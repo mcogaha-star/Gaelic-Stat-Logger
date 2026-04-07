@@ -176,6 +176,14 @@ function BuildUpTab({
   }), [events, eventTypes, pressure, outcome, progressiveOnly]);
 
   const kpis = useMemo(() => {
+    const eventLength = (stat) => {
+      const sx = Number(stat?.x_position);
+      const sy = Number(stat?.y_position);
+      const ex = Number(stat?.end_x_position);
+      const ey = Number(stat?.end_y_position);
+      if (![sx, sy, ex, ey].every(Number.isFinite)) return NaN;
+      return Math.sqrt(((ex - sx) ** 2) + ((ey - sy) ** 2));
+    };
     const possessionGroups = groupByPossession(base);
     const shotAssistCredits = buildShotAssistCredits(base);
     const calc = (side) => {
@@ -192,6 +200,18 @@ function BuildUpTab({
       const passesIntoScoringZone = pass.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed' && getScoringZoneEntry(s)).length;
       const turnovers = sideEvents.filter((s) => classifyTerminalOutcome(s, side) === 'TURNOVER').length;
       const shotAssists = shotAssistCredits.filter((row) => row.teamSide === side).length;
+      const passLengths = pass.map(eventLength).filter(Number.isFinite);
+      const kickPassLengths = pass
+        .filter((s) => {
+          const method = String(safeParseJSON(s.extra_data || '{}', {})?.pass?.method || '').toLowerCase();
+          return method === 'left' || method === 'right';
+        })
+        .map(eventLength)
+        .filter(Number.isFinite);
+      const handPassLengths = pass
+        .filter((s) => String(safeParseJSON(s.extra_data || '{}', {})?.pass?.method || '').toLowerCase() === 'hand')
+        .map(eventLength)
+        .filter(Number.isFinite);
 
       const buildUpSamples = [];
       const possessionDurations = [];
@@ -242,6 +262,9 @@ function BuildUpTab({
         passesPerMinuteInPossession: possessionDurations.length
           ? pass.length / (possessionDurations.reduce((a, b) => a + b, 0) / 60)
           : NaN,
+        avgPassLength: passLengths.length ? passLengths.reduce((a, b) => a + b, 0) / passLengths.length : NaN,
+        avgKickPassLength: kickPassLengths.length ? kickPassLengths.reduce((a, b) => a + b, 0) / kickPassLengths.length : NaN,
+        avgHandPassLength: handPassLengths.length ? handPassLengths.reduce((a, b) => a + b, 0) / handPassLengths.length : NaN,
         channels,
         startZones,
       };
@@ -298,6 +321,9 @@ function BuildUpTab({
             { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
             { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
+            { label: 'Avg Pass Length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
+            { label: 'Avg Kickpass Length', home: Number.isFinite(kpis.home.avgKickPassLength) ? kpis.home.avgKickPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgKickPassLength) ? kpis.away.avgKickPassLength.toFixed(1) : 'NA' },
+            { label: 'Avg Handpass Length', home: Number.isFinite(kpis.home.avgHandPassLength) ? kpis.home.avgHandPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHandPassLength) ? kpis.away.avgHandPassLength.toFixed(1) : 'NA' },
             { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
             { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
           ]}
