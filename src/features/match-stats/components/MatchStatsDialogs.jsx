@@ -54,8 +54,8 @@ export default function MatchStatsDialogs({
     subIn,
     setSubIn,
     allPlayers,
-    homePlayers,
-    awayPlayers,
+    homePlayers: subHomePlayers,
+    awayPlayers: subAwayPlayers,
     homeTeamName,
     awayTeamName,
     logSubstitution,
@@ -63,10 +63,10 @@ export default function MatchStatsDialogs({
 
   const [subTeamFilter, setSubTeamFilter] = React.useState('all');
   const visibleSubPlayers = React.useMemo(() => {
-    if (subTeamFilter === 'home') return homePlayers || [];
-    if (subTeamFilter === 'away') return awayPlayers || [];
+    if (subTeamFilter === 'home') return subHomePlayers || [];
+    if (subTeamFilter === 'away') return subAwayPlayers || [];
     return allPlayers || [];
-  }, [subTeamFilter, allPlayers, homePlayers, awayPlayers]);
+  }, [subTeamFilter, allPlayers, subHomePlayers, subAwayPlayers]);
 
   const {
     endPeriodPrompt,
