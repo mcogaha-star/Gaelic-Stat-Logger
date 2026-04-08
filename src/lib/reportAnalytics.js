@@ -74,6 +74,31 @@ export function getMatchTimeS(stat, match, imputedMap) {
   return normalized;
 }
 
+export function formatMatchClock(matchTimeS, match) {
+  const total = Number(matchTimeS);
+  if (!Number.isFinite(total) || total < 0) return '00:00';
+
+  const secondStart = getSecondHalfStartS(match);
+  const offsets = getMatchSectionOffsets(match);
+  const formatBase = (seconds) => {
+    const mins = Math.floor(Math.max(0, seconds) / 60);
+    const secs = Math.floor(Math.max(0, seconds) % 60);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+  const formatStoppage = (baseMinutes, secondsIntoSection) => {
+    const added = Math.max(0, secondsIntoSection - baseMinutes * 60);
+    if (added <= 0) return formatBase(secondsIntoSection);
+    const addMins = Math.floor(added / 60);
+    const addSecs = Math.floor(added % 60);
+    return `${baseMinutes}+${addMins}:${String(addSecs).padStart(2, '0')}`;
+  };
+
+  if (total < secondStart) return formatStoppage(secondStart / 60, total);
+  if (total < offsets.et_first) return formatStoppage((secondStart * 2) / 60, total);
+  if (total < offsets.et_second) return formatBase(total - offsets.et_first);
+  return formatBase(total - offsets.et_second);
+}
+
 export function normalizeFoulType(value) {
   return String(value || '')
     .trim()
