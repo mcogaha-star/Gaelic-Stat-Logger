@@ -908,6 +908,14 @@ export default function StatModalV4({
   }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
 
   useEffect(() => {
+    if (!open) return;
+    if (initialStat?.id) return;
+    if (action !== 'pass' && deadball) {
+      setDeadball(false);
+    }
+  }, [open, initialStat?.id, action, deadball]);
+
+  useEffect(() => {
     if (action !== 'carry') return;
     if (!takeOnAttempted) {
       if (takeOnCompleted) setTakeOnCompleted(false);

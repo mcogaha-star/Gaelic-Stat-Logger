@@ -51,6 +51,7 @@ const POSSESSION_LOGIC_GUIDE = [
   ['Be Careful With Next Play', 'If the next play is itself a turnover, infer the next possession from who lost it and who recovered or won it, rather than blindly using the row team. This matters most after restart fouls or messy rows.'],
   ['Kickout And Throw-In Fouls', 'For kickouts and throw-ins, use the same logic. Sideline-for should behave like a retained restart. Sideline-against should behave like a lost restart. If explicit foul players are present, infer the winner from `foul_by` and `foul_on`. If they are blank, fall back to the next true ball-action team.'],
   ['Manual Fixes Win', 'Once you have manually corrected possession IDs in Data, treat those edits as the authority for that match. Automatic rebuilds should not keep overriding careful manual repairs.'],
+  ['Team Foul Entry', 'For breach, technical, and other team-level fouls, set `Foul By` to `Home Team` or `Away Team` and set `Foul On` to the opposite team. That makes scorable free, foul, and restart analytics much more reliable.'],
 ];
 
 export default function About() {

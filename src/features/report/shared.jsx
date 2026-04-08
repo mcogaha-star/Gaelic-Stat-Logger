@@ -834,6 +834,7 @@ function PitchViz({
   directionLabel = 'Home ->',
   kickoutOutcomeDots = false,
   turnoverEndpointOnly = false,
+  pitchScale = REPORT_PITCH_SCALE,
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -959,7 +960,7 @@ function PitchViz({
       <div
         className="relative mx-auto"
         style={{
-          width: REPORT_PITCH_SCALE,
+          width: pitchScale,
           aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
           backgroundImage: `url(${pitchImg})`,
           backgroundSize: 'cover',

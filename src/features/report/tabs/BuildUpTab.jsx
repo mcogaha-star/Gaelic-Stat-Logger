@@ -263,8 +263,8 @@ function BuildUpTab({
           ? pass.length / (possessionDurations.reduce((a, b) => a + b, 0) / 60)
           : NaN,
         avgPassLength: passLengths.length ? passLengths.reduce((a, b) => a + b, 0) / passLengths.length : NaN,
-        avgKickPassLength: kickPassLengths.length ? kickPassLengths.reduce((a, b) => a + b, 0) / kickPassLengths.length : NaN,
-        avgHandPassLength: handPassLengths.length ? handPassLengths.reduce((a, b) => a + b, 0) / handPassLengths.length : NaN,
+        handPassCount: handPassLengths.length,
+        kickPassCount: kickPassLengths.length,
         channels,
         startZones,
       };
@@ -297,6 +297,11 @@ function BuildUpTab({
     return `${made}/${attempts} (${formatPct((Number(made) / Number(attempts)) * 100)})`;
   };
 
+  const formatHandKickRatio = (handCount, kickCount) => {
+    if (!Number.isFinite(Number(handCount)) || !Number.isFinite(Number(kickCount)) || Number(kickCount) <= 0) return 'NA';
+    return `${(Number(handCount) / Number(kickCount)).toFixed(2)}:1`;
+  };
+
   const networkPasses = useMemo(() => {
     const targetHalf = String(pnHalf || 'all');
     return filtered.filter((s) => {
@@ -322,8 +327,7 @@ function BuildUpTab({
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
             { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
             { label: 'Avg Pass Length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
-            { label: 'Avg Kickpass Length', home: Number.isFinite(kpis.home.avgKickPassLength) ? kpis.home.avgKickPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgKickPassLength) ? kpis.away.avgKickPassLength.toFixed(1) : 'NA' },
-            { label: 'Avg Handpass Length', home: Number.isFinite(kpis.home.avgHandPassLength) ? kpis.home.avgHandPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHandPassLength) ? kpis.away.avgHandPassLength.toFixed(1) : 'NA' },
+            { label: 'Handpass : Kickpass', home: formatHandKickRatio(kpis.home.handPassCount, kpis.home.kickPassCount), away: formatHandKickRatio(kpis.away.handPassCount, kpis.away.kickPassCount) },
             { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
             { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
           ]}

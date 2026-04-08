@@ -414,15 +414,21 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       .slice();
     const dir = lbSort?.dir === 'asc' ? 1 : -1;
     const key = String(lbSort?.key || 'points');
+    const currentColumns = bucketColumns[playerBucket] || [];
+    const sortColumn = currentColumns.find((c) => c.key === key);
     const get = (r) => {
       if (!r) return 0;
+      if (typeof sortColumn?.sortValue === 'function') {
+        const custom = sortColumn.sortValue(r);
+        return typeof custom === 'number' && Number.isFinite(custom) ? custom : -Infinity;
+      }
       const v = r[key];
-      if (typeof v === 'number') return v;
-      return 0;
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      return -Infinity;
     };
     list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
     return list;
-  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket]);
+  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket, bucketColumns]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
