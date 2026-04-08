@@ -94,7 +94,7 @@ export function formatMatchClock(matchTimeS, match) {
   };
 
   if (total < secondStart) return formatStoppage(secondStart / 60, total);
-  if (total < offsets.et_first) return formatStoppage((secondStart * 2) / 60, total);
+  if (total <= offsets.et_first) return formatStoppage((secondStart * 2) / 60, total);
   if (total < offsets.et_second) return formatBase(total - offsets.et_first);
   return formatBase(total - offsets.et_second);
 }

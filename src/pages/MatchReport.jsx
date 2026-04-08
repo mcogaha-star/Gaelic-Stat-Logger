@@ -19,6 +19,8 @@ import {
   formatMatchClock,
   normalizeFoulType,
   shotPointsForOutcome,
+  extractFoulFromStat,
+  oppositeTeamSide,
   buildLegacyPossessionRepairs,
   rebuildPossessionRows,
   POSSESSION_REBUILD_VERSION,
@@ -339,16 +341,24 @@ export default function MatchReport() {
       // Turnovers: count as "lost" by the lost_by selection when present.
       const turnover = extra?.turnover;
       if (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object')) {
-        const lost = turnover?.lost_by;
-        const rec = turnover?.recovered_by;
-        if (lost?.team_side === 'home' || lost?.team_side === 'away') {
-          out[lost.team_side].turnovers += 1;
+        const foul = extractFoulFromStat(s);
+        const lostSide =
+          turnover?.lost_by?.team_side ||
+          foul?.foul_by?.team_side ||
+          (side === 'home' || side === 'away' ? side : null);
+        const recoveredSide =
+          turnover?.recovered_by?.team_side ||
+          foul?.foul_on_or_forced_by?.team_side ||
+          foul?.foul_on?.team_side ||
+          oppositeTeamSide(lostSide);
+        if (lostSide === 'home' || lostSide === 'away') {
+          out[lostSide].turnovers += 1;
         } else {
           // Fallback: attribute to acting team.
           out[side].turnovers += 1;
         }
-        if (rec?.team_side === 'home' || rec?.team_side === 'away') {
-          out[rec.team_side].turnoversWon += 1;
+        if (recoveredSide === 'home' || recoveredSide === 'away') {
+          out[recoveredSide].turnoversWon += 1;
         }
       }
     }
