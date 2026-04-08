@@ -396,40 +396,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     });
   }, [base, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
 
-  const sortedLeaderboard = useMemo(() => {
-    const bucketFilters = {
-      scoring: () => true,
-      progression: () => true,
-      retention: () => true,
-      tendencies: () => true,
-      creation: () => true,
-      defense: () => true,
-      restarts: () => true,
-      goalkeepers: (r) => isGoalkeeperPlayer(r),
-    };
-    const list = (Array.isArray(leaderboard) ? leaderboard : [])
-      .filter((r) => teamMode === 'both' || r.team === teamMode)
-      .filter((r) => (focusPlayerId === 'all' ? true : r.id === focusPlayerId))
-      .filter(bucketFilters[playerBucket] || (() => true))
-      .slice();
-    const dir = lbSort?.dir === 'asc' ? 1 : -1;
-    const key = String(lbSort?.key || 'points');
-    const currentColumns = bucketColumns[playerBucket] || [];
-    const sortColumn = currentColumns.find((c) => c.key === key);
-    const get = (r) => {
-      if (!r) return 0;
-      if (typeof sortColumn?.sortValue === 'function') {
-        const custom = sortColumn.sortValue(r);
-        return typeof custom === 'number' && Number.isFinite(custom) ? custom : -Infinity;
-      }
-      const v = r[key];
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      return -Infinity;
-    };
-    list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
-    return list;
-  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket, bucketColumns]);
-
   const toggleSort = (key) => {
     setLbSort((cur) => {
       if (cur?.key === key) return { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
@@ -528,6 +494,40 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'goalShotSavePct', label: 'Goal Shot Saves', numeric: true, sortValue: (r) => r.goalShotSavePct, render: (r) => (r.goalShotsSaved + r.goalShotsAgainst) ? `${r.goalShotsSaved}/${r.goalShotsSaved + r.goalShotsAgainst} (${formatPct(r.goalShotSavePct)})` : 'NA' },
     ],
   }), [homeTeam, awayTeam]);
+
+  const sortedLeaderboard = useMemo(() => {
+    const bucketFilters = {
+      scoring: () => true,
+      progression: () => true,
+      retention: () => true,
+      tendencies: () => true,
+      creation: () => true,
+      defense: () => true,
+      restarts: () => true,
+      goalkeepers: (r) => isGoalkeeperPlayer(r),
+    };
+    const list = (Array.isArray(leaderboard) ? leaderboard : [])
+      .filter((r) => teamMode === 'both' || r.team === teamMode)
+      .filter((r) => (focusPlayerId === 'all' ? true : r.id === focusPlayerId))
+      .filter(bucketFilters[playerBucket] || (() => true))
+      .slice();
+    const dir = lbSort?.dir === 'asc' ? 1 : -1;
+    const key = String(lbSort?.key || 'points');
+    const currentColumns = bucketColumns[playerBucket] || [];
+    const sortColumn = currentColumns.find((c) => c.key === key);
+    const get = (r) => {
+      if (!r) return 0;
+      if (typeof sortColumn?.sortValue === 'function') {
+        const custom = sortColumn.sortValue(r);
+        return typeof custom === 'number' && Number.isFinite(custom) ? custom : -Infinity;
+      }
+      const v = r[key];
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      return -Infinity;
+    };
+    list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
+    return list;
+  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket, bucketColumns]);
 
   React.useEffect(() => {
     const defaults = {

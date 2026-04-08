@@ -18,6 +18,7 @@ const DEFINITIONS = [
   ['Scoring Zone Entry', 'A pass or carry that starts outside the scoring zone and ends inside it.'],
   ['Progressive Meters', 'Distance reduced to the centre of goal, measured from the action start to end point and clamped at zero or above.'],
   ['Progressive Action', 'A pass or carry that gains at least 10m outside the opposition 45, 5m inside it, or crosses into the opposition 45.'],
+  ['Pressure', 'High = contact. Medium = defender within 3m without contact. Low = defender more than 3m away.'],
   ['Build-Up Speed', 'Time from the start of a possession to the first attack event where that possession becomes an attack.'],
   ['Shot Assist', 'The final completed pass before a shot.'],
   ['Shots Created', 'Currently the same as shot assists: the final completed pass before a shot.'],

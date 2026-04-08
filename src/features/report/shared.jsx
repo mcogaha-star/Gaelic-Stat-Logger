@@ -114,13 +114,13 @@ function teamRowTint(teamSide, homeColor, awayColor, alpha = 0.08) {
   return { backgroundColor: hexToRgba(color, alpha) };
 }
 
-function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [] }) {
+function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [], cardClassName = 'w-full lg:w-[48%] lg:max-w-[48%] mr-auto' }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
   const metricCol = '180px';
 
   return (
-    <Card className="w-full lg:w-[48%] lg:max-w-[48%] mr-auto">
+    <Card className={cardClassName}>
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="grid items-center gap-3 text-xs text-slate-600" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
