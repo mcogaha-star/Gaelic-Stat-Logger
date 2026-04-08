@@ -114,10 +114,10 @@ function teamRowTint(teamSide, homeColor, awayColor, alpha = 0.08) {
   return { backgroundColor: hexToRgba(color, alpha) };
 }
 
-function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [], cardClassName = 'w-full lg:w-[48%] lg:max-w-[48%] mr-auto' }) {
+function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [], cardClassName = 'w-full lg:w-[48%] lg:max-w-[48%] mr-auto', metricColWidth = '180px' }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
-  const metricCol = '180px';
+  const metricCol = metricColWidth;
 
   return (
     <Card className={cardClassName}>

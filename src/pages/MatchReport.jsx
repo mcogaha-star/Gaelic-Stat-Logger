@@ -16,6 +16,7 @@ import { createPageUrl } from '@/utils';
 import {
   getMatchSectionOffsets,
   getMatchTimeS,
+  formatMatchClock,
   normalizeFoulType,
   shotPointsForOutcome,
   buildLegacyPossessionRepairs,
@@ -411,7 +412,7 @@ export default function MatchReport() {
       away_goals: 0,
       home_points: 0,
       away_points: 0,
-      label: mode === 'time' ? '00:00' : '0',
+      label: mode === 'time' ? formatMatchClock(t0, match) : '0',
     });
 
     for (const e of scoring) {
@@ -436,19 +437,24 @@ export default function MatchReport() {
         away_goals: awayGoals,
         home_points: homePts,
         away_points: awayPts,
-        label: mode === 'time' ? formatMMSS(x) : String(x),
+        label: mode === 'time' ? formatMatchClock(x + t0, match) : String(x),
       });
     }
 
-    const htX = (() => {
+    const boundaryMarkers = (() => {
       if (mode !== 'time') return null;
       if (overviewHalf !== 'all') return null;
-      const second = Number(sectionOffsets?.second);
-      if (!Number.isFinite(second)) return null;
-      return Math.max(0, second - t0);
+      return [
+        { key: 'HT', label: 'HT', time: Number(sectionOffsets?.second) },
+        { key: 'FT', label: 'FT', time: Number(sectionOffsets?.et_first) },
+        { key: 'ET HT', label: 'ET HT', time: Number(sectionOffsets?.et_second) },
+      ]
+        .filter((marker) => Number.isFinite(marker.time))
+        .map((marker) => ({ ...marker, x: Math.max(0, marker.time - t0) }))
+        .filter((marker) => marker.x <= Math.max(1, ...points.map((p) => Number(p?.x) || 0)));
     })();
 
-    return { mode, points, htX };
+    return { mode, points, t0, boundaryMarkers };
   }, [overviewStats, overviewHalf, match, imputedTimeById]);
 
   const overviewAttackOutcome = useMemo(() => {
@@ -622,7 +628,7 @@ export default function MatchReport() {
 
       return {
         minute: minuteMark / 60,
-        label: formatMMSS(minuteMark),
+        label: formatMatchClock(minuteMark, match),
         home: Number.isFinite(mHome) ? mHome : 50,
         away: Number.isFinite(mAway) ? mAway : 50,
         home_pts: statsBySide.home.pts,
@@ -634,7 +640,13 @@ export default function MatchReport() {
       };
     });
 
-    return { mode: 'rolling', rows, axisMaxMinutes: Math.ceil(axisMax / 60) };
+    const boundaryMarks = [
+      { key: 'HT', label: 'HT', time: Number(offsets?.second) },
+      { key: 'FT', label: 'FT', time: Number(offsets?.et_first) },
+      { key: 'ET HT', label: 'ET HT', time: Number(offsets?.et_second) },
+    ].filter((marker) => Number.isFinite(marker.time) && marker.time <= axisMax);
+
+    return { mode: 'rolling', rows, axisMaxMinutes: Math.ceil(axisMax / 60), boundaryMarks };
   }, [overviewStats, match, imputedTimeById]);
 
   if (!matchId) {
@@ -903,6 +915,7 @@ export default function MatchReport() {
             <OverviewTab
               homeTeam={homeTeam}
               awayTeam={awayTeam}
+              match={match}
               scoreTimeline={scoreTimeline}
               summary={summary}
               overviewMomentum={overviewMomentum}

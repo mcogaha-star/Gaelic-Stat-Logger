@@ -2,11 +2,13 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { formatMMSS, formatPct } from '../shared';
+import { formatMatchClock } from '@/lib/reportAnalytics';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function OverviewTab({
   homeTeam,
   awayTeam,
+  match,
   scoreTimeline,
   summary,
   overviewMomentum,
@@ -55,7 +57,12 @@ export default function OverviewTab({
                         type="number"
                         domain={[0, Math.max(1, ...scoreTimeline.points.map((p) => Number(p?.x) || 0))]}
                         allowDuplicatedCategory={false}
-                        tickFormatter={(v) => (scoreTimeline.mode === 'time' ? formatMMSS(Number(v)) : String(v))}
+                        ticks={scoreTimeline.mode === 'time'
+                          ? Array.from({ length: Math.floor(Math.max(1, ...scoreTimeline.points.map((p) => Number(p?.x) || 0)) / 600) + 1 }, (_, i) => i * 600)
+                          : undefined}
+                        tickFormatter={(v) => (scoreTimeline.mode === 'time'
+                          ? formatMatchClock(Number(v) + Number(scoreTimeline.t0 || 0), match)
+                          : String(v))}
                         className="text-xs"
                       />
                       <YAxis allowDecimals={false} className="text-xs" />
@@ -81,15 +88,14 @@ export default function OverviewTab({
                             }}
                             labelFormatter={(_, payload) => {
                               const row = payload?.[0]?.payload;
-                              const x = Number(row?.x);
-                              return scoreTimeline.mode === 'time' ? `Time: ${formatMMSS(x)}` : `Play: ${String(x)}`;
+                              return scoreTimeline.mode === 'time' ? `Time: ${row?.label || ''}` : `Play: ${String(row?.x ?? '')}`;
                             }}
                           />
                         }
                       />
-                      {Number.isFinite(Number(scoreTimeline.htX)) && (
-                        <ReferenceLine x={Number(scoreTimeline.htX)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'HT', position: 'insideTop', fill: '#475569', fontSize: 10 }} />
-                      )}
+                      {(scoreTimeline.boundaryMarkers || []).map((marker) => (
+                        <ReferenceLine key={marker.key} x={Number(marker.x)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: marker.label, position: 'insideTop', fill: '#475569', fontSize: 10 }} />
+                      ))}
                       <Line type="stepAfter" dataKey="home_total" name="home_total" stroke="var(--color-home)" strokeWidth={2} dot={false} isAnimationActive={false} />
                       <Line type="stepAfter" dataKey="away_total" name="away_total" stroke="var(--color-away)" strokeWidth={2} dot={false} isAnimationActive={false} />
                     </LineChart>
@@ -148,8 +154,8 @@ export default function OverviewTab({
                       },
                       {
                         label: 'Turnover Differential',
-                        home: summary.home.turnoversWon - summary.away.turnoversWon,
-                        away: summary.away.turnoversWon - summary.home.turnoversWon,
+                        home: summary.home.turnoversWon - summary.home.turnovers,
+                        away: summary.away.turnoversWon - summary.away.turnovers,
                       },
                       {
                         label: 'Points Per Possession',
@@ -206,8 +212,8 @@ export default function OverviewTab({
                         dataKey="minute"
                         type="number"
                         domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
-                        tickCount={Math.max(4, Math.ceil((overviewMomentum.axisMaxMinutes || 5) / 10))}
-                        tickFormatter={(value) => `${Math.round(value)}`}
+                        ticks={Array.from({ length: Math.floor(Math.max(5, overviewMomentum.axisMaxMinutes || 5) / 10) + 1 }, (_, i) => i * 10)}
+                        tickFormatter={(value) => formatMatchClock(Number(value) * 60, match)}
                         className="text-xs"
                       />
                       <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
@@ -218,7 +224,7 @@ export default function OverviewTab({
                           if (!row) return null;
                           return (
                             <div className="grid min-w-[8rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-                              <div className="font-medium">{`Time: ${formatMMSS(Number(row?.minute || 0) * 60)}`}</div>
+                              <div className="font-medium">{`Time: ${row?.label || ''}`}</div>
                               <div className="flex justify-between gap-4">
                                 <span className="text-muted-foreground">{homeTeam?.name || 'Home'}</span>
                                 <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.home || 50))}%</span>
@@ -232,6 +238,9 @@ export default function OverviewTab({
                         }}
                       />
                       <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                      {(overviewMomentum.boundaryMarks || []).map((marker) => (
+                        <ReferenceLine key={marker.key} x={Number(marker.time) / 60} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: marker.label, position: 'insideTop', fill: '#475569', fontSize: 10 }} />
+                      ))}
                       <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
                       <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
                       <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4 }} />

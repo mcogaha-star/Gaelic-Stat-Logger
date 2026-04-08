@@ -213,13 +213,14 @@ function DefenseTab({
 
   return (
     <div className="space-y-4">
-        <div className="grid lg:grid-cols-[1.25fr_1fr] gap-5 items-start">
+        <div className="grid lg:grid-cols-[0.75fr_1.25fr] gap-5 items-start">
           <ComparisonMetricsCard
             title="Defense Metrics"
             homeTeam={homeTeam}
             awayTeam={awayTeam}
             teamMode={teamMode}
             cardClassName="w-full"
+            metricColWidth="140px"
             rows={[
               { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
               { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
@@ -252,7 +253,7 @@ function DefenseTab({
                   mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
                   turnoverEndpointOnly
-                  pitchScale="100%"
+                  pitchScale="112%"
                 />
               </CardContent>
             </Card>
