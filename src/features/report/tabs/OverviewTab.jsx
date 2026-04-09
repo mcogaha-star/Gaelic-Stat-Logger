@@ -29,6 +29,28 @@ export default function OverviewTab({
     })) : []),
     [overviewMomentum]
   );
+  const momentumTicks = React.useMemo(() => {
+    const maxMinutes = Math.max(5, Number(overviewMomentum?.axisMaxMinutes || 5));
+    const boundaryMinutes = (overviewMomentum?.boundaryMarks || [])
+      .map((marker) => Number(marker?.time) / 60)
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    const sectionStarts = [0, ...boundaryMinutes.filter((value) => value < maxMinutes)];
+    const sectionEnds = [...boundaryMinutes.filter((value) => value <= maxMinutes), maxMinutes];
+    const ticks = new Set([0, maxMinutes]);
+
+    for (let i = 0; i < sectionStarts.length; i += 1) {
+      const start = sectionStarts[i];
+      const end = sectionEnds[i] ?? maxMinutes;
+      ticks.add(start);
+      for (let minute = start + 10; minute < end; minute += 10) ticks.add(minute);
+      ticks.add(end);
+    }
+
+    return Array.from(ticks)
+      .filter((value) => Number.isFinite(value) && value >= 0 && value <= maxMinutes)
+      .sort((a, b) => a - b);
+  }, [overviewMomentum]);
   const showMomentum = overviewMomentum.mode !== 'none' && momentumRows.length > 0;
 
   return (
@@ -212,7 +234,7 @@ export default function OverviewTab({
                         dataKey="minute"
                         type="number"
                         domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
-                        ticks={Array.from({ length: Math.floor(Math.max(5, overviewMomentum.axisMaxMinutes || 5) / 10) + 1 }, (_, i) => i * 10)}
+                        ticks={momentumTicks}
                         tickFormatter={(value) => formatMatchClock(Number(value) * 60, match)}
                         className="text-xs"
                       />
