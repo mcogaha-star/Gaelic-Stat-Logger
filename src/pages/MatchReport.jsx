@@ -22,8 +22,11 @@ import {
   extractFoulFromStat,
   oppositeTeamSide,
   buildLegacyPossessionRepairs,
+  buildLegacyDefenceSetRepairs,
+  normalizeDefenceSetRows,
   rebuildPossessionRows,
   POSSESSION_REBUILD_VERSION,
+  DEFENCE_SET_MIGRATION_VERSION,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -108,9 +111,60 @@ export default function MatchReport() {
     enabled: !!matchId,
   });
 
-  const stats = useMemo(() => rebuildPossessionRows(rawStats), [rawStats]);
+  const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
+  const readDefenceSetMigrationDone = (key) => {
+    try {
+      return !!key && localStorage.getItem(key) === 'done';
+    } catch {
+      return false;
+    }
+  };
+  const [defenceSetMigrationDone, setDefenceSetMigrationDone] = useState(() => readDefenceSetMigrationDone(defenceSetMigrationKey));
+
+  useEffect(() => {
+    setDefenceSetMigrationDone(readDefenceSetMigrationDone(defenceSetMigrationKey));
+  }, [defenceSetMigrationKey]);
+
+  const stats = useMemo(
+    () => rebuildPossessionRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone)),
+    [rawStats, defenceSetMigrationDone]
+  );
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
+  const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
+
+  useEffect(() => {
+    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
+    if (!defenceSetMigrationKey) return;
+    try {
+      if (localStorage.getItem(defenceSetMigrationKey) === 'done') return;
+    } catch {}
+    const repairs = buildLegacyDefenceSetRepairs(rawStats);
+    if (!repairs.length) {
+      try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
+      setDefenceSetMigrationDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setMigratingDefenceSet(true);
+        for (const repair of repairs) {
+          if (cancelled) return;
+          await db.entities.StatEntry.update(repair.id, repair.data);
+        }
+        if (!cancelled) {
+          await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+          await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+          try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
+          setDefenceSetMigrationDone(true);
+        }
+      } finally {
+        if (!cancelled) setMigratingDefenceSet(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [matchId, rawStats, migratingDefenceSet, queryClient, defenceSetMigrationKey]);
 
   useEffect(() => {
     if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
@@ -756,14 +810,13 @@ export default function MatchReport() {
                         <div className="font-semibold text-slate-900">Possessions Filters</div>
                         <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                         <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Counter Attack</Label>
+                          <Label className="text-xs text-slate-600">Defence Set?</Label>
                           <Select value={possessionsCounterFilter} onValueChange={setPossessionsCounterFilter}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="any">Any</SelectItem>
-                              <SelectItem value="set_attack">Set Attack</SelectItem>
-                              <SelectItem value="counter_attack">Counter Attack</SelectItem>
-                              <SelectItem value="counter_to_set">Counter -&gt; Set</SelectItem>
+                              <SelectItem value="defence_set_yes">Yes</SelectItem>
+                              <SelectItem value="defence_set_no">No</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -893,7 +946,7 @@ export default function MatchReport() {
                         </div>
                         <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Counter Attack" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'set_attack', label: 'Set Attack' }, { value: 'counter_attack', label: 'Counter Attack' }, { value: 'counter_to_set', label: 'Counter -> Set' }]} />
+                        <MultiSelect label="Defence Set?" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
                         <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Color By</Label>

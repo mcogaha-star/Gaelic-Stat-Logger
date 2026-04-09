@@ -162,9 +162,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const possessionsFiltered = useMemo(() => {
     if (counterFilter === 'any') return possessions;
     const map = {
-      set_attack: 'Set Attack',
-      counter_attack: 'Counter Attack',
-      counter_to_set: 'Counter -> Set',
+      defence_set_yes: 'Yes',
+      defence_set_no: 'No',
     };
     return possessions.filter((p) => p.counterState === map[counterFilter]);
   }, [possessions, counterFilter]);
@@ -185,7 +184,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const attToShot = attN ? (att.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
       const passesPerPoss = possN ? rows.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
       const scoringPoss = possN ? (rows.filter((p) => Number(p.points || 0) > 0).length / possN) * 100 : NaN;
-      const counterPoss = possN ? (rows.filter((p) => p.counterState === 'Counter Attack').length / possN) * 100 : NaN;
+      const counterPoss = possN ? (rows.filter((p) => p.counterState === 'Yes').length / possN) * 100 : NaN;
       const channels = { Left: 0, Middle: 0, Right: 0 };
       rows.filter((p) => p.isAttack).forEach((p) => {
         if (channels[p.attackEntryChannel] != null) channels[p.attackEntryChannel] += 1;
@@ -268,7 +267,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             { label: 'Attack To Shot %', home: formatPct(sideKpis.home.attToShot), away: formatPct(sideKpis.away.attToShot) },
             { label: 'Completed Passes Per Possession', home: Number.isFinite(sideKpis.home.passesPerPoss) ? sideKpis.home.passesPerPoss.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.passesPerPoss) ? sideKpis.away.passesPerPoss.toFixed(2) : 'NA' },
             { label: 'Scoring Possession %', home: formatPct(sideKpis.home.scoringPoss), away: formatPct(sideKpis.away.scoringPoss) },
-            { label: 'Counter Attack Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
+            { label: 'Defence Set? Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
           ]}
         />
 
@@ -381,7 +380,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <TableHead className="text-right">Pts</TableHead>
                       <TableHead className="text-right">Attack</TableHead>
                       <TableHead>Start Zone</TableHead>
-                      <TableHead>Transition</TableHead>
+                      <TableHead>Defence Set?</TableHead>
                       <TableHead className="text-right"> </TableHead>
                     </TableRow>
                   </TableHeader>

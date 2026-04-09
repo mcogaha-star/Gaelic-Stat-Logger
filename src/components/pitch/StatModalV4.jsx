@@ -569,7 +569,7 @@ export default function StatModalV4({
     return findPlayerByNumber(side, initialStat.player_number);
   })();
     setAction(initialStat.stat_type || (isDrag ? 'pass' : (previousShotNeedsKickout ? 'kickout' : 'shot')));
-    setCounterAttack(!!initialStat.counter_attack);
+    setCounterAttack(typeof initialStat.counter_attack === 'boolean' ? !!initialStat.counter_attack : true);
 
     // Reset common fields before re-seeding.
     setPrimaryPlayer(NONE);
@@ -1775,7 +1775,7 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1827,7 +1827,7 @@ export default function StatModalV4({
               {action === 'foul' && !isDrag && (
                 <>
                   {foulFieldsBlock()}
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1842,7 +1842,7 @@ export default function StatModalV4({
               {action === 'turnover' && !isDrag && (
                 <>
                   {turnoverFieldsBlock()}
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1863,7 +1863,7 @@ export default function StatModalV4({
                       {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1887,7 +1887,7 @@ export default function StatModalV4({
                       { value: 'block', label: 'Block' },
                     ]}
                   />
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1920,8 +1920,8 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  {/* Defence set doesn't need to live at the very bottom for pass/carry */}
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <Buttons
                     label="Defensive Contact"
                     value={carryDefContact}
@@ -1978,8 +1978,8 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
-                  {/* Counter attack doesn't need to live at the very bottom for pass/carry */}
-                  <YesNo label="Counter Attack" value={counterAttack} onChange={setCounterAttack} />
+                  {/* Defence set doesn't need to live at the very bottom for pass/carry */}
+                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}

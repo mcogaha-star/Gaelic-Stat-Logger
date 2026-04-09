@@ -116,8 +116,8 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
       if (vizHalves.length && !vizHalves.includes(s.half)) return false;
       if (vizCounters.length) {
         const possKey = `${s?.possession_team_side || 'unknown'}-${s?.possession_id ?? 'na'}`;
-        const state = counterStateByPossession.get(possKey) || 'Set Attack';
-        const stateKey = state === 'Counter Attack' ? 'counter_attack' : state === 'Counter -> Set' ? 'counter_to_set' : 'set_attack';
+        const state = counterStateByPossession.get(possKey) || 'No';
+        const stateKey = state === 'Yes' ? 'defence_set_yes' : 'defence_set_no';
         if (!vizCounters.includes(stateKey)) return false;
       }
       if (vizPlayerIds.length) {

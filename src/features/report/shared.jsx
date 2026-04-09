@@ -213,7 +213,7 @@ function humanizeKey(k) {
   const key = String(k || '');
   const map = {
     // common
-    counter_attack: 'Counter Attack',
+    counter_attack: 'Defence Set?',
     team_side: 'Team',
     // selections / roles
     intended_recipient: 'Intended Recipient',
@@ -653,16 +653,9 @@ function isDirectTouchAction(stat) {
 
 function deriveCounterAttackState(actingStats) {
   const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && typeof s.counter_attack === 'boolean');
-  if (!relevant.length) return 'Set Attack';
+  if (!relevant.length) return 'No';
   const flags = relevant.map((s) => !!s.counter_attack);
-  if (flags.every(Boolean)) return 'Counter Attack';
-  if (flags.every((v) => !v)) return 'Set Attack';
-  let sawCounter = false;
-  for (const flag of flags) {
-    if (flag) sawCounter = true;
-    if (sawCounter && !flag) return 'Counter -> Set';
-  }
-  return 'Set Attack';
+  return flags.every(Boolean) ? 'Yes' : 'No';
 }
 
 function getPossessionStartZone(actingStats) {

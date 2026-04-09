@@ -19,7 +19,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, rebuildPossessionRows, sequencePossessionRows, POSSESSION_REBUILD_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, normalizeDefenceSetRows, rebuildPossessionRows, sequencePossessionRows, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -69,7 +69,19 @@ export default function MatchStats() {
         enabled: !!matchId
     });
 
-    const stats = useMemo(() => rebuildPossessionRows(rawStats), [rawStats]);
+    const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
+    const readDefenceSetMigrationDone = (key) => {
+        try {
+            return !!key && localStorage.getItem(key) === 'done';
+        } catch {
+            return false;
+        }
+    };
+    const [defenceSetMigrationDone, setDefenceSetMigrationDone] = useState(() => readDefenceSetMigrationDone(defenceSetMigrationKey));
+    useEffect(() => {
+        setDefenceSetMigrationDone(readDefenceSetMigrationDone(defenceSetMigrationKey));
+    }, [defenceSetMigrationKey]);
+    const stats = useMemo(() => rebuildPossessionRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone)), [rawStats, defenceSetMigrationDone]);
 
     const { data: settingsRecords = [] } = useQuery({
         queryKey: ['app-settings'],
@@ -321,6 +333,47 @@ export default function MatchStats() {
     });
 
     const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
+    const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
+
+    useEffect(() => {
+        if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
+        if (!defenceSetMigrationKey) return;
+        try {
+            if (localStorage.getItem(defenceSetMigrationKey) === 'done') return;
+        } catch {}
+        const repairs = buildLegacyDefenceSetRepairs(rawStats);
+        if (!repairs.length) {
+            try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
+            setDefenceSetMigrationDone(true);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                setMigratingDefenceSet(true);
+                for (const repair of repairs) {
+                    if (cancelled) return;
+                    const current = rawStats.find((s) => s.id === repair.id);
+                    await db.entities.StatEntry.update(repair.id, repair.data);
+                    if (current?.server_stat_id) {
+                        await updateServerStat(current.server_stat_id, repair.data);
+                    }
+                }
+                if (!cancelled) {
+                    await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+                    await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+                    try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
+                    setDefenceSetMigrationDone(true);
+                    toast.success(`Updated ${repairs.length} legacy defence-set row${repairs.length === 1 ? '' : 's'}`);
+                }
+            } catch (error) {
+                if (!cancelled) toast.error(error?.message || 'Failed to migrate defence set rows');
+            } finally {
+                if (!cancelled) setMigratingDefenceSet(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [matchId, rawStats, migratingDefenceSet, queryClient, defenceSetMigrationKey]);
 
     useEffect(() => {
         if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
@@ -462,8 +515,8 @@ export default function MatchStats() {
     };
 
     const defaultCounterAttack = useMemo(() => {
-        if (pendingNextPossessionTeamSide) return false;
-        if (!currentPossessionId || !['home', 'away'].includes(currentPossessionTeamSide)) return false;
+        if (pendingNextPossessionTeamSide) return true;
+        if (!currentPossessionId || !['home', 'away'].includes(currentPossessionTeamSide)) return true;
 
         const currentPossessionStats = (stats || [])
             .filter((s) =>
@@ -480,7 +533,7 @@ export default function MatchStats() {
                 return String(b?.timestamp || '').localeCompare(String(a?.timestamp || ''));
             });
 
-        if (!currentPossessionStats.length) return false;
+        if (!currentPossessionStats.length) return true;
         return !!currentPossessionStats[0].counter_attack;
     }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide]);
 
@@ -617,7 +670,7 @@ export default function MatchStats() {
             possession_id: statData.possession_id,
             possession_team_side: statData.possession_team_side,
             team_side: 'unknown',
-            counter_attack: false,
+            counter_attack: true,
             raw_x_position: null,
             raw_y_position: null,
             raw_end_x_position: null,
@@ -688,7 +741,7 @@ export default function MatchStats() {
 
         const headers = [
             'Match ID','Match Public ID','Match Date','Code','Level',
-            'Play ID','Possession ID','Possession Team','Acting Team','Counter Attack',
+            'Play ID','Possession ID','Possession Team','Acting Team','Defence Set?',
             'Stat Type','Is Drag','Half','Timestamp',
             'Raw X','Raw Y','Raw End X','Raw End Y',
             'X','Y','End X','End Y',

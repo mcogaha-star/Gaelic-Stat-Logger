@@ -10,9 +10,7 @@ import { createPageUrl } from '@/utils';
 const DEFINITIONS = [
   ['Possession', 'A team possession continues until the last terminal event for that team: score, missed shot giving the opposition possession, turnover, or half end.'],
   ['Attack', 'A possession becomes an attack once it enters the opposition 45. A possession can only count as one attack.'],
-  ['Set Attack', 'A possession with no acting events tagged as counter attack.'],
-  ['Counter Attack', 'A possession where all relevant acting events are tagged as counter attack.'],
-  ['Counter -> Set', 'A possession that starts as a counter attack and later contains a non-counter acting event.'],
+  ['Defence Set?', 'Marks whether the opposition defence was set on that action. `Yes` means the defence was set. `No` means it was not set. Possession and report summaries now collapse this to simple Yes/No reporting.'],
   ['Field Tilt', 'Share of pass and carry actions that finish inside the opposition 45, shown as a percentage share between both teams.'],
   ['Scoring Zone', 'Within a 32m arc from the centre of goal and not beyond a 60 degree angle from the pitch midline.'],
   ['Scoring Zone Entry', 'A pass or carry that starts outside the scoring zone and ends inside it.'],

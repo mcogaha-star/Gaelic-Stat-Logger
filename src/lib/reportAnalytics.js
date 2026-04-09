@@ -8,6 +8,30 @@ export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
 export const POSSESSION_REBUILD_VERSION = 'v8';
+export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
+
+function shouldMigrateDefenceSetRow(stat) {
+  if (!stat || typeof stat?.counter_attack !== 'boolean') return false;
+  return !['kickout', 'period_end', 'substitution'].includes(String(stat?.stat_type || ''));
+}
+
+export function buildLegacyDefenceSetRepairs(stats) {
+  return (Array.isArray(stats) ? stats : [])
+    .filter(shouldMigrateDefenceSetRow)
+    .map((stat) => ({
+      id: stat.id,
+      data: { counter_attack: !stat.counter_attack },
+    }));
+}
+
+export function normalizeDefenceSetRows(stats, migrated = false) {
+  if (migrated) return Array.isArray(stats) ? stats : [];
+  return (Array.isArray(stats) ? stats : []).map((stat) => (
+    shouldMigrateDefenceSetRow(stat)
+      ? { ...stat, counter_attack: !stat.counter_attack }
+      : stat
+  ));
+}
 
 function safeParseJSONLocal(s, fallback = {}) {
   try {
