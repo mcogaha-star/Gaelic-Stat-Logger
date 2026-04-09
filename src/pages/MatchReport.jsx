@@ -562,8 +562,7 @@ export default function MatchReport() {
 
     const offsets = getMatchSectionOffsets(match);
     const actualMax = withTime.reduce((m, entry) => Math.max(m, entry.matchTime), 0);
-    const baseMax = offsets.second * 2;
-    const axisMax = Math.max(baseMax, actualMax);
+    const axisMax = Math.max(5 * 60, actualMax);
     const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
 
     const getSectionStart = (t) => {
