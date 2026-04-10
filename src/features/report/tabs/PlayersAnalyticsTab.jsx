@@ -280,13 +280,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           if (won) keeper.ownKickoutsWon += 1;
           if (cleanWon) keeper.cleanKickoutsWon += 1;
           const endX = Number(s.end_x_position);
-          const isLong = Number.isFinite(endX) && (
-            koTeam === 'home'
-              ? endX > 45
-              : koTeam === 'away'
-                ? endX < (PITCH_W - 45)
-                : false
-          );
+          const isLong = Number.isFinite(endX) && endX > 45;
           const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
           if (isLong) {
             keeper.longKickoutsTaken += 1;

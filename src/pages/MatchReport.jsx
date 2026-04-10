@@ -148,6 +148,10 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
     axisMax,
     ticks,
     boundaryMarkers,
+    getSectionStartForDisplayTime: (displayTimeS) => {
+      const section = findSectionForDisplayTime(displayTimeS);
+      return Number(section?.offset || 0);
+    },
     formatTick: (displayTimeS) => {
       const section = findSectionForDisplayTime(displayTimeS);
       const localTime = Math.max(0, Number(displayTimeS) - Number(section?.offset || 0));
@@ -714,7 +718,7 @@ export default function MatchReport() {
 
     const rows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
       const minuteMark = minuteIndex * 60;
-      const windowStart = Math.max(0, minuteMark - 5 * 60);
+      const windowStart = Math.max(displayLayout.getSectionStartForDisplayTime(minuteMark), minuteMark - 5 * 60);
       const windowStats = withTime.filter((entry) => entry.displayTime > windowStart && entry.displayTime <= minuteMark);
       const statsBySide = {
         home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },

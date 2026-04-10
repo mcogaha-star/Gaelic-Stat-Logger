@@ -1219,7 +1219,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -1369,75 +1369,76 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
-        <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div
-            className="relative mx-auto"
-            style={{
-              width: pitchScale,
-              aspectRatio: `${PITCH_W} / ${PITCH_H}`,
-              backgroundImage: `url(${pitchImg})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-          >
-            <DirectionBadge />
-            <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
-          {edgeList.map((e) => {
-            const a = nodeById.get(e.a);
-            const b = nodeById.get(e.b);
-            if (!a || !b) return null;
-            const aPoint = displayPoint(a.x, a.y);
-            const bPoint = displayPoint(b.x, b.y);
-            if (!aPoint || !bPoint) return null;
-            const w = 0.35 + (e.total / maxEdge) * 2.4;
-            const aLabel = (a.number != null ? `#${a.number}` : 'Player') + (a.name ? ` ${a.name}` : '');
-            const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
-            return (
-              <g key={`${e.a}|${e.b}`}>
-                <title>{`${aLabel} -> ${bLabel}: ${e.count_ab}\n${bLabel} -> ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
-                <line
-                  x1={aPoint.x}
-                  y1={aPoint.y}
-                  x2={bPoint.x}
-                  y2={bPoint.y}
-                  stroke={strokeBase}
-                  strokeOpacity="0.5"
-                  strokeWidth={w}
-                />
-              </g>
-            );
-          })}
+        {showPitch && (
+          <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div
+              className="relative mx-auto"
+              style={{
+                width: pitchScale,
+                aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+                backgroundImage: `url(${pitchImg})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            >
+              <DirectionBadge />
+              <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+            {edgeList.map((e) => {
+              const a = nodeById.get(e.a);
+              const b = nodeById.get(e.b);
+              if (!a || !b) return null;
+              const aPoint = displayPoint(a.x, a.y);
+              const bPoint = displayPoint(b.x, b.y);
+              if (!aPoint || !bPoint) return null;
+              const w = 0.35 + (e.total / maxEdge) * 2.4;
+              const aLabel = (a.number != null ? `#${a.number}` : 'Player') + (a.name ? ` ${a.name}` : '');
+              const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
+              return (
+                <g key={`${e.a}|${e.b}`}>
+                  <title>{`${aLabel} -> ${bLabel}: ${e.count_ab}\n${bLabel} -> ${aLabel}: ${e.count_ba}\nTotal: ${e.total}`}</title>
+                  <line
+                    x1={aPoint.x}
+                    y1={aPoint.y}
+                    x2={bPoint.x}
+                    y2={bPoint.y}
+                    stroke={strokeBase}
+                    strokeOpacity="0.5"
+                    strokeWidth={w}
+                  />
+                </g>
+              );
+            })}
 
-          {nodes.map((n) => {
-            const touches = n.made + n.received;
-            const point = displayPoint(n.x, n.y);
-            if (!point) return null;
-            // Radius scaled by touches (clamped).
-            const r = Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
-            const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
-            return (
-              <g key={n.id}>
-                <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nWeighted Degree: ${n.weightedDegree}\nBetweenness: ${n.betweenness.toFixed(2)}`}</title>
-                <circle cx={point.x} cy={point.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
-                {n.number != null && (
-                  <text
-                    x={point.x}
-                    y={point.y}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize="2.8"
-                    fontWeight="700"
-                    fill="#ffffff"
-                  >
-                    {String(n.number)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-            </svg>
+            {nodes.map((n) => {
+              const touches = n.made + n.received;
+              const point = displayPoint(n.x, n.y);
+              if (!point) return null;
+              const r = Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
+              const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
+              return (
+                <g key={n.id}>
+                  <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nWeighted Degree: ${n.weightedDegree}\nBetweenness: ${n.betweenness.toFixed(2)}`}</title>
+                  <circle cx={point.x} cy={point.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
+                  {n.number != null && (
+                    <text
+                      x={point.x}
+                      y={point.y}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="2.8"
+                      fontWeight="700"
+                      fill="#ffffff"
+                    >
+                      {String(n.number)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+              </svg>
+            </div>
           </div>
-        </div>
+        )}
         {showTable && centralityRows.length > 0 && (
           <Table>
             <TableHeader>

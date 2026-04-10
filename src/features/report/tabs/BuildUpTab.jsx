@@ -331,6 +331,8 @@ function BuildUpTab({
           side: pairSide,
           outId,
           inId,
+          outNumber: outPlayer?.number ?? null,
+          inNumber: inPlayer?.number ?? null,
           outLabel: outPlayer ? `#${outPlayer.number || ''} ${outPlayer.name || ''}`.trim() : 'Sub Out',
           inLabel: inPlayer ? `#${inPlayer.number || ''} ${inPlayer.name || ''}`.trim() : 'Sub In',
         };
@@ -338,21 +340,30 @@ function BuildUpTab({
       .filter((pair) => pair.side === networkSide);
   }, [stats, pnHalf, playerOptions, playerTeamById, networkSide]);
 
-  const [hiddenSubPairIds, setHiddenSubPairIds] = useState([]);
+  const [selectedSubPairPlayer, setSelectedSubPairPlayer] = useState({});
   useEffect(() => {
-    setHiddenSubPairIds((current) => current.filter((id) => substitutionPairs.some((pair) => pair.id === id)));
+    setSelectedSubPairPlayer((current) => {
+      const next = {};
+      for (const pair of substitutionPairs) {
+        const existing = current[pair.id];
+        next[pair.id] = existing === 'out' || existing === 'in' ? existing : 'in';
+      }
+      return next;
+    });
   }, [substitutionPairs]);
 
   const hiddenPlayerIds = useMemo(() => {
     const set = new Set();
-    substitutionPairs
-      .filter((pair) => hiddenSubPairIds.includes(pair.id))
-      .forEach((pair) => {
-        if (pair.outId) set.add(pair.outId);
+    substitutionPairs.forEach((pair) => {
+      const selected = selectedSubPairPlayer[pair.id] || 'in';
+      if (selected === 'out') {
         if (pair.inId) set.add(pair.inId);
-      });
+      } else {
+        if (pair.outId) set.add(pair.outId);
+      }
+    });
     return set;
-  }, [substitutionPairs, hiddenSubPairIds]);
+  }, [substitutionPairs, selectedSubPairPlayer]);
 
   const networkPassesFiltered = useMemo(() => {
     if (!hiddenPlayerIds.size) return networkPasses;
@@ -485,6 +496,43 @@ function BuildUpTab({
                           </SelectContent>
                         </Select>
                       </div>
+                    {substitutionPairs.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-slate-600">Substitution Pairs</Label>
+                        <div className="space-y-2">
+                          {substitutionPairs.map((pair) => {
+                            const selected = selectedSubPairPlayer[pair.id] || 'in';
+                            const sideColor = pair.side === 'away' ? (awayTeam?.color || '#7f1d1d') : (homeTeam?.color || '#ea580c');
+                            return (
+                              <div key={pair.id} className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant={selected === 'out' ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-8 min-w-10 px-2 text-xs"
+                                  style={selected === 'out' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
+                                  onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'out' }))}
+                                  title={pair.outLabel}
+                                >
+                                  {pair.outNumber ?? 'Out'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant={selected === 'in' ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-8 min-w-10 px-2 text-xs"
+                                  style={selected === 'in' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
+                                  onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'in' }))}
+                                  title={pair.inLabel}
+                                >
+                                  {pair.inNumber ?? 'In'}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                       <div className="space-y-3">
                         <PassNetwork
@@ -496,32 +544,6 @@ function BuildUpTab({
                           showTable={false}
                           pitchScale="88%"
                         />
-                        {substitutionPairs.length > 0 && (
-                          <div className="space-y-2">
-                            <div className="text-xs font-medium text-slate-700">Substitution Pairs</div>
-                            <div className="flex flex-wrap gap-2">
-                              {substitutionPairs.map((pair) => {
-                                const active = !hiddenSubPairIds.includes(pair.id);
-                                return (
-                                  <Button
-                                    key={pair.id}
-                                    type="button"
-                                    variant={active ? 'default' : 'outline'}
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    onClick={() => setHiddenSubPairIds((current) => (
-                                      current.includes(pair.id)
-                                        ? current.filter((id) => id !== pair.id)
-                                        : [...current, pair.id]
-                                    ))}
-                                  >
-                                    {pair.outLabel} -> {pair.inLabel}
-                                  </Button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
                       </div>
                 </div>
               </CardContent>
@@ -533,6 +555,7 @@ function BuildUpTab({
               minCount={pnMin}
               teamLabel={`${networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Network Players`}
               teamColor={(networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+              showPitch={false}
               pitchScale="88%"
             />
 
