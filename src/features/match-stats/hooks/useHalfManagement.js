@@ -2,11 +2,33 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 export function useHalfManagement({ db, match, halfStartByHalf, initialHalf = 'first' }) {
-  const [half, setHalf] = useState(initialHalf);
+  const halfStorageKey = match?.id ? `gstl-active-half:${match.id}` : null;
+  const readStoredHalf = () => {
+    try {
+      if (!halfStorageKey) return initialHalf;
+      return localStorage.getItem(halfStorageKey) || initialHalf;
+    } catch {
+      return initialHalf;
+    }
+  };
+  const [half, setHalf] = useState(readStoredHalf);
   const [directionByPeriod, setDirectionByPeriod] = useState(null);
   const [halfPrompt, setHalfPrompt] = useState({ open: false, nextHalf: null });
   const [endPeriodPrompt, setEndPeriodPrompt] = useState({ open: false, nextHalf: null });
   const [nextHalfReminder, setNextHalfReminder] = useState({ open: false, nextHalf: null });
+
+  useEffect(() => {
+    setHalf(readStoredHalf());
+  }, [halfStorageKey, initialHalf]);
+
+  useEffect(() => {
+    try {
+      if (!halfStorageKey) return;
+      localStorage.setItem(halfStorageKey, half);
+    } catch {
+      // ignore
+    }
+  }, [halfStorageKey, half]);
 
   useEffect(() => {
     if (!match?.id) return;
