@@ -118,6 +118,7 @@ export default function MatchStats() {
     const [subDialogOpen, setSubDialogOpen] = useState(false);
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
+    const [lastDefenceSetByPossession, setLastDefenceSetByPossession] = useState(null);
 
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -522,6 +523,14 @@ export default function MatchStats() {
 
         if (!targetPossessionId || !['home', 'away'].includes(targetPossessionTeamSide)) return true;
 
+        if (
+            Number(lastDefenceSetByPossession?.possessionId) === targetPossessionId
+            && lastDefenceSetByPossession?.teamSide === targetPossessionTeamSide
+            && typeof lastDefenceSetByPossession?.value === 'boolean'
+        ) {
+            return lastDefenceSetByPossession.value;
+        }
+
         const targetPossessionStats = (stats || [])
             .filter((s) =>
                 Number(s?.possession_id) === targetPossessionId
@@ -539,7 +548,7 @@ export default function MatchStats() {
 
         if (!targetPossessionStats.length) return true;
         return !!targetPossessionStats[0].counter_attack;
-    }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide]);
+    }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide, lastDefenceSetByPossession]);
 
     const handleStatSubmit = (payload) => {
         // Edit mode: update the existing row's metadata (coords/IDs remain unchanged).
@@ -662,6 +671,11 @@ export default function MatchStats() {
         setPossessionCounter(nextPossessionCounter);
         setCurrentPossessionId(statData.possession_id);
         setCurrentPossessionTeamSide(statData.possession_team_side);
+        setLastDefenceSetByPossession({
+            possessionId: Number(statData.possession_id || 0),
+            teamSide: statData.possession_team_side || 'unknown',
+            value: !!payload.counter_attack,
+        });
         const statForProbe = { ...statData, id: draftId };
         const nextProbe = {
             id: `probe:${nextPlayId + 1}:${Date.now()}`,
