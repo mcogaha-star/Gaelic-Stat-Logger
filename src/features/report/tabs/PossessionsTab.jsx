@@ -264,7 +264,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             { label: 'Attack To Shot %', home: formatPct(sideKpis.home.attToShot), away: formatPct(sideKpis.away.attToShot) },
             { label: 'Completed Passes Per Possession', home: Number.isFinite(sideKpis.home.passesPerPoss) ? sideKpis.home.passesPerPoss.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.passesPerPoss) ? sideKpis.away.passesPerPoss.toFixed(2) : 'NA' },
             { label: 'Scoring Possession %', home: formatPct(sideKpis.home.scoringPoss), away: formatPct(sideKpis.away.scoringPoss) },
-            { label: 'Defence Set? Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
+            { label: 'Set Defence Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
           ]}
         />
 
@@ -377,7 +377,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <TableHead className="text-right">Pts</TableHead>
                       <TableHead className="text-right">Attack</TableHead>
                       <TableHead>Start Zone</TableHead>
-                      <TableHead>Defence Set?</TableHead>
+                      <TableHead>Set Defence</TableHead>
                       <TableHead className="text-right"> </TableHead>
                     </TableRow>
                   </TableHeader>

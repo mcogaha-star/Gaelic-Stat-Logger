@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { createPageUrl } from '@/utils';
 import {
   formatHalfClock,
+  getSecondHalfStartS,
   getNormalizedTimeS,
   getMatchTimeS,
   normalizeFoulType,
@@ -75,6 +76,12 @@ function getSectionBoundaryLabel(half) {
 }
 
 function buildSectionDisplayLayout(stats, match, imputedTimeById) {
+  const getSectionMinimumExtent = (half) => {
+    if (half === 'first' || half === 'second') return getSecondHalfStartS(match);
+    if (half === 'et_first' || half === 'et_second') return 10 * 60;
+    return 0;
+  };
+
   const sectionStats = MATCH_SECTION_ORDER.map((half) => {
     const rows = (Array.isArray(stats) ? stats : []).filter((stat) => stat?.half === half);
     const times = rows
@@ -84,7 +91,7 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       half,
       rows,
       hasData: times.length > 0,
-      extent: times.length ? Math.max(...times) : 0,
+      extent: times.length ? Math.max(Math.max(...times), getSectionMinimumExtent(half)) : 0,
     };
   }).filter((section) => section.hasData);
 
@@ -903,7 +910,7 @@ export default function MatchReport() {
                         <div className="font-semibold text-slate-900">Possessions Filters</div>
                         <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                         <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Defence Set?</Label>
+                          <Label className="text-xs text-slate-600">Set Defence</Label>
                           <Select value={possessionsCounterFilter} onValueChange={setPossessionsCounterFilter}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -1039,7 +1046,7 @@ export default function MatchReport() {
                         </div>
                         <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Defence Set?" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
+                        <MultiSelect label="Set Defence" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
                         <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Color By</Label>

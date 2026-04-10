@@ -973,7 +973,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                         { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
                                         { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
                                         { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
-                                        { label: 'Defence Set?', value: s.counter_attack ? 'Yes' : 'No' },
+                                        { label: 'Set Defence', value: s.counter_attack ? 'Yes' : 'No' },
                                         { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
                                         { label: 'Time', value: (() => { const rowTime = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA'; })() },
                                         { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },

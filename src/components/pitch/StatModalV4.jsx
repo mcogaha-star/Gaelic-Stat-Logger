@@ -1777,7 +1777,7 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1829,7 +1829,7 @@ export default function StatModalV4({
               {action === 'foul' && !isDrag && (
                 <>
                   {foulFieldsBlock()}
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1844,7 +1844,7 @@ export default function StatModalV4({
               {action === 'turnover' && !isDrag && (
                 <>
                   {turnoverFieldsBlock()}
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1865,7 +1865,7 @@ export default function StatModalV4({
                       {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1889,7 +1889,7 @@ export default function StatModalV4({
                       { value: 'block', label: 'Block' },
                     ]}
                   />
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1923,7 +1923,7 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   {/* Defence set doesn't need to live at the very bottom for pass/carry */}
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <Buttons
                     label="Defensive Contact"
                     value={carryDefContact}
@@ -1981,7 +1981,7 @@ export default function StatModalV4({
                   </div>
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                   {/* Defence set doesn't need to live at the very bottom for pass/carry */}
-                  <YesNo label="Defence Set?" value={counterAttack} onChange={setCounterAttack} />
+                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}

@@ -213,7 +213,7 @@ function humanizeKey(k) {
   const key = String(k || '');
   const map = {
     // common
-    counter_attack: 'Defence Set?',
+    counter_attack: 'Set Defence',
     team_side: 'Team',
     // selections / roles
     intended_recipient: 'Intended Recipient',

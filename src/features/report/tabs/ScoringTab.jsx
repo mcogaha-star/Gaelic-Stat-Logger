@@ -394,6 +394,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
       const placedScores = placed.filter((s) => s.isScore).length;
       const placedConv = placed.length ? (placedScores / placed.length) * 100 : NaN;
       const lowPressure = sh.filter((s) => String(s.pressure) === 'low').length;
+      const shortN = sh.filter((s) => String(s.outcome) === 'short').length;
       const typeBreakdown = ['point', '2_point', 'goal'].reduce((acc, type) => {
         const attempts = sh.filter((s) => s.shotType === type).length;
         const scored = sh.filter((s) => s.shotType === type && s.outcome === type).length;
@@ -410,6 +411,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
         fromPlayPct,
         placedConv,
         lowPressurePct: shotsN ? (lowPressure / shotsN) * 100 : NaN,
+        shortN,
         typeBreakdown,
       };
     };
@@ -589,6 +591,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
             { label: 'Play-Shot Conversion %', home: formatPct(kpis.home.playConv), away: formatPct(kpis.away.playConv) },
             { label: '% Shots From Play', home: formatPct(kpis.home.fromPlayPct), away: formatPct(kpis.away.fromPlayPct) },
             { label: 'Placed-Ball Conversion %', home: formatPct(kpis.home.placedConv), away: formatPct(kpis.away.placedConv) },
+            { label: 'Shots Short', home: kpis.home.shortN, away: kpis.away.shortN },
             { label: '1 Point Scores', home: `${kpis.home.typeBreakdown.point.scored}/${kpis.home.typeBreakdown.point.attempts} (${formatPct(kpis.home.typeBreakdown.point.attempts ? (kpis.home.typeBreakdown.point.scored / kpis.home.typeBreakdown.point.attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown.point.scored}/${kpis.away.typeBreakdown.point.attempts} (${formatPct(kpis.away.typeBreakdown.point.attempts ? (kpis.away.typeBreakdown.point.scored / kpis.away.typeBreakdown.point.attempts) * 100 : NaN)})` },
             { label: '2 Point Scores', home: `${kpis.home.typeBreakdown['2_point'].scored}/${kpis.home.typeBreakdown['2_point'].attempts} (${formatPct(kpis.home.typeBreakdown['2_point'].attempts ? (kpis.home.typeBreakdown['2_point'].scored / kpis.home.typeBreakdown['2_point'].attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown['2_point'].scored}/${kpis.away.typeBreakdown['2_point'].attempts} (${formatPct(kpis.away.typeBreakdown['2_point'].attempts ? (kpis.away.typeBreakdown['2_point'].scored / kpis.away.typeBreakdown['2_point'].attempts) * 100 : NaN)})` },
             { label: 'Goal Scores', home: `${kpis.home.typeBreakdown.goal.scored}/${kpis.home.typeBreakdown.goal.attempts} (${formatPct(kpis.home.typeBreakdown.goal.attempts ? (kpis.home.typeBreakdown.goal.scored / kpis.home.typeBreakdown.goal.attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown.goal.scored}/${kpis.away.typeBreakdown.goal.attempts} (${formatPct(kpis.away.typeBreakdown.goal.attempts ? (kpis.away.typeBreakdown.goal.scored / kpis.away.typeBreakdown.goal.attempts) * 100 : NaN)})` },

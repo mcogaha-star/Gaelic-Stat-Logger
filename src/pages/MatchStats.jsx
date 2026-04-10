@@ -759,7 +759,7 @@ export default function MatchStats() {
 
         const headers = [
             'Match ID','Match Public ID','Match Date','Code','Level',
-            'Play ID','Possession ID','Possession Team','Acting Team','Defence Set?',
+            'Play ID','Possession ID','Possession Team','Acting Team','Set Defence',
             'Stat Type','Is Drag','Half','Timestamp',
             'Raw X','Raw Y','Raw End X','Raw End Y',
             'X','Y','End X','End Y',
