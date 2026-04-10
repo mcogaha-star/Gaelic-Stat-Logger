@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -143,6 +143,7 @@ function BuildUpTab({
   stats,
   homeTeam,
   awayTeam,
+  playerOptions,
   reportFilters,
   eventTypes,
   setEventTypes,
@@ -311,6 +312,59 @@ function BuildUpTab({
     });
   }, [filtered, pnHalf]);
 
+  const networkSide = teamMode === 'both' ? pnSide : teamMode;
+  const playerTeamById = useMemo(() => new Map((Array.isArray(playerOptions) ? playerOptions : []).map((p) => [p.id, p.team_side])), [playerOptions]);
+  const substitutionPairs = useMemo(() => {
+    const targetHalf = String(pnHalf || 'all');
+    return (Array.isArray(stats) ? stats : [])
+      .filter((s) => s?.stat_type === 'substitution')
+      .filter((s) => targetHalf === 'all' || String(s?.half || '').toLowerCase() === targetHalf)
+      .map((s) => {
+        const extra = safeParseJSON(s?.extra_data || '{}', {});
+        const outId = extra?.sub_out_id || '';
+        const inId = extra?.sub_in_id || '';
+        const outPlayer = (playerOptions || []).find((p) => p.id === outId);
+        const inPlayer = (playerOptions || []).find((p) => p.id === inId);
+        const pairSide = playerTeamById.get(outId) || playerTeamById.get(inId) || 'unknown';
+        return {
+          id: String(s?.id || `${outId}-${inId}`),
+          side: pairSide,
+          outId,
+          inId,
+          outLabel: outPlayer ? `#${outPlayer.number || ''} ${outPlayer.name || ''}`.trim() : 'Sub Out',
+          inLabel: inPlayer ? `#${inPlayer.number || ''} ${inPlayer.name || ''}`.trim() : 'Sub In',
+        };
+      })
+      .filter((pair) => pair.side === networkSide);
+  }, [stats, pnHalf, playerOptions, playerTeamById, networkSide]);
+
+  const [hiddenSubPairIds, setHiddenSubPairIds] = useState([]);
+  useEffect(() => {
+    setHiddenSubPairIds((current) => current.filter((id) => substitutionPairs.some((pair) => pair.id === id)));
+  }, [substitutionPairs]);
+
+  const hiddenPlayerIds = useMemo(() => {
+    const set = new Set();
+    substitutionPairs
+      .filter((pair) => hiddenSubPairIds.includes(pair.id))
+      .forEach((pair) => {
+        if (pair.outId) set.add(pair.outId);
+        if (pair.inId) set.add(pair.inId);
+      });
+    return set;
+  }, [substitutionPairs, hiddenSubPairIds]);
+
+  const networkPassesFiltered = useMemo(() => {
+    if (!hiddenPlayerIds.size) return networkPasses;
+    return networkPasses.filter((s) => {
+      const extra = safeParseJSON(s?.extra_data || '{}', {});
+      const passerId = extra?.pass?.passer?.id;
+      const receiver = (extra?.pass?.won_by?.kind === 'player') ? extra?.pass?.won_by : extra?.pass?.intended_recipient;
+      const receiverId = receiver?.id;
+      return !hiddenPlayerIds.has(passerId) && !hiddenPlayerIds.has(receiverId);
+    });
+  }, [networkPasses, hiddenPlayerIds]);
+
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -432,16 +486,55 @@ function BuildUpTab({
                         </Select>
                       </div>
                   </div>
-                  <PassNetwork
-                    passes={networkPasses}
-                    side={teamMode === 'both' ? pnSide : teamMode}
-                    minCount={pnMin}
-                    teamLabel={(teamMode === 'both' ? pnSide : teamMode) === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
-                    teamColor={((teamMode === 'both' ? pnSide : teamMode) === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
-                  />
+                      <div className="space-y-3">
+                        <PassNetwork
+                          passes={networkPassesFiltered}
+                          side={networkSide}
+                          minCount={pnMin}
+                          teamLabel={networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+                          teamColor={(networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+                          showTable={false}
+                          pitchScale="88%"
+                        />
+                        {substitutionPairs.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-slate-700">Substitution Pairs</div>
+                            <div className="flex flex-wrap gap-2">
+                              {substitutionPairs.map((pair) => {
+                                const active = !hiddenSubPairIds.includes(pair.id);
+                                return (
+                                  <Button
+                                    key={pair.id}
+                                    type="button"
+                                    variant={active ? 'default' : 'outline'}
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => setHiddenSubPairIds((current) => (
+                                      current.includes(pair.id)
+                                        ? current.filter((id) => id !== pair.id)
+                                        : [...current, pair.id]
+                                    ))}
+                                  >
+                                    {pair.outLabel} -> {pair.inLabel}
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                 </div>
               </CardContent>
             </Card>
+
+            <PassNetwork
+              passes={networkPassesFiltered}
+              side={networkSide}
+              minCount={pnMin}
+              teamLabel={`${networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Network Players`}
+              teamColor={(networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
+              pitchScale="88%"
+            />
 
             <Card>
               <CardContent className="p-4 space-y-3">

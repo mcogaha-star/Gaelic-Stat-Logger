@@ -1,8 +1,7 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
-import { formatMMSS, formatPct } from '../shared';
-import { formatMatchClock } from '@/lib/reportAnalytics';
+import { formatPct } from '../shared';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function OverviewTab({
@@ -29,28 +28,6 @@ export default function OverviewTab({
     })) : []),
     [overviewMomentum]
   );
-  const momentumTicks = React.useMemo(() => {
-    const maxMinutes = Math.max(5, Number(overviewMomentum?.axisMaxMinutes || 5));
-    const boundaryMinutes = (overviewMomentum?.boundaryMarks || [])
-      .map((marker) => Number(marker?.time) / 60)
-      .filter(Number.isFinite)
-      .sort((a, b) => a - b);
-    const sectionStarts = [0, ...boundaryMinutes.filter((value) => value < maxMinutes)];
-    const sectionEnds = [...boundaryMinutes.filter((value) => value <= maxMinutes), maxMinutes];
-    const ticks = new Set([0, maxMinutes]);
-
-    for (let i = 0; i < sectionStarts.length; i += 1) {
-      const start = sectionStarts[i];
-      const end = sectionEnds[i] ?? maxMinutes;
-      ticks.add(start);
-      for (let minute = start + 10; minute < end; minute += 10) ticks.add(minute);
-      ticks.add(end);
-    }
-
-    return Array.from(ticks)
-      .filter((value) => Number.isFinite(value) && value >= 0 && value <= maxMinutes)
-      .sort((a, b) => a - b);
-  }, [overviewMomentum]);
   const showMomentum = overviewMomentum.mode !== 'none' && momentumRows.length > 0;
 
   return (
@@ -77,13 +54,11 @@ export default function OverviewTab({
                       <XAxis
                         dataKey="x"
                         type="number"
-                        domain={[0, Math.max(1, ...scoreTimeline.points.map((p) => Number(p?.x) || 0))]}
+                        domain={[0, Math.max(1, Number(scoreTimeline.axisMax || 0), ...scoreTimeline.points.map((p) => Number(p?.x) || 0))]}
                         allowDuplicatedCategory={false}
-                        ticks={scoreTimeline.mode === 'time'
-                          ? Array.from({ length: Math.floor(Math.max(1, ...scoreTimeline.points.map((p) => Number(p?.x) || 0)) / 600) + 1 }, (_, i) => i * 600)
-                          : undefined}
+                        ticks={scoreTimeline.mode === 'time' ? scoreTimeline.tickValues : undefined}
                         tickFormatter={(v) => (scoreTimeline.mode === 'time'
-                          ? formatMatchClock(Number(v) + Number(scoreTimeline.t0 || 0), match)
+                          ? (scoreTimeline.tickFormatter ? scoreTimeline.tickFormatter(Number(v)) : String(v))
                           : String(v))}
                         className="text-xs"
                       />
@@ -231,11 +206,11 @@ export default function OverviewTab({
                     <ComposedChart data={momentumRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                       <CartesianGrid vertical={false} />
                       <XAxis
-                        dataKey="minute"
+                        dataKey="x"
                         type="number"
-                        domain={[0, Math.max(5, overviewMomentum.axisMaxMinutes || 5)]}
-                        ticks={momentumTicks}
-                        tickFormatter={(value) => formatMatchClock(Number(value) * 60, match)}
+                        domain={[0, Math.max(5 * 60, overviewMomentum.axisMaxSeconds || 5 * 60)]}
+                        ticks={overviewMomentum.tickValues}
+                        tickFormatter={(value) => overviewMomentum.tickFormatter ? overviewMomentum.tickFormatter(Number(value)) : String(value)}
                         className="text-xs"
                       />
                       <YAxis className="text-xs" domain={[-50, 50]} tick={false} axisLine={false} tickLine={false} />
@@ -261,7 +236,7 @@ export default function OverviewTab({
                       />
                       <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
                       {(overviewMomentum.boundaryMarks || []).map((marker) => (
-                        <ReferenceLine key={marker.key} x={Number(marker.time) / 60} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: marker.label, position: 'insideTop', fill: '#475569', fontSize: 10 }} />
+                        <ReferenceLine key={marker.key} x={Number(marker.x)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: marker.label, position: 'insideTop', fill: '#475569', fontSize: 10 }} />
                       ))}
                       <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
                       <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />

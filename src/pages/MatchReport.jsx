@@ -14,15 +14,16 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createPageUrl } from '@/utils';
 import {
-  getMatchSectionOffsets,
+  formatHalfClock,
+  getNormalizedTimeS,
   getMatchTimeS,
-  formatMatchClock,
   normalizeFoulType,
   shotPointsForOutcome,
   extractFoulFromStat,
   oppositeTeamSide,
   buildLegacyPossessionRepairs,
   buildLegacyDefenceSetRepairs,
+  inferRestartWinnerSide,
   normalizeDefenceSetRows,
   rebuildPossessionRows,
   POSSESSION_REBUILD_VERSION,
@@ -63,6 +64,104 @@ const db = globalThis.__B44_DB__ || {
     }),
   }),
 };
+
+const MATCH_SECTION_ORDER = ['first', 'second', 'et_first', 'et_second'];
+
+function getSectionBoundaryLabel(half) {
+  if (half === 'first') return 'HT';
+  if (half === 'second') return 'FT';
+  if (half === 'et_first') return 'ET HT';
+  return '';
+}
+
+function buildSectionDisplayLayout(stats, match, imputedTimeById) {
+  const sectionStats = MATCH_SECTION_ORDER.map((half) => {
+    const rows = (Array.isArray(stats) ? stats : []).filter((stat) => stat?.half === half);
+    const times = rows
+      .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
+      .filter(Number.isFinite);
+    return {
+      half,
+      rows,
+      hasData: times.length > 0,
+      extent: times.length ? Math.max(...times) : 0,
+    };
+  }).filter((section) => section.hasData);
+
+  if (!sectionStats.length) {
+    return {
+      axisMax: 5 * 60,
+      ticks: [0, 5 * 60],
+      boundaryMarkers: [],
+      formatTick: () => '00:00',
+      getDisplayTimeForStat: () => null,
+    };
+  }
+
+  let runningOffset = 0;
+  const sections = sectionStats.map((section) => {
+    const next = {
+      ...section,
+      offset: runningOffset,
+    };
+    runningOffset += section.extent;
+    return next;
+  });
+
+  const axisMax = Math.max(5 * 60, sections[sections.length - 1].offset + sections[sections.length - 1].extent);
+  const ticks = Array.from(new Set(sections.flatMap((section) => {
+    const values = [section.offset];
+    for (let local = 10 * 60; local < section.extent; local += 10 * 60) {
+      values.push(section.offset + local);
+    }
+    values.push(section.offset + section.extent);
+    return values;
+  })))
+    .filter((value) => Number.isFinite(value) && value >= 0 && value <= axisMax)
+    .sort((a, b) => a - b);
+
+  const boundaryMarkers = sections
+    .map((section, index) => {
+      const label = getSectionBoundaryLabel(section.half);
+      if (!label) return null;
+      const hasNextSection = index < sections.length - 1;
+      if (!hasNextSection && section.extent <= 0) return null;
+      return {
+        key: `${section.half}-boundary`,
+        label,
+        x: section.offset + section.extent,
+      };
+    })
+    .filter(Boolean);
+
+  const findSectionForDisplayTime = (displayTimeS) => {
+    const value = Math.max(0, Number(displayTimeS) || 0);
+    for (const section of sections) {
+      const start = section.offset;
+      const end = section.offset + section.extent;
+      if (value >= start && value <= end) return section;
+    }
+    return sections[sections.length - 1];
+  };
+
+  return {
+    axisMax,
+    ticks,
+    boundaryMarkers,
+    formatTick: (displayTimeS) => {
+      const section = findSectionForDisplayTime(displayTimeS);
+      const localTime = Math.max(0, Number(displayTimeS) - Number(section?.offset || 0));
+      return formatHalfClock(localTime, section?.half, match);
+    },
+    getDisplayTimeForStat: (stat) => {
+      const normalized = getNormalizedTimeS(stat, imputedTimeById);
+      if (!Number.isFinite(normalized)) return null;
+      const section = sections.find((entry) => entry.half === stat?.half);
+      if (!section) return normalized;
+      return section.offset + normalized;
+    },
+  };
+}
 export default function MatchReport() {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -76,8 +175,6 @@ export default function MatchReport() {
   });
 
   const match = matchArr?.[0] || null;
-  const halfAnchors = useMemo(() => safeParseJSON(match?.video_half_start_time_s || '{}', {}), [match?.video_half_start_time_s]);
-
   const { data: homeTeamArr = [] } = useQuery({
     queryKey: ['team', match?.home_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.home_team_id }),
@@ -379,16 +476,16 @@ export default function MatchReport() {
       if (s.stat_type === 'kickout') {
         out[side].kickoutsTaken += 1;
         const o = extra?.kickout?.outcome;
-        const won = extra?.kickout?.won_by;
-        if ((o === 'clean' || o === 'break') && won?.team_side && (won.team_side === 'home' || won.team_side === 'away')) {
-          out[won.team_side].kickoutsWon += 1;
+        const wonSide = inferRestartWinnerSide(s, null);
+        if ((wonSide === 'home' || wonSide === 'away')) {
+          out[wonSide].kickoutsWon += 1;
         }
 
         // "Own" kickouts: taken by the team that is restarting (extra.kickout.team_side).
         const koTeam = extra?.kickout?.team_side;
         if (koTeam === 'home' || koTeam === 'away') {
           out[koTeam].ownKickoutsTaken += 1;
-          if ((o === 'clean' || o === 'break') && won?.team_side === koTeam) out[koTeam].ownKickoutsWon += 1;
+          if (wonSide === koTeam) out[koTeam].ownKickoutsWon += 1;
         }
       }
 
@@ -431,6 +528,7 @@ export default function MatchReport() {
 
   const scoreTimeline = useMemo(() => {
     const list = Array.isArray(overviewStats) ? overviewStats : [];
+    const displayLayout = buildSectionDisplayLayout(list, match, imputedTimeById);
     const scoring = [];
 
     for (const s of list) {
@@ -445,19 +543,11 @@ export default function MatchReport() {
       return { mode: 'none', points: [] };
     }
 
-    const allHaveTime = scoring.every((e) => Number.isFinite(getMatchTimeS(e.s, match, imputedTimeById)));
+    const allHaveTime = scoring.every((e) => Number.isFinite(displayLayout.getDisplayTimeForStat(e.s)));
     const mode = allHaveTime ? 'time' : 'play';
-    // Use match-section offsets here, not video anchors. The timeline x-axis is match clock based.
-    const sectionOffsets = getMatchSectionOffsets(match);
-    const t0 = (() => {
-      if (overviewHalf === 'second') return Number(sectionOffsets?.second || 0);
-      if (overviewHalf === 'et_first') return Number(sectionOffsets?.et_first || 0);
-      if (overviewHalf === 'et_second') return Number(sectionOffsets?.et_second || 0);
-      return 0;
-    })();
 
     const getX = (e) => {
-      if (mode === 'time') return Math.max(0, getMatchTimeS(e.s, match, imputedTimeById) - t0);
+      if (mode === 'time') return Math.max(0, displayLayout.getDisplayTimeForStat(e.s));
       return Number.isFinite(Number(e.s.play_id)) ? Number(e.s.play_id) : 0;
     };
 
@@ -469,15 +559,15 @@ export default function MatchReport() {
 
     const points = [];
     points.push({
-      x: 0,
+        x: 0,
       home_total: 0,
       away_total: 0,
       home_goals: 0,
       away_goals: 0,
       home_points: 0,
       away_points: 0,
-      label: mode === 'time' ? formatMatchClock(t0, match) : '0',
-    });
+        label: mode === 'time' ? displayLayout.formatTick(0) : '0',
+      });
 
     for (const e of scoring) {
       const side = e.s.team_side === 'away' ? 'away' : 'home';
@@ -501,25 +591,19 @@ export default function MatchReport() {
         away_goals: awayGoals,
         home_points: homePts,
         away_points: awayPts,
-        label: mode === 'time' ? formatMatchClock(x + t0, match) : String(x),
+        label: mode === 'time' ? displayLayout.formatTick(x) : String(x),
       });
     }
 
-    const boundaryMarkers = (() => {
-      if (mode !== 'time') return null;
-      if (overviewHalf !== 'all') return null;
-      return [
-        { key: 'HT', label: 'HT', time: Number(sectionOffsets?.second) },
-        { key: 'FT', label: 'FT', time: Number(sectionOffsets?.et_first) },
-        { key: 'ET HT', label: 'ET HT', time: Number(sectionOffsets?.et_second) },
-      ]
-        .filter((marker) => Number.isFinite(marker.time))
-        .map((marker) => ({ ...marker, x: Math.max(0, marker.time - t0) }))
-        .filter((marker) => marker.x <= Math.max(1, ...points.map((p) => Number(p?.x) || 0)));
-    })();
-
-    return { mode, points, t0, boundaryMarkers };
-  }, [overviewStats, overviewHalf, match, imputedTimeById]);
+    return {
+      mode,
+      points,
+      axisMax: mode === 'time' ? displayLayout.axisMax : Math.max(1, ...points.map((p) => Number(p?.x) || 0)),
+      tickValues: mode === 'time' ? displayLayout.ticks : undefined,
+      tickFormatter: mode === 'time' ? displayLayout.formatTick : undefined,
+      boundaryMarkers: mode === 'time' ? displayLayout.boundaryMarkers.filter((marker) => marker.x <= displayLayout.axisMax) : null,
+    };
+  }, [overviewStats, match, imputedTimeById]);
 
   const overviewAttackOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
@@ -580,8 +664,13 @@ export default function MatchReport() {
 
   const overviewMomentum = useMemo(() => {
     const list = Array.isArray(overviewStats) ? overviewStats : [];
+    const displayLayout = buildSectionDisplayLayout(list, match, imputedTimeById);
     const withTime = list
-      .map((s) => ({ stat: s, matchTime: getMatchTimeS(s, match, imputedTimeById) }))
+      .map((s) => ({
+        stat: s,
+        matchTime: getMatchTimeS(s, match, imputedTimeById),
+        displayTime: displayLayout.getDisplayTimeForStat(s),
+      }))
       .filter((entry) => Number.isFinite(entry.matchTime))
       .sort((a, b) => a.matchTime - b.matchTime);
     if (!withTime.length) return { mode: 'none', rows: [] };
@@ -603,33 +692,30 @@ export default function MatchReport() {
     const groups = groupByPossession(withTime.map((entry) => entry.stat));
     for (const [key, events] of groups.entries()) {
       const times = events
-        .map((event) => getMatchTimeS(event, match, imputedTimeById))
-        .filter(Number.isFinite)
-        .sort((a, b) => a - b);
+        .map((event) => ({
+          half: event?.half,
+          localTime: getNormalizedTimeS(event, imputedTimeById),
+          displayTime: displayLayout.getDisplayTimeForStat(event),
+        }))
+        .filter((entry) => Number.isFinite(entry.localTime) && Number.isFinite(entry.displayTime))
+        .sort((a, b) => a.displayTime - b.displayTime);
       if (!times.length) continue;
       possessionStarts.push({
         key,
         side: String(key).startsWith('away-') ? 'away' : 'home',
-        time: times[0],
+        half: times[0].half,
+        localTime: times[0].localTime,
+        displayTime: times[0].displayTime,
       });
     }
 
-    const offsets = getMatchSectionOffsets(match);
-    const actualMax = withTime.reduce((m, entry) => Math.max(m, entry.matchTime), 0);
-    const axisMax = Math.max(5 * 60, actualMax);
+    const axisMax = Math.max(5 * 60, displayLayout.axisMax);
     const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
-
-    const getSectionStart = (t) => {
-      if (t >= Number(offsets?.et_second || Infinity)) return Number(offsets?.et_second || 0);
-      if (t >= Number(offsets?.et_first || Infinity)) return Number(offsets?.et_first || 0);
-      if (t >= Number(offsets?.second || Infinity)) return Number(offsets?.second || 0);
-      return 0;
-    };
 
     const rows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
       const minuteMark = minuteIndex * 60;
-      const windowStart = Math.max(getSectionStart(minuteMark), minuteMark - 5 * 60);
-      const windowStats = withTime.filter((entry) => entry.matchTime > windowStart && entry.matchTime <= minuteMark);
+      const windowStart = Math.max(0, minuteMark - 5 * 60);
+      const windowStats = withTime.filter((entry) => entry.displayTime > windowStart && entry.displayTime <= minuteMark);
       const statsBySide = {
         home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
         away: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
@@ -663,7 +749,7 @@ export default function MatchReport() {
       }
 
       for (const pos of possessionStarts) {
-        if (pos.time > windowStart && pos.time <= minuteMark) {
+        if (pos.displayTime > windowStart && pos.displayTime <= minuteMark) {
           statsBySide[pos.side].possWins += 1;
         }
       }
@@ -690,8 +776,9 @@ export default function MatchReport() {
       const mAway = 100 - mHome;
 
       return {
+        x: minuteMark,
         minute: minuteMark / 60,
-        label: formatMatchClock(minuteMark, match),
+        label: displayLayout.formatTick(minuteMark),
         home: Number.isFinite(mHome) ? mHome : 50,
         away: Number.isFinite(mAway) ? mAway : 50,
         home_pts: statsBySide.home.pts,
@@ -703,13 +790,15 @@ export default function MatchReport() {
       };
     });
 
-    const boundaryMarks = [
-      { key: 'HT', label: 'HT', time: Number(offsets?.second) },
-      { key: 'FT', label: 'FT', time: Number(offsets?.et_first) },
-      { key: 'ET HT', label: 'ET HT', time: Number(offsets?.et_second) },
-    ].filter((marker) => Number.isFinite(marker.time) && marker.time <= axisMax);
-
-    return { mode: 'rolling', rows, axisMaxMinutes: Math.ceil(axisMax / 60), boundaryMarks };
+    return {
+      mode: 'rolling',
+      rows,
+      axisMaxSeconds: axisMax,
+      axisMaxMinutes: Math.ceil(axisMax / 60),
+      tickValues: displayLayout.ticks,
+      tickFormatter: displayLayout.formatTick,
+      boundaryMarks: displayLayout.boundaryMarkers.filter((marker) => marker.x <= axisMax),
+    };
   }, [overviewStats, match, imputedTimeById]);
 
   if (!matchId) {
@@ -1044,6 +1133,7 @@ export default function MatchReport() {
               stats={filteredForReport}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
+              playerOptions={playerOptions}
               reportFilters={reportFilters}
               eventTypes={buildEventTypes}
               setEventTypes={setBuildEventTypes}

@@ -655,7 +655,17 @@ function deriveCounterAttackState(actingStats) {
   const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && typeof s.counter_attack === 'boolean');
   if (!relevant.length) return 'No';
   const flags = relevant.map((s) => !!s.counter_attack);
-  return flags.every(Boolean) ? 'Yes' : 'No';
+  if (flags.every(Boolean)) return 'Yes';
+  if (flags.every((flag) => !flag)) return 'No';
+  const first = flags[0];
+  const last = flags[flags.length - 1];
+  if (!first && last) return 'No -> Yes';
+  if (first && !last) return 'Yes -> No';
+  return last ? 'Yes' : 'No';
+}
+
+function defenceSetStateKey(state) {
+  return state === 'Yes' || state === 'No -> Yes' ? 'defence_set_yes' : 'defence_set_no';
 }
 
 function getPossessionStartZone(actingStats) {
@@ -1209,7 +1219,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -1349,10 +1359,11 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
   const displayPoint = (x, y) => transformDisplayPoint(x, y, side, true);
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
-  const centralityRows = nodes
+  const computedCentralityRows = nodes
     .slice()
     .sort((a, b) => (b.weightedDegree - a.weightedDegree) || (b.betweenness - a.betweenness))
     .slice(0, 8);
+  const centralityRows = Array.isArray(centralityRowsOverride) ? centralityRowsOverride : computedCentralityRows;
 
   return (
     <Card>
@@ -1362,7 +1373,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
           <div
             className="relative mx-auto"
             style={{
-              width: REPORT_PITCH_SCALE,
+              width: pitchScale,
               aspectRatio: `${PITCH_W} / ${PITCH_H}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: 'cover',
@@ -1427,7 +1438,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel }) {
             </svg>
           </div>
         </div>
-        {centralityRows.length > 0 && (
+        {showTable && centralityRows.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -1891,6 +1902,7 @@ export {
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
+  defenceSetStateKey,
   ReportFiltersFields,
   ReportFiltersCard,
   shotSideFromY,

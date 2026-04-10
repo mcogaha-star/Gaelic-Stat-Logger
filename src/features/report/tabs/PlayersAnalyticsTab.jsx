@@ -19,6 +19,7 @@ import {
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
+  inferRestartWinnerSide,
   isAttackPossession,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
@@ -274,13 +275,18 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const keeper = ensure(koTeam === 'home' ? homeKeeper : koTeam === 'away' ? awayKeeper : null);
         if (keeper) {
           keeper.kickoutsTaken += 1;
-          const won = (kick?.outcome === 'clean' || kick?.outcome === 'break') && kick?.won_by?.team_side === koTeam;
+          const won = inferRestartWinnerSide(s, null) === koTeam;
           const cleanWon = kick?.outcome === 'clean' && kick?.won_by?.team_side === koTeam;
           if (won) keeper.ownKickoutsWon += 1;
           if (cleanWon) keeper.cleanKickoutsWon += 1;
           const endX = Number(s.end_x_position);
-          const own45Line = 45;
-          const isLong = Number.isFinite(endX) && endX > own45Line;
+          const isLong = Number.isFinite(endX) && (
+            koTeam === 'home'
+              ? endX > 45
+              : koTeam === 'away'
+                ? endX < (PITCH_W - 45)
+                : false
+          );
           const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
           if (isLong) {
             keeper.longKickoutsTaken += 1;

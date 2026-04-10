@@ -33,6 +33,7 @@ import {
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
+  defenceSetStateKey,
   inferPossessionStartSource,
   getCompletedReceiptSelection,
   getPrimaryActorSelection,
@@ -161,11 +162,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
   const possessionsFiltered = useMemo(() => {
     if (counterFilter === 'any') return possessions;
-    const map = {
-      defence_set_yes: 'Yes',
-      defence_set_no: 'No',
-    };
-    return possessions.filter((p) => p.counterState === map[counterFilter]);
+    return possessions.filter((p) => defenceSetStateKey(p.counterState) === counterFilter);
   }, [possessions, counterFilter]);
 
   const attacks = useMemo(() => possessionsFiltered.filter((p) => p.isAttack), [possessionsFiltered]);
@@ -184,7 +181,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const attToShot = attN ? (att.filter((p) => p.shots > 0).length / attN) * 100 : NaN;
       const passesPerPoss = possN ? rows.reduce((a, p) => a + (p.passes || 0), 0) / possN : NaN;
       const scoringPoss = possN ? (rows.filter((p) => Number(p.points || 0) > 0).length / possN) * 100 : NaN;
-      const counterPoss = possN ? (rows.filter((p) => p.counterState === 'Yes').length / possN) * 100 : NaN;
+      const counterPoss = possN ? (rows.filter((p) => defenceSetStateKey(p.counterState) === 'defence_set_yes').length / possN) * 100 : NaN;
       const channels = { Left: 0, Middle: 0, Right: 0 };
       rows.filter((p) => p.isAttack).forEach((p) => {
         if (channels[p.attackEntryChannel] != null) channels[p.attackEntryChannel] += 1;

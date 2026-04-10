@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collectPlayerIds, deriveCounterAttackState, deriveOutcome, groupByPossession, safeParseJSON } from '../shared';
+import { collectPlayerIds, defenceSetStateKey, deriveCounterAttackState, deriveOutcome, groupByPossession, safeParseJSON } from '../shared';
 
 export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [vizTeam, setVizTeam] = useState('both');
@@ -117,7 +117,7 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
       if (vizCounters.length) {
         const possKey = `${s?.possession_team_side || 'unknown'}-${s?.possession_id ?? 'na'}`;
         const state = counterStateByPossession.get(possKey) || 'No';
-        const stateKey = state === 'Yes' ? 'defence_set_yes' : 'defence_set_no';
+        const stateKey = defenceSetStateKey(state);
         if (!vizCounters.includes(stateKey)) return false;
       }
       if (vizPlayerIds.length) {

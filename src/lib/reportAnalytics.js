@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v8';
+export const POSSESSION_REBUILD_VERSION = 'v9';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
 
 function shouldMigrateDefenceSetRow(stat) {
@@ -96,6 +96,37 @@ export function getMatchTimeS(stat, match, imputedMap) {
   if (stat?.half === 'et_second') return normalized >= offsets.et_second ? normalized : offsets.et_second + normalized;
   if (stat?.half === 'first' && normalized > offsets.second) return normalized;
   return normalized;
+}
+
+export function getHalfClockBaseS(half, match) {
+  const second = getSecondHalfStartS(match);
+  if (half === 'second') return second;
+  return 0;
+}
+
+function formatClockBase(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const mins = Math.floor(total / 60);
+  const secs = Math.floor(total % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatAddedClock(baseSeconds, totalSeconds) {
+  const added = Math.max(0, Math.floor(totalSeconds - baseSeconds));
+  if (added <= 0) return formatClockBase(totalSeconds);
+  const addedMinutes = Math.floor(added / 60);
+  const addedSeconds = Math.floor(added % 60);
+  return `${Math.floor(baseSeconds / 60)}+${addedMinutes}:${String(addedSeconds).padStart(2, '0')}`;
+}
+
+export function formatHalfClock(normalizedTimeS, half, match) {
+  const normalized = Math.max(0, Number(normalizedTimeS) || 0);
+  const second = getSecondHalfStartS(match);
+  if (half === 'first') return formatAddedClock(second, normalized);
+  if (half === 'second') return formatAddedClock(second * 2, second + normalized);
+  if (half === 'et_first') return formatAddedClock(10 * 60, normalized);
+  if (half === 'et_second') return formatAddedClock(10 * 60, normalized);
+  return formatClockBase(normalized);
 }
 
 export function formatMatchClock(matchTimeS, match) {
@@ -818,6 +849,16 @@ export function sequencePossessionRows(stats, injected = {}) {
     const original = ordered[idx];
     if (!original) continue;
     const stat = original;
+    if (String(stat?.stat_type || '') === 'substitution') {
+      rebuilt.push({
+        ...stat,
+        team_side: 'unknown',
+        possession_team_side: 'unknown',
+        possession_id: 0,
+        __possession_start_source: 'Open Play',
+      });
+      continue;
+    }
     const nextStat = getNextBallActionStat(ordered, idx);
     const extra = parseExtra(stat);
     const { foul, foulBy, foulOn } = getFoulTeams(stat);
