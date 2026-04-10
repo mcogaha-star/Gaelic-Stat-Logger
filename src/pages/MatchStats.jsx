@@ -515,13 +515,17 @@ export default function MatchStats() {
     };
 
     const defaultCounterAttack = useMemo(() => {
-        if (pendingNextPossessionTeamSide) return true;
-        if (!currentPossessionId || !['home', 'away'].includes(currentPossessionTeamSide)) return true;
+        const targetPossessionId = pendingNextPossessionTeamSide
+            ? Number(currentPossessionId || 0) + 1
+            : Number(currentPossessionId || 0);
+        const targetPossessionTeamSide = pendingNextPossessionTeamSide || currentPossessionTeamSide;
 
-        const currentPossessionStats = (stats || [])
+        if (!targetPossessionId || !['home', 'away'].includes(targetPossessionTeamSide)) return true;
+
+        const targetPossessionStats = (stats || [])
             .filter((s) =>
-                Number(s?.possession_id) === Number(currentPossessionId)
-                && s?.possession_team_side === currentPossessionTeamSide
+                Number(s?.possession_id) === targetPossessionId
+                && s?.possession_team_side === targetPossessionTeamSide
                 && s?.stat_type !== 'kickout'
                 && s?.stat_type !== 'period_end'
                 && s?.stat_type !== 'substitution'
@@ -533,8 +537,8 @@ export default function MatchStats() {
                 return String(b?.timestamp || '').localeCompare(String(a?.timestamp || ''));
             });
 
-        if (!currentPossessionStats.length) return true;
-        return !!currentPossessionStats[0].counter_attack;
+        if (!targetPossessionStats.length) return true;
+        return !!targetPossessionStats[0].counter_attack;
     }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide]);
 
     const handleStatSubmit = (payload) => {
