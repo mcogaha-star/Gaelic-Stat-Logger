@@ -854,8 +854,6 @@ export default function MatchStats() {
             outP?.team_id && outP.team_id === match?.home_team_id ? 'home'
             : outP?.team_id && outP.team_id === match?.away_team_id ? 'away'
             : 'unknown';
-        const possId = currentPossessionId || 1;
-        const possTeam = currentPossessionTeamSide || 'unknown';
         const nextPlayId = playCounter + 1;
         const extra = { sub_out_id: subOut, sub_in_id: subIn };
         const statData = {
@@ -869,9 +867,9 @@ export default function MatchStats() {
             half,
             timestamp: new Date().toISOString(),
             play_id: nextPlayId,
-            possession_id: possId,
-            possession_team_side: possTeam,
-            team_side: outSide,
+            possession_id: 0,
+            possession_team_side: 'unknown',
+            team_side: 'unknown',
             counter_attack: false,
             extra_data: JSON.stringify(extra),
         };
@@ -998,6 +996,7 @@ export default function MatchStats() {
                     customFields,
                     shortcutConfig,
                     defaultCounterAttack,
+                    homeAttacksRight: getDirForHalf(half) !== 'left',
                 }}
                 halfPromptProps={{
                     halfPrompt,

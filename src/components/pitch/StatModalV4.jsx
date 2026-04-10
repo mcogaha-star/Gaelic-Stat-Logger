@@ -420,6 +420,7 @@ export default function StatModalV4({
   customFields, // { custom_1..custom_3: { enabled, label, options[] } }
   shortcutConfig,
   defaultCounterAttack = false,
+  homeAttacksRight = true,
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -804,7 +805,7 @@ export default function StatModalV4({
         if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
         numberBufferTimerRef.current = setTimeout(() => {
           numberBufferRef.current = '';
-        }, 1400);
+        }, 2200);
       }
     };
     window.addEventListener('keydown', onKeyDown, true);
@@ -952,8 +953,9 @@ export default function StatModalV4({
     const rawY = Number(startCoords?.y);
     if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return;
 
-    const normX = actingShotSide === 'away' ? 145 - rawX : rawX;
-    const normY = actingShotSide === 'away' ? 85 - rawY : rawY;
+    const actingAttacksRight = actingShotSide === 'home' ? homeAttacksRight : !homeAttacksRight;
+    const normX = actingAttacksRight ? rawX : 145 - rawX;
+    const normY = actingAttacksRight ? rawY : 85 - rawY;
     const dx = 145 - normX;
     const dy = 42.5 - normY;
     const distance = Math.sqrt((dx * dx) + (dy * dy));
@@ -1668,7 +1670,7 @@ export default function StatModalV4({
       stat_type: action,
       is_pass: isDrag,
       team_side: actingSide,
-      counter_attack: action === 'kickout' ? false : !!counterAttack,
+      counter_attack: !!counterAttack,
       time_s: Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null,
       normalized_time_s: Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null,
       primary_player: primary,
@@ -1971,7 +1973,7 @@ export default function StatModalV4({
                     <Select value={passOutcome} onValueChange={setPassOutcome}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
-                        {['completed', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
+                        {['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
