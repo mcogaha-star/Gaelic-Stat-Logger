@@ -346,7 +346,7 @@ function BuildUpTab({
       const next = {};
       for (const pair of substitutionPairs) {
         const existing = current[pair.id];
-        next[pair.id] = existing === 'out' || existing === 'in' ? existing : 'in';
+        next[pair.id] = existing === 'out' || existing === 'in' ? existing : 'out';
       }
       return next;
     });
@@ -355,7 +355,7 @@ function BuildUpTab({
   const hiddenPlayerIds = useMemo(() => {
     const set = new Set();
     substitutionPairs.forEach((pair) => {
-      const selected = selectedSubPairPlayer[pair.id] || 'in';
+      const selected = selectedSubPairPlayer[pair.id] || 'out';
       if (selected === 'out') {
         if (pair.inId) set.add(pair.inId);
       } else {
@@ -490,7 +490,7 @@ function BuildUpTab({
                         <Label className="text-xs text-slate-600">Substitution Pairs</Label>
                         <div className="space-y-2">
                           {substitutionPairs.map((pair) => {
-                            const selected = selectedSubPairPlayer[pair.id] || 'in';
+                            const selected = selectedSubPairPlayer[pair.id] || 'out';
                             const sideColor = pair.side === 'away' ? (awayTeam?.color || '#7f1d1d') : (homeTeam?.color || '#ea580c');
                             return (
                               <div key={pair.id} className="flex items-center gap-2">

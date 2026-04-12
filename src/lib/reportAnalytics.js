@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v10';
+export const POSSESSION_REBUILD_VERSION = 'v11';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
 
 function shouldMigrateDefenceSetRow(stat) {
@@ -681,9 +681,11 @@ export function buildLegacyPossessionRepairs(stats) {
       const outcome = String(extra?.shot?.outcome || '');
       const result = String(extra?.shot?.result || '');
       if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide') {
+        if (nextStat?.stat_type === 'period_end') return null;
         return { forceStart: true, team: null, source: 'Open Play' };
       }
       if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
+        if (nextStat?.stat_type === 'period_end') return null;
         const recovered = extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
         const labelMap = { short: 'Shot Short', blocked: 'Shot Blocked', post: 'Shot Post', saved: 'Shot Saved' };
         return {
@@ -721,9 +723,7 @@ export function buildLegacyPossessionRepairs(stats) {
         source: 'Turnover Won',
       };
     }
-    if (stat?.stat_type === 'period_end') {
-      return { forceStart: true, team: null, source: 'Open Play' };
-    }
+    if (stat?.stat_type === 'period_end') return null;
     return null;
   };
 
