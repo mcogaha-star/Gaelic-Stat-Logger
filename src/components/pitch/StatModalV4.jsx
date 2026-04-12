@@ -819,7 +819,7 @@ export default function StatModalV4({
   // Defaulting to last receiver on open.
   useEffect(() => {
     if (!open) return;
-    if (initialStat?.id) return;
+    if (initialStat) return;
     const def = selectionToValue(defaultReceiver);
     setPassMethod('hand');
     setPassStyle('chest');
@@ -961,7 +961,7 @@ export default function StatModalV4({
     const distance = Math.sqrt((dx * dx) + (dy * dy));
     const inferred = distance > 40 ? '2_point' : (distance < 10 ? 'goal' : 'point');
     if (shotType !== inferred) setShotType(inferred);
-  }, [open, initialStat?.id, action, shotTypeTouched, startCoords, primaryPlayer, ctx, teamSide, shotType]);
+  }, [open, initialStat?.id, action, shotTypeTouched, startCoords, primaryPlayer, ctx, teamSide, shotType, homeAttacksRight]);
 
   // Shot: default outcome to match shot type (unless user manually picked a different outcome).
   useEffect(() => {
@@ -1076,6 +1076,16 @@ export default function StatModalV4({
     if (!String(intendedRecipient).startsWith('player:')) return;
     if (kickoutWonBy !== intendedRecipient) setKickoutWonBy(intendedRecipient);
   }, [open, initialStat?.id, action, kickoutWonBy, intendedRecipient, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'kickout') return;
+    if (touchedRoles?.kickout_lost_by) return;
+    const wonSide = makeSelection(kickoutWonBy, ctx).team_side;
+    if (wonSide !== 'home' && wonSide !== 'away') return;
+    const oppositeValue = wonSide === 'home' ? TEAM_AWAY : TEAM_HOME;
+    if (kickoutLostBy !== oppositeValue) setKickoutLostBy(oppositeValue);
+  }, [open, action, kickoutWonBy, kickoutLostBy, touchedRoles, ctx]);
 
   useEffect(() => {
     if (!open) return;
@@ -1948,15 +1958,17 @@ export default function StatModalV4({
               {action === 'pass' && isDrag && (
                 <>
                   <div className="grid sm:grid-cols-2 gap-2">
-                    <div className="space-y-2">
-                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Method</Label>
-                      <Select value={passMethod} onValueChange={setPassMethod}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
-                        <SelectContent>
-                          {['left', 'right', 'hand', 'other'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <Buttons
+                    label="Method"
+                    value={passMethod}
+                    onChange={setPassMethod}
+                    options={[
+                      { value: 'left', label: 'Left' },
+                      { value: 'right', label: 'Right' },
+                      { value: 'hand', label: 'Hand' },
+                      { value: 'other', label: 'Other' },
+                    ]}
+                  />
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Style</Label>
                       <Select value={passStyle} onValueChange={setPassStyle}>

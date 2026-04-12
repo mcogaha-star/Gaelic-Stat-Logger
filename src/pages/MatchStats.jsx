@@ -486,9 +486,12 @@ export default function MatchStats() {
 
     const updateLastReceiverFrom = ({ stat_type, extra }) => {
         if (stat_type === 'pass') {
+            if (extra?.pass?.outcome === 'turnover' && extra?.turnover?.recovered_by?.kind === 'player') return extra.turnover.recovered_by;
+            if (extra?.pass?.won_by?.kind === 'player') return extra.pass.won_by;
             if (extra?.pass?.outcome === 'completed' && extra?.pass?.intended_recipient?.kind === 'player') return extra.pass.intended_recipient;
         }
         if (stat_type === 'carry') {
+            if (extra?.carry?.outcome === 'turnover' && extra?.turnover?.recovered_by?.kind === 'player') return extra.turnover.recovered_by;
             if (extra?.carry?.outcome === 'completed' && extra?.carry?.carrier?.kind === 'player') return extra.carry.carrier;
         }
         if (stat_type === 'kickout') {

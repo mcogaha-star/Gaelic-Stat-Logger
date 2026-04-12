@@ -76,14 +76,7 @@ function getSectionBoundaryLabel(half) {
 }
 
 function buildSectionDisplayLayout(stats, match, imputedTimeById) {
-  const getSectionMinimumExtent = (half) => {
-    if (half === 'first' || half === 'second') return getSecondHalfStartS(match);
-    if (half === 'et_first' || half === 'et_second') return 10 * 60;
-    return 0;
-  };
-
   const sectionStats = MATCH_SECTION_ORDER.map((half) => {
-    const regulationExtent = getSectionMinimumExtent(half);
     const rows = (Array.isArray(stats) ? stats : []).filter((stat) => stat?.half === half);
     const times = rows
       .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
@@ -92,8 +85,7 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       half,
       rows,
       hasData: times.length > 0,
-      regulationExtent,
-      extent: times.length ? Math.max(Math.max(...times), regulationExtent) : 0,
+      extent: times.length ? Math.max(...times) : 0,
     };
   }).filter((section) => section.hasData);
 
@@ -120,10 +112,10 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
   const axisMax = Math.max(5 * 60, sections[sections.length - 1].offset + sections[sections.length - 1].extent);
   const ticks = Array.from(new Set(sections.flatMap((section) => {
     const values = [section.offset];
-    for (let local = 10 * 60; local < section.regulationExtent; local += 10 * 60) {
+    for (let local = 10 * 60; local < section.extent; local += 10 * 60) {
       values.push(section.offset + local);
     }
-    values.push(section.offset + section.regulationExtent);
+    values.push(section.offset + section.extent);
     return values;
   })))
     .filter((value) => Number.isFinite(value) && value >= 0 && value <= axisMax)
@@ -138,7 +130,7 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       return {
         key: `${section.half}-boundary`,
         label,
-        x: section.offset + section.regulationExtent,
+        x: section.offset + section.extent,
       };
     })
     .filter(Boolean);

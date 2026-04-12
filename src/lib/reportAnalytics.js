@@ -7,7 +7,7 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v9';
+export const POSSESSION_REBUILD_VERSION = 'v10';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
 
 function shouldMigrateDefenceSetRow(stat) {
@@ -470,6 +470,7 @@ export function derivePossessionOutcome(events, teamSide) {
   });
   if (!relevant.length) return 'Other';
 
+  let halfEndFallback = false;
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     const stat = ordered[i];
     if (!stat) continue;
@@ -484,6 +485,10 @@ export function derivePossessionOutcome(events, teamSide) {
 
     const cls = classifyTerminalOutcome(stat, teamSide);
     if (cls === 'CONTINUE' || cls === 'OTHER') continue;
+    if (cls === 'HALF_END') {
+      halfEndFallback = true;
+      continue;
+    }
     if (cls === 'SCORE') return 'Score';
     if (cls === 'WIDE') return 'Wide';
     if (cls === 'SHORT') return 'Short';
@@ -491,8 +496,8 @@ export function derivePossessionOutcome(events, teamSide) {
     if (cls === 'SAVED') return 'Saved';
     if (cls === 'POST') return 'Post';
     if (cls === 'TURNOVER') return 'Turnover';
-    if (cls === 'HALF_END') return 'Half End';
   }
+  if (halfEndFallback) return 'Half End';
   return 'Other';
 }
 
