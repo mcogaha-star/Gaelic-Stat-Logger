@@ -470,6 +470,21 @@ export function derivePossessionOutcome(events, teamSide) {
   });
   if (!relevant.length) return 'Other';
 
+  const acting = ordered.filter((stat) => stat?.team_side === teamSide);
+  for (let i = acting.length - 1; i >= 0; i -= 1) {
+    const stat = acting[i];
+    if (!stat) continue;
+    const cls = classifyTerminalOutcome(stat, teamSide);
+    if (cls === 'CONTINUE' || cls === 'OTHER' || cls === 'HALF_END') continue;
+    if (cls === 'SCORE') return 'Score';
+    if (cls === 'WIDE') return 'Wide';
+    if (cls === 'SHORT') return 'Short';
+    if (cls === 'BLOCKED') return 'Blocked';
+    if (cls === 'SAVED') return 'Saved';
+    if (cls === 'POST') return 'Post';
+    if (cls === 'TURNOVER') return 'Turnover';
+  }
+
   let halfEndFallback = false;
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     const stat = ordered[i];

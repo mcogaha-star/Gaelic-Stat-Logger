@@ -365,17 +365,6 @@ function BuildUpTab({
     return set;
   }, [substitutionPairs, selectedSubPairPlayer]);
 
-  const networkPassesFiltered = useMemo(() => {
-    if (!hiddenPlayerIds.size) return networkPasses;
-    return networkPasses.filter((s) => {
-      const extra = safeParseJSON(s?.extra_data || '{}', {});
-      const passerId = extra?.pass?.passer?.id;
-      const receiver = (extra?.pass?.won_by?.kind === 'player') ? extra?.pass?.won_by : extra?.pass?.intended_recipient;
-      const receiverId = receiver?.id;
-      return !hiddenPlayerIds.has(passerId) && !hiddenPlayerIds.has(receiverId);
-    });
-  }, [networkPasses, hiddenPlayerIds]);
-
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -536,13 +525,14 @@ function BuildUpTab({
                   </div>
                       <div className="space-y-3">
                         <PassNetwork
-                          passes={networkPassesFiltered}
+                          passes={networkPasses}
                           side={networkSide}
                           minCount={pnMin}
                           teamLabel={networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
                           teamColor={(networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
                           showTable={false}
                           pitchScale="88%"
+                          hiddenPlayerIds={hiddenPlayerIds}
                         />
                       </div>
                 </div>
@@ -550,13 +540,14 @@ function BuildUpTab({
             </Card>
 
             <PassNetwork
-              passes={networkPassesFiltered}
+              passes={networkPasses}
               side={networkSide}
               minCount={pnMin}
               teamLabel={`${networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Network Players`}
               teamColor={(networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827'}
               showPitch={false}
               pitchScale="88%"
+              hiddenPlayerIds={hiddenPlayerIds}
             />
 
             <Card>

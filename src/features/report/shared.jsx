@@ -1219,7 +1219,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -1352,7 +1352,11 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
     };
   });
 
-  const maxEdge = edgeList.reduce((m, e) => Math.max(m, e.total), 1);
+  const hiddenSet = hiddenPlayerIds instanceof Set ? hiddenPlayerIds : new Set(Array.isArray(hiddenPlayerIds) ? hiddenPlayerIds : []);
+  const visibleNodes = nodes.filter((n) => !hiddenSet.has(n.id));
+  const visibleNodeIdSet = new Set(visibleNodes.map((n) => n.id));
+  const visibleEdgeList = edgeList.filter((e) => visibleNodeIdSet.has(e.a) && visibleNodeIdSet.has(e.b));
+  const maxEdge = visibleEdgeList.reduce((m, e) => Math.max(m, e.total), 1);
   const maxTouches = nodes.reduce((m, n) => Math.max(m, n.made + n.received), 1);
 
   const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
@@ -1364,6 +1368,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
     .sort((a, b) => (b.weightedDegree - a.weightedDegree) || (b.betweenness - a.betweenness))
     .slice(0, 8);
   const centralityRows = Array.isArray(centralityRowsOverride) ? centralityRowsOverride : computedCentralityRows;
+  const visibleCentralityRows = centralityRows.filter((row) => !hiddenSet.has(row.id));
 
   return (
     <Card>
@@ -1383,7 +1388,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
             >
               <DirectionBadge />
               <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
-            {edgeList.map((e) => {
+            {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
               if (!a || !b) return null;
@@ -1409,7 +1414,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               );
             })}
 
-            {nodes.map((n) => {
+            {visibleNodes.map((n) => {
               const touches = n.made + n.received;
               const point = displayPoint(n.x, n.y);
               if (!point) return null;
@@ -1439,7 +1444,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
             </div>
           </div>
         )}
-        {showTable && centralityRows.length > 0 && (
+        {showTable && visibleCentralityRows.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -1451,7 +1456,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               </TableRow>
             </TableHeader>
             <TableBody>
-              {centralityRows.map((row) => (
+              {visibleCentralityRows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium">{(row.number != null ? `#${row.number}` : 'Player') + (row.name ? ` ${row.name}` : '')}</TableCell>
                   <TableCell className="text-right tabular-nums">{row.made}</TableCell>

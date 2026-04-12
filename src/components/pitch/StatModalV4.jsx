@@ -707,7 +707,7 @@ export default function StatModalV4({
     } else if (type === 'pass') {
       setPasser(selectionToValue(extra?.pass?.passer));
       setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
-      setPassMethod(extra?.pass?.method || '');
+      setPassMethod(extra?.pass?.method === 'other' ? 'hand' : (extra?.pass?.method || ''));
       setPassStyle(extra?.pass?.style || '');
       setPassPressure(extra?.pass?.pressure_on_passer || 'low');
       setPassOutcome(extra?.pass?.outcome || '');
@@ -1966,7 +1966,6 @@ export default function StatModalV4({
                       { value: 'left', label: 'Left' },
                       { value: 'right', label: 'Right' },
                       { value: 'hand', label: 'Hand' },
-                      { value: 'other', label: 'Other' },
                     ]}
                   />
                     <div className="space-y-2">
