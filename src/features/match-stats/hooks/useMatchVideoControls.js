@@ -4,7 +4,7 @@ import { createPageUrl } from '@/utils';
 
 const VIDEO_CHANNEL = 'gstl_video';
 
-export function useMatchVideoControls({ db, matchId, match, half, halfStartByHalf, queryClient }) {
+export function useMatchVideoControls({ db, matchId, match, half, halfStartByHalf, stats, queryClient }) {
   const [currentVideoTimeS, setCurrentVideoTimeS] = useState(null);
   const [videoReady, setVideoReady] = useState(false);
   const [videoPlaying, setVideoPlaying] = useState(false);
@@ -63,11 +63,33 @@ export function useMatchVideoControls({ db, matchId, match, half, halfStartByHal
       toast.error('Open video window first');
       return;
     }
+    const oldAnchor = Number(halfStartByHalf?.[targetHalf]);
+    const newAnchor = Math.floor(Number(currentVideoTimeS));
+    const needsRecalibration = Number.isFinite(oldAnchor) && oldAnchor !== newAnchor;
+    const halfRows = (Array.isArray(stats) ? stats : []).filter((stat) => stat?.half === targetHalf);
+    const rowsToShift = needsRecalibration
+      ? halfRows.filter((stat) => Number.isFinite(Number(stat?.normalized_time_s)))
+      : [];
+    const delta = needsRecalibration ? (oldAnchor - newAnchor) : 0;
+
+    if (rowsToShift.length) {
+      await Promise.all(rowsToShift.map((stat) => {
+        const currentNormalized = Number(stat?.normalized_time_s);
+        const nextNormalized = Math.max(0, currentNormalized + delta);
+        return db.entities.StatEntry.update(stat.id, { normalized_time_s: nextNormalized });
+      }));
+    }
+
     const next = { ...(halfStartByHalf || {}) };
-    next[targetHalf] = Math.floor(Number(currentVideoTimeS));
+    next[targetHalf] = newAnchor;
     await db.entities.Match.update(match.id, { video_half_start_time_s: JSON.stringify(next) });
+    queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
     queryClient.invalidateQueries({ queryKey: ['match', matchId] });
-    toast.success(`${String(targetHalf).replace('_', ' ')} start set`);
+    if (rowsToShift.length) {
+      toast.success(`${String(targetHalf).replace('_', ' ')} recalibrated (${rowsToShift.length} rows shifted)`);
+    } else {
+      toast.success(`${String(targetHalf).replace('_', ' ')} start set`);
+    }
   };
 
   const setHalfStartFromVideo = async () => setHalfStartFromVideoFor(half);

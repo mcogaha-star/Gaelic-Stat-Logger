@@ -216,7 +216,7 @@ export default function MatchStats() {
         sendVideoCommand,
         setHalfStartFromVideo,
         setHalfStartFromVideoFor,
-    } = useMatchVideoControls({ db, matchId, match, half, halfStartByHalf, queryClient });
+    } = useMatchVideoControls({ db, matchId, match, half, halfStartByHalf, stats, queryClient });
 
     const {
         modalOpen,
