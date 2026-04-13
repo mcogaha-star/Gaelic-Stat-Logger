@@ -383,6 +383,7 @@ function CustomFieldInput({ label, config, value, onChange }) {
 const FOUL_TYPES = [
   { value: 'push', label: 'Push' },
   { value: 'pull', label: 'Pull' },
+  { value: 'throw', label: 'Throw' },
   { value: 'bodycheck', label: 'Bodycheck' },
   { value: 'tackle', label: 'Tackle' },
   { value: 'high_tackle', label: 'High Tackle' },
@@ -768,16 +769,10 @@ export default function StatModalV4({
       if (isTypingTarget(e.target)) return;
       if (e.defaultPrevented) return;
       if (videoShortcuts.some((shortcut) => eventMatchesShortcut(e, shortcut))) return;
-      for (const [nextAction, shortcut] of Object.entries(actionShortcuts)) {
-        if (!eventMatchesShortcut(e, shortcut)) continue;
-        e.preventDefault();
-        setAction(nextAction);
-        break;
-      }
-
       const lower = String(e.key || '').toLowerCase();
-      if (lower === 'h' || lower === 'a') {
-        preferredSideRef.current = lower === 'h' ? 'home' : 'away';
+      const active = activeRole || nextUnfilledRole();
+      if ((lower === 'b' || lower === 'c') && active) {
+        preferredSideRef.current = lower === 'b' ? 'home' : 'away';
         if (preferredSideTimerRef.current) clearTimeout(preferredSideTimerRef.current);
         preferredSideTimerRef.current = setTimeout(() => {
           preferredSideRef.current = null;
@@ -785,17 +780,25 @@ export default function StatModalV4({
         return;
       }
 
+      for (const [nextAction, shortcut] of Object.entries(actionShortcuts)) {
+        if (!eventMatchesShortcut(e, shortcut)) continue;
+        e.preventDefault();
+        setAction(nextAction);
+        break;
+      }
+
       if (/^\d$/.test(String(e.key || ''))) {
         e.preventDefault();
-        const active = activeRole || nextUnfilledRole();
         if (!active) return;
         numberBufferRef.current = `${numberBufferRef.current}${e.key}`.slice(-2);
         const desiredSide = getRestrictSideForRole(active) || preferredSideRef.current;
         const sides = desiredSide ? [desiredSide] : ['home', 'away'];
         const pool = sides.flatMap((side) => (rosters?.[side] || []).map((p) => ({ ...p, team_side: side })));
-        const matches = pool.filter((p) => Number(p?.number) === Number(numberBufferRef.current));
-        if (matches.length === 1) {
-          handlePickValue(`player:${matches[0].id}`);
+        const buffer = numberBufferRef.current;
+        const exactMatches = pool.filter((p) => String(p?.number ?? '') === buffer);
+        const canExtend = pool.some((p) => String(p?.number ?? '').startsWith(buffer) && String(p?.number ?? '') !== buffer);
+        if (exactMatches.length === 1 && (buffer.length >= 2 || !canExtend)) {
+          handlePickValue(`player:${exactMatches[0].id}`);
           numberBufferRef.current = '';
           preferredSideRef.current = null;
           if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
@@ -804,7 +807,13 @@ export default function StatModalV4({
         }
         if (numberBufferTimerRef.current) clearTimeout(numberBufferTimerRef.current);
         numberBufferTimerRef.current = setTimeout(() => {
+          const buffered = numberBufferRef.current;
+          const delayedMatches = pool.filter((p) => String(p?.number ?? '') === buffered);
+          if (delayedMatches.length === 1) {
+            handlePickValue(`player:${delayedMatches[0].id}`);
+          }
           numberBufferRef.current = '';
+          preferredSideRef.current = null;
         }, 2200);
       }
     };
@@ -980,16 +989,18 @@ export default function StatModalV4({
       action === 'turnover'
       || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
       || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+    if (initialStat) return;
     if (!isTurnoverContext) return;
     if (touchedRoles?.recovered_by) return;
     setRecoveredBy(forcedBy !== NONE ? forcedBy : NONE);
-  }, [forcedBy, action, passOutcome, carryOutcome, turnoverType, touchedRoles]);
+  }, [forcedBy, action, passOutcome, carryOutcome, turnoverType, touchedRoles, initialStat]);
 
   useEffect(() => {
     const isTurnoverContext =
       action === 'turnover'
       || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
       || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+    if (initialStat) return;
     if (!isTurnoverContext) return;
     const lostSide = makeSelection(lostBy, ctx).team_side;
     const forcedSide = makeSelection(forcedBy, ctx).team_side;
@@ -1002,12 +1013,13 @@ export default function StatModalV4({
     if (recoveredSide && recoveredSide !== requiredSide) {
       setRecoveredBy(requiredSide === 'home' ? TEAM_HOME : TEAM_AWAY);
     }
-  }, [action, passOutcome, carryOutcome, turnoverType, lostBy, forcedBy, recoveredBy, ctx]);
+  }, [action, passOutcome, carryOutcome, turnoverType, lostBy, forcedBy, recoveredBy, ctx, initialStat]);
 
   // Pass turnover defaults:
   // - lost_by defaults to passer
   // - forced_by + recovered_by default to won_by
   useEffect(() => {
+    if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
     if (passOutcome !== 'turnover') return;
@@ -1017,18 +1029,20 @@ export default function StatModalV4({
       if (forcedBy === NONE) setForcedBy(passWonBy);
       if (recoveredBy === NONE) setRecoveredBy(passWonBy);
     }
-  }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy]);
+  }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy, initialStat]);
 
   useEffect(() => {
+    if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'carry') return;
     if (carryOutcome !== 'turnover') return;
     if (lostBy === NONE && carrier !== NONE) setLostBy(carrier);
-  }, [isDrag, action, carryOutcome, carrier, lostBy]);
+  }, [isDrag, action, carryOutcome, carrier, lostBy, initialStat]);
 
   // Pass default: "Won By" should default to the intended recipient (when it's a player) if not set.
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
     if (passOutcome === 'turnover') return; // "won_by" is not used for turnover passes
@@ -1039,20 +1053,22 @@ export default function StatModalV4({
     }
     if (!String(passIntendedRecipient).startsWith('player:')) return;
     if (passWonBy !== passIntendedRecipient) setPassWonBy(passIntendedRecipient);
-  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, touchedRoles]);
+  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, touchedRoles, initialStat]);
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
     if (passOutcome !== 'turnover') return;
     if (passWonBy === NONE) return;
     if (touchedRoles?.pass_won_by) return;
     setPassWonBy(NONE);
-  }, [open, isDrag, action, passOutcome, passWonBy, touchedRoles]);
+  }, [open, isDrag, action, passOutcome, passWonBy, touchedRoles, initialStat]);
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
     if (passOutcome !== 'completed') return;
@@ -1062,7 +1078,7 @@ export default function StatModalV4({
     if (wonSide && wonSide !== side) {
       setPassWonBy(side === 'home' ? TEAM_HOME : TEAM_AWAY);
     }
-  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, passer, ctx]);
+  }, [open, isDrag, action, passOutcome, passWonBy, passIntendedRecipient, passer, ctx, initialStat]);
 
   useEffect(() => {
     if (!open) return;
@@ -1079,25 +1095,28 @@ export default function StatModalV4({
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (action !== 'kickout') return;
     if (touchedRoles?.kickout_lost_by) return;
     const wonSide = makeSelection(kickoutWonBy, ctx).team_side;
     if (wonSide !== 'home' && wonSide !== 'away') return;
     const oppositeValue = wonSide === 'home' ? TEAM_AWAY : TEAM_HOME;
     if (kickoutLostBy !== oppositeValue) setKickoutLostBy(oppositeValue);
-  }, [open, action, kickoutWonBy, kickoutLostBy, touchedRoles, ctx]);
+  }, [open, action, kickoutWonBy, kickoutLostBy, touchedRoles, ctx, initialStat]);
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (action !== 'carry') return;
     if (carryOutcome !== 'foul') return;
     if (touchedRoles?.foul_on) return;
     if (!carrier || carrier === NONE) return;
     setFoulOn(carrier);
-  }, [open, action, carryOutcome, carrier, touchedRoles]);
+  }, [open, action, carryOutcome, carrier, touchedRoles, initialStat]);
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (action !== 'shot') return;
     const supportsResult = ['short', 'saved', 'blocked', 'post'].includes(String(shotOutcome || ''));
     if (!supportsResult) {
@@ -1118,10 +1137,11 @@ export default function StatModalV4({
     if (shotOutcome !== 'saved' && !touchedRoles?.shot_saved_by && shotSavedBy !== NONE) {
       setShotSavedBy(NONE);
     }
-  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, shotBlockedBy, shotSavedBy, touchedRoles]);
+  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, shotBlockedBy, shotSavedBy, touchedRoles, initialStat]);
 
   useEffect(() => {
     if (!open) return;
+    if (initialStat) return;
     if (action !== 'shot') return;
     if (!['blocked', 'short'].includes(String(shotOutcome || ''))) return;
     if (!['retained', 'opposition'].includes(String(shotResult || ''))) return;
@@ -1133,7 +1153,7 @@ export default function StatModalV4({
       : (shooterSide === 'home' ? 'away' : 'home');
     const requiredValue = requiredTeam === 'away' ? TEAM_AWAY : TEAM_HOME;
     if (shotRecoveredBy !== requiredValue) setShotRecoveredBy(requiredValue);
-  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, primaryPlayer, touchedRoles, ctx]);
+  }, [open, action, shotOutcome, shotResult, shotRecoveredBy, primaryPlayer, touchedRoles, ctx, initialStat]);
 
   const isRoleFilled = (roleKey, value) => {
     if (!roleKey) return false;

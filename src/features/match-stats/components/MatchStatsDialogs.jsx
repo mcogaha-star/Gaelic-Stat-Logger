@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import StatModalV4 from '@/components/pitch/StatModalV4';
 
 export default function MatchStatsDialogs({
@@ -54,6 +55,8 @@ export default function MatchStatsDialogs({
     setSubOut,
     subIn,
     setSubIn,
+    subTemporary,
+    setSubTemporary,
     allPlayers,
     homePlayers: subHomePlayers,
     awayPlayers: subAwayPlayers,
@@ -193,11 +196,18 @@ export default function MatchStatsDialogs({
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
+              <div className="space-y-0.5">
+                <Label>Temporary Sub</Label>
+                <div className="text-xs text-slate-500">Mark this substitution as temporary.</div>
+              </div>
+              <Switch checked={!!subTemporary} onCheckedChange={setSubTemporary} />
+            </div>
             <div className="flex gap-2 pt-2">
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); setSubTeamFilter('all'); }}
+                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); setSubTemporary(false); setSubTeamFilter('all'); }}
               >
                 Cancel
               </Button>

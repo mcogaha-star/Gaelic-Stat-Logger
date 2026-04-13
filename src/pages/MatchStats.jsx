@@ -118,6 +118,7 @@ export default function MatchStats() {
     const [subDialogOpen, setSubDialogOpen] = useState(false);
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
+    const [subTemporary, setSubTemporary] = useState(false);
     const [lastDefenceSetByPossession, setLastDefenceSetByPossession] = useState(null);
 
     // Match teams + players
@@ -858,7 +859,7 @@ export default function MatchStats() {
             : outP?.team_id && outP.team_id === match?.away_team_id ? 'away'
             : 'unknown';
         const nextPlayId = playCounter + 1;
-        const extra = { sub_out_id: subOut, sub_in_id: subIn };
+        const extra = { sub_out_id: subOut, sub_in_id: subIn, temporary: !!subTemporary };
         const statData = {
             match_id: matchId,
             player_name: outP?.name,
@@ -897,6 +898,7 @@ export default function MatchStats() {
         setSubDialogOpen(false);
         setSubOut('');
         setSubIn('');
+        setSubTemporary(false);
     };
 
     const handleEndPeriodChoice = async (shouldFlipDirection) => {
@@ -1017,6 +1019,8 @@ export default function MatchStats() {
                     setSubOut,
                     subIn,
                     setSubIn,
+                    subTemporary,
+                    setSubTemporary,
                     allPlayers,
                     homePlayers,
                     awayPlayers,
