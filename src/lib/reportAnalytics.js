@@ -91,10 +91,9 @@ export function getMatchTimeS(stat, match, imputedMap) {
   const normalized = getNormalizedTimeS(stat, imputedMap);
   if (!Number.isFinite(normalized)) return null;
   const offsets = getMatchSectionOffsets(match);
-  if (stat?.half === 'second') return normalized >= offsets.second ? normalized : offsets.second + normalized;
-  if (stat?.half === 'et_first') return normalized >= offsets.et_first ? normalized : offsets.et_first + normalized;
-  if (stat?.half === 'et_second') return normalized >= offsets.et_second ? normalized : offsets.et_second + normalized;
-  if (stat?.half === 'first' && normalized > offsets.second) return normalized;
+  if (stat?.half === 'second') return offsets.second + normalized;
+  if (stat?.half === 'et_first') return offsets.et_first + normalized;
+  if (stat?.half === 'et_second') return offsets.et_second + normalized;
   return normalized;
 }
 
