@@ -119,6 +119,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [playerIds, setPlayerIds] = useState([]);
   const [timeMin, setTimeMin] = useState('');
   const [timeMax, setTimeMax] = useState('');
+  const [rowLimit, setRowLimit] = useState('200');
   const [groupBy, setGroupBy] = useState('none');
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
@@ -243,6 +244,8 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   }, [stats, team, actions, halves, playerIds, timeMin, timeMax, imputedTimeById, match]);
 
   const filteredSorted = useMemo(() => sortStatsForEditing(filtered, match, imputedTimeById), [filtered, match, imputedTimeById]);
+  const visibleRowLimit = rowLimit === 'all' ? filteredSorted.length : Math.max(50, Number(rowLimit) || 200);
+  const visibleRows = useMemo(() => filteredSorted.slice(0, visibleRowLimit), [filteredSorted, visibleRowLimit]);
 
   const keyForGroup = (s) => {
     const extra = safeParseJSON(s?.extra_data || '{}', {});
@@ -930,7 +933,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSorted.slice(0, 200).map((s) => {
+                {visibleRows.map((s) => {
                   const extra = safeParseJSON(s.extra_data || '{}', {});
                   const t = Number(s?.time_s);
                   const hasTime = Number.isFinite(t);
@@ -1009,7 +1012,25 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 })}
               </TableBody>
             </Table>
-            {filteredSorted.length > 200 && <div className="text-xs text-slate-500 pt-2">Showing first 200 rows. Add a group-by to summarise.</div>}
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <div className="text-xs text-slate-500">
+                {rowLimit === 'all'
+                  ? `Showing all ${filteredSorted.length} rows.`
+                  : `Showing first ${Math.min(filteredSorted.length, visibleRowLimit)} of ${filteredSorted.length} rows.`}
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-slate-600">Rows</Label>
+                <Select value={rowLimit} onValueChange={setRowLimit}>
+                  <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="200">200</SelectItem>
+                    <SelectItem value="500">500</SelectItem>
+                    <SelectItem value="1000">1000</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
