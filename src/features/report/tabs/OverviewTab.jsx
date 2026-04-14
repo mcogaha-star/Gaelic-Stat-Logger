@@ -29,6 +29,27 @@ export default function OverviewTab({
     [overviewMomentum]
   );
   const showMomentum = overviewMomentum.mode !== 'none' && momentumRows.length > 0;
+  const renderPossessionOutcomeTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload;
+    if (!row) return null;
+    const total = outcomeSeries.reduce((sum, series) => sum + Number(row?.[series.k] || 0), 0);
+    return (
+      <div className="grid min-w-[10rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+        <div className="font-medium">{row.team}</div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground">Total Possessions</span>
+          <span className="font-mono font-medium tabular-nums text-foreground">{total}</span>
+        </div>
+        {outcomeSeries.map((series) => (
+          <div key={series.k} className="flex justify-between gap-4">
+            <span className="text-muted-foreground">{series.k}</span>
+            <span className="font-mono font-medium tabular-nums text-foreground">{Number(row?.[series.k] || 0)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -257,7 +278,7 @@ export default function OverviewTab({
                     <CartesianGrid vertical={false} />
                     <XAxis dataKey="team" className="text-xs" />
                     <YAxis allowDecimals={false} className="text-xs" />
-                    <Tooltip content={<ChartTooltipContent />} />
+                    <Tooltip content={renderPossessionOutcomeTooltip} />
                     <Legend />
                     {outcomeSeries.map((o) => (
                       <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />

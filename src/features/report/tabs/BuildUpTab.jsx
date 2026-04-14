@@ -99,11 +99,10 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
   };
 
   const renderContent = (isFullscreen = false) => (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
+    <div className={`w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+        {!isFullscreen && <div className="font-semibold text-slate-900 mb-3">{title}</div>}
         <div
-          className={`relative rounded-xl border border-slate-200 overflow-hidden ${isFullscreen ? 'w-full max-w-[1600px] mx-auto' : 'mx-auto'}`}
+          className={`relative overflow-hidden ${isFullscreen ? 'w-full max-w-[1800px] mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
             width: isFullscreen ? '100%' : '73%',
             aspectRatio: `${PITCH_W} / ${PITCH_H}`,
@@ -113,7 +112,7 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
           }}
         >
           <DirectionBadge label={side === 'away' ? 'AWAY <-' : 'HOME ->'} />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
+          <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
             {zoneCounts.map((line, rowIndex) => line.map((count, colIndex) => {
               const x = (colIndex * PITCH_W) / cols;
               const y = (rowIndex * PITCH_H) / rows;
@@ -136,8 +135,7 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
             }))}
           </svg>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 
   return (

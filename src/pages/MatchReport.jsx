@@ -861,7 +861,7 @@ export default function MatchReport() {
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
             </TabsList>
-            {showTopFiltersButton && (
+            {showTopFiltersButton && activeTab !== 'visualiser' && (
               <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="ml-auto gap-2">
@@ -1084,8 +1084,20 @@ export default function MatchReport() {
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               vizColorBy={vizColorBy}
+              setVizColorBy={setVizColorBy}
               vizTeam={vizTeam}
+              setVizTeam={setVizTeam}
+              vizActions={vizActions}
+              setVizActions={setVizActions}
+              vizHalves={vizHalves}
+              setVizHalves={setVizHalves}
+              vizCounters={vizCounters}
+              setVizCounters={setVizCounters}
+              vizPlayerIds={vizPlayerIds}
+              setVizPlayerIds={setVizPlayerIds}
+              playerOptions={playerOptions}
               onOpenVideoAt={openSharedVideoAt}
+              resetAllFilters={resetAllFilters}
             />
           </TabsContent>
 

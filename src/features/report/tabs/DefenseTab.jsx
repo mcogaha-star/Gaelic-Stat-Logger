@@ -265,7 +265,7 @@ function DefenseTab({
                   mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
                   turnoverEndpointOnly
-                  pitchScale="112%"
+                  pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}
                 />
               </CardContent>

@@ -279,7 +279,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       const pressRows = ['m2m', 'zonal', 'conceded']
         .map((press) => {
           const info = row.pressBreakdown?.[press];
-          if (!info?.taken) return null;
           return {
             key: press,
             press: press === 'm2m' ? 'M2M' : toTitleCase(press),
@@ -288,9 +287,8 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
             long: info.longTaken ? `${info.longWon}/${info.longTaken} (${formatPct((info.longWon / info.longTaken) * 100)})` : 'NA',
           };
         })
-        .filter(Boolean);
       return { ...row, pressRows };
-    }).filter((row) => row.pressRows.length > 0 && (teamMode === 'both' || row.team === teamMode));
+    }).filter((row) => row.kickoutsTaken > 0 && (teamMode === 'both' || row.team === teamMode));
   }, [kickouts, nextStatById, playerOptions, teamMode]);
 
   const visibleKickouts = useMemo(() => {

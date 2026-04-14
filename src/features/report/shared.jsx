@@ -162,18 +162,26 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
-          className="w-[96vw] max-w-[96vw] h-[96vh] p-4 flex flex-col gap-3"
+          className="[&>button]:hidden w-screen max-w-screen h-screen p-0 border-0 shadow-none bg-black/80 flex flex-col"
           onInteractOutside={(event) => event.preventDefault()}
           onPointerDownOutside={(event) => event.preventDefault()}
         >
-          <DialogHeader className="flex flex-row items-center justify-between space-y-0">
-            <DialogTitle className="text-base">{title}</DialogTitle>
-            <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen(false)}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
+          <div className="relative flex-1 min-h-0 p-4 md:p-6">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="absolute right-4 top-4 z-20 h-10 w-10 rounded-full border-white/30 bg-black/55 text-white hover:bg-black/70"
+              onClick={() => setOpen(false)}
+            >
               <X className="h-4 w-4" />
             </Button>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {typeof children === 'function' ? children(true) : children}
+            <div className="flex h-full w-full items-center justify-center overflow-hidden">
+              {typeof children === 'function' ? children(true) : children}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1071,7 +1079,7 @@ function PitchViz({
   };
 
   const renderContent = (isFullscreen = false) => (
-    <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
       <div
         className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
         style={{
@@ -1083,7 +1091,7 @@ function PitchViz({
         }}
       >
         <DirectionBadge label={directionLabel} />
-        <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
+        <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
           <defs>
             {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
             <marker id="gstl_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -1186,7 +1194,7 @@ function PitchViz({
         </svg>
       </div>
 
-      {showColorControls && (colorBy === 'action' || colorBy === 'outcome' || colorBy === 'team') && (
+      {!isFullscreen && showColorControls && (colorBy === 'action' || colorBy === 'outcome' || colorBy === 'team') && (
         <div className="border-t bg-slate-50 px-3 py-2">
           <div className="text-xs font-semibold text-slate-700">Colors</div>
           <div className="pt-2 grid grid-cols-2 gap-2">
@@ -1296,7 +1304,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     );
   };
 
-  const TeamHalf = ({ side, title, color }) => {
+  const TeamHalf = ({ side, title, color, isFullscreen = false }) => {
     const panelRows = channels.map((channel) => ({
       channel,
       count: side === 'home' ? rowFor(channel).homeCount : rowFor(channel).awayCount,
@@ -1305,11 +1313,11 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     return (
       <div className="space-y-2">
         <div className="text-sm font-medium text-slate-900">{title}</div>
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className={`overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
           <div
-            className="relative mx-auto"
+            className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
             style={{
-              width: REPORT_PITCH_SCALE,
+              width: '100%',
               aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
@@ -1331,9 +1339,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   };
 
   const renderContent = (isFullscreen = false) => (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">Attack Entry Channels</div>
+    <div className={`w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
         <svg width="0" height="0" className="absolute">
           <defs>
             <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -1343,18 +1349,18 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         </svg>
         {teamMode === 'both' ? (
           <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-2' : 'lg:grid-cols-2'}`}>
-            <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} />
-            <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} />
+            <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} isFullscreen={isFullscreen} />
+            <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} isFullscreen={isFullscreen} />
           </div>
         ) : (
           <TeamHalf
             side={teamMode === 'away' ? 'away' : 'home'}
             title={teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
             color={teamMode === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb')}
+            isFullscreen={isFullscreen}
           />
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 
   return (
@@ -1526,11 +1532,10 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' ? 'asc' : 'desc' });
 
   const renderContent = (isFullscreen = false) => (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
+    <div className={`w-full space-y-3 ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+        {!isFullscreen && <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>}
         {showPitch && (
-          <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
             <div
               className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : 'mx-auto'}`}
               style={{
@@ -1542,7 +1547,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               }}
             >
               <DirectionBadge />
-              <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
+              <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
             {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
@@ -1600,6 +1605,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
           </div>
         )}
         {showTable && visibleCentralityRows.length > 0 && (
+          <div className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -1626,9 +1632,9 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 
   return (
@@ -1817,8 +1823,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   });
 
   const renderContent = (isFullscreen = false) => (
-    <Card>
-      <CardContent className="p-4 space-y-3">
+    <div className={`space-y-3 w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+        {!isFullscreen && (
         <div className="flex items-center justify-between gap-2">
           <div className="font-semibold text-slate-900">Shot Map</div>
           <div className="inline-flex items-center gap-2">
@@ -1841,9 +1847,10 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
             ))}
           </div>
         </div>
+        )}
 
         <div
-          className={`relative rounded-xl border border-slate-200 overflow-hidden ${isFullscreen ? 'w-full max-w-[1600px] mx-auto' : 'mx-auto'}`}
+          className={`relative overflow-hidden ${isFullscreen ? 'w-full max-w-[1800px] mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
             width: isFullscreen ? '100%' : REPORT_PITCH_SCALE,
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
@@ -1853,7 +1860,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
           }}
         >
           <DirectionBadge label="Home ->" />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
+          <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
             {visible.map((s) => {
               const point = transformDisplayPoint(s.x, s.y, s.team_side, true);
               if (!point) return null;
@@ -2009,11 +2016,10 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
           </svg>
         </div>
 
-        <div className="text-[11px] text-slate-500">
+        {!isFullscreen && <div className="text-[11px] text-slate-500">
           Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = score / miss, outline = team.' : 'Colour = score / miss.'}
-        </div>
-      </CardContent>
-    </Card>
+        </div>}
+    </div>
   );
 
   return (
