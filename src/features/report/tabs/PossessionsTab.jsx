@@ -30,6 +30,8 @@ import {
   deriveOutcome,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -247,6 +249,32 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       .map((key) => counts[key])
       .filter((row) => row.home > 0 || row.away > 0 || row.label === 'Open Play');
   }, [possessionsFiltered]);
+  const [originSort, setOriginSort] = useState({ key: 'home', dir: 'desc' });
+  const originColumns = useMemo(() => ([
+    { key: 'label', label: 'Event', sortValue: (r) => r.label },
+    { key: 'home', label: homeTeam?.name || 'Home', sortValue: (r) => r.home },
+    { key: 'away', label: awayTeam?.name || 'Away', sortValue: (r) => r.away },
+  ]), [homeTeam, awayTeam]);
+  const sortedOriginRows = useMemo(() => sortRows(originTableRows, originSort, originColumns, 'label'), [originTableRows, originSort, originColumns]);
+  const toggleOriginSort = (key) => setOriginSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'label' ? 'asc' : 'desc' });
+  const [possessionSort, setPossessionSort] = useState({ key: 'possessionId', dir: 'asc' });
+  const possessionColumns = useMemo(() => ([
+    { key: 'possessionId', label: 'Poss', sortValue: (r) => r.possessionId },
+    { key: 'team', label: 'Team', sortValue: (r) => r.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+    { key: 'half', label: 'Half', sortValue: (r) => r.half },
+    { key: 'startTime', label: 'Start', sortValue: (r) => r.startTime },
+    { key: 'endTime', label: 'End', sortValue: (r) => r.endTime },
+    { key: 'duration', label: 'Dur', sortValue: (r) => r.duration },
+    { key: 'startSource', label: 'Start Source', sortValue: (r) => r.startSource },
+    { key: 'outcome', label: 'Outcome', sortValue: (r) => r.outcome },
+    { key: 'passes', label: 'Completed Passes', sortValue: (r) => r.passes },
+    { key: 'points', label: 'Pts', sortValue: (r) => r.points },
+    { key: 'attack', label: 'Attack', sortValue: (r) => (r.isAttack ? 1 : 0) },
+    { key: 'startZone', label: 'Start Zone', sortValue: (r) => r.startZone },
+    { key: 'counterState', label: 'Set Defence', sortValue: (r) => r.counterState },
+  ]), [homeTeam, awayTeam]);
+  const sortedPossessions = useMemo(() => sortRows(possessionsFiltered, possessionSort, possessionColumns, 'key'), [possessionsFiltered, possessionSort, possessionColumns]);
+  const togglePossessionSort = (key) => setPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'half' || key === 'startSource' || key === 'outcome' || key === 'startZone' || key === 'counterState' ? 'asc' : 'desc' });
   return (
     <div className="space-y-4">
         <ComparisonMetricsCard
@@ -339,13 +367,13 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Event</TableHead>
-                        <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
-                        <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                        <SortableTableHead column={originColumns[0]} sortState={originSort} onToggle={toggleOriginSort} />
+                        <SortableTableHead column={originColumns[1]} sortState={originSort} onToggle={toggleOriginSort} className="text-right" />
+                        <SortableTableHead column={originColumns[2]} sortState={originSort} onToggle={toggleOriginSort} className="text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {originTableRows.map((row) => (
+                      {sortedOriginRows.map((row) => (
                         <TableRow key={row.label}>
                           <TableCell className="font-medium">{row.label}</TableCell>
                           <TableCell className="text-right tabular-nums">{row.home}</TableCell>
@@ -365,24 +393,20 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Poss</TableHead>
-                      <TableHead>Team</TableHead>
-                      <TableHead>Half</TableHead>
-                      <TableHead className="text-right">Start</TableHead>
-                      <TableHead className="text-right">End</TableHead>
-                      <TableHead className="text-right">Dur</TableHead>
-                      <TableHead>Start Source</TableHead>
-                      <TableHead>Outcome</TableHead>
-                      <TableHead className="text-right">Completed Passes</TableHead>
-                      <TableHead className="text-right">Pts</TableHead>
-                      <TableHead className="text-right">Attack</TableHead>
-                      <TableHead>Start Zone</TableHead>
-                      <TableHead>Set Defence</TableHead>
+                      {possessionColumns.map((column) => (
+                        <SortableTableHead
+                          key={column.key}
+                          column={column}
+                          sortState={possessionSort}
+                          onToggle={togglePossessionSort}
+                          className={['startTime', 'endTime', 'duration', 'passes', 'points', 'attack'].includes(column.key) ? 'text-right' : undefined}
+                        />
+                      ))}
                       <TableHead className="text-right"> </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {possessionsFiltered.slice(0, 250).map((p) => {
+                    {sortedPossessions.slice(0, 250).map((p) => {
                       const teamName = p.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
                       return (
                         <TableRow key={p.key} style={teamRowTint(p.teamSide, homeTeam?.color, awayTeam?.color, 0.07)}>

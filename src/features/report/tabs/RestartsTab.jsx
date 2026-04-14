@@ -31,6 +31,8 @@ import {
   formatExtraValue,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -54,7 +56,7 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
-function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -180,6 +182,22 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
       return ex?.kickout?.team_side === teamMode || s?.team_side === teamMode;
     });
   }, [kickouts, teamMode]);
+  const [targetSort, setTargetSort] = useState({ key: 'targeted', dir: 'desc' });
+  const targetColumns = useMemo(() => ([
+    { key: 'team', label: 'Team', sortValue: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+    { key: 'label', label: 'Target', sortValue: (r) => r.label || '' },
+    { key: 'targeted', label: 'Targeted', sortValue: (r) => r.targeted },
+    { key: 'won', label: 'Won', sortValue: (r) => r.won },
+    { key: 'winPct', label: 'Win %', sortValue: (r) => (r.targeted ? (r.won / r.targeted) * 100 : -1) },
+    { key: 'clean', label: 'Clean', sortValue: (r) => r.clean },
+    { key: 'break', label: 'Break', sortValue: (r) => r.break },
+    { key: 'marks', label: 'Marks', sortValue: (r) => r.marks },
+  ]), [homeTeam, awayTeam]);
+  const sortedKickoutTargets = useMemo(
+    () => sortRows(kickoutTargets.filter((r) => teamMode === 'both' || r.team === teamMode), targetSort, targetColumns, 'key'),
+    [kickoutTargets, teamMode, targetSort, targetColumns]
+  );
+  const toggleTargetSort = (key) => setTargetSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'label' || key === 'team' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
@@ -243,6 +261,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                   mirrorAwayWhenBoth={teamMode !== 'home'}
                   kickoutOutcomeDots
                   directionLabel="Home ->"
+                  onOpenVideoAt={onOpenVideoAt}
                 />
               </CardContent>
             </Card>
@@ -253,18 +272,19 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Team</TableHead>
-                      <TableHead>Target</TableHead>
-                      <TableHead className="text-right">Targeted</TableHead>
-                      <TableHead className="text-right">Won</TableHead>
-                      <TableHead className="text-right">Win %</TableHead>
-                      <TableHead className="text-right">Clean</TableHead>
-                      <TableHead className="text-right">Break</TableHead>
-                      <TableHead className="text-right">Marks</TableHead>
+                      {targetColumns.map((column) => (
+                        <SortableTableHead
+                          key={column.key}
+                          column={column}
+                          sortState={targetSort}
+                          onToggle={toggleTargetSort}
+                          className={['targeted', 'won', 'winPct', 'clean', 'break', 'marks'].includes(column.key) ? 'text-right' : undefined}
+                        />
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {kickoutTargets.filter((r) => teamMode === 'both' || r.team === teamMode).slice(0, 200).map((r, idx) => (
+                    {sortedKickoutTargets.slice(0, 200).map((r, idx) => (
                       <TableRow key={`${r.team}-${r.key}-${idx}`} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                         <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
                         <TableCell className="font-medium">{r.label || 'NA'}</TableCell>

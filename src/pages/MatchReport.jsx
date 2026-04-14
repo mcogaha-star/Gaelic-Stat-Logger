@@ -15,7 +15,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { createPageUrl } from '@/utils';
 import {
   formatHalfClock,
-  getSecondHalfStartS,
   getNormalizedTimeS,
   getMatchTimeS,
   normalizeFoulType,
@@ -1086,6 +1085,7 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               vizColorBy={vizColorBy}
               vizTeam={vizTeam}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 
@@ -1106,6 +1106,7 @@ export default function MatchReport() {
               setOutcome={setScoringOutcome}
               zone={scoringZone}
               setZone={setScoringZone}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 
@@ -1154,6 +1155,7 @@ export default function MatchReport() {
               setPnMin={setBuildPnMin}
               pnHalf={buildPnHalf}
               setPnHalf={setBuildPnHalf}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 
@@ -1164,6 +1166,7 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 
@@ -1191,6 +1194,7 @@ export default function MatchReport() {
               setTurnoverTypes={setDefenseTurnoverTypes}
               defTypes={defenseDefTypes}
               setDefTypes={setDefenseDefTypes}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 
@@ -1201,6 +1205,7 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
 

@@ -33,6 +33,8 @@ import {
   formatExtraValue,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   collectPlayerIds,
   collectPlayerSelectionKeys,
   groupByPossession,
@@ -56,6 +58,62 @@ import {
   shotZoneFromDistance,
   applyNonTeamReportFilters,
 } from '../shared';
+
+function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
+  const [sortState, setSortState] = useState({ key: 'overall', dir: 'desc' });
+  const columns = useMemo(() => ([
+    { key: 'press', label: 'Press', sortValue: (row) => row.press },
+    { key: 'overall', label: 'Overall', sortValue: (row) => row.overall },
+    { key: 'short', label: 'Short', sortValue: (row) => row.short },
+    { key: 'long', label: 'Long', sortValue: (row) => row.long },
+  ]), []);
+  const sortedRows = useMemo(() => sortRows(card.pressRows, sortState, columns, 'key'), [card.pressRows, sortState, columns]);
+  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'press' ? 'asc' : 'desc' });
+
+  return (
+    <div key={card.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium text-slate-900">{card.player}</div>
+          <div className="text-xs text-slate-500">
+            {card.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+          </div>
+        </div>
+        <div className="text-right text-xs text-slate-600">
+          <div className="font-medium text-slate-900">{card.kickoutsTaken ? `${card.ownKickoutsWon}/${card.kickoutsTaken}` : 'NA'}</div>
+          <div>Overall Own KO Wins</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <SortableTableHead
+                  key={column.key}
+                  column={column}
+                  sortState={sortState}
+                  onToggle={toggleSort}
+                  className={column.key === 'press' ? undefined : 'text-right'}
+                />
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedRows.map((row) => (
+              <TableRow key={row.key} style={teamRowTint(card.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+                <TableCell className="font-medium">{row.press}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.short}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.long}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
 
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, focusPlayerId, setFocusPlayerId }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }), [reportFilters]);
@@ -631,13 +689,13 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               <TableHeader>
                 <TableRow>
                   {currentColumns.map((col) => (
-                    <TableHead
+                    <SortableTableHead
                       key={col.key}
-                      className={col.numeric ? 'text-right cursor-pointer select-none' : 'cursor-pointer select-none'}
-                      onClick={() => toggleSort(col.key)}
-                    >
-                      {col.label}
-                    </TableHead>
+                      column={{ key: col.key, label: col.label }}
+                      sortState={lbSort}
+                      onToggle={toggleSort}
+                      className={col.numeric ? 'text-right' : undefined}
+                    />
                   ))}
                 </TableRow>
               </TableHeader>
@@ -662,42 +720,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
               <div className="grid gap-3 lg:grid-cols-2">
                 {goalkeeperPressCards.map((card) => (
-                  <div key={card.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-slate-900">{card.player}</div>
-                        <div className="text-xs text-slate-500">
-                          {card.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
-                        </div>
-                      </div>
-                      <div className="text-right text-xs text-slate-600">
-                        <div className="font-medium text-slate-900">{card.kickoutsTaken ? `${card.ownKickoutsWon}/${card.kickoutsTaken}` : 'NA'}</div>
-                        <div>Overall Own KO Wins</div>
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Press</TableHead>
-                            <TableHead className="text-right">Overall</TableHead>
-                            <TableHead className="text-right">Short</TableHead>
-                            <TableHead className="text-right">Long</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {card.pressRows.map((row) => (
-                            <TableRow key={row.key} style={teamRowTint(card.team, homeTeam?.color, awayTeam?.color, 0.07)}>
-                              <TableCell className="font-medium">{row.press}</TableCell>
-                              <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
-                              <TableCell className="text-right tabular-nums">{row.short}</TableCell>
-                              <TableCell className="text-right tabular-nums">{row.long}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
+                  <GoalkeeperPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
                 ))}
               </div>
             </CardContent>

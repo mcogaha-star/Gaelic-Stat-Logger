@@ -31,6 +31,8 @@ import {
   formatExtraValue,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -131,6 +133,23 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
     }
     return Array.from(rows.values()).sort((a, b) => (b.won + b.lost + b.broken) - (a.won + a.lost + a.broken));
   }, [throwIns]);
+  const [outcomeSort, setOutcomeSort] = useState({ key: 'count', dir: 'desc' });
+  const outcomeColumns = useMemo(() => ([
+    { key: 'outcome', label: 'Outcome', sortValue: (r) => r.outcome },
+    { key: 'count', label: 'Count', sortValue: (r) => r.count },
+  ]), []);
+  const sortedOutcomeRows = useMemo(() => sortRows(outcomeRows, outcomeSort, outcomeColumns, 'outcome'), [outcomeRows, outcomeSort, outcomeColumns]);
+  const toggleOutcomeSort = (key) => setOutcomeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'outcome' ? 'asc' : 'desc' });
+  const [playerSort, setPlayerSort] = useState({ key: 'won', dir: 'desc' });
+  const playerColumns = useMemo(() => ([
+    { key: 'player', label: 'Player', sortValue: (r) => r.player },
+    { key: 'team', label: 'Team', sortValue: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (r.team === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
+    { key: 'won', label: 'Won', sortValue: (r) => r.won },
+    { key: 'lost', label: 'Lost', sortValue: (r) => r.lost },
+    { key: 'broken', label: 'Broken', sortValue: (r) => r.broken },
+  ]), [homeTeam, awayTeam]);
+  const sortedPlayerRows = useMemo(() => sortRows(playerRows, playerSort, playerColumns, 'key'), [playerRows, playerSort, playerColumns]);
+  const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' || key === 'team' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
@@ -164,12 +183,12 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Outcome</TableHead>
-                        <TableHead className="text-right">Count</TableHead>
+                        <SortableTableHead column={outcomeColumns[0]} sortState={outcomeSort} onToggle={toggleOutcomeSort} />
+                        <SortableTableHead column={outcomeColumns[1]} sortState={outcomeSort} onToggle={toggleOutcomeSort} className="text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {outcomeRows.map((r) => (
+                      {sortedOutcomeRows.map((r) => (
                         <TableRow key={r.outcome}>
                           <TableCell className="font-medium">{r.outcome}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.count}</TableCell>
@@ -186,15 +205,19 @@ function MiscTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Player</TableHead>
-                        <TableHead>Team</TableHead>
-                        <TableHead className="text-right">Won</TableHead>
-                        <TableHead className="text-right">Lost</TableHead>
-                        <TableHead className="text-right">Broken</TableHead>
+                        {playerColumns.map((column) => (
+                          <SortableTableHead
+                            key={column.key}
+                            column={column}
+                            sortState={playerSort}
+                            onToggle={togglePlayerSort}
+                            className={['won', 'lost', 'broken'].includes(column.key) ? 'text-right' : undefined}
+                          />
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {playerRows.slice(0, 200).map((r) => (
+                      {sortedPlayerRows.slice(0, 200).map((r) => (
                         <TableRow key={r.key}>
                           <TableCell className="font-medium">{r.player}</TableCell>
                           <TableCell>{r.team === 'away' ? (awayTeam?.name || 'Away') : (r.team === 'home' ? (homeTeam?.name || 'Home') : 'NA')}</TableCell>

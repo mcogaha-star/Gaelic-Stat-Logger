@@ -29,6 +29,8 @@ import {
   toTitleCase,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -51,7 +53,7 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
-function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -141,6 +143,27 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
       };
     }).filter((s) => Number.isFinite(Number(s?.x_position)) && Number.isFinite(Number(s?.y_position)));
   }, [visibleFouls]);
+  const [typeSort, setTypeSort] = useState({ key: teamMode === 'both' ? 'count' : 'count', dir: 'desc' });
+  const typeColumns = useMemo(() => ([
+    { key: 'type', label: 'Type', sortValue: (r) => r.type },
+    { key: 'home', label: homeTeam?.name || 'Home', sortValue: (r) => r.home },
+    { key: 'away', label: awayTeam?.name || 'Away', sortValue: (r) => r.away },
+    { key: 'count', label: 'Count', sortValue: (r) => (teamMode === 'home' ? r.home : teamMode === 'away' ? r.away : r.count) },
+  ]), [homeTeam, awayTeam, teamMode]);
+  const toggleTypeSort = (key) => setTypeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'type' ? 'asc' : 'desc' });
+  const sortedTypeRows = useMemo(() => sortRows(typeRows, typeSort, typeColumns, 'type'), [typeRows, typeSort, typeColumns]);
+  const [freeSort, setFreeSort] = useState({ key: 'distance', dir: 'desc' });
+  const freeColumns = useMemo(() => ([
+    { key: 'team', label: 'Team', sortValue: (r) => r.concedingSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+    { key: 'foulType', label: 'Foul Type', sortValue: (r) => r?.foul?.foul_type || '' },
+    { key: 'restartType', label: 'Restart', sortValue: (r) => r.restartType || '' },
+    { key: 'distance', label: 'Distance', sortValue: (r) => r.distance },
+    { key: 'playId', label: 'Play', sortValue: (r) => r.playId },
+    { key: 'possessionId', label: 'Possession', sortValue: (r) => r.possessionId },
+  ]), [homeTeam, awayTeam]);
+  const filteredScorableRows = useMemo(() => scorableFreeRows.filter((row) => teamMode === 'both' || row.concedingSide === teamMode), [scorableFreeRows, teamMode]);
+  const sortedScorableRows = useMemo(() => sortRows(filteredScorableRows, freeSort, freeColumns, 'playId'), [filteredScorableRows, freeSort, freeColumns]);
+  const toggleFreeSort = (key) => setFreeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'foulType' || key === 'restartType' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
@@ -173,6 +196,7 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
                   showColorControls={false}
                 mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
+                  onOpenVideoAt={onOpenVideoAt}
                 />
               </CardContent>
             </Card>
@@ -182,19 +206,19 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Type</TableHead>
+                      <SortableTableHead column={typeColumns[0]} sortState={typeSort} onToggle={toggleTypeSort} />
                       {teamMode === 'both' ? (
                         <>
-                          <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
-                          <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                          <SortableTableHead column={typeColumns[1]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
+                          <SortableTableHead column={typeColumns[2]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
                         </>
                       ) : (
-                        <TableHead className="text-right">Count</TableHead>
+                        <SortableTableHead column={typeColumns[3]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
                       )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {typeRows.map((r) => (
+                    {sortedTypeRows.map((r) => (
                       <TableRow key={r.type}>
                         <TableCell className="font-medium">{r.type}</TableCell>
                         {teamMode === 'both' ? (
@@ -221,17 +245,16 @@ function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFi
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Team</TableHead>
-                        <TableHead>Foul Type</TableHead>
-                        <TableHead>Restart</TableHead>
-                        <TableHead className="text-right">Distance</TableHead>
-                        <TableHead className="text-right">Play</TableHead>
-                        <TableHead className="text-right">Possession</TableHead>
+                        <SortableTableHead column={freeColumns[0]} sortState={freeSort} onToggle={toggleFreeSort} />
+                        <SortableTableHead column={freeColumns[1]} sortState={freeSort} onToggle={toggleFreeSort} />
+                        <SortableTableHead column={freeColumns[2]} sortState={freeSort} onToggle={toggleFreeSort} />
+                        <SortableTableHead column={freeColumns[3]} sortState={freeSort} onToggle={toggleFreeSort} className="text-right" />
+                        <SortableTableHead column={freeColumns[4]} sortState={freeSort} onToggle={toggleFreeSort} className="text-right" />
+                        <SortableTableHead column={freeColumns[5]} sortState={freeSort} onToggle={toggleFreeSort} className="text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {scorableFreeRows
-                        .filter((row) => teamMode === 'both' || row.concedingSide === teamMode)
+                      {sortedScorableRows
                         .slice(0, 200)
                         .map((row) => (
                           <TableRow key={`${row.playId}-${row.restartStat?.id || ''}`}>

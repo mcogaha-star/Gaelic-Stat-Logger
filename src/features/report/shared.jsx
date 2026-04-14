@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ChevronDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import pitchImg from '@/assets/pitch.png';
@@ -88,6 +88,64 @@ function formatMatchClock(seconds, match, half) {
 function formatPct(n) {
   if (!Number.isFinite(n)) return 'NA';
   return `${n.toFixed(1)}%`;
+}
+
+function compareSortValues(a, b) {
+  const av = a == null ? '' : a;
+  const bv = b == null ? '' : b;
+  const an = Number(av);
+  const bn = Number(bv);
+  const aIsNum = Number.isFinite(an) && String(av).trim() !== '';
+  const bIsNum = Number.isFinite(bn) && String(bv).trim() !== '';
+  if (aIsNum && bIsNum) return an - bn;
+  return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function sortRows(rows, sortState, columns = [], fallbackKey = 'key') {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  const sortKey = String(sortState?.key || '');
+  if (!sortKey) return list;
+  const column = columns.find((entry) => entry?.key === sortKey);
+  const getter = column?.sortValue
+    ? column.sortValue
+    : (row) => row?.[sortKey] ?? row?.[fallbackKey] ?? '';
+  list.sort((a, b) => {
+    const cmp = compareSortValues(getter(a), getter(b));
+    if (cmp !== 0) return sortState?.dir === 'asc' ? cmp : -cmp;
+    return compareSortValues(a?.[fallbackKey] ?? '', b?.[fallbackKey] ?? '');
+  });
+  return list;
+}
+
+function SortableTableHead({ column, sortState, onToggle, className = '', children }) {
+  const active = sortState?.key === column?.key;
+  const Icon = !column?.sortable ? null : active ? (sortState?.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+  return (
+    <TableHead className={className}>
+      {column?.sortable === false ? (
+        children ?? column?.label
+      ) : (
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 font-medium text-left ${className.includes('text-right') ? 'ml-auto' : ''}`}
+          onClick={() => onToggle?.(column?.key)}
+        >
+          <span>{children ?? column?.label}</span>
+          {Icon ? <Icon className="h-3.5 w-3.5 text-slate-500" /> : null}
+        </button>
+      )}
+    </TableHead>
+  );
+}
+
+function requestElementFullscreen(target) {
+  const element = target;
+  if (!element || typeof element.requestFullscreen !== 'function') return;
+  try {
+    element.requestFullscreen();
+  } catch {
+    // ignore
+  }
 }
 
 function hexToRgba(color, alpha = 0.08) {
@@ -838,6 +896,8 @@ function PitchViz({
   kickoutOutcomeDots = false,
   turnoverEndpointOnly = false,
   pitchScale = REPORT_PITCH_SCALE,
+  onOpenVideoAt = null,
+  fullscreenEnabled = true,
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -912,6 +972,7 @@ function PitchViz({
   const persist = (key, obj) => {
     try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
   };
+  const containerRef = React.useRef(null);
 
   const tooltipText = (s, extra) => {
     const lines = [];
@@ -958,8 +1019,18 @@ function PitchViz({
       : (teamPalette?.home || homeColor || '#22c55e');
   };
 
+  const openVideoForStat = (stat) => {
+    const timeS = Number(stat?.time_s);
+    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+  };
+
   return (
-    <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div
+      ref={containerRef}
+      className={`w-full rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
+      onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
+      title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
+    >
       <div
         className="relative mx-auto"
         style={{
@@ -1001,7 +1072,14 @@ function PitchViz({
                 || !!extra?.turnover;
               if (turnoverEndpointOnly && isEmbeddedTurnover) {
                 return (
-                  <g key={s.id}>
+                  <g
+                    key={s.id}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      openVideoForStat(s);
+                    }}
+                  >
                     <title>{tip}</title>
                     <circle cx={x2} cy={y2} r="1.6" fill={col} opacity="0.95" />
                   </g>
@@ -1022,7 +1100,14 @@ function PitchViz({
                 : col;
               const lineColor = s.stat_type === 'kickout' && kickoutOutcomeDots ? kickoutTeamColor : col;
               return (
-                <g key={s.id}>
+                <g
+                  key={s.id}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    openVideoForStat(s);
+                  }}
+                >
                   <title>{tip}</title>
                   <line
                     x1={x1}
@@ -1044,7 +1129,14 @@ function PitchViz({
               );
             }
             return (
-              <g key={s.id}>
+              <g
+                key={s.id}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  openVideoForStat(s);
+                }}
+              >
                 <title>{tip}</title>
                 <circle cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />
               </g>
@@ -1133,7 +1225,7 @@ function PitchViz({
   );
 }
 
-function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows }) {
+function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows, fullscreenEnabled = true }) {
   const rowFor = (channel) => rows.find((r) => r.channel === channel) || {};
   const channels = ['Left', 'Middle', 'Right'];
 
@@ -1158,6 +1250,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   };
 
   const TeamHalf = ({ side, title, color }) => {
+    const containerRef = React.useRef(null);
     const panelRows = channels.map((channel) => ({
       channel,
       count: side === 'home' ? rowFor(channel).homeCount : rowFor(channel).awayCount,
@@ -1166,7 +1259,12 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     return (
       <div className="space-y-2">
         <div className="text-sm font-medium text-slate-900">{title}</div>
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div
+          ref={containerRef}
+          className={`rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
+          onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
+          title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
+        >
           <div
             className="relative mx-auto"
             style={{
@@ -1219,7 +1317,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -1369,13 +1467,29 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
     .slice(0, 8);
   const centralityRows = Array.isArray(centralityRowsOverride) ? centralityRowsOverride : computedCentralityRows;
   const visibleCentralityRows = centralityRows.filter((row) => !hiddenSet.has(row.id));
+  const [tableSort, setTableSort] = useState({ key: 'weightedDegree', dir: 'desc' });
+  const tableColumns = useMemo(() => ([
+    { key: 'player', label: 'Player', sortValue: (row) => `${row.number ?? ''} ${row.name || ''}`.trim() },
+    { key: 'made', label: 'Passes', sortValue: (row) => row.made },
+    { key: 'received', label: 'Received', sortValue: (row) => row.received },
+    { key: 'weightedDegree', label: 'Weighted Degree', sortValue: (row) => row.weightedDegree },
+    { key: 'betweenness', label: 'Betweenness', sortValue: (row) => row.betweenness },
+  ]), []);
+  const sortedCentralityRows = useMemo(() => sortRows(visibleCentralityRows, tableSort, tableColumns, 'id'), [visibleCentralityRows, tableSort, tableColumns]);
+  const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' ? 'asc' : 'desc' });
+  const pitchRef = React.useRef(null);
 
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
         {showPitch && (
-          <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div
+            ref={pitchRef}
+            className={`w-full rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
+            onClick={fullscreenEnabled ? () => requestElementFullscreen(pitchRef.current) : undefined}
+            title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
+          >
             <div
               className="relative mx-auto"
               style={{
@@ -1448,15 +1562,19 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Player</TableHead>
-                <TableHead className="text-right">Passes</TableHead>
-                <TableHead className="text-right">Received</TableHead>
-                <TableHead className="text-right">Weighted Degree</TableHead>
-                <TableHead className="text-right">Betweenness</TableHead>
+                {tableColumns.map((column) => (
+                  <SortableTableHead
+                    key={column.key}
+                    column={column}
+                    sortState={tableSort}
+                    onToggle={toggleTableSort}
+                    className={column.key === 'player' ? undefined : 'text-right'}
+                  />
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleCentralityRows.map((row) => (
+              {sortedCentralityRows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium">{(row.number != null ? `#${row.number}` : 'Player') + (row.name ? ` ${row.name}` : '')}</TableCell>
                   <TableCell className="text-right tabular-nums">{row.made}</TableCell>
@@ -1629,8 +1747,9 @@ function shotZoneFromDistance(d) {
 }
 
 
-function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor }) {
+function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor, onOpenVideoAt = null, fullscreenEnabled = true }) {
   const list = Array.isArray(shots) ? shots : [];
+  const containerRef = React.useRef(null);
 
   const colors = {
     score: '#16a34a',
@@ -1678,7 +1797,10 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div
-          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden"
+          ref={containerRef}
+          className={`relative mx-auto rounded-xl border border-slate-200 overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
+          onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
+          title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
           style={{
             width: REPORT_PITCH_SCALE,
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
@@ -1718,7 +1840,15 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
 
               if (shape === 'goal') {
                 return (
-                  <g key={s.id}>
+                  <g
+                    key={s.id}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                    }}
+                  >
                     <rect
                       x={x - size}
                       y={y - size}
@@ -1752,7 +1882,15 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               }
               if (shape === '2_point') {
                 return (
-                  <g key={s.id}>
+                  <g
+                    key={s.id}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                    }}
+                  >
                     <rect
                       x={x - size}
                       y={y - size}
@@ -1788,7 +1926,15 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 );
               }
               return (
-                <g key={s.id}>
+                <g
+                  key={s.id}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                  }}
+                >
                   <circle
                     cx={x}
                     cy={y}
@@ -1875,6 +2021,9 @@ export {
   formatAddedTime,
   formatMatchClock,
   formatPct,
+  sortRows,
+  SortableTableHead,
+  requestElementFullscreen,
   ComparisonMetricsCard,
   teamRowTint,
   computeImputedNormalizedTimes,

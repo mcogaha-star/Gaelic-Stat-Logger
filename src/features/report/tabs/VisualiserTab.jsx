@@ -1,7 +1,7 @@
 import React from 'react';
 import { PitchViz } from '../shared';
 
-export default function VisualiserTab({ filteredForViz, homeTeam, awayTeam, vizColorBy, vizTeam }) {
+export default function VisualiserTab({ filteredForViz, homeTeam, awayTeam, vizColorBy, vizTeam, onOpenVideoAt }) {
   return (
     <div className="space-y-4">
       <PitchViz
@@ -11,6 +11,7 @@ export default function VisualiserTab({ filteredForViz, homeTeam, awayTeam, vizC
         colorBy={vizColorBy}
       mirrorAwayWhenBoth={vizTeam !== 'home'}
         directionLabel="Home ->"
+        onOpenVideoAt={onOpenVideoAt}
       />
     </div>
   );

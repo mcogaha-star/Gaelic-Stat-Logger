@@ -29,6 +29,8 @@ import {
   toTitleCase,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -64,6 +66,7 @@ function DefenseTab({
   setTurnoverTypes,
   defTypes,
   setDefTypes,
+  onOpenVideoAt,
 }) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
@@ -210,6 +213,15 @@ function DefenseTab({
   }), [defActions, defTypes, teamMode]);
 
   const mapStats = useMemo(() => filteredTurnovers, [filteredTurnovers]);
+  const [typeSort, setTypeSort] = useState({ key: teamMode === 'both' ? 'home' : 'won', dir: 'desc' });
+  const typeColumns = useMemo(() => ([
+    { key: 'type', label: 'Type', sortValue: (r) => r.type },
+    { key: 'home', label: homeTeam?.name || 'Home', sortValue: (r) => r.home },
+    { key: 'away', label: awayTeam?.name || 'Away', sortValue: (r) => r.away },
+    { key: 'count', label: 'Count', sortValue: (r) => r.won + r.lost },
+  ]), [homeTeam, awayTeam]);
+  const sortedTypeRows = useMemo(() => sortRows(typeRows, typeSort, typeColumns, 'type'), [typeRows, typeSort, typeColumns]);
+  const toggleTypeSort = (key) => setTypeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'type' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
@@ -254,6 +266,7 @@ function DefenseTab({
                   directionLabel="Home ->"
                   turnoverEndpointOnly
                   pitchScale="112%"
+                  onOpenVideoAt={onOpenVideoAt}
                 />
               </CardContent>
             </Card>
@@ -266,19 +279,19 @@ function DefenseTab({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
+                  <SortableTableHead column={typeColumns[0]} sortState={typeSort} onToggle={toggleTypeSort} />
                   {teamMode === 'both' ? (
                     <>
-                      <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>
-                      <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>
+                      <SortableTableHead column={typeColumns[1]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
+                      <SortableTableHead column={typeColumns[2]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
                     </>
                   ) : (
-                    <TableHead className="text-right">Count</TableHead>
+                    <SortableTableHead column={typeColumns[3]} sortState={typeSort} onToggle={toggleTypeSort} className="text-right" />
                   )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {typeRows.map((r) => (
+                {sortedTypeRows.map((r) => (
                   <TableRow key={r.type}>
                     <TableCell className="font-medium">{r.type}</TableCell>
                     {teamMode === 'both' ? (

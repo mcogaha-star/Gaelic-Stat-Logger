@@ -34,6 +34,9 @@ import {
   deriveOutcome,
   formatMMSS,
   formatPct,
+  requestElementFullscreen,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -60,6 +63,7 @@ import {
 function PassHeatmapCard({ title, stats, side, teamColor }) {
   const cols = 6;
   const rows = 5;
+  const containerRef = React.useRef(null);
   const zoneCounts = useMemo(() => {
     const counts = Array.from({ length: rows }, () => Array(cols).fill(0));
     for (const stat of Array.isArray(stats) ? stats : []) {
@@ -101,7 +105,10 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{title}</div>
         <div
-          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden"
+          ref={containerRef}
+          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden cursor-zoom-in"
+          onClick={() => requestElementFullscreen(containerRef.current)}
+          title="Click to view fullscreen"
           style={{
             width: '73%',
             aspectRatio: `${PITCH_W} / ${PITCH_H}`,
@@ -159,6 +166,7 @@ function BuildUpTab({
   setPnMin,
   pnHalf,
   setPnHalf,
+  onOpenVideoAt,
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
@@ -364,6 +372,20 @@ function BuildUpTab({
     });
     return set;
   }, [substitutionPairs, selectedSubPairPlayer]);
+  const [startZoneSort, setStartZoneSort] = useState({ key: 'zone', dir: 'asc' });
+  const startZoneColumns = useMemo(() => ([
+    { key: 'zone', label: 'Zone', sortValue: (r) => r.zone },
+    { key: 'home', label: homeTeam?.name || 'Home', sortValue: (r) => r.home },
+    { key: 'away', label: awayTeam?.name || 'Away', sortValue: (r) => r.away },
+  ]), [homeTeam, awayTeam]);
+  const startZoneRows = useMemo(() => ['Defensive Third', 'Middle Third', 'Attacking Third'].map((zone) => ({
+    key: zone,
+    zone,
+    home: kpis.home.startZones?.[zone] || 0,
+    away: kpis.away.startZones?.[zone] || 0,
+  })), [kpis]);
+  const sortedStartZoneRows = useMemo(() => sortRows(startZoneRows, startZoneSort, startZoneColumns, 'key'), [startZoneRows, startZoneSort, startZoneColumns]);
+  const toggleStartZoneSort = (key) => setStartZoneSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'zone' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
@@ -406,6 +428,7 @@ function BuildUpTab({
                   showColorControls={false}
                   mirrorAwayWhenBoth={teamMode !== 'home'}
                   directionLabel="Home ->"
+                  onOpenVideoAt={onOpenVideoAt}
                 />
               </CardContent>
             </Card>
@@ -556,20 +579,20 @@ function BuildUpTab({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Zone</TableHead>
-                      {(teamMode === 'both' || teamMode === 'home') && <TableHead className="text-right">{homeTeam?.name || 'Home'}</TableHead>}
-                      {(teamMode === 'both' || teamMode === 'away') && <TableHead className="text-right">{awayTeam?.name || 'Away'}</TableHead>}
+                      <SortableTableHead column={startZoneColumns[0]} sortState={startZoneSort} onToggle={toggleStartZoneSort} />
+                      {(teamMode === 'both' || teamMode === 'home') && <SortableTableHead column={startZoneColumns[1]} sortState={startZoneSort} onToggle={toggleStartZoneSort} className="text-right" />}
+                      {(teamMode === 'both' || teamMode === 'away') && <SortableTableHead column={startZoneColumns[2]} sortState={startZoneSort} onToggle={toggleStartZoneSort} className="text-right" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {['Defensive Third', 'Middle Third', 'Attacking Third'].map((zone) => (
-                      <TableRow key={zone}>
-                        <TableCell className="font-medium">{zone}</TableCell>
+                    {sortedStartZoneRows.map((row) => (
+                      <TableRow key={row.key}>
+                        <TableCell className="font-medium">{row.zone}</TableCell>
                         {(teamMode === 'both' || teamMode === 'home') && (
-                          <TableCell className="text-right tabular-nums">{kpis.home.startZones?.[zone] || 0}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.home}</TableCell>
                         )}
                         {(teamMode === 'both' || teamMode === 'away') && (
-                          <TableCell className="text-right tabular-nums">{kpis.away.startZones?.[zone] || 0}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.away}</TableCell>
                         )}
                       </TableRow>
                     ))}

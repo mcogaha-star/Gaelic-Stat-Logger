@@ -31,6 +31,8 @@ import {
   formatMatchClock,
   formatMMSS,
   formatPct,
+  sortRows,
+  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -55,6 +57,9 @@ import {
 } from '../shared';
 
 function SideBreakdownTable({ title, rows, columns }) {
+  const [sortState, setSortState] = useState({ key: columns?.[0]?.key || '', dir: 'asc' });
+  const sortedRows = useMemo(() => sortRows(rows, sortState, columns, 'key'), [rows, sortState, columns]);
+  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
@@ -63,14 +68,18 @@ function SideBreakdownTable({ title, rows, columns }) {
           <TableHeader>
             <TableRow>
               {columns.map((column) => (
-                <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
-                  {column.label}
-                </TableHead>
+                <SortableTableHead
+                  key={column.key}
+                  column={column}
+                  sortState={sortState}
+                  onToggle={toggleSort}
+                  className={column.align === 'right' ? 'text-right' : undefined}
+                />
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
+            {sortedRows.map((row) => (
               <TableRow key={row.key || row.label || row.pressure || row.situation}>
                 {columns.map((column) => (
                   <TableCell
@@ -93,6 +102,10 @@ function SideBreakdownTable({ title, rows, columns }) {
 }
 
 function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows, columns }) {
+  const [sortState, setSortState] = useState({ key: columns?.[0]?.key || '', dir: 'asc' });
+  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  const sortedHomeRows = useMemo(() => sortRows(homeRows, sortState, columns, 'key'), [homeRows, sortState, columns]);
+  const sortedAwayRows = useMemo(() => sortRows(awayRows, sortState, columns, 'key'), [awayRows, sortState, columns]);
   const renderSection = (label, rows) => (
     <>
       <TableRow>
@@ -126,15 +139,19 @@ function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows
           <TableHeader>
             <TableRow>
               {columns.map((column) => (
-                <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
-                  {column.label}
-                </TableHead>
+                <SortableTableHead
+                  key={column.key}
+                  column={column}
+                  sortState={sortState}
+                  onToggle={toggleSort}
+                  className={column.align === 'right' ? 'text-right' : undefined}
+                />
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {renderSection(homeLabel, homeRows)}
-            {renderSection(awayLabel, awayRows)}
+            {renderSection(homeLabel, sortedHomeRows)}
+            {renderSection(awayLabel, sortedAwayRows)}
           </TableBody>
         </Table>
       </CardContent>
@@ -145,6 +162,22 @@ function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows
 function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel, homeLabel, awayLabel, homeRows, awayRows, columns }) {
   const homeByKey = new Map((homeRows || []).map((row) => [row[categoryKey], row]));
   const awayByKey = new Map((awayRows || []).map((row) => [row[categoryKey], row]));
+  const sortColumns = useMemo(() => ([
+    { key: '__category', label: categoryLabel, sortValue: (row) => row?.label || '' },
+    ...columns.map((column) => ({
+      ...column,
+      sortValue: (row) => (column.sortValue ? column.sortValue(row?.homeRow) : (row?.homeRow?.[column.key] ?? '')),
+    })),
+  ]), [columns, categoryLabel]);
+  const [sortState, setSortState] = useState({ key: '__category', dir: 'asc' });
+  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  const categoryRows = useMemo(() => categories.map((category) => ({
+    ...category,
+    key: category.key,
+    homeRow: homeByKey.get(category.key) || category.homeFallback,
+    awayRow: awayByKey.get(category.key) || category.awayFallback,
+  })), [categories, homeByKey, awayByKey]);
+  const sortedCategories = useMemo(() => sortRows(categoryRows, sortState, sortColumns, 'key'), [categoryRows, sortState, sortColumns]);
 
   return (
     <Card>
@@ -153,19 +186,23 @@ function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{categoryLabel}</TableHead>
+              <SortableTableHead column={{ key: '__category', label: categoryLabel }} sortState={sortState} onToggle={toggleSort} />
               <TableHead>Team</TableHead>
               {columns.map((column) => (
-                <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
-                  {column.label}
-                </TableHead>
+                <SortableTableHead
+                  key={column.key}
+                  column={column}
+                  sortState={sortState}
+                  onToggle={toggleSort}
+                  className={column.align === 'right' ? 'text-right' : undefined}
+                />
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {categories.flatMap((category, idx) => {
-              const homeRow = homeByKey.get(category.key) || category.homeFallback;
-              const awayRow = awayByKey.get(category.key) || category.awayFallback;
+            {sortedCategories.flatMap((category, idx) => {
+              const homeRow = category.homeRow;
+              const awayRow = category.awayRow;
               return [
                 (
                   <TableRow key={`${category.key}-home`} className={idx > 0 ? 'border-t-2 border-slate-200' : ''}>
@@ -292,7 +329,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   );
 }
 
-function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone }) {
+function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [shotMapMode, setShotMapMode] = useState('all');
@@ -572,6 +609,25 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
     out.sort((a, b) => b.points - a.points);
     return out;
   }, [filteredShots, teamMode]);
+  const [playerSort, setPlayerSort] = useState({ key: 'points', dir: 'desc' });
+  const playerColumns = useMemo(() => ([
+    { key: 'player', label: 'Player', sortValue: (r) => r.player },
+    { key: 'shots', label: 'Shots', sortValue: (r) => r.shots },
+    { key: 'scores', label: 'Scores', sortValue: (r) => r.scores },
+    { key: 'points', label: 'Points', sortValue: (r) => r.points },
+    { key: 'pps', label: 'Pts/Shot', sortValue: (r) => r.pps },
+    { key: 'avgDist', label: 'Avg Dist', sortValue: (r) => r.avgDist },
+    { key: 'pointAtt', label: '1 Att', sortValue: (r) => r.pointAtt },
+    { key: 'pointMade', label: '1 Scored', sortValue: (r) => r.pointMade },
+    { key: 'twoAtt', label: '2 Att', sortValue: (r) => r.twoAtt },
+    { key: 'twoMade', label: '2 Scored', sortValue: (r) => r.twoMade },
+    { key: 'goalAtt', label: 'Goal Att', sortValue: (r) => r.goalAtt },
+    { key: 'goalMade', label: 'Goal Scored', sortValue: (r) => r.goalMade },
+    { key: 'playShots', label: 'Play Shots', sortValue: (r) => r.playShots },
+    { key: 'placedShots', label: 'Placed Shots', sortValue: (r) => r.placedShots },
+  ]), []);
+  const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
+  const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
 
   return (
     <div className="space-y-4">
@@ -607,7 +663,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
           </Card>
         ) : (
           <>
-            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} />
+            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
 
             <div className="grid lg:grid-cols-2 gap-4">
               {teamMode === 'both' ? (
@@ -697,24 +753,19 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Player</TableHead>
-                      <TableHead className="text-right">Shots</TableHead>
-                      <TableHead className="text-right">Scores</TableHead>
-                      <TableHead className="text-right">Points</TableHead>
-                      <TableHead className="text-right">Pts/Shot</TableHead>
-                      <TableHead className="text-right">Avg Dist</TableHead>
-                      <TableHead className="text-right">1 Att</TableHead>
-                      <TableHead className="text-right">1 Scored</TableHead>
-                      <TableHead className="text-right">2 Att</TableHead>
-                      <TableHead className="text-right">2 Scored</TableHead>
-                      <TableHead className="text-right">Goal Att</TableHead>
-                      <TableHead className="text-right">Goal Scored</TableHead>
-                      <TableHead className="text-right">Play Shots</TableHead>
-                      <TableHead className="text-right">Placed Shots</TableHead>
+                      {playerColumns.map((column) => (
+                        <SortableTableHead
+                          key={column.key}
+                          column={column}
+                          sortState={playerSort}
+                          onToggle={togglePlayerSort}
+                          className={column.key === 'player' ? undefined : 'text-right'}
+                        />
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {playerSummary.map((r) => (
+                    {sortedPlayerSummary.map((r) => (
                       <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                         <TableCell className="font-medium">{r.player}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
