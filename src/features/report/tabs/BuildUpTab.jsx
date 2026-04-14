@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
@@ -34,7 +33,6 @@ import {
   deriveOutcome,
   formatMMSS,
   formatPct,
-  requestElementFullscreen,
   sortRows,
   SortableTableHead,
   groupByPossession,
@@ -55,6 +53,7 @@ import {
   AttackChannelPitch,
   PassNetwork,
   ShotMap,
+  FullscreenMapShell,
   shotSideFromY,
   shotZoneFromDistance,
   applyNonTeamReportFilters,
@@ -63,7 +62,6 @@ import {
 function PassHeatmapCard({ title, stats, side, teamColor }) {
   const cols = 6;
   const rows = 5;
-  const containerRef = React.useRef(null);
   const zoneCounts = useMemo(() => {
     const counts = Array.from({ length: rows }, () => Array(cols).fill(0));
     for (const stat of Array.isArray(stats) ? stats : []) {
@@ -100,17 +98,14 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
-  return (
+  const renderContent = (isFullscreen = false) => (
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{title}</div>
         <div
-          ref={containerRef}
-          className="relative mx-auto rounded-xl border border-slate-200 overflow-hidden cursor-zoom-in"
-          onClick={() => requestElementFullscreen(containerRef.current)}
-          title="Click to view fullscreen"
+          className={`relative rounded-xl border border-slate-200 overflow-hidden ${isFullscreen ? 'w-full max-w-[1600px] mx-auto' : 'mx-auto'}`}
           style={{
-            width: '73%',
+            width: isFullscreen ? '100%' : '73%',
             aspectRatio: `${PITCH_W} / ${PITCH_H}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
@@ -118,7 +113,7 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
           }}
         >
           <DirectionBadge label={side === 'away' ? 'AWAY <-' : 'HOME ->'} />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+          <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
             {zoneCounts.map((line, rowIndex) => line.map((count, colIndex) => {
               const x = (colIndex * PITCH_W) / cols;
               const y = (rowIndex * PITCH_H) / rows;
@@ -143,6 +138,12 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
         </div>
       </CardContent>
     </Card>
+  );
+
+  return (
+    <FullscreenMapShell title={title} enabled>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
   );
 }
 

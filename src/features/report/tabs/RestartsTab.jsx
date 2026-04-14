@@ -56,6 +56,62 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
+function KickoutPressTable({ card, homeTeam, awayTeam }) {
+  const [sortState, setSortState] = useState({ key: 'overall', dir: 'desc' });
+  const columns = useMemo(() => ([
+    { key: 'press', label: 'Press', sortValue: (row) => row.press },
+    { key: 'overall', label: 'Overall', sortValue: (row) => row.overall },
+    { key: 'short', label: 'Short', sortValue: (row) => row.short },
+    { key: 'long', label: 'Long', sortValue: (row) => row.long },
+  ]), []);
+  const sortedRows = useMemo(() => sortRows(card.pressRows, sortState, columns, 'key'), [card.pressRows, sortState, columns]);
+  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'press' ? 'asc' : 'desc' });
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium text-slate-900">{card.player}</div>
+          <div className="text-xs text-slate-500">
+            {card.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+          </div>
+        </div>
+        <div className="text-right text-xs text-slate-600">
+          <div className="font-medium text-slate-900">{card.kickoutsTaken ? `${card.ownKickoutsWon}/${card.kickoutsTaken}` : 'NA'}</div>
+          <div>Overall Own KO Wins</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <SortableTableHead
+                  key={column.key}
+                  column={column}
+                  sortState={sortState}
+                  onToggle={toggleSort}
+                  className={column.key === 'press' ? undefined : 'text-right'}
+                />
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedRows.map((row) => (
+              <TableRow key={row.key} style={teamRowTint(card.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+                <TableCell className="font-medium">{row.press}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.short}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.long}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
@@ -174,6 +230,68 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
     }
     return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
   }, [kickouts, nextStatById]);
+
+  const kickoutPressCards = useMemo(() => {
+    const keeperRows = new Map();
+    for (const stat of kickouts) {
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      const kick = extra?.kickout || {};
+      const team = kick?.team_side;
+      if (team !== 'home' && team !== 'away') continue;
+      const keeper = playerOptions?.find((player) => player?.team_side === team && Number(player?.number) === 1);
+      const keeperKey = keeper?.id ? `${team}|${keeper.id}` : `${team}|keeper`;
+      const current = keeperRows.get(keeperKey) || {
+        key: keeperKey,
+        team,
+        player: keeper ? `#${keeper.number || ''} ${keeper.name || ''}`.trim() : `${team === 'away' ? 'Away' : 'Home'} Goalkeeper`,
+        kickoutsTaken: 0,
+        ownKickoutsWon: 0,
+        pressBreakdown: {
+          m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+          zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+          conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
+        },
+      };
+      current.kickoutsTaken += 1;
+      const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
+      if (won) current.ownKickoutsWon += 1;
+      const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+      if (!pressKey) {
+        keeperRows.set(keeperKey, current);
+        continue;
+      }
+      const endX = Number(stat.end_x_position);
+      const ownHalfBoundary = team === 'away' ? (PITCH_W - 45) : 45;
+      const isLong = Number.isFinite(endX) && (team === 'away' ? endX < ownHalfBoundary : endX > ownHalfBoundary);
+      current.pressBreakdown[pressKey].taken += 1;
+      if (won) current.pressBreakdown[pressKey].won += 1;
+      if (isLong) {
+        current.pressBreakdown[pressKey].longTaken += 1;
+        if (won) current.pressBreakdown[pressKey].longWon += 1;
+      } else {
+        current.pressBreakdown[pressKey].shortTaken += 1;
+        if (won) current.pressBreakdown[pressKey].shortWon += 1;
+      }
+      keeperRows.set(keeperKey, current);
+    }
+
+    return Array.from(keeperRows.values()).map((row) => {
+      const pressRows = ['m2m', 'zonal', 'conceded']
+        .map((press) => {
+          const info = row.pressBreakdown?.[press];
+          if (!info?.taken) return null;
+          return {
+            key: press,
+            press: press === 'm2m' ? 'M2M' : toTitleCase(press),
+            overall: `${info.won}/${info.taken} (${formatPct(info.taken ? (info.won / info.taken) * 100 : NaN)})`,
+            short: info.shortTaken ? `${info.shortWon}/${info.shortTaken} (${formatPct((info.shortWon / info.shortTaken) * 100)})` : 'NA',
+            long: info.longTaken ? `${info.longWon}/${info.longTaken} (${formatPct((info.longWon / info.longTaken) * 100)})` : 'NA',
+          };
+        })
+        .filter(Boolean);
+      return { ...row, pressRows };
+    }).filter((row) => row.pressRows.length > 0 && (teamMode === 'both' || row.team === teamMode));
+  }, [kickouts, nextStatById, playerOptions, teamMode]);
 
   const visibleKickouts = useMemo(() => {
     if (teamMode === 'both') return kickouts;
@@ -300,6 +418,19 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
                 </Table>
               </CardContent>
             </Card>
+
+            {kickoutPressCards.length > 0 && (
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {kickoutPressCards.map((card) => (
+                      <KickoutPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
     </div>

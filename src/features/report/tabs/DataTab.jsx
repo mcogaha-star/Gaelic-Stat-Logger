@@ -30,6 +30,7 @@ import {
   deriveOutcome,
   derivePossessionOutcome,
   inferPossessionStartSource,
+  statMatchesActionType,
 } from '../shared';
 
 function sortStatsForEditing(list, match, imputedTimeById) {
@@ -225,7 +226,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     return list.filter((s) => {
       if (!s) return false;
       if (team !== 'both' && s.team_side !== team) return false;
-      if (actions.length && !actions.includes(s.stat_type)) return false;
+      if (actions.length && !actions.some((value) => statMatchesActionType(s, value))) return false;
       if (halves.length && !halves.includes(s.half)) return false;
       if (playerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});

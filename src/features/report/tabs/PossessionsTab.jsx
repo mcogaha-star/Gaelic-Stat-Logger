@@ -257,6 +257,25 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   ]), [homeTeam, awayTeam]);
   const sortedOriginRows = useMemo(() => sortRows(originTableRows, originSort, originColumns, 'label'), [originTableRows, originSort, originColumns]);
   const toggleOriginSort = (key) => setOriginSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'label' ? 'asc' : 'desc' });
+  const renderOutcomeTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload || {};
+    const total = outcomeSeries.reduce((sum, item) => sum + Number(row?.[item.k] || 0), 0);
+    return (
+      <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-sm">
+        <div className="mb-1 font-semibold text-slate-900">{label || row.team || 'Outcomes'}</div>
+        <div className="mb-2 text-slate-600">Total Possessions: <span className="font-mono">{total}</span></div>
+        <div className="space-y-1">
+          {outcomeSeries.map((item) => (
+            <div key={item.k} className="flex items-center justify-between gap-3">
+              <span>{item.k}</span>
+              <span className="font-mono">{Number(row?.[item.k] || 0)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
   const [possessionSort, setPossessionSort] = useState({ key: 'possessionId', dir: 'asc' });
   const possessionColumns = useMemo(() => ([
     { key: 'possessionId', label: 'Poss', sortValue: (r) => r.possessionId },
@@ -313,7 +332,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <CartesianGrid vertical={false} />
                       <XAxis dataKey="team" className="text-xs" />
                       <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip content={<ChartTooltipContent />} />
+                      <Tooltip content={renderOutcomeTooltip} />
                       <Legend />
                       {outcomeSeries.map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
@@ -331,7 +350,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                       <CartesianGrid vertical={false} />
                       <XAxis dataKey="team" className="text-xs" />
                       <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip content={<ChartTooltipContent />} />
+                      <Tooltip content={renderOutcomeTooltip} />
                       <Legend />
                       {outcomeSeries.map((o) => (
                         <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />

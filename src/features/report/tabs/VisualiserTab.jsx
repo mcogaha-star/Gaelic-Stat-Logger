@@ -9,7 +9,8 @@ export default function VisualiserTab({ filteredForViz, homeTeam, awayTeam, vizC
         homeColor={homeTeam?.color}
         awayColor={awayTeam?.color}
         colorBy={vizColorBy}
-      mirrorAwayWhenBoth={vizTeam !== 'home'}
+        mirrorAwayWhenBoth={vizTeam !== 'home'}
+        align="left"
         directionLabel="Home ->"
         onOpenVideoAt={onOpenVideoAt}
       />

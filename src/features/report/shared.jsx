@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import pitchImg from '@/assets/pitch.png';
 import {
   PITCH_W,
@@ -146,6 +147,38 @@ function requestElementFullscreen(target) {
   } catch {
     // ignore
   }
+}
+
+function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
+  const [open, setOpen] = useState(false);
+  const rendered = typeof children === 'function' ? children(false) : children;
+
+  if (!enabled) return rendered;
+
+  return (
+    <>
+      <div className="cursor-zoom-in" onClick={() => setOpen(true)} title="Click to expand">
+        {rendered}
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="w-[96vw] max-w-[96vw] h-[96vh] p-4 flex flex-col gap-3"
+          onInteractOutside={(event) => event.preventDefault()}
+          onPointerDownOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader className="flex flex-row items-center justify-between space-y-0">
+            <DialogTitle className="text-base">{title}</DialogTitle>
+            <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {typeof children === 'function' ? children(true) : children}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function hexToRgba(color, alpha = 0.08) {
@@ -421,6 +454,19 @@ function deriveOutcome(stat, extra) {
   if (t === 'foul') return extra?.foul?.foul_type || '';
   if (t === 'defensive_contact') return extra?.defensive_contact?.type || '';
   return '';
+}
+
+function statMatchesActionType(stat, actionType) {
+  const normalized = String(actionType || '');
+  if (!normalized || String(stat?.stat_type || '') === normalized) return true;
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  if (normalized === 'foul') return !!extractFoulFromStat(stat);
+  if (normalized === 'turnover') {
+    return !!extra?.turnover
+      || String(extra?.pass?.outcome || '') === 'turnover'
+      || String(extra?.carry?.outcome || '') === 'turnover';
+  }
+  return false;
 }
 
 function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '' }) {
@@ -898,6 +944,8 @@ function PitchViz({
   pitchScale = REPORT_PITCH_SCALE,
   onOpenVideoAt = null,
   fullscreenEnabled = true,
+  fullscreenTitle = 'Map',
+  align = 'center',
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -972,8 +1020,6 @@ function PitchViz({
   const persist = (key, obj) => {
     try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
   };
-  const containerRef = React.useRef(null);
-
   const tooltipText = (s, extra) => {
     const lines = [];
     const team = s.team_side === 'away' ? 'Away' : 'Home';
@@ -1024,17 +1070,12 @@ function PitchViz({
     if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
   };
 
-  return (
-    <div
-      ref={containerRef}
-      className={`w-full rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
-      onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
-      title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
-    >
+  const renderContent = (isFullscreen = false) => (
+    <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
       <div
-        className="relative mx-auto"
+        className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
         style={{
-          width: pitchScale,
+          width: isFullscreen ? '100%' : pitchScale,
           aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
           backgroundImage: `url(${pitchImg})`,
           backgroundSize: 'cover',
@@ -1042,7 +1083,7 @@ function PitchViz({
         }}
       >
         <DirectionBadge label={directionLabel} />
-        <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+        <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
           <defs>
             {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
             <marker id="gstl_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -1223,6 +1264,12 @@ function PitchViz({
       )}
     </div>
   );
+
+  return (
+    <FullscreenMapShell title={fullscreenTitle} enabled={fullscreenEnabled}>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
+  );
 }
 
 function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows, fullscreenEnabled = true }) {
@@ -1250,7 +1297,6 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   };
 
   const TeamHalf = ({ side, title, color }) => {
-    const containerRef = React.useRef(null);
     const panelRows = channels.map((channel) => ({
       channel,
       count: side === 'home' ? rowFor(channel).homeCount : rowFor(channel).awayCount,
@@ -1259,12 +1305,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     return (
       <div className="space-y-2">
         <div className="text-sm font-medium text-slate-900">{title}</div>
-        <div
-          ref={containerRef}
-          className={`rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
-          onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
-          title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
-        >
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div
             className="relative mx-auto"
             style={{
@@ -1275,7 +1316,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
               backgroundPosition: 'right center',
             }}
           >
-            <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W / 2} ${PITCH_H}`} preserveAspectRatio="none">
+            <svg className="absolute inset-0 h-full w-full" viewBox={`-2 -2 ${(PITCH_W / 2) + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
               {panelRows.map((row) => (
                 <g key={`${side}-${row.channel}`}>
                   <title>{`${title} - ${row.channel}: ${row.count || 0} attacks (${Number.isFinite(row.pct) ? row.pct.toFixed(1) : 'NA'}%)`}</title>
@@ -1289,7 +1330,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     );
   };
 
-  return (
+  const renderContent = (isFullscreen = false) => (
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">Attack Entry Channels</div>
@@ -1301,7 +1342,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
           </defs>
         </svg>
         {teamMode === 'both' ? (
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-2' : 'lg:grid-cols-2'}`}>
             <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} />
             <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} />
           </div>
@@ -1314,6 +1355,12 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         )}
       </CardContent>
     </Card>
+  );
+
+  return (
+    <FullscreenMapShell title="Attack Entry Channels" enabled={fullscreenEnabled}>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
   );
 }
 
@@ -1477,23 +1524,17 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   ]), []);
   const sortedCentralityRows = useMemo(() => sortRows(visibleCentralityRows, tableSort, tableColumns, 'id'), [visibleCentralityRows, tableSort, tableColumns]);
   const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' ? 'asc' : 'desc' });
-  const pitchRef = React.useRef(null);
 
-  return (
+  const renderContent = (isFullscreen = false) => (
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>
         {showPitch && (
-          <div
-            ref={pitchRef}
-            className={`w-full rounded-xl border border-slate-200 bg-white overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
-            onClick={fullscreenEnabled ? () => requestElementFullscreen(pitchRef.current) : undefined}
-            title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
-          >
+          <div className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden">
             <div
-              className="relative mx-auto"
+              className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : 'mx-auto'}`}
               style={{
-                width: pitchScale,
+                width: isFullscreen ? '100%' : pitchScale,
                 aspectRatio: `${PITCH_W} / ${PITCH_H}`,
                 backgroundImage: `url(${pitchImg})`,
                 backgroundSize: 'cover',
@@ -1501,7 +1542,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               }}
             >
               <DirectionBadge />
-              <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+              <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
             {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
@@ -1589,6 +1630,12 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
       </CardContent>
     </Card>
   );
+
+  return (
+    <FullscreenMapShell title={teamLabel || `${toTitleCase(side)} Pass Network`} enabled={fullscreenEnabled}>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
+  );
 }
 
 function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam }) {
@@ -1614,8 +1661,8 @@ function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam 
     Array.from(new Set((reportFilters?.allStats || [])
       .filter((s) => {
         const statType = String(s?.stat_type || '');
-        if (allowedActionTypes && !allowedActionTypes.includes(statType)) return false;
-        if (effectiveActionValues.length && !effectiveActionValues.includes(statType)) return false;
+        if (allowedActionTypes && !allowedActionTypes.some((value) => statMatchesActionType(s, value))) return false;
+        if (effectiveActionValues.length && !effectiveActionValues.some((value) => statMatchesActionType(s, value))) return false;
         return true;
       })
       .map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})))
@@ -1749,7 +1796,6 @@ function shotZoneFromDistance(d) {
 
 function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor, onOpenVideoAt = null, fullscreenEnabled = true }) {
   const list = Array.isArray(shots) ? shots : [];
-  const containerRef = React.useRef(null);
 
   const colors = {
     score: '#16a34a',
@@ -1770,7 +1816,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
     return true;
   });
 
-  return (
+  const renderContent = (isFullscreen = false) => (
     <Card>
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -1797,12 +1843,9 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
 
         <div
-          ref={containerRef}
-          className={`relative mx-auto rounded-xl border border-slate-200 overflow-hidden ${fullscreenEnabled ? 'cursor-zoom-in' : ''}`}
-          onClick={fullscreenEnabled ? () => requestElementFullscreen(containerRef.current) : undefined}
-          title={fullscreenEnabled ? 'Click to view fullscreen' : undefined}
+          className={`relative rounded-xl border border-slate-200 overflow-hidden ${isFullscreen ? 'w-full max-w-[1600px] mx-auto' : 'mx-auto'}`}
           style={{
-            width: REPORT_PITCH_SCALE,
+            width: isFullscreen ? '100%' : REPORT_PITCH_SCALE,
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
@@ -1810,7 +1853,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
           }}
         >
           <DirectionBadge label="Home ->" />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+          <svg className="absolute inset-0 w-full h-full" viewBox={`-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
             {visible.map((s) => {
               const point = transformDisplayPoint(s.x, s.y, s.team_side, true);
               if (!point) return null;
@@ -1972,6 +2015,12 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
       </CardContent>
     </Card>
   );
+
+  return (
+    <FullscreenMapShell title="Shot Map" enabled={fullscreenEnabled}>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
+  );
 }
 
 function applyNonTeamReportFilters(stats, reportFilters) {
@@ -1990,7 +2039,7 @@ function applyNonTeamReportFilters(stats, reportFilters) {
   return list.filter((s) => {
     if (!s) return false;
     if (halves.length && !halves.includes(s.half)) return false;
-    if (actionTypes.length && !actionTypes.includes(String(s.stat_type || ''))) return false;
+    if (actionTypes.length && !actionTypes.some((value) => statMatchesActionType(s, value))) return false;
     if (outcomes.length) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const outcome = deriveOutcome(s, extra);
@@ -2033,6 +2082,7 @@ export {
   formatExtraValue,
   flattenExtra,
   deriveOutcome,
+  statMatchesActionType,
   MultiSelect,
   collectPlayerIds,
   collectPlayerSelectionKeys,
@@ -2064,4 +2114,5 @@ export {
   shotZoneFromDistance,
   ShotMap,
   applyNonTeamReportFilters,
+  FullscreenMapShell,
 };

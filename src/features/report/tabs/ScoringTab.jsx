@@ -159,7 +159,7 @@ function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows
   );
 }
 
-function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel, homeLabel, awayLabel, homeRows, awayRows, columns }) {
+function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel, homeLabel, awayLabel, homeRows, awayRows, columns, sortable = true }) {
   const homeByKey = new Map((homeRows || []).map((row) => [row[categoryKey], row]));
   const awayByKey = new Map((awayRows || []).map((row) => [row[categoryKey], row]));
   const sortColumns = useMemo(() => ([
@@ -177,7 +177,7 @@ function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel
     homeRow: homeByKey.get(category.key) || category.homeFallback,
     awayRow: awayByKey.get(category.key) || category.awayFallback,
   })), [categories, homeByKey, awayByKey]);
-  const sortedCategories = useMemo(() => sortRows(categoryRows, sortState, sortColumns, 'key'), [categoryRows, sortState, sortColumns]);
+  const sortedCategories = useMemo(() => (sortable ? sortRows(categoryRows, sortState, sortColumns, 'key') : categoryRows), [categoryRows, sortState, sortColumns, sortable]);
 
   return (
     <Card>
@@ -186,16 +186,24 @@ function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableTableHead column={{ key: '__category', label: categoryLabel }} sortState={sortState} onToggle={toggleSort} />
+              {sortable ? (
+                <SortableTableHead column={{ key: '__category', label: categoryLabel }} sortState={sortState} onToggle={toggleSort} />
+              ) : (
+                <TableHead>{categoryLabel}</TableHead>
+              )}
               <TableHead>Team</TableHead>
               {columns.map((column) => (
-                <SortableTableHead
-                  key={column.key}
-                  column={column}
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                  className={column.align === 'right' ? 'text-right' : undefined}
-                />
+                sortable ? (
+                  <SortableTableHead
+                    key={column.key}
+                    column={column}
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                    className={column.align === 'right' ? 'text-right' : undefined}
+                  />
+                ) : (
+                  <TableHead key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>{column.label}</TableHead>
+                )
               ))}
             </TableRow>
           </TableHeader>
@@ -670,6 +678,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
                 <>
                   <CategoryComparisonTable
                     title="Shot Type Breakdown"
+                    sortable={false}
                     categories={shotTypeCategories}
                     categoryKey="type"
                     categoryLabel="Type"
@@ -720,6 +729,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
               {teamMode === 'both' ? (
                 <CategoryComparisonTable
                   title="Shot Situation Breakdown"
+                  sortable={false}
                   categories={situationCategories}
                   categoryKey="situation"
                   categoryLabel="Situation"
