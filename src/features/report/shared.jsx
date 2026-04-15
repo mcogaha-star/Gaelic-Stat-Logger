@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import pitchImg from '@/assets/pitch.png';
@@ -148,35 +148,59 @@ function requestElementFullscreen(target) {
   }
 }
 
-function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
-  const [open, setOpen] = useState(false);
-  const rendered = typeof children === 'function' ? children(false) : children;
+function fullscreenPitchStyle(aspectRatio) {
+  return {
+    width: `min(100vw, calc(100vh * ${aspectRatio}))`,
+    maxWidth: '100vw',
+    maxHeight: '100vh',
+  };
+}
 
-  if (!enabled) return rendered;
+function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
+  const rootRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const rendered = typeof children === 'function' ? children(isFullscreen) : children;
+
+  useEffect(() => {
+    const handleChange = () => {
+      setIsFullscreen(document.fullscreenElement === rootRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleChange);
+    return () => document.removeEventListener('fullscreenchange', handleChange);
+  }, []);
+
+  const handleExpand = (event) => {
+    if (!enabled) return;
+    if (document.fullscreenElement === rootRef.current) return;
+    if (document.fullscreenElement && document.fullscreenElement !== rootRef.current) return;
+    event?.stopPropagation?.();
+    requestElementFullscreen(rootRef.current);
+  };
+
+  const fullscreenStyle = isFullscreen
+    ? {
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#000',
+        padding: 0,
+        margin: 0,
+        overflow: 'hidden',
+      }
+    : undefined;
 
   return (
-    <>
-      <div className="cursor-zoom-in" onClick={() => setOpen(true)} title="Click to expand">
-        {rendered}
-      </div>
-      {open && (
-        <div className="fixed inset-0 z-[100] bg-black/90">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="absolute right-4 top-4 z-20 h-10 w-10 rounded-full border-white/30 bg-black/55 text-white hover:bg-black/70"
-            onClick={() => setOpen(false)}
-            title={`Close ${title}`}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-          <div className="flex h-full w-full items-center justify-center overflow-hidden p-2 md:p-3">
-            {typeof children === 'function' ? children(true) : children}
-          </div>
-        </div>
-      )}
-    </>
+    <div
+      ref={rootRef}
+      className={enabled ? 'cursor-zoom-in' : ''}
+      onClick={handleExpand}
+      title={enabled ? `Click to expand ${title}` : undefined}
+      style={fullscreenStyle}
+    >
+      {rendered}
+    </div>
   );
 }
 
@@ -1071,18 +1095,18 @@ function PitchViz({
 
   const renderContent = (isFullscreen = false) => (
     <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
-      <div
-        className={`relative ${isFullscreen ? 'mx-auto w-full' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
-        style={{
-          width: isFullscreen ? '100%' : pitchScale,
-          aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
-          backgroundImage: `url(${pitchImg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        <DirectionBadge label={directionLabel} />
-        <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
+        <div
+          className={`relative ${isFullscreen ? 'mx-auto w-full' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
+          style={{
+            ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * verticalScale)) : { width: pitchScale }),
+            aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
+            backgroundImage: `url(${pitchImg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <DirectionBadge label={directionLabel} />
+        <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
           <defs>
             {/* Reusable arrow marker that inherits the line stroke color (supported in modern browsers). */}
             <marker id="gstl_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -1308,14 +1332,14 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
           <div
             className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
             style={{
-              width: '100%',
+              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '100%' }),
               aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
               backgroundPosition: 'right center',
             }}
           >
-            <svg className="absolute inset-0 h-full w-full" viewBox={`-2 -2 ${(PITCH_W / 2) + 4} ${PITCH_H + 4}`} preserveAspectRatio="none">
+            <svg className="absolute inset-0 h-full w-full" viewBox={`-4 -4 ${(PITCH_W / 2) + 8} ${PITCH_H + 8}`} preserveAspectRatio="none">
               {panelRows.map((row) => (
                 <g key={`${side}-${row.channel}`}>
                   <title>{`${title} - ${row.channel}: ${row.count || 0} attacks (${Number.isFinite(row.pct) ? row.pct.toFixed(1) : 'NA'}%)`}</title>
@@ -1530,7 +1554,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
             <div
               className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
               style={{
-                width: isFullscreen ? '100%' : pitchScale,
+                ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: pitchScale }),
                 aspectRatio: `${PITCH_W} / ${PITCH_H}`,
                 backgroundImage: `url(${pitchImg})`,
                 backgroundSize: 'cover',
@@ -1538,7 +1562,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               }}
             >
               <DirectionBadge />
-              <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
+              <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
             {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
@@ -1843,7 +1867,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         <div
           className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
-            width: isFullscreen ? '100%' : REPORT_PITCH_SCALE,
+            ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * REPORT_PITCH_VERTICAL_SCALE)) : { width: REPORT_PITCH_SCALE }),
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
@@ -1851,7 +1875,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
           }}
         >
           <DirectionBadge label="Home ->" />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
+          <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
             {visible.map((s) => {
               const point = transformDisplayPoint(s.x, s.y, s.team_side, true);
               if (!point) return null;

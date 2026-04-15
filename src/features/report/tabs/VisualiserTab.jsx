@@ -25,20 +25,20 @@ export default function VisualiserTab({
   resetAllFilters,
 }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] items-start">
+    <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
       <PitchViz
         stats={filteredForViz}
         homeColor={homeTeam?.color}
         awayColor={awayTeam?.color}
         colorBy={vizColorBy}
-        showColorControls={false}
+        showColorControls
         mirrorAwayWhenBoth={vizTeam !== 'home'}
         align="left"
         pitchScale="100%"
         directionLabel="Home ->"
         onOpenVideoAt={onOpenVideoAt}
       />
-      <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sticky top-4">
+      <div className="space-y-4 rounded-r-xl border border-slate-200 border-l-0 bg-white p-4 sticky top-4">
         <div className="font-semibold text-slate-900">Visualiser Filters</div>
         <div className="space-y-1">
           <Label className="text-xs text-slate-600">Team</Label>

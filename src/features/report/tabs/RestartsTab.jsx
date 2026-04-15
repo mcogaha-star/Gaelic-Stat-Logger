@@ -253,7 +253,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
         },
       };
       current.kickoutsTaken += 1;
-      const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
+      const won = inferRestartWinnerSide(stat, null) === team;
       if (won) current.ownKickoutsWon += 1;
       const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
       if (!pressKey) {
