@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import pitchImg from '@/assets/pitch.png';
@@ -173,9 +173,6 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
     if (!enabled) return;
     if (document.fullscreenElement === rootRef.current) return;
     if (document.fullscreenElement && document.fullscreenElement !== rootRef.current) return;
-    const target = event?.target;
-    if (target?.closest?.('[data-fullscreen-block="true"]')) return;
-    if (!target?.closest?.('[data-fullscreen-trigger="true"]')) return;
     event?.stopPropagation?.();
     requestElementFullscreen(rootRef.current);
   };
@@ -197,12 +194,23 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
   return (
     <div
       ref={rootRef}
-      className={enabled ? 'cursor-zoom-in' : ''}
-      onClick={handleExpand}
-      title={enabled ? `Click to expand ${title}` : undefined}
+      className="relative"
       style={fullscreenStyle}
     >
       {rendered}
+      {enabled && !isFullscreen ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          data-fullscreen-block="true"
+          className="absolute bottom-3 right-3 z-10 h-8 w-8 rounded-full border-white/70 bg-black/55 text-white hover:bg-black/70"
+          onClick={handleExpand}
+          title={`Expand ${title}`}
+        >
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+      ) : null}
     </div>
   );
 }

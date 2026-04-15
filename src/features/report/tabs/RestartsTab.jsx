@@ -261,8 +261,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
         continue;
       }
       const endX = Number(stat.end_x_position);
-      const ownHalfBoundary = team === 'away' ? (PITCH_W - 45) : 45;
-      const isLong = Number.isFinite(endX) && (team === 'away' ? endX < ownHalfBoundary : endX > ownHalfBoundary);
+      const isLong = Number.isFinite(endX) && endX > 45;
       current.pressBreakdown[pressKey].taken += 1;
       if (won) current.pressBreakdown[pressKey].won += 1;
       if (isLong) {
