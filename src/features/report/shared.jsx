@@ -1345,7 +1345,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
             data-fullscreen-trigger="true"
             className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
             style={{
-              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '88%' }),
+              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '73%' }),
               aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
