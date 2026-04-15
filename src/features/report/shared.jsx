@@ -8,7 +8,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import pitchImg from '@/assets/pitch.png';
 import {
   PITCH_W,
@@ -160,31 +159,23 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
       <div className="cursor-zoom-in" onClick={() => setOpen(true)} title="Click to expand">
         {rendered}
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="[&>button]:hidden w-screen max-w-screen h-screen p-0 border-0 shadow-none bg-black/80 flex flex-col"
-          onInteractOutside={(event) => event.preventDefault()}
-          onPointerDownOutside={(event) => event.preventDefault()}
-        >
-          <DialogHeader className="sr-only">
-            <DialogTitle>{title}</DialogTitle>
-          </DialogHeader>
-          <div className="relative flex-1 min-h-0 p-4 md:p-6">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="absolute right-4 top-4 z-20 h-10 w-10 rounded-full border-white/30 bg-black/55 text-white hover:bg-black/70"
-              onClick={() => setOpen(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-            <div className="flex h-full w-full items-center justify-center overflow-hidden">
-              {typeof children === 'function' ? children(true) : children}
-            </div>
+      {open && (
+        <div className="fixed inset-0 z-[100] bg-black/90">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="absolute right-4 top-4 z-20 h-10 w-10 rounded-full border-white/30 bg-black/55 text-white hover:bg-black/70"
+            onClick={() => setOpen(false)}
+            title={`Close ${title}`}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <div className="flex h-full w-full items-center justify-center overflow-hidden p-2 md:p-3">
+            {typeof children === 'function' ? children(true) : children}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </>
   );
 }
@@ -1081,7 +1072,7 @@ function PitchViz({
   const renderContent = (isFullscreen = false) => (
     <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
       <div
-        className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
+        className={`relative ${isFullscreen ? 'mx-auto w-full' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
         style={{
           width: isFullscreen ? '100%' : pitchScale,
           aspectRatio: `${PITCH_W} / ${PITCH_H * verticalScale}`,
@@ -1339,7 +1330,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   };
 
   const renderContent = (isFullscreen = false) => (
-    <div className={`w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+    <div className="w-full">
         <svg width="0" height="0" className="absolute">
           <defs>
             <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -1532,12 +1523,12 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' ? 'asc' : 'desc' });
 
   const renderContent = (isFullscreen = false) => (
-    <div className={`w-full space-y-3 ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+    <div className="w-full space-y-3">
         {!isFullscreen && <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>}
         {showPitch && (
           <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
             <div
-              className={`relative ${isFullscreen ? 'mx-auto w-full max-w-[1600px]' : 'mx-auto'}`}
+              className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
               style={{
                 width: isFullscreen ? '100%' : pitchScale,
                 aspectRatio: `${PITCH_W} / ${PITCH_H}`,
@@ -1823,7 +1814,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   });
 
   const renderContent = (isFullscreen = false) => (
-    <div className={`space-y-3 w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+    <div className="space-y-3 w-full">
         {!isFullscreen && (
         <div className="flex items-center justify-between gap-2">
           <div className="font-semibold text-slate-900">Shot Map</div>
@@ -1850,7 +1841,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         )}
 
         <div
-          className={`relative overflow-hidden ${isFullscreen ? 'w-full max-w-[1800px] mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
+          className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
             width: isFullscreen ? '100%' : REPORT_PITCH_SCALE,
             aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,

@@ -99,10 +99,10 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
   };
 
   const renderContent = (isFullscreen = false) => (
-    <div className={`w-full ${isFullscreen ? 'max-w-[1800px]' : ''}`}>
+    <div className="w-full">
         {!isFullscreen && <div className="font-semibold text-slate-900 mb-3">{title}</div>}
         <div
-          className={`relative overflow-hidden ${isFullscreen ? 'w-full max-w-[1800px] mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
+          className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
             width: isFullscreen ? '100%' : '73%',
             aspectRatio: `${PITCH_W} / ${PITCH_H}`,

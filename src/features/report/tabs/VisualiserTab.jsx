@@ -25,7 +25,7 @@ export default function VisualiserTab({
   resetAllFilters,
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] items-start">
       <PitchViz
         stats={filteredForViz}
         homeColor={homeTeam?.color}
@@ -34,6 +34,7 @@ export default function VisualiserTab({
         showColorControls={false}
         mirrorAwayWhenBoth={vizTeam !== 'home'}
         align="left"
+        pitchScale="100%"
         directionLabel="Home ->"
         onOpenVideoAt={onOpenVideoAt}
       />
