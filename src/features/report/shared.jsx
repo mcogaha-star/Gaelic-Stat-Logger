@@ -1345,7 +1345,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
             data-fullscreen-trigger="true"
             className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
             style={{
-              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '100%' }),
+              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '88%' }),
               aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
               backgroundImage: `url(${pitchImg})`,
               backgroundSize: '200% 100%',
@@ -1367,7 +1367,8 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   };
 
   const renderContent = (isFullscreen = false) => (
-    <div className="w-full">
+    <div className="w-full space-y-3">
+        {!isFullscreen && <div className="font-semibold text-slate-900">Attack Entry Channels</div>}
         <svg width="0" height="0" className="absolute">
           <defs>
             <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">

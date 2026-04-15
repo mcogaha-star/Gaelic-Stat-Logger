@@ -57,16 +57,6 @@ import {
 } from '../shared';
 
 function KickoutPressTable({ card, homeTeam, awayTeam }) {
-  const [sortState, setSortState] = useState({ key: 'overall', dir: 'desc' });
-  const columns = useMemo(() => ([
-    { key: 'press', label: 'Press', sortValue: (row) => row.press },
-    { key: 'overall', label: 'Overall', sortValue: (row) => row.overall },
-    { key: 'short', label: 'Short', sortValue: (row) => row.short },
-    { key: 'long', label: 'Long', sortValue: (row) => row.long },
-  ]), []);
-  const sortedRows = useMemo(() => sortRows(card.pressRows, sortState, columns, 'key'), [card.pressRows, sortState, columns]);
-  const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'press' ? 'asc' : 'desc' });
-
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -85,19 +75,14 @@ function KickoutPressTable({ card, homeTeam, awayTeam }) {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map((column) => (
-                <SortableTableHead
-                  key={column.key}
-                  column={column}
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                  className={column.key === 'press' ? undefined : 'text-right'}
-                />
-              ))}
+              <TableHead>Press</TableHead>
+              <TableHead className="text-right">Overall</TableHead>
+              <TableHead className="text-right">Short</TableHead>
+              <TableHead className="text-right">Long</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedRows.map((row) => (
+            {card.pressRows.map((row) => (
               <TableRow key={row.key} style={teamRowTint(card.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                 <TableCell className="font-medium">{row.press}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.overall}</TableCell>
