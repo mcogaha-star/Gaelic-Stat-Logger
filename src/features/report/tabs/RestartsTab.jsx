@@ -238,7 +238,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       const kick = extra?.kickout || {};
       const team = kick?.team_side;
       if (team !== 'home' && team !== 'away') continue;
-      const keeper = playerOptions?.find((player) => player?.team_side === team && Number(player?.number) === 1);
+      const keeper = getKeeperCandidate(playerOptions, team);
       const keeperKey = keeper?.id ? `${team}|${keeper.id}` : `${team}|keeper`;
       const current = keeperRows.get(keeperKey) || {
         key: keeperKey,

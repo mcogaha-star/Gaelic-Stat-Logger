@@ -173,6 +173,9 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
     if (!enabled) return;
     if (document.fullscreenElement === rootRef.current) return;
     if (document.fullscreenElement && document.fullscreenElement !== rootRef.current) return;
+    const target = event?.target;
+    if (target?.closest?.('[data-fullscreen-block="true"]')) return;
+    if (!target?.closest?.('[data-fullscreen-trigger="true"]')) return;
     event?.stopPropagation?.();
     requestElementFullscreen(rootRef.current);
   };
@@ -1096,6 +1099,7 @@ function PitchViz({
   const renderContent = (isFullscreen = false) => (
     <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
         <div
+          data-fullscreen-trigger="true"
           className={`relative ${isFullscreen ? 'mx-auto w-full' : align === 'left' ? 'mr-auto' : 'mx-auto'}`}
           style={{
             ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * verticalScale)) : { width: pitchScale }),
@@ -1330,6 +1334,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         <div className="text-sm font-medium text-slate-900">{title}</div>
         <div className={`overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
           <div
+            data-fullscreen-trigger="true"
             className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
             style={{
               ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '100%' }),
@@ -1552,6 +1557,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
         {showPitch && (
           <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
             <div
+              data-fullscreen-trigger="true"
               className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
               style={{
                 ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: pitchScale }),
@@ -1620,7 +1626,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
           </div>
         )}
         {showTable && visibleCentralityRows.length > 0 && (
-          <div className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
+          <div data-fullscreen-block="true" className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -1840,7 +1846,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   const renderContent = (isFullscreen = false) => (
     <div className="space-y-3 w-full">
         {!isFullscreen && (
-        <div className="flex items-center justify-between gap-2">
+        <div data-fullscreen-block="true" className="flex items-center justify-between gap-2">
           <div className="font-semibold text-slate-900">Shot Map</div>
           <div className="inline-flex items-center gap-2">
             {[
@@ -1865,6 +1871,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         )}
 
         <div
+          data-fullscreen-trigger="true"
           className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
           style={{
             ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * REPORT_PITCH_VERTICAL_SCALE)) : { width: REPORT_PITCH_SCALE }),
