@@ -11,12 +11,14 @@ import {
   PITCH_W,
   PITCH_H,
   calcDistanceToGoal,
+  classifyTerminalOutcome,
   extractFoulFromStat,
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
   getDerivedPossessionDurationSeconds,
   getMatchTimeS,
+  isDeadBallGapStart,
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
@@ -57,6 +59,32 @@ import {
   shotZoneFromDistance,
   applyNonTeamReportFilters,
 } from '../shared';
+
+function getLivePossessionStartAnchor(previousStat, startSource, match, imputedMap) {
+  if (!previousStat || isDeadBallGapStart(previousStat)) return NaN;
+  const source = String(startSource || '');
+  const allowedSource =
+    source === 'Turnover Won'
+    || source === 'Shot Short'
+    || source === 'Shot Blocked'
+    || source === 'Shot Post'
+    || source === 'Shot Saved';
+  if (!allowedSource) return NaN;
+
+  const previousTeam =
+    previousStat?.possession_team_side === 'home' || previousStat?.possession_team_side === 'away'
+      ? previousStat.possession_team_side
+      : previousStat?.team_side;
+  const terminal = classifyTerminalOutcome(previousStat, previousTeam);
+  const isMatchingTerminal =
+    (source === 'Turnover Won' && terminal === 'TURNOVER')
+    || (source === 'Shot Short' && terminal === 'SHORT')
+    || (source === 'Shot Blocked' && terminal === 'BLOCKED')
+    || (source === 'Shot Post' && terminal === 'POST')
+    || (source === 'Shot Saved' && terminal === 'SAVED');
+  if (!isMatchingTerminal) return NaN;
+  return getMatchTimeS(previousStat, match, imputedMap);
+}
 
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
   const outcomeSeries = [
@@ -117,16 +145,23 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const times = evs.map((s) => getMatchTimeS(s, reportFilters?.match, reportFilters?.imputedTimeById)).filter(Number.isFinite);
       const startTime = times.length ? Math.min(...times) : NaN;
       const endTime = times.length ? Math.max(...times) : NaN;
+      const previousStat = previousByPossessionKey.get(key) || null;
+      const startSource = inferPossessionStartSource(evs, teamSide, previousStat || []);
       const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
-      const duration = Number.isFinite(liveDuration) ? liveDuration : (Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN);
+      const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
+      const anchorGap =
+        Number.isFinite(liveStartAnchor) && Number.isFinite(startTime) && startTime >= liveStartAnchor
+          ? startTime - liveStartAnchor
+          : 0;
+      const duration = Number.isFinite(liveDuration)
+        ? liveDuration + anchorGap
+        : (Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN);
 
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
-
-      const startSource = inferPossessionStartSource(evs, teamSide, previousByPossessionKey.get(key) || []);
 
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;

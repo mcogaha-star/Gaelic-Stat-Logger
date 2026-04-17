@@ -1995,10 +1995,10 @@ export default function StatModalV4({
                     value={passAccuracy}
                     onChange={setPassAccuracy}
                     options={[
-                      { value: '++', label: '++', tone: 'blue' },
-                      { value: '+', label: '+', tone: 'green' },
-                      { value: '-', label: '-', tone: 'yellow' },
                       { value: '--', label: '--', tone: 'red' },
+                      { value: '-', label: '-', tone: 'yellow' },
+                      { value: '+', label: '+', tone: 'green' },
+                      { value: '++', label: '++', tone: 'blue' },
                     ]}
                   />
                   <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
