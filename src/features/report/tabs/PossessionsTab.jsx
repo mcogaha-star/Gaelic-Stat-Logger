@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
+import pitchImg from '@/assets/pitch.png';
 import {
   PITCH_W,
   PITCH_H,
@@ -85,6 +86,63 @@ function getLivePossessionStartAnchor(previousStat, startSource, match, imputedM
     || (source === 'Shot Saved' && terminal === 'SAVED');
   if (!isMatchingTerminal) return NaN;
   return getMatchTimeS(previousStat, match, imputedMap);
+}
+
+function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSeconds }) {
+  const zones = [
+    { key: 'Defensive Third', label: 'Defensive', x: 0, width: 45 },
+    { key: 'Middle Third', label: 'Middle', x: 45, width: PITCH_W - 90 },
+    { key: 'Attacking Third', label: 'Attacking', x: PITCH_W - 45, width: 45 },
+  ];
+  const home = zoneSeconds?.home || {};
+  const away = zoneSeconds?.away || {};
+  const homeTotal = zones.reduce((sum, z) => sum + Number(home[z.key] || 0), 0);
+  const awayTotal = zones.reduce((sum, z) => sum + Number(away[z.key] || 0), 0);
+  const pct = (value, total) => total > 0 ? `${((Number(value || 0) / total) * 100).toFixed(1)}%` : '0.0%';
+  const homeName = homeTeam?.name || 'Home';
+  const awayName = awayTeam?.name || 'Away';
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}`, backgroundImage: `url(${pitchImg})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+      <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
+        {zones.map((zone, index) => (
+          <g key={zone.key}>
+            <rect
+              x={zone.x}
+              y="0"
+              width={zone.width}
+              height={PITCH_H}
+              fill={index % 2 === 0 ? 'rgba(15,23,42,0.10)' : 'rgba(255,255,255,0.08)'}
+              stroke="rgba(255,255,255,0.55)"
+              strokeWidth="0.35"
+            />
+          </g>
+        ))}
+      </svg>
+      <div className="absolute inset-0 grid grid-cols-3">
+        {zones.map((zone) => (
+          <div key={zone.key} className="flex flex-col items-center justify-center gap-3 px-2 text-center">
+            <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm">{zone.label}</div>
+            <div className="w-full max-w-[190px] rounded-xl bg-white/90 p-2 shadow-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-1 truncate">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: homeColor || '#fb4b14' }} />
+                  <span className="truncate">{homeName}</span>
+                </span>
+                <span className="font-mono font-semibold">{pct(home[zone.key], homeTotal)}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-1 truncate">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: awayColor || '#5b1f32' }} />
+                  <span className="truncate">{awayName}</span>
+                </span>
+                <span className="font-mono font-semibold">{pct(away[zone.key], awayTotal)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, counterFilter, setCounterFilter }) {
@@ -236,7 +294,11 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     };
     const home = calc(possessionsFiltered.filter((p) => p.teamSide === 'home'));
     const away = calc(possessionsFiltered.filter((p) => p.teamSide === 'away'));
-    return { home, away };
+    const totalLive = Number(home.livePossessionSeconds || 0) + Number(away.livePossessionSeconds || 0);
+    return {
+      home: { ...home, possessionPct: totalLive ? (Number(home.livePossessionSeconds || 0) / totalLive) * 100 : NaN },
+      away: { ...away, possessionPct: totalLive ? (Number(away.livePossessionSeconds || 0) / totalLive) * 100 : NaN },
+    };
   }, [possessionsFiltered]);
 
   const byTeam = (rows) => {
@@ -299,6 +361,19 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     }
     return rows;
   }, [possessionsFiltered, homeTeam, awayTeam, teamMode]);
+
+  const possessionZoneSeconds = useMemo(() => {
+    const zones = ['Defensive Third', 'Middle Third', 'Attacking Third', 'Unknown'];
+    const seconds = {
+      home: Object.fromEntries(zones.map((z) => [z, 0])),
+      away: Object.fromEntries(zones.map((z) => [z, 0])),
+    };
+    for (const p of possessionsFiltered) {
+      if (!seconds[p.teamSide]) continue;
+      for (const z of zones) seconds[p.teamSide][z] += Number(p.zoneSeconds?.[z] || 0);
+    }
+    return seconds;
+  }, [possessionsFiltered]);
 
   const originTableRows = useMemo(() => {
     const allowed = ['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved', 'Open Play'];
@@ -368,6 +443,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
           rows={[
             { label: 'Possessions', home: sideKpis.home.possN, away: sideKpis.away.possN },
             { label: 'Attacks', home: sideKpis.home.attN, away: sideKpis.away.attN },
+            { label: 'Possession %', home: formatPct(sideKpis.home.possessionPct), away: formatPct(sideKpis.away.possessionPct) },
             { label: 'Live Possession Time', home: Number.isFinite(sideKpis.home.livePossessionSeconds) ? formatMMSS(sideKpis.home.livePossessionSeconds) : 'NA', away: Number.isFinite(sideKpis.away.livePossessionSeconds) ? formatMMSS(sideKpis.away.livePossessionSeconds) : 'NA' },
             { label: 'Points Per Possession', home: Number.isFinite(sideKpis.home.pointsPerPossession) ? sideKpis.home.pointsPerPossession.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.pointsPerPossession) ? sideKpis.away.pointsPerPossession.toFixed(2) : 'NA' },
             { label: 'Avg Possession Duration', home: Number.isFinite(sideKpis.home.avgDur) ? `${sideKpis.home.avgDur.toFixed(1)}s` : 'NA', away: Number.isFinite(sideKpis.away.avgDur) ? `${sideKpis.away.avgDur.toFixed(1)}s` : 'NA' },
@@ -464,6 +540,22 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 </CardContent>
               </Card>
             </div>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div>
+                  <div className="font-semibold text-slate-900">Possession Zone Share</div>
+                  <div className="text-xs text-slate-500">Each percentage is that team's share of their own live possession time in the zone.</div>
+                </div>
+                <PossessionZonePitch
+                  homeTeam={homeTeam}
+                  awayTeam={awayTeam}
+                  homeColor={homeTeam?.color || '#fb4b14'}
+                  awayColor={awayTeam?.color || '#5b1f32'}
+                  zoneSeconds={possessionZoneSeconds}
+                />
+              </CardContent>
+            </Card>
 
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
