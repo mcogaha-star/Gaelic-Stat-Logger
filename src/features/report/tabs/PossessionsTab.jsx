@@ -18,6 +18,7 @@ import {
   getFieldTiltContribution,
   getDerivedPossessionDurationSeconds,
   getMatchTimeS,
+  getPossessionTimeSummary,
   isDeadBallGapStart,
   getProgressiveMeters,
   getScoringZoneEntry,
@@ -150,11 +151,14 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
       const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
       const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
+      const timeSummary = getPossessionTimeSummary(evs, teamSide, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
       const anchorGap =
         Number.isFinite(liveStartAnchor) && Number.isFinite(firstEventTime) && firstEventTime >= liveStartAnchor
           ? firstEventTime - liveStartAnchor
           : 0;
-      const duration = Number.isFinite(liveDuration)
+      const duration = Number.isFinite(timeSummary.liveSeconds)
+        ? timeSummary.liveSeconds
+        : Number.isFinite(liveDuration)
         ? liveDuration + anchorGap
         : (Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN);
 
@@ -188,6 +192,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         counterState,
         attackEntryChannel,
         startZone,
+        zoneSeconds: timeSummary.zoneSeconds || {},
         stats: evs,
       });
     }
@@ -215,6 +220,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const totalPts = rows.reduce((a, p) => a + (p.points || 0), 0);
       const pointsPerPossession = possN ? totalPts / possN : NaN;
       const ds = rows.map((p) => p.duration).filter(Number.isFinite);
+      const livePossessionSeconds = ds.reduce((a, b) => a + b, 0);
       const avgDur = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : NaN;
       const possToAttack = possN ? (attN / possN) * 100 : NaN;
       const possToShot = possN ? (rows.filter((p) => p.shots > 0).length / possN) * 100 : NaN;
@@ -226,7 +232,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       rows.filter((p) => p.isAttack).forEach((p) => {
         if (channels[p.attackEntryChannel] != null) channels[p.attackEntryChannel] += 1;
       });
-      return { possN, attN, pointsPerPossession, avgDur, possToAttack, possToShot, attToShot, passesPerPoss, scoringPoss, counterPoss, channels };
+      return { possN, attN, pointsPerPossession, livePossessionSeconds, avgDur, possToAttack, possToShot, attToShot, passesPerPoss, scoringPoss, counterPoss, channels };
     };
     const home = calc(possessionsFiltered.filter((p) => p.teamSide === 'home'));
     const away = calc(possessionsFiltered.filter((p) => p.teamSide === 'away'));
@@ -270,6 +276,26 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     }
     if (teamMode === 'both' || teamMode === 'away') {
       rows.push({ team: awayTeam?.name || 'Away', side: 'away', ...counts.away });
+    }
+    return rows;
+  }, [possessionsFiltered, homeTeam, awayTeam, teamMode]);
+
+  const possessionZoneTimeData = useMemo(() => {
+    const zones = ['Defensive Third', 'Middle Third', 'Attacking Third', 'Unknown'];
+    const seconds = {
+      home: Object.fromEntries(zones.map((z) => [z, 0])),
+      away: Object.fromEntries(zones.map((z) => [z, 0])),
+    };
+    for (const p of possessionsFiltered) {
+      if (!seconds[p.teamSide]) continue;
+      for (const z of zones) seconds[p.teamSide][z] += Number(p.zoneSeconds?.[z] || 0);
+    }
+    const rows = [];
+    if (teamMode === 'both' || teamMode === 'home') {
+      rows.push({ team: homeTeam?.name || 'Home', side: 'home', ...seconds.home });
+    }
+    if (teamMode === 'both' || teamMode === 'away') {
+      rows.push({ team: awayTeam?.name || 'Away', side: 'away', ...seconds.away });
     }
     return rows;
   }, [possessionsFiltered, homeTeam, awayTeam, teamMode]);
@@ -342,6 +368,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
           rows={[
             { label: 'Possessions', home: sideKpis.home.possN, away: sideKpis.away.possN },
             { label: 'Attacks', home: sideKpis.home.attN, away: sideKpis.away.attN },
+            { label: 'Live Possession Time', home: Number.isFinite(sideKpis.home.livePossessionSeconds) ? formatMMSS(sideKpis.home.livePossessionSeconds) : 'NA', away: Number.isFinite(sideKpis.away.livePossessionSeconds) ? formatMMSS(sideKpis.away.livePossessionSeconds) : 'NA' },
             { label: 'Points Per Possession', home: Number.isFinite(sideKpis.home.pointsPerPossession) ? sideKpis.home.pointsPerPossession.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.pointsPerPossession) ? sideKpis.away.pointsPerPossession.toFixed(2) : 'NA' },
             { label: 'Avg Possession Duration', home: Number.isFinite(sideKpis.home.avgDur) ? `${sideKpis.home.avgDur.toFixed(1)}s` : 'NA', away: Number.isFinite(sideKpis.away.avgDur) ? `${sideKpis.away.avgDur.toFixed(1)}s` : 'NA' },
             { label: 'Possession To Attack %', home: formatPct(sideKpis.home.possToAttack), away: formatPct(sideKpis.away.possToAttack) },
@@ -418,6 +445,27 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 </CardContent>
               </Card>
 
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Possession Time By Zone</div>
+                  <ChartContainer id="possession-zone-time" className="h-[240px] w-full" config={{}}>
+                    <BarChart data={possessionZoneTimeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="team" className="text-xs" />
+                      <YAxis className="text-xs" tickFormatter={(v) => `${Math.round(Number(v) / 60)}m`} />
+                      <Tooltip content={<ChartTooltipContent formatter={(value, name) => [`${Number(value || 0).toFixed(1)}s`, name]} />} />
+                      <Legend />
+                      <Bar dataKey="Defensive Third" stackId="a" fill="#60a5fa" />
+                      <Bar dataKey="Middle Third" stackId="a" fill="#f59e0b" />
+                      <Bar dataKey="Attacking Third" stackId="a" fill="#22c55e" />
+                      <Bar dataKey="Unknown" stackId="a" fill="#94a3b8" />
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="font-semibold text-slate-900">Possession Origins</div>

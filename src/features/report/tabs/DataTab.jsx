@@ -155,6 +155,12 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     setRawExtraJson(JSON.stringify(next, null, 2));
   };
 
+  const setStructuredRootValue = (key, value) => {
+    const next = safeParseJSON(rawExtraJson || '{}', {});
+    next[key] = value;
+    setRawExtraJson(JSON.stringify(next, null, 2));
+  };
+
   const VIDEO_PRE_ROLL_S = 5;
 
   const persistMutation = useMutation({
@@ -213,8 +219,115 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     return all
       .slice()
       .sort((a, b) => (a.team_side === b.team_side ? (a.number || 0) - (b.number || 0) : (a.team_side === 'home' ? -1 : 1)))
-      .map((p) => ({ id: p.id, team_side: p.team_side, label: label(p) || p.id }));
+      .map((p) => ({ id: p.id, team_side: p.team_side, number: p.number ?? null, name: p.name || '', label: label(p) || p.id }));
   }, [homePlayers, awayPlayers]);
+
+  const selectionOptions = useMemo(() => ([
+    { value: 'none', label: 'None' },
+    { value: 'team:home', label: `${homeTeam?.name || 'Home'} Team` },
+    { value: 'team:away', label: `${awayTeam?.name || 'Away'} Team` },
+    ...playerOptions.map((p) => ({ value: `player:${p.id}`, label: `${p.team_side === 'away' ? 'Away' : 'Home'}: ${p.label}` })),
+  ]), [playerOptions, homeTeam, awayTeam]);
+
+  const selectionToEditValue = (sel) => {
+    if (!sel || typeof sel !== 'object') return 'none';
+    if (sel.kind === 'team') return `team:${sel.team_side || 'home'}`;
+    if (sel.kind === 'player' && sel.id) return `player:${sel.id}`;
+    return 'none';
+  };
+
+  const editValueToSelection = (value) => {
+    const v = String(value || 'none');
+    if (v.startsWith('team:')) return { kind: 'team', team_side: v.split(':')[1] || 'home' };
+    if (v.startsWith('player:')) {
+      const id = v.slice('player:'.length);
+      const p = playerOptions.find((row) => row.id === id);
+      return { kind: 'player', id, number: p?.number ?? null, name: p?.name || String(p?.label || '').replace(/^#\d+\s*/, ''), team_side: p?.team_side || 'unknown' };
+    }
+    return { kind: 'none' };
+  };
+
+  const setStructuredSelectionValue = (section, key, value) => {
+    setStructuredExtraValue(section, key, editValueToSelection(value));
+  };
+
+  const FieldSelect = ({ label, value, onChange, options }) => (
+    <div className="space-y-1">
+      <Label className="text-xs text-slate-600">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const FieldInput = ({ label, value, onChange, numeric = false }) => (
+    <div className="space-y-1">
+      <Label className="text-xs text-slate-600">{label}</Label>
+      <Input className="h-8 text-xs" inputMode={numeric ? 'numeric' : undefined} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+
+  const FieldBool = ({ label, value, onChange }) => (
+    <FieldSelect
+      label={label}
+      value={value ? 'yes' : 'no'}
+      onChange={(v) => onChange(v === 'yes')}
+      options={[{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }]}
+    />
+  );
+
+  const SelectionField = ({ label, section, field }) => (
+    <FieldSelect
+      label={label}
+      value={selectionToEditValue(structuredExtra?.[section]?.[field])}
+      onChange={(v) => setStructuredSelectionValue(section, field, v)}
+      options={selectionOptions}
+    />
+  );
+
+  const renderFoulFields = (title = 'Foul Details') => (
+    <div className="rounded-lg border border-rose-200 bg-rose-50/40 p-3 space-y-2">
+      <div className="text-xs font-semibold text-rose-900">{title}</div>
+      <div className="grid md:grid-cols-4 gap-3">
+        <SelectionField label="Foul By" section="foul" field="foul_by" />
+        <SelectionField label="Foul On" section="foul" field="foul_on" />
+        <FieldSelect
+          label="Foul Type"
+          value={structuredExtra?.foul?.foul_type || 'pull'}
+          onChange={(v) => setStructuredExtraValue('foul', 'foul_type', v)}
+          options={['pull', 'push', 'trip', 'block', 'charge', 'hold', 'bodycheck', 'throw', 'breach', 'other'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+        />
+        <FieldSelect
+          label="Card"
+          value={structuredExtra?.foul?.card || 'none'}
+          onChange={(v) => setStructuredExtraValue('foul', 'card', v)}
+          options={['none', 'yellow', 'black', 'red'].map((v) => ({ value: v, label: v === 'none' ? 'NA' : toTitleCase(v) }))}
+        />
+      </div>
+    </div>
+  );
+
+  const renderTurnoverFields = (title = 'Turnover Details') => (
+    <div className="rounded-lg border border-orange-200 bg-orange-50/40 p-3 space-y-2">
+      <div className="text-xs font-semibold text-orange-900">{title}</div>
+      <div className="grid md:grid-cols-5 gap-3">
+        <FieldSelect
+          label="Turnover Type"
+          value={structuredExtra?.turnover?.turnover_type || 'interception'}
+          onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v)}
+          options={['interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline', 'other'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+        />
+        <SelectionField label="Lost By" section="turnover" field="lost_by" />
+        <SelectionField label="Forced By" section="turnover" field="forced_by" />
+        {structuredExtra?.turnover?.turnover_type !== 'foul' && <SelectionField label="Recovered By" section="turnover" field="recovered_by" />}
+        <FieldBool label="Brought Back - Adv." value={!!structuredExtra?.turnover?.brought_back_adv} onChange={(v) => setStructuredExtraValue('turnover', 'brought_back_adv', v)} />
+      </div>
+      {structuredExtra?.turnover?.turnover_type === 'foul' && renderFoulFields('Foul Turnover Fields')}
+    </div>
+  );
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
   const orderedAllStats = useMemo(() => sortStatsForEditing(stats, match, imputedTimeById), [stats, match, imputedTimeById]);
@@ -763,7 +876,14 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   <div className="grid md:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Stat Type</Label>
-                      <Input className="h-8 text-xs" value={rawStatType} onChange={(e) => setRawStatType(e.target.value)} />
+                      <Select value={rawStatType || 'shot'} onValueChange={setRawStatType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in', 'substitution', 'period_end'].map((v) => (
+                            <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Team</Label>
@@ -817,74 +937,84 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                     </div>
                   </div>
                   {rawStatType === 'pass' && (
-                    <div className="grid md:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-white p-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Method</Label>
-                        <Select value={structuredExtra?.pass?.method || 'hand'} onValueChange={(v) => setStructuredExtraValue('pass', 'method', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['hand', 'left', 'right'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="grid md:grid-cols-4 gap-3">
+                        <SelectionField label="Passer" section="pass" field="passer" />
+                        <SelectionField label="Intended Recipient" section="pass" field="intended_recipient" />
+                        <SelectionField label="Won By" section="pass" field="won_by" />
+                        <FieldBool label="Deadball" value={!!structuredExtra?.pass?.deadball} onChange={(v) => setStructuredExtraValue('pass', 'deadball', v)} />
+                        <FieldSelect label="Method" value={structuredExtra?.pass?.method || 'hand'} onChange={(v) => setStructuredExtraValue('pass', 'method', v)} options={['hand', 'left', 'right'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Accuracy" value={structuredExtra?.pass?.accuracy || '+'} onChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)} options={['--', '-', '+', '++'].map((v) => ({ value: v, label: v }))} />
+                        <FieldSelect label="Pressure" value={structuredExtra?.pass?.pressure_on_passer || 'low'} onChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Accuracy</Label>
-                        <Select value={structuredExtra?.pass?.accuracy || '+'} onValueChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['++', '+', '-', '--'].map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Pressure</Label>
-                        <Select value={structuredExtra?.pass?.pressure_on_passer || 'low'} onValueChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['low', 'medium', 'high'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Outcome</Label>
-                        <Select value={structuredExtra?.pass?.outcome || 'completed'} onValueChange={(v) => setStructuredExtraValue('pass', 'outcome', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {structuredExtra?.pass?.outcome === 'turnover' && renderTurnoverFields('Embedded Pass Turnover')}
+                      {structuredExtra?.pass?.outcome === 'foul' && renderFoulFields('Embedded Pass Foul')}
                     </div>
                   )}
                   {rawStatType === 'carry' && (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="grid md:grid-cols-4 gap-3">
+                        <SelectionField label="Carrier" section="carry" field="carrier" />
+                        <SelectionField label="Defender" section="carry" field="defender" />
+                        <SelectionField label="Recovered By" section="carry" field="recovered_by" />
+                        <FieldBool label="Solo & Go" value={!!structuredExtra?.carry?.solo_plus_go} onChange={(v) => setStructuredExtraValue('carry', 'solo_plus_go', v)} />
+                        <FieldSelect label="Pressure" value={structuredExtra?.carry?.pressure_on_carrier || 'low'} onChange={(v) => setStructuredExtraValue('carry', 'pressure_on_carrier', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Take On" value={structuredExtra?.carry?.take_on || 'no'} onChange={(v) => setStructuredExtraValue('carry', 'take_on', v)} options={['no', 'completed', 'failed'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Outcome" value={structuredExtra?.carry?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('carry', 'outcome', v)} options={['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      </div>
+                      {structuredExtra?.carry?.outcome === 'turnover' && renderTurnoverFields('Embedded Carry Turnover')}
+                      {structuredExtra?.carry?.outcome === 'foul' && renderFoulFields('Embedded Carry Foul')}
+                    </div>
+                  )}
+                  {rawStatType === 'shot' && (
                     <div className="grid md:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-white p-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Pressure</Label>
-                        <Select value={structuredExtra?.carry?.pressure_on_carrier || 'low'} onValueChange={(v) => setStructuredExtraValue('carry', 'pressure_on_carrier', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['low', 'medium', 'high'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                      <SelectionField label="Player" section="shot" field="player" />
+                      <SelectionField label="Recovered By" section="shot" field="recovered_by" />
+                      <SelectionField label="Blocked By" section="shot" field="blocked_by" />
+                      <SelectionField label="Saved By" section="shot" field="saved_by" />
+                      <FieldSelect label="Shot Type" value={structuredExtra?.shot?.shot_type || 'point'} onChange={(v) => setStructuredExtraValue('shot', 'shot_type', v)} options={['point', '2_point', 'goal'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldSelect label="Situation" value={structuredExtra?.shot?.situation || 'play'} onChange={(v) => setStructuredExtraValue('shot', 'situation', v)} options={['play', 'free_hands', 'free_ground', 'mark', '45', 'penalty'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldSelect label="Method" value={structuredExtra?.shot?.method || 'right'} onChange={(v) => setStructuredExtraValue('shot', 'method', v)} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldSelect label="Pressure" value={structuredExtra?.shot?.pressure || 'low'} onChange={(v) => setStructuredExtraValue('shot', 'pressure', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldSelect label="Outcome" value={structuredExtra?.shot?.outcome || 'point'} onChange={(v) => setStructuredExtraValue('shot', 'outcome', v)} options={['point', '2_point', 'goal', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldSelect label="Result" value={structuredExtra?.shot?.result || 'NA'} onChange={(v) => setStructuredExtraValue('shot', 'result', v === 'NA' ? '' : v)} options={['NA', 'retained', 'opposition', '45', 'wide'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                      <FieldBool label="Brought Back - Adv." value={!!structuredExtra?.shot?.brought_back_adv} onChange={(v) => setStructuredExtraValue('shot', 'brought_back_adv', v)} />
+                    </div>
+                  )}
+                  {rawStatType === 'kickout' && (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="grid md:grid-cols-4 gap-3">
+                        <FieldSelect label="Kickout Team" value={structuredExtra?.kickout?.team_side || rawTeamSide} onChange={(v) => setStructuredExtraValue('kickout', 'team_side', v)} options={['home', 'away'].map((v) => ({ value: v, label: v === 'home' ? (homeTeam?.name || 'Home') : (awayTeam?.name || 'Away') }))} />
+                        <SelectionField label="Intended Recipient" section="kickout" field="intended_recipient" />
+                        <SelectionField label="Won By" section="kickout" field="won_by" />
+                        <SelectionField label="Lost By" section="kickout" field="lost_by" />
+                        <SelectionField label="Broken By" section="kickout" field="broken_by" />
+                        <FieldSelect label="Outcome" value={structuredExtra?.kickout?.outcome || 'clean'} onChange={(v) => setStructuredExtraValue('kickout', 'outcome', v)} options={['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Press" value={structuredExtra?.kickout?.press || 'm2m'} onChange={(v) => setStructuredExtraValue('kickout', 'press', v)} options={['m2m', 'zonal', 'conceded'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldBool label="Mark" value={!!structuredExtra?.kickout?.mark} onChange={(v) => setStructuredExtraValue('kickout', 'mark', v)} />
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Take On</Label>
-                        <Select value={structuredExtra?.carry?.take_on || 'no'} onValueChange={(v) => setStructuredExtraValue('carry', 'take_on', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['no', 'completed', 'failed'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                      {structuredExtra?.kickout?.outcome === 'foul' && renderFoulFields('Kickout Foul')}
+                    </div>
+                  )}
+                  {rawStatType === 'throw_in' && (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="grid md:grid-cols-4 gap-3">
+                        <SelectionField label="Won By" section="throw_in" field="won_by" />
+                        <SelectionField label="Lost By" section="throw_in" field="lost_by" />
+                        <SelectionField label="Broken By" section="throw_in" field="broken_by" />
+                        <FieldSelect label="Outcome" value={structuredExtra?.throw_in?.outcome || 'clean'} onChange={(v) => setStructuredExtraValue('throw_in', 'outcome', v)} options={['clean', 'break', 'foul'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Outcome</Label>
-                        <Select value={structuredExtra?.carry?.outcome || 'completed'} onValueChange={(v) => setStructuredExtraValue('carry', 'outcome', v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {structuredExtra?.throw_in?.outcome === 'foul' && renderFoulFields('Throw-In Foul')}
+                    </div>
+                  )}
+                  {rawStatType === 'turnover' && renderTurnoverFields()}
+                  {rawStatType === 'foul' && renderFoulFields()}
+                  {rawStatType === 'substitution' && (
+                    <div className="grid md:grid-cols-3 gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <FieldSelect label="Sub Out" value={structuredExtra?.sub_out_id || 'none'} onChange={(v) => setStructuredRootValue('sub_out_id', v === 'none' ? '' : v)} options={[{ value: 'none', label: 'None' }, ...playerOptions.map((p) => ({ value: p.id, label: `${p.team_side === 'away' ? 'Away' : 'Home'}: ${p.label}` }))]} />
+                      <FieldSelect label="Sub In" value={structuredExtra?.sub_in_id || 'none'} onChange={(v) => setStructuredRootValue('sub_in_id', v === 'none' ? '' : v)} options={[{ value: 'none', label: 'None' }, ...playerOptions.map((p) => ({ value: p.id, label: `${p.team_side === 'away' ? 'Away' : 'Home'}: ${p.label}` }))]} />
+                      <FieldBool label="Temporary Sub" value={!!structuredExtra?.temporary} onChange={(v) => setStructuredRootValue('temporary', v)} />
                     </div>
                   )}
                   <details className="rounded-lg border border-slate-200 bg-white p-3" open={rawEditOpen} onToggle={(e) => setRawEditOpen(e.currentTarget.open)}>

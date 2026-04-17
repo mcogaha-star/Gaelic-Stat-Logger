@@ -211,6 +211,100 @@ export function getDerivedPossessionDurationSeconds(events, match, imputedMap) {
   return total;
 }
 
+export const POSSESSION_ZONE_LABELS = ['Defensive Third', 'Middle Third', 'Attacking Third', 'Unknown'];
+
+export function getPossessionZoneForX(x, teamSide) {
+  const raw = Number(x);
+  if (!Number.isFinite(raw)) return 'Unknown';
+  const attackingX = teamSide === 'away' ? PITCH_W - raw : raw;
+  if (attackingX < 45) return 'Defensive Third';
+  if (attackingX < PITCH_W - 45) return 'Middle Third';
+  return 'Attacking Third';
+}
+
+function splitZoneDurationByDistance(fromX, toX, duration, teamSide) {
+  const seconds = Number(duration);
+  const a = Number(fromX);
+  const b = Number(toX);
+  const out = Object.fromEntries(POSSESSION_ZONE_LABELS.map((z) => [z, 0]));
+  if (!Number.isFinite(seconds) || seconds <= 0) return out;
+  if (!Number.isFinite(a) && !Number.isFinite(b)) {
+    out.Unknown += seconds;
+    return out;
+  }
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(b - a) < 0.001) {
+    out[getPossessionZoneForX(Number.isFinite(a) ? a : b, teamSide)] += seconds;
+    return out;
+  }
+
+  const ax = teamSide === 'away' ? PITCH_W - a : a;
+  const bx = teamSide === 'away' ? PITCH_W - b : b;
+  const minX = Math.min(ax, bx);
+  const maxX = Math.max(ax, bx);
+  const total = Math.max(0.001, maxX - minX);
+  const segments = [
+    ['Defensive Third', 0, 45],
+    ['Middle Third', 45, PITCH_W - 45],
+    ['Attacking Third', PITCH_W - 45, PITCH_W],
+  ];
+  for (const [zone, start, end] of segments) {
+    const overlap = Math.max(0, Math.min(maxX, end) - Math.max(minX, start));
+    if (overlap > 0) out[zone] += seconds * (overlap / total);
+  }
+  const allocated = out['Defensive Third'] + out['Middle Third'] + out['Attacking Third'];
+  if (allocated <= 0) out.Unknown += seconds;
+  return out;
+}
+
+function addZoneDurations(target, add) {
+  for (const z of POSSESSION_ZONE_LABELS) {
+    target[z] = Number(target[z] || 0) + Number(add?.[z] || 0);
+  }
+}
+
+export function getPossessionTimeSummary(events, teamSide, match, imputedMap, options = {}) {
+  const ordered = (Array.isArray(events) ? events : [])
+    .filter((s) => s && !isNonLiveStat(s))
+    .slice()
+    .sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, match, imputedMap);
+      const tb = getMatchTimeS(b, match, imputedMap);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+  const zoneSeconds = Object.fromEntries(POSSESSION_ZONE_LABELS.map((z) => [z, 0]));
+  let liveSeconds = 0;
+
+  const first = ordered[0] || null;
+  const startAnchor = Number(options?.startAnchorTimeS);
+  if (first && Number.isFinite(startAnchor)) {
+    const firstTime = getMatchTimeS(first, match, imputedMap);
+    if (Number.isFinite(firstTime) && firstTime >= startAnchor) {
+      const gap = firstTime - startAnchor;
+      liveSeconds += gap;
+      addZoneDurations(zoneSeconds, splitZoneDurationByDistance(first.x_position, first.x_position, gap, teamSide));
+    }
+  }
+
+  for (let i = 0; i < ordered.length - 1; i += 1) {
+    const current = ordered[i];
+    const next = ordered[i + 1];
+    if (isDeadBallGapStart(current)) continue;
+    const a = getMatchTimeS(current, match, imputedMap);
+    const b = getMatchTimeS(next, match, imputedMap);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) continue;
+    const duration = b - a;
+    liveSeconds += duration;
+    const endX = Number.isFinite(Number(current?.end_x_position)) ? current.end_x_position : current?.x_position;
+    addZoneDurations(zoneSeconds, splitZoneDurationByDistance(current?.x_position, endX, duration, teamSide));
+  }
+
+  return { liveSeconds, zoneSeconds };
+}
+
 export function getHalfClockBaseS(half, match) {
   const second = getSecondHalfStartS(match);
   if (half === 'second') return second;

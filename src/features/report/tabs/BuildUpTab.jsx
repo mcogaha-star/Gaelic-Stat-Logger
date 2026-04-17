@@ -19,6 +19,7 @@ import {
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
   getMatchTimeS,
+  getPossessionTimeSummary,
   getProgressiveMeters,
   getScoringZoneEntry,
   getDerivedPossessionDurationSeconds,
@@ -232,7 +233,10 @@ function BuildUpTab({
         if (!acting.length) continue;
         const zone = getPossessionStartZone(acting);
         if (startZones[zone] != null) startZones[zone] += 1;
-        const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
+        const timeSummary = getPossessionTimeSummary(evs, side, reportFilters?.match, reportFilters?.imputedTimeById);
+        const liveDuration = Number.isFinite(timeSummary.liveSeconds)
+          ? timeSummary.liveSeconds
+          : getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
         if (Number.isFinite(liveDuration) && liveDuration > 0) possessionDurations.push(liveDuration);
         if (!isAttackPossession(acting, side)) continue;
         const channel = getAttackEntryChannelForPossession(acting, side);
