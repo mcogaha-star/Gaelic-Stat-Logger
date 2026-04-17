@@ -505,59 +505,20 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Possession Start Zones</div>
-                  <ChartContainer id="possession-start-zones" className="h-[240px] w-full" config={{}}>
-                    <BarChart data={startZoneData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="team" className="text-xs" />
-                      <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                      <Bar dataKey="Defensive Third" stackId="a" fill="#60a5fa" />
-                      <Bar dataKey="Middle Third" stackId="a" fill="#f59e0b" />
-                      <Bar dataKey="Attacking Third" stackId="a" fill="#22c55e" />
-                    </BarChart>
-                  </ChartContainer>
+                  <div>
+                    <div className="font-semibold text-slate-900">Possession Time By Zone</div>
+                    <div className="text-xs text-slate-500">Each percentage is that team's share of their own live possession time in the zone.</div>
+                  </div>
+                  <PossessionZonePitch
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
+                    homeColor={homeTeam?.color || '#fb4b14'}
+                    awayColor={awayTeam?.color || '#5b1f32'}
+                    zoneSeconds={possessionZoneSeconds}
+                  />
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Possession Time By Zone</div>
-                  <ChartContainer id="possession-zone-time" className="h-[240px] w-full" config={{}}>
-                    <BarChart data={possessionZoneTimeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="team" className="text-xs" />
-                      <YAxis className="text-xs" tickFormatter={(v) => `${Math.round(Number(v) / 60)}m`} />
-                      <Tooltip content={<ChartTooltipContent formatter={(value, name) => [`${Number(value || 0).toFixed(1)}s`, name]} />} />
-                      <Legend />
-                      <Bar dataKey="Defensive Third" stackId="a" fill="#60a5fa" />
-                      <Bar dataKey="Middle Third" stackId="a" fill="#f59e0b" />
-                      <Bar dataKey="Attacking Third" stackId="a" fill="#22c55e" />
-                      <Bar dataKey="Unknown" stackId="a" fill="#94a3b8" />
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div>
-                  <div className="font-semibold text-slate-900">Possession Zone Share</div>
-                  <div className="text-xs text-slate-500">Each percentage is that team's share of their own live possession time in the zone.</div>
-                </div>
-                <PossessionZonePitch
-                  homeTeam={homeTeam}
-                  awayTeam={awayTeam}
-                  homeColor={homeTeam?.color || '#fb4b14'}
-                  awayColor={awayTeam?.color || '#5b1f32'}
-                  zoneSeconds={possessionZoneSeconds}
-                />
-              </CardContent>
-            </Card>
-
-            <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="font-semibold text-slate-900">Possession Origins</div>
