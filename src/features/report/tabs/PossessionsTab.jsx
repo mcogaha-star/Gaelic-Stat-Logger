@@ -89,6 +89,33 @@ function getLivePossessionStartAnchor(previousStat, startSource, match, imputedM
 }
 
 const PHYSICAL_ZONE_LABELS = ['Left 45', 'Middle', 'Right 45'];
+const POSSESSION_DURATION_BINS = [
+  { label: '0-5s', min: 0, max: 5 },
+  { label: '5-10s', min: 5, max: 10 },
+  { label: '10-20s', min: 10, max: 20 },
+  { label: '20-30s', min: 20, max: 30 },
+  { label: '30-45s', min: 30, max: 45 },
+  { label: '45-60s', min: 45, max: 60 },
+  { label: '60s+', min: 60, max: Infinity },
+];
+
+function getRawX(stat, fallbackKey = 'x_position') {
+  const raw = Number(stat?.raw_x_position);
+  if (Number.isFinite(raw)) return raw;
+  const fallback = Number(stat?.[fallbackKey]);
+  return Number.isFinite(fallback) ? fallback : NaN;
+}
+
+function getRawEndX(stat) {
+  const rawEnd = Number(stat?.raw_end_x_position);
+  if (Number.isFinite(rawEnd)) return rawEnd;
+  const rawStart = Number(stat?.raw_x_position);
+  if (Number.isFinite(rawStart)) return rawStart;
+  const end = Number(stat?.end_x_position);
+  if (Number.isFinite(end)) return end;
+  const start = Number(stat?.x_position);
+  return Number.isFinite(start) ? start : NaN;
+}
 
 function splitPhysicalZoneDuration(fromX, toX, duration) {
   const seconds = Number(duration);
@@ -140,7 +167,8 @@ function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchor
   if (first && Number.isFinite(anchor)) {
     const firstTime = getMatchTimeS(first, match, imputedMap);
     if (Number.isFinite(firstTime) && firstTime >= anchor) {
-      add(splitPhysicalZoneDuration(first.x_position, first.x_position, firstTime - anchor));
+      const firstX = getRawX(first);
+      add(splitPhysicalZoneDuration(firstX, firstX, firstTime - anchor));
     }
   }
 
@@ -151,8 +179,7 @@ function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchor
     const a = getMatchTimeS(current, match, imputedMap);
     const b = getMatchTimeS(next, match, imputedMap);
     if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) continue;
-    const endX = Number.isFinite(Number(current?.end_x_position)) ? current.end_x_position : current?.x_position;
-    add(splitPhysicalZoneDuration(current?.x_position, endX, b - a));
+    add(splitPhysicalZoneDuration(getRawX(current), getRawEndX(current), b - a));
   }
   return out;
 }
@@ -450,6 +477,23 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     return seconds;
   }, [possessionsFiltered]);
 
+  const possessionDurationDistributionData = useMemo(() => {
+    const rows = POSSESSION_DURATION_BINS.map((bin) => ({
+      bin: bin.label,
+      home: 0,
+      away: 0,
+    }));
+    for (const p of possessionsFiltered) {
+      const duration = Number(p?.duration);
+      if (!Number.isFinite(duration) || duration < 0) continue;
+      const side = p?.teamSide;
+      if (side !== 'home' && side !== 'away') continue;
+      const index = POSSESSION_DURATION_BINS.findIndex((bin) => duration >= bin.min && duration < bin.max);
+      if (index >= 0) rows[index][side] += 1;
+    }
+    return rows;
+  }, [possessionsFiltered]);
+
   const originTableRows = useMemo(() => {
     const allowed = ['Turnover Won', 'Kickout Won', 'Throw In Won', 'Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved', 'Open Play'];
     const counts = {};
@@ -577,6 +621,30 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
               </Card>
             </div>
 
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div>
+                  <div className="font-semibold text-slate-900">Possession Duration Distribution</div>
+                  <div className="text-xs text-slate-500">Number of possessions by live possession length.</div>
+                </div>
+                <ChartContainer id="possession-duration-distribution" className="h-[260px] w-full" config={{}}>
+                  <BarChart data={possessionDurationDistributionData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="bin" className="text-xs" />
+                    <YAxis allowDecimals={false} className="text-xs" />
+                    <Tooltip content={<ChartTooltipContent />} />
+                    <Legend />
+                    {(teamMode === 'both' || teamMode === 'home') && (
+                      <Bar dataKey="home" name={homeTeam?.name || 'Home'} fill={homeTeam?.color || '#fb4b14'} radius={[4, 4, 0, 0]} />
+                    )}
+                    {(teamMode === 'both' || teamMode === 'away') && (
+                      <Bar dataKey="away" name={awayTeam?.name || 'Away'} fill={awayTeam?.color || '#5b1f32'} radius={[4, 4, 0, 0]} />
+                    )}
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
@@ -589,8 +657,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                     awayTeam={awayTeam}
                     homeColor={homeTeam?.color || '#fb4b14'}
                     awayColor={awayTeam?.color || '#5b1f32'}
-                  zoneSeconds={possessionPhysicalZoneSeconds}
-                />
+                    zoneSeconds={possessionPhysicalZoneSeconds}
+                  />
                 </CardContent>
               </Card>
 
