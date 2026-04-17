@@ -143,15 +143,16 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
       const outcome = derivePossessionOutcome(evs, teamSide);
       const times = evs.map((s) => getMatchTimeS(s, reportFilters?.match, reportFilters?.imputedTimeById)).filter(Number.isFinite);
-      const startTime = times.length ? Math.min(...times) : NaN;
+      const firstEventTime = times.length ? Math.min(...times) : NaN;
       const endTime = times.length ? Math.max(...times) : NaN;
       const previousStat = previousByPossessionKey.get(key) || null;
       const startSource = inferPossessionStartSource(evs, teamSide, previousStat || []);
       const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
       const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
+      const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
       const anchorGap =
-        Number.isFinite(liveStartAnchor) && Number.isFinite(startTime) && startTime >= liveStartAnchor
-          ? startTime - liveStartAnchor
+        Number.isFinite(liveStartAnchor) && Number.isFinite(firstEventTime) && firstEventTime >= liveStartAnchor
+          ? firstEventTime - liveStartAnchor
           : 0;
       const duration = Number.isFinite(liveDuration)
         ? liveDuration + anchorGap
