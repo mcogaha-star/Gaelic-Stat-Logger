@@ -827,7 +827,6 @@ export default function StatModalV4({
     setCarryOutcome('completed');
     setShotSituation('play');
     setShotMethod('right');
-    setDefType('contact');
     setKickoutPress('m2m');
     if (!isDrag) {
       // Defaults for click-based actors.
