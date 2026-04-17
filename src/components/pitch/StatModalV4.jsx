@@ -247,6 +247,17 @@ function RosterPanel({
   );
 }
 
+function getToneClasses(tone, selected) {
+  if (!tone) return '';
+  const tones = {
+    blue: selected ? 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700' : 'bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100',
+    green: selected ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700' : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100',
+    yellow: selected ? 'bg-amber-500 text-slate-950 border-amber-600 hover:bg-amber-500' : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100',
+    red: selected ? 'bg-red-600 text-white border-red-700 hover:bg-red-700' : 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100',
+  };
+  return tones[tone] || '';
+}
+
 function Buttons({ label, value, onChange, options }) {
   const gridCols =
     options.length === 3
@@ -258,18 +269,26 @@ function Buttons({ label, value, onChange, options }) {
     <div className="space-y-1">
       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</Label>
       <div className={['grid gap-2', gridCols].join(' ')}>
-        {options.map((opt) => (
-          <Button
-            key={opt.value}
-            type="button"
-            variant={value === opt.value ? 'default' : 'outline'}
-            size="sm"
-            className="h-8 px-2 text-xs whitespace-nowrap"
-            onClick={() => onChange(opt.value)}
-          >
-            {opt.label}
-          </Button>
-        ))}
+        {options.map((opt) => {
+          const selected = value === opt.value;
+          const toneClasses = getToneClasses(opt.tone, selected);
+          return (
+            <Button
+              key={opt.value}
+              type="button"
+              variant={opt.tone ? 'outline' : (selected ? 'default' : 'outline')}
+              size="sm"
+              className={[
+                'h-8 px-2 text-xs whitespace-nowrap',
+                toneClasses,
+                opt.tone && selected ? 'ring-2 ring-slate-900/20' : '',
+              ].filter(Boolean).join(' ')}
+              onClick={() => onChange(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          );
+        })}
       </div>
     </div>
   );
@@ -825,6 +844,9 @@ export default function StatModalV4({
     setDeadball(false);
     setCarrierPressure('low');
     setCarryOutcome('completed');
+    setTakeOnStatus('no');
+    setDefender(NONE);
+    setSoloPlusGo(false);
     setShotSituation('play');
     setShotMethod('right');
     setKickoutPress('m2m');
@@ -908,12 +930,24 @@ export default function StatModalV4({
     }
   }, [open, initialStat?.id, action, deadball]);
 
+  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
+
   useEffect(() => {
     if (action !== 'carry') return;
     if (carrierPressure !== 'high' && takeOnStatus === 'no' && defender !== NONE) {
       setDefender(NONE);
     }
   }, [action, carrierPressure, takeOnStatus, defender]);
+
+  useEffect(() => {
+    if (action !== 'carry') return;
+    if (defender === NONE) return;
+    const carrierSide = makeSelection(carrier, ctx).team_side;
+    const defenderSide = makeSelection(defender, ctx).team_side;
+    if ((carrierSide === 'home' || carrierSide === 'away') && defenderSide === carrierSide) {
+      setDefender(NONE);
+    }
+  }, [action, carrier, defender, ctx]);
 
   useEffect(() => {
     if (!open) return;
@@ -929,8 +963,6 @@ export default function StatModalV4({
     }
     previousTurnoverContextRef.current = turnoverContext;
   }, [open, initialStat?.id, action, passOutcome, carryOutcome, broughtBackAdv]);
-
-  const ctx = useMemo(() => ({ homePlayers, awayPlayers }), [homePlayers, awayPlayers]);
 
   useEffect(() => {
     if (!open) return;
@@ -1268,6 +1300,11 @@ export default function StatModalV4({
       return side === 'home' || side === 'away' ? side : null;
     }
     if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
+    if (k === 'defender' && action === 'carry') {
+      const carrierSide = makeSelection(carrier, ctx).team_side;
+      if (carrierSide === 'home') return 'away';
+      if (carrierSide === 'away') return 'home';
+    }
     if (k === 'recovered_by') {
       if (action === 'carry' && carryOutcome === 'dispossessed_retained') {
         const carrierSide = makeSelection(carrier, ctx).team_side;
@@ -1735,6 +1772,7 @@ export default function StatModalV4({
                   const restrict = getRestrictSideForRole(r);
                   if (r === 'pass_intended' && restrict) return "Recipient must be on passer's team";
                   if (r === 'kickout_intended' && restrict) return 'Recipient must be on kickout team';
+                  if (r === 'defender' && restrict) return 'Defender must be on the opposite team';
                   return '';
                 })()
               }
@@ -1942,7 +1980,6 @@ export default function StatModalV4({
 
               {action === 'pass' && isDrag && (
                 <>
-                  <div className="grid sm:grid-cols-2 gap-2">
                   <Buttons
                     label="Method"
                     value={passMethod}
@@ -1953,18 +1990,17 @@ export default function StatModalV4({
                       { value: 'hand', label: 'Hand' },
                     ]}
                   />
-                    <Buttons
-                      label="Accuracy"
-                      value={passAccuracy}
-                      onChange={setPassAccuracy}
-                      options={[
-                        { value: '++', label: '++' },
-                        { value: '+', label: '+' },
-                        { value: '-', label: '-' },
-                        { value: '--', label: '--' },
-                      ]}
-                    />
-                  </div>
+                  <Buttons
+                    label="Accuracy"
+                    value={passAccuracy}
+                    onChange={setPassAccuracy}
+                    options={[
+                      { value: '++', label: '++', tone: 'blue' },
+                      { value: '+', label: '+', tone: 'green' },
+                      { value: '-', label: '-', tone: 'yellow' },
+                      { value: '--', label: '--', tone: 'red' },
+                    ]}
+                  />
                   <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
@@ -2115,6 +2151,7 @@ export default function StatModalV4({
                   const restrict = getRestrictSideForRole(r);
                   if (r === 'pass_intended' && restrict) return "Recipient must be on passer's team";
                   if (r === 'kickout_intended' && restrict) return 'Recipient must be on kickout team';
+                  if (r === 'defender' && restrict) return 'Defender must be on the opposite team';
                   return '';
                 })()
               }
