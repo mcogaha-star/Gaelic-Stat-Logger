@@ -159,15 +159,14 @@ function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchor
 
 function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSeconds }) {
   const zones = [
-    { key: 'Left 45', label: 'Left 45', subLabel: 'Home Def / Away Att', x: 0, width: 45 },
-    { key: 'Middle', label: 'Middle', subLabel: 'Middle Third', x: 45, width: PITCH_W - 90 },
-    { key: 'Right 45', label: 'Right 45', subLabel: 'Home Att / Away Def', x: PITCH_W - 45, width: 45 },
+    { key: 'Left 45', x: 0, width: 45 },
+    { key: 'Middle', x: 45, width: PITCH_W - 90 },
+    { key: 'Right 45', x: PITCH_W - 45, width: 45 },
   ];
   const home = zoneSeconds?.home || {};
   const away = zoneSeconds?.away || {};
-  const homeTotal = zones.reduce((sum, z) => sum + Number(home[z.key] || 0), 0);
-  const awayTotal = zones.reduce((sum, z) => sum + Number(away[z.key] || 0), 0);
-  const pct = (value, total) => total > 0 ? `${((Number(value || 0) / total) * 100).toFixed(1)}%` : '0.0%';
+  const totalPossession = zones.reduce((sum, z) => sum + Number(home[z.key] || 0) + Number(away[z.key] || 0), 0);
+  const pct = (value) => totalPossession > 0 ? `${((Number(value || 0) / totalPossession) * 100).toFixed(1)}%` : '0.0%';
   const homeName = homeTeam?.name || 'Home';
   const awayName = awayTeam?.name || 'Away';
   return (
@@ -195,25 +194,21 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
       </svg>
       <div className="absolute inset-0 grid grid-cols-3">
         {zones.map((zone) => (
-          <div key={zone.key} className="flex flex-col items-center justify-center gap-3 px-2 text-center">
-            <div className="rounded-xl bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm">
-              <div>{zone.label}</div>
-              <div className="text-[10px] font-medium text-slate-500">{zone.subLabel}</div>
-            </div>
+          <div key={zone.key} className="flex flex-col items-center justify-center gap-2 px-2 text-center">
             <div className="w-full max-w-[190px] rounded-xl bg-white/90 p-2 shadow-sm">
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-1 truncate">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: homeColor || '#fb4b14' }} />
                   <span className="truncate">{homeName}</span>
                 </span>
-                <span className="font-mono font-semibold">{pct(home[zone.key], homeTotal)}</span>
+                <span className="font-mono font-semibold">{pct(home[zone.key])}</span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-1 truncate">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: awayColor || '#5b1f32' }} />
                   <span className="truncate">{awayName}</span>
                 </span>
-                <span className="font-mono font-semibold">{pct(away[zone.key], awayTotal)}</span>
+                <span className="font-mono font-semibold">{pct(away[zone.key])}</span>
               </div>
             </div>
           </div>
@@ -587,7 +582,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 <CardContent className="p-4 space-y-3">
                   <div>
                     <div className="font-semibold text-slate-900">Possession Time By Zone</div>
-                    <div className="text-xs text-slate-500">Physical pitch view: Home attacks left-to-right, Away attacks right-to-left.</div>
+                    <div className="text-xs text-slate-500">Physical pitch view. Percentages are share of total live possession time.</div>
                   </div>
                   <PossessionZonePitch
                     homeTeam={homeTeam}
