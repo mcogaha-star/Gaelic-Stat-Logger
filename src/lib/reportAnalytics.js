@@ -9,7 +9,7 @@ export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
 export const POSSESSION_REBUILD_VERSION = 'v12';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
-export const STAT_MODEL_MIGRATION_VERSION = 'v1';
+export const STAT_MODEL_MIGRATION_VERSION = 'v2';
 
 export function deriveMatchLengthMinutes(matchOrCode, maybeLevel) {
   const code = typeof matchOrCode === 'object' ? matchOrCode?.code : matchOrCode;
@@ -78,6 +78,21 @@ function normalizeStatModelExtra(stat) {
     }
     if (Object.prototype.hasOwnProperty.call(next.carry, 'take_on_completed')) {
       delete next.carry.take_on_completed;
+      changed = true;
+    }
+    const defender = next.carry.defender;
+    const defenderFilled = defender && defender.kind && defender.kind !== 'none';
+    const pressure = String(next.carry.pressure_on_carrier || '').toLowerCase();
+    const takeOn = String(next.carry.take_on || 'no').toLowerCase();
+    const carrierSide = next.carry.carrier?.team_side;
+    const defenderSide = defender?.team_side;
+    const clearByContext = defenderFilled && pressure !== 'high' && takeOn === 'no';
+    const clearBySameTeam =
+      defenderFilled
+      && (carrierSide === 'home' || carrierSide === 'away')
+      && defenderSide === carrierSide;
+    if (clearByContext || clearBySameTeam) {
+      next.carry.defender = { kind: 'none' };
       changed = true;
     }
   }
