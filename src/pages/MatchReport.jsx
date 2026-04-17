@@ -1314,7 +1314,7 @@ export default function MatchReport() {
               <DialogTitle className="text-base">{sharedVizTitle || 'Visualise'}</DialogTitle>
               {(() => {
                 const times = (sharedVizStats || []).map((s) => Number(s?.time_s)).filter(Number.isFinite);
-                if (!times.length) return null;
+                if (String(match?.mode || 'analysis') === 'live' || !times.length) return null;
                 const t = Math.min(...times);
                 return (
                   <Button

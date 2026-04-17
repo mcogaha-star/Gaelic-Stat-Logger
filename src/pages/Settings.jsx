@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 import { createPageUrl } from '@/utils';
 import { DEFAULT_CUSTOM_FIELDS, DEFAULT_DEFAULTS } from '@/components/statDefaults';
+import { DEFAULT_LIVE_MODE_SETTINGS, parseLiveModeSettings } from '@/lib/liveModeSettings';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ export default function Settings() {
   const [defaults, setDefaults] = useState(DEFAULT_DEFAULTS);
   const [customFields, setCustomFields] = useState(DEFAULT_CUSTOM_FIELDS);
   const [shortcuts, setShortcuts] = useState(DEFAULT_SHORTCUTS);
+  const [liveModeSettings, setLiveModeSettings] = useState(DEFAULT_LIVE_MODE_SETTINGS);
 
   useEffect(() => {
     if (!settingsRecord) return;
@@ -49,6 +51,11 @@ export default function Settings() {
       setDefaults(DEFAULT_DEFAULTS);
     }
   }, [settingsRecord?.id]);
+
+  useEffect(() => {
+    if (!settingsRecord) return;
+    setLiveModeSettings(parseLiveModeSettings(settingsRecord.live_mode_settings_config));
+  }, [settingsRecord?.id, settingsRecord?.live_mode_settings_config]);
 
   useEffect(() => {
     if (!settingsRecord) return;
@@ -91,6 +98,7 @@ export default function Settings() {
         defaults_config: JSON.stringify(defaults),
         custom_fields_config: JSON.stringify(customFields),
         keyboard_shortcuts_config: JSON.stringify(shortcuts),
+        live_mode_settings_config: JSON.stringify(liveModeSettings),
       };
       if (settingsRecord?.id) return await db.entities.AppSettings.update(settingsRecord.id, data);
       return await db.entities.AppSettings.create(data);
@@ -123,8 +131,9 @@ export default function Settings() {
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="live">Live Mode</TabsTrigger>
             <TabsTrigger value="shortcuts">Shortcuts</TabsTrigger>
             <TabsTrigger value="custom">Custom Fields</TabsTrigger>
             <TabsTrigger value="privacy">Privacy</TabsTrigger>
@@ -151,6 +160,41 @@ export default function Settings() {
                   <span className="font-mono text-slate-900">{settingsRecord?.schema_version ?? 'Unknown'}</span>
                 </div>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="live">
+            <div className="bg-white border rounded-xl p-6 space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Live Mode Details</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  Hide optional live-logging fields to keep match-day tagging faster. Core possession fields remain available.
+                </p>
+              </div>
+
+              {[
+                ['showShotMethod', 'Show shot method'],
+                ['showShotPressure', 'Show shot pressure'],
+                ['showShotBlockedSavedBy', 'Show shot blocked/saved by'],
+                ['showShotBroughtBackAdv', 'Show shot brought back advantage'],
+                ['showKickoutPress', 'Show kickout press'],
+                ['showKickoutLostBy', 'Show kickout lost by'],
+                ['showTurnoverType', 'Show turnover type'],
+                ['showTurnoverBroughtBackAdv', 'Show turnover brought back advantage'],
+                ['showFoulCard', 'Show foul card'],
+                ['showThrowInLostBy', 'Show throw-in lost by'],
+                ['showTemporarySub', 'Show temporary sub toggle'],
+              ].map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                  <div>
+                    <Label>{label}</Label>
+                  </div>
+                  <Switch
+                    checked={liveModeSettings?.[key] !== false}
+                    onCheckedChange={(v) => setLiveModeSettings((prev) => ({ ...DEFAULT_LIVE_MODE_SETTINGS, ...(prev || {}), [key]: !!v }))}
+                  />
+                </div>
+              ))}
             </div>
           </TabsContent>
 

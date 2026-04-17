@@ -13,6 +13,7 @@ export default function MatchStatsToolbar({
   handleUndoLast,
   statsCount,
   openVideoPopout,
+  isLiveMode = false,
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-0.5">
@@ -33,17 +34,19 @@ export default function MatchStatsToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={setHalfStartFromVideo}
-          title={videoReady ? 'Set the start time for this half from the current video time' : 'Open the video window to set half start'}
-          className="gap-2"
-        >
-          <Clock className="w-4 h-4" />
-          Set Half Start
-        </Button>
+        {!isLiveMode && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={setHalfStartFromVideo}
+            title={videoReady ? 'Set the start time for this half from the current video time' : 'Open the video window to set half start'}
+            className="gap-2"
+          >
+            <Clock className="w-4 h-4" />
+            Set Half Start
+          </Button>
+        )}
 
         <Button
           type="button"
@@ -92,17 +95,19 @@ export default function MatchStatsToolbar({
           Undo
         </Button>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={openVideoPopout}
-          title="Open video window"
-          className="gap-2"
-        >
-          <Video className="w-4 h-4" />
-          Video
-        </Button>
+        {!isLiveMode && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openVideoPopout}
+            title="Open video window"
+            className="gap-2"
+          >
+            <Video className="w-4 h-4" />
+            Video
+          </Button>
+        )}
       </div>
     </div>
   );

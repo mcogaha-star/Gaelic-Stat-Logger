@@ -22,9 +22,11 @@ import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib
 import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
+import LiveModeLogger, { createDefaultLiveDraft, NONE, TEAM_HOME, TEAM_AWAY } from '@/features/match-stats/components/LiveModeLogger';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
 import useHalfManagement from '@/features/match-stats/hooks/useHalfManagement';
 import useStatLogging from '@/features/match-stats/hooks/useStatLogging';
+import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 
 const VIDEO_CHANNEL = 'gstl_video';
 
@@ -115,6 +117,8 @@ export default function MatchStats() {
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
     const customFieldsRaw = settingsRecord?.custom_fields_config ? (() => { try { return JSON.parse(settingsRecord.custom_fields_config); } catch { return DEFAULT_CUSTOM_FIELDS; } })() : DEFAULT_CUSTOM_FIELDS;
     const shortcutConfig = useMemo(() => parseShortcutConfig(settingsRecord?.keyboard_shortcuts_config), [settingsRecord?.keyboard_shortcuts_config]);
+    const liveModeSettings = useMemo(() => parseLiveModeSettings(settingsRecord?.live_mode_settings_config), [settingsRecord?.live_mode_settings_config]);
+    const isLiveMode = String(match?.mode || 'analysis') === 'live';
 
     const appDefaults = useMemo(() => {
         const d = (appDefaultsRaw && typeof appDefaultsRaw === 'object') ? appDefaultsRaw : DEFAULT_DEFAULTS;
@@ -141,6 +145,9 @@ export default function MatchStats() {
     const [subIn, setSubIn] = useState('');
     const [subTemporary, setSubTemporary] = useState(false);
     const [lastDefenceSetByPossession, setLastDefenceSetByPossession] = useState(null);
+    const [liveDraft, setLiveDraft] = useState(() => createDefaultLiveDraft('home'));
+    const [liveClockSecondsByHalf, setLiveClockSecondsByHalf] = useState({});
+    const [liveClockRunning, setLiveClockRunning] = useState(false);
 
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -229,6 +236,38 @@ export default function MatchStats() {
         remindNextHalfStart,
     } = useHalfManagement({ db, match, halfStartByHalf, initialHalf: appDefaults.half || 'first' });
 
+    const liveClockStorageKey = matchId ? `gstl-live-clock:${matchId}` : null;
+    useEffect(() => {
+        if (!liveClockStorageKey) return;
+        try {
+            const saved = JSON.parse(localStorage.getItem(liveClockStorageKey) || '{}');
+            if (saved && typeof saved === 'object') setLiveClockSecondsByHalf(saved);
+        } catch {
+            setLiveClockSecondsByHalf({});
+        }
+    }, [liveClockStorageKey]);
+
+    useEffect(() => {
+        if (!liveClockStorageKey) return;
+        try {
+            localStorage.setItem(liveClockStorageKey, JSON.stringify(liveClockSecondsByHalf || {}));
+        } catch {
+            // ignore
+        }
+    }, [liveClockStorageKey, liveClockSecondsByHalf]);
+
+    const liveClockSeconds = Number(liveClockSecondsByHalf?.[half] || 0);
+    useEffect(() => {
+        if (!liveClockRunning) return undefined;
+        const id = window.setInterval(() => {
+            setLiveClockSecondsByHalf((prev) => {
+                const base = Number(prev?.[half] || 0);
+                return { ...(prev || {}), [half]: base + 1 };
+            });
+        }, 1000);
+        return () => window.clearInterval(id);
+    }, [liveClockRunning, half]);
+
     const {
         currentVideoTimeS,
         videoReady,
@@ -279,6 +318,7 @@ export default function MatchStats() {
             matchDate: match.date,
             code: match.code || 'GAA',
             level: match.level || 'Other',
+            mode: match.mode || 'analysis',
         });
         if (res.ok && res.id) {
             await db.entities.Match.update(match.id, { server_match_id: res.id });
@@ -511,17 +551,19 @@ export default function MatchStats() {
                 return;
             }
 
-            for (const [command, shortcut] of Object.entries(shortcutConfig?.video || {})) {
-                if (!eventMatchesShortcut(e, shortcut)) continue;
-                e.preventDefault();
-                sendVideoCommand(command);
-                return;
+            if (!isLiveMode) {
+                for (const [command, shortcut] of Object.entries(shortcutConfig?.video || {})) {
+                    if (!eventMatchesShortcut(e, shortcut)) continue;
+                    e.preventDefault();
+                    sendVideoCommand(command);
+                    return;
+                }
             }
         };
 
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, [stats, shortcutConfig, matchId]);
+    }, [stats, shortcutConfig, matchId, isLiveMode]);
 
     const snapKickoutOrigin = (coords) => {
         // Snap to nearest 20m line midpoint in the 145x85 plane: (20, 42.5) or (125, 42.5)
@@ -615,6 +657,231 @@ export default function MatchStats() {
         if (!targetPossessionStats.length) return true;
         return !!targetPossessionStats[0].counter_attack;
     }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide, lastDefenceSetByPossession]);
+
+    const selectionFromLiveValue = (value) => {
+        if (!value || value === NONE) return { kind: 'none' };
+        if (value === TEAM_HOME) return { kind: 'team', team_side: 'home' };
+        if (value === TEAM_AWAY) return { kind: 'team', team_side: 'away' };
+        if (String(value).startsWith('player:')) {
+            const id = String(value).slice('player:'.length);
+            const p = [...homePlayers, ...awayPlayers].find((player) => player.id === id);
+            if (!p) return { kind: 'none' };
+            const team_side = homePlayers.some((player) => player.id === id) ? 'home' : 'away';
+            return { kind: 'player', id: p.id, number: p.number ?? null, name: p.name || '', team_side };
+        }
+        return { kind: 'none' };
+    };
+
+    const oppositeTeamSelection = (sel) => {
+        const side = sel?.team_side;
+        if (side === 'home') return { kind: 'team', team_side: 'away' };
+        if (side === 'away') return { kind: 'team', team_side: 'home' };
+        return { kind: 'none' };
+    };
+
+    const commitPointStat = (payload, rawStartBase, rawEndBase = null) => {
+        if (!rawStartBase) return;
+        const teamSide = payload?.team_side || 'unknown';
+        const isKickout = payload?.stat_type === 'kickout';
+        const rawStart = isKickout ? snapKickoutOriginRaw(teamSide) : rawStartBase;
+        const rawEnd = isKickout ? rawStartBase : rawEndBase;
+        const start = normalizeForTeam(rawStart, teamSide);
+        const hasEnd = !!rawEnd;
+        const end = hasEnd ? normalizeForTeam(rawEnd, teamSide) : null;
+        const nextPlayId = playCounter + 1;
+        const extra = { ...(payload.extra || {}), pitch: { w: PITCH_W, h: PITCH_H } };
+        const primary = payload.primary_player;
+        const recipientSel =
+            payload.stat_type === 'kickout' ? payload.extra?.kickout?.won_by
+                : (payload.stat_type === 'throw_in' ? payload.extra?.throw_in?.won_by : null);
+
+        const draftId = `draft:${nextPlayId}:${Date.now()}`;
+        const draftStat = {
+            id: draftId,
+            match_id: matchId,
+            stat_type: payload.stat_type,
+            is_pass: !!payload.is_pass,
+            half,
+            timestamp: new Date().toISOString(),
+            play_id: nextPlayId,
+            possession_id: currentPossessionId || 0,
+            possession_team_side: currentPossessionTeamSide || 'unknown',
+            team_side: teamSide,
+            counter_attack: !!payload.counter_attack,
+            raw_x_position: rawStart.x,
+            raw_y_position: rawStart.y,
+            raw_end_x_position: hasEnd ? rawEnd.x : null,
+            raw_end_y_position: hasEnd ? rawEnd.y : null,
+            x_position: start.x,
+            y_position: start.y,
+            end_x_position: hasEnd ? end.x : null,
+            end_y_position: hasEnd ? end.y : null,
+            time_s: payload.time_s ?? null,
+            normalized_time_s: payload.normalized_time_s ?? null,
+            player_name: primary?.kind === 'player' ? (primary.name || '') : null,
+            player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
+            recipient_name: recipientSel?.kind === 'player' ? (recipientSel.name || '') : null,
+            recipient_number: recipientSel?.kind === 'player' ? (recipientSel.number ?? null) : null,
+            extra_data: JSON.stringify(extra),
+        };
+
+        const sequenced = sequencePossessionRows([...(stats || []), draftStat]);
+        const sequencedDraft = sequenced.find((row) => row?.id === draftId) || draftStat;
+        const nextPossessionCounter = sequenced.reduce((max, row) => {
+            const pid = Number(row?.possession_id);
+            return Number.isFinite(pid) ? Math.max(max, pid) : max;
+        }, 0);
+        const statData = {
+            ...draftStat,
+            team_side: sequencedDraft.team_side || draftStat.team_side,
+            possession_id: Number.isFinite(Number(sequencedDraft.possession_id)) ? Number(sequencedDraft.possession_id) : draftStat.possession_id,
+            possession_team_side: sequencedDraft.possession_team_side || draftStat.possession_team_side,
+            extra_data: sequencedDraft.extra_data || draftStat.extra_data,
+        };
+        delete statData.id;
+        createStatMutation.mutate(statData);
+        setPlayCounter(nextPlayId);
+        setPossessionCounter(nextPossessionCounter);
+        setCurrentPossessionId(statData.possession_id);
+        setCurrentPossessionTeamSide(statData.possession_team_side);
+        setLastDefenceSetByPossession({
+            possessionId: Number(statData.possession_id || 0),
+            teamSide: statData.possession_team_side || 'unknown',
+            value: !!payload.counter_attack,
+        });
+
+        const lr = updateLastReceiverFrom({ stat_type: payload.stat_type, extra });
+        setLastReceiver(lr || null);
+    };
+
+    const buildLivePayload = () => {
+        const d = liveDraft || createDefaultLiveDraft('home');
+        const sel = selectionFromLiveValue;
+        const extra = { counter_attack: !!defaultCounterAttack, live_mode: true };
+        const normalizedTime = Number(liveClockSeconds);
+        const base = {
+            stat_type: d.action,
+            is_pass: false,
+            counter_attack: !!defaultCounterAttack,
+            time_s: null,
+            normalized_time_s: Number.isFinite(normalizedTime) ? normalizedTime : null,
+            primary_player: { kind: 'none' },
+            team_side: 'unknown',
+            extra,
+        };
+
+        if (d.action === 'shot') {
+            const player = sel(d.shotPlayer);
+            extra.shot = {
+                player,
+                shot_type: d.shotType || 'point',
+                situation: 'play',
+                method: d.shotMethod || 'right',
+                pressure: d.shotPressure || 'low',
+                outcome: d.shotOutcome || 'point',
+                result: d.shotResult || '',
+                recovered_by: { kind: 'none' },
+                blocked_by: sel(d.shotBlockedBy),
+                saved_by: sel(d.shotSavedBy),
+                brought_back_adv: !!d.shotBroughtBackAdv,
+            };
+            return { ...base, team_side: player.team_side || 'unknown', primary_player: player };
+        }
+
+        if (d.action === 'kickout') {
+            const wonBy = sel(d.kickoutWonBy);
+            const lostBy = d.kickoutLostBy && d.kickoutLostBy !== NONE ? sel(d.kickoutLostBy) : oppositeTeamSelection(wonBy);
+            const teamSide = d.kickoutTeam === 'away' ? 'away' : 'home';
+            extra.kickout = {
+                team_side: teamSide,
+                intended_recipient: wonBy,
+                outcome: d.kickoutOutcome || 'clean',
+                won_by: wonBy,
+                lost_by: lostBy,
+                broken_by: { kind: 'none' },
+                mark: false,
+                press: d.kickoutPress || 'm2m',
+            };
+            if (d.kickoutOutcome === 'foul') {
+                extra.foul = { foul_by: sel(d.foulBy), foul_on: sel(d.foulOn), foul_type: d.foulType || 'pull', card: d.card || 'none' };
+            }
+            return { ...base, stat_type: 'kickout', team_side: teamSide, primary_player: { kind: 'team', team_side: teamSide } };
+        }
+
+        if (d.action === 'turnover') {
+            const isFoul = d.turnoverType === 'foul';
+            const foulBy = sel(d.foulBy);
+            const foulOn = sel(d.foulOn);
+            const wonBy = sel(d.turnoverWonBy);
+            const lostBy = sel(d.turnoverLostBy);
+            const forced = isFoul ? foulOn : wonBy;
+            const lost = isFoul ? foulBy : lostBy;
+            extra.turnover = {
+                turnover_type: d.turnoverType || 'forced',
+                lost_by: lost,
+                forced_by: forced,
+                recovered_by: forced,
+                unforced: d.turnoverType === 'unforced',
+                brought_back_adv: !!d.turnoverBroughtBackAdv,
+            };
+            if (isFoul) {
+                extra.foul = { foul_by: foulBy, foul_on: foulOn, foul_type: d.foulType || 'pull', card: d.card || 'none' };
+            }
+            return { ...base, stat_type: 'turnover', team_side: lost.team_side || forced.team_side || 'unknown', primary_player: lost.kind !== 'none' ? lost : forced };
+        }
+
+        if (d.action === 'foul') {
+            const foulBy = sel(d.foulBy);
+            const foulOn = sel(d.foulOn);
+            extra.foul = { foul_by: foulBy, foul_on: foulOn, foul_type: d.foulType || 'pull', card: d.card || 'none' };
+            return { ...base, stat_type: 'foul', team_side: foulOn.team_side || foulBy.team_side || 'unknown', primary_player: foulOn.kind !== 'none' ? foulOn : foulBy };
+        }
+
+        if (d.action === 'throw_in') {
+            const wonBy = sel(d.throwWonBy);
+            const lostBy = d.throwLostBy && d.throwLostBy !== NONE ? sel(d.throwLostBy) : oppositeTeamSelection(wonBy);
+            extra.throw_in = {
+                outcome: d.throwOutcome || 'clean',
+                won_by: wonBy,
+                lost_by: lostBy,
+                broken_by: { kind: 'none' },
+            };
+            if (d.throwOutcome === 'foul') {
+                extra.foul = { foul_by: sel(d.foulBy), foul_on: sel(d.foulOn), foul_type: d.foulType || 'pull', card: d.card || 'none' };
+            }
+            return { ...base, stat_type: 'throw_in', team_side: wonBy.team_side || 'unknown', primary_player: wonBy };
+        }
+
+        return base;
+    };
+
+    const hasLiveSelection = (value) => !!value && value !== NONE;
+    const validateLiveDraft = () => {
+        const d = liveDraft || {};
+        if (d.action === 'shot' && !hasLiveSelection(d.shotPlayer)) return 'Select the shot player first';
+        if (d.action === 'kickout' && !hasLiveSelection(d.kickoutWonBy)) return 'Select who won the kickout first';
+        if (d.action === 'turnover') {
+            if (d.turnoverType === 'foul') {
+                if (!hasLiveSelection(d.foulBy) || !hasLiveSelection(d.foulOn)) return 'Select foul by and foul on first';
+            } else if (!hasLiveSelection(d.turnoverWonBy) || !hasLiveSelection(d.turnoverLostBy)) {
+                return 'Select turnover won by and lost by first';
+            }
+        }
+        if (d.action === 'foul' && (!hasLiveSelection(d.foulBy) || !hasLiveSelection(d.foulOn))) return 'Select foul by and foul on first';
+        if (d.action === 'throw_in' && !hasLiveSelection(d.throwWonBy)) return 'Select who won the throw-in first';
+        return '';
+    };
+
+    const handleLivePointClick = (coords) => {
+        if (!coords) return;
+        const error = validateLiveDraft();
+        if (error) {
+            toast.error(error);
+            return;
+        }
+        const payload = buildLivePayload();
+        commitPointStat(payload, coords, null);
+    };
 
     const handleStatSubmit = (payload) => {
         // Edit mode: update the existing row's metadata (coords/IDs remain unchanged).
@@ -935,8 +1202,10 @@ export default function MatchStats() {
             play_id: nextPlayId,
             possession_id: 0,
             possession_team_side: 'unknown',
-            team_side: 'unknown',
+            team_side: outSide,
             counter_attack: false,
+            time_s: null,
+            normalized_time_s: isLiveMode ? liveClockSeconds : null,
             extra_data: JSON.stringify(extra),
         };
         createStatMutation.mutate(statData);
@@ -980,6 +1249,8 @@ export default function MatchStats() {
             possession_team_side: possTeam,
             team_side: 'unknown',
             counter_attack: false,
+            time_s: null,
+            normalized_time_s: isLiveMode ? liveClockSeconds : null,
             extra_data: JSON.stringify({ period: half }),
         });
         setPlayCounter(nextPlayId);
@@ -987,7 +1258,8 @@ export default function MatchStats() {
         const nextDir = shouldFlipDirection ? (prevDir === 'left' ? 'right' : 'left') : prevDir;
         await persistDirectionByPeriod({ ...(directionByPeriod || {}), [nextHalf]: nextDir });
         setHalf(nextHalf);
-        remindNextHalfStart(nextHalf);
+        setLiveClockRunning(false);
+        if (!isLiveMode) remindNextHalfStart(nextHalf);
         setEndPeriodPrompt({ open: false, nextHalf: null });
     };
 
@@ -1019,17 +1291,43 @@ export default function MatchStats() {
                             handleUndoLast={handleUndoLast}
                             statsCount={stats.length}
                             openVideoPopout={openVideoPopout}
+                            isLiveMode={isLiveMode}
                         />
                         <div className="bg-slate-900 rounded-2xl p-1 shadow-xl relative overflow-hidden ml-2 mt-0.5">
-                            <GAAPitch onPointClick={handlePointClick} onPassDraw={handlePassDraw} debug={debugPitch} />
+                            <GAAPitch
+                                onPointClick={isLiveMode ? handleLivePointClick : handlePointClick}
+                                onPassDraw={isLiveMode ? undefined : handlePassDraw}
+                                debug={debugPitch}
+                            />
                             <StatMarkers stats={stats} clickStats={clickStats} />
                         </div>
                         <p className="text-center text-sm text-slate-500 mt-2">
-                            Click to log a stat. Click and drag to log a pass / carry.
+                            {isLiveMode ? 'Select a live action, then click the pitch location to log it.' : 'Click to log a stat. Click and drag to log a pass / carry.'}
                         </p>
                     </div>
 
                     <div className="space-y-6">
+                        {isLiveMode && (
+                            <LiveModeLogger
+                                draft={liveDraft}
+                                onDraftChange={setLiveDraft}
+                                clockSeconds={liveClockSeconds}
+                                running={liveClockRunning}
+                                onToggleClock={() => setLiveClockRunning((v) => !v)}
+                                onResetClock={() => setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }))}
+                                half={half}
+                                getDirForHalf={getDirForHalf}
+                                homeTeamName={homeTeam?.name || 'Home'}
+                                awayTeamName={awayTeam?.name || 'Away'}
+                                homePlayers={homePlayers}
+                                awayPlayers={awayPlayers}
+                                liveModeSettings={liveModeSettings}
+                                onLogSubstitution={() => setSubDialogOpen(true)}
+                                onEndHalf={openEndHalfPrompt}
+                                onUndo={handleUndoLast}
+                                statsCount={stats.length}
+                            />
+                        )}
                         <RecentStats
                             stats={stats}
                             statsCount={stats.length}

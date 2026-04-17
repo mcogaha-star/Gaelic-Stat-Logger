@@ -22,6 +22,7 @@ export async function ensureServerMatch({
   level,
   windSpeed,
   windDirection,
+  mode,
 }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
@@ -33,6 +34,7 @@ export async function ensureServerMatch({
     match_date: matchDate,
     code,
     level,
+    mode: mode || 'analysis',
   };
   const payload = {
     ...basePayload,
@@ -49,10 +51,17 @@ export async function ensureServerMatch({
     .maybeSingle());
 
   // If the live schema doesn't yet have wind columns, retry with the original payload.
-  if (insertErr?.message && /wind_(speed|direction)/i.test(insertErr.message)) {
+  if (insertErr?.message && /wind_(speed|direction)|\bmode\b/i.test(insertErr.message)) {
+    const retryPayload = {
+      user_id: user.id,
+      public_match_id: publicMatchId,
+      match_date: matchDate,
+      code,
+      level,
+    };
     ({ data: inserted, error: insertErr } = await supabase
       .from('matches')
-      .insert(basePayload)
+      .insert(retryPayload)
       .select('id,public_match_id')
       .maybeSingle());
   }

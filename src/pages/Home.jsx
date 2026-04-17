@@ -40,6 +40,7 @@ export default function Home() {
         competition: '',
         level: 'Senior',
         code: 'GAA',
+        mode: 'analysis',
         wind_speed: '',
         wind_direction: '',
     });
@@ -153,6 +154,7 @@ export default function Home() {
                 level: created.level || 'Other',
                 windSpeed: created.wind_speed === '' ? null : created.wind_speed,
                 windDirection: created.wind_direction === '' ? null : created.wind_direction,
+                mode: created.mode || 'analysis',
             });
 
             if (res.ok && res.id) {
@@ -173,6 +175,7 @@ export default function Home() {
                 competition: '',
                 level: 'Senior',
                 code: 'GAA',
+                mode: 'analysis',
                 wind_speed: '',
                 wind_direction: '',
             });
@@ -239,6 +242,29 @@ export default function Home() {
                                 <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
                                     <DialogHeader><DialogTitle>Create New Match</DialogTitle></DialogHeader>
                                     <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-4">
+                                        <div className="space-y-2">
+                                            <Label>Mode</Label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant={newMatch.mode !== 'live' ? 'default' : 'outline'}
+                                                    onClick={() => setNewMatch({ ...newMatch, mode: 'analysis' })}
+                                                >
+                                                    Analysis
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={newMatch.mode === 'live' ? 'default' : 'outline'}
+                                                    onClick={() => setNewMatch({ ...newMatch, mode: 'live' })}
+                                                >
+                                                    Live
+                                                </Button>
+                                            </div>
+                                            <p className="text-xs text-slate-500">
+                                                Mode is locked once the match is created.
+                                            </p>
+                                        </div>
+
                                         <div className="space-y-2">
                                             <Label>Code</Label>
                                             <div className="flex flex-wrap items-center gap-2">
