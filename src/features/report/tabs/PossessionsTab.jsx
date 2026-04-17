@@ -99,22 +99,49 @@ const POSSESSION_DURATION_BINS = [
   { label: '60s+', min: 60, max: Infinity },
 ];
 
-function getRawX(stat, fallbackKey = 'x_position') {
-  const raw = Number(stat?.raw_x_position);
-  if (Number.isFinite(raw)) return raw;
-  const fallback = Number(stat?.[fallbackKey]);
-  return Number.isFinite(fallback) ? fallback : NaN;
+function getDirectionByPeriod(match) {
+  const fallback = { first: 'right', second: 'left', et_first: 'right', et_second: 'left' };
+  const raw = match?.direction_by_period;
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return { ...fallback, ...raw };
+  try {
+    return { ...fallback, ...JSON.parse(raw) };
+  } catch {
+    return fallback;
+  }
 }
 
-function getRawEndX(stat) {
+function homeAttacksRightForStat(match, stat) {
+  const half = String(stat?.half || 'first');
+  return getDirectionByPeriod(match)?.[half] !== 'left';
+}
+
+function getFixedDirectionX(stat, match, possessionTeamSide, fallbackKey = 'x_position') {
+  const raw = Number(stat?.raw_x_position);
+  if (Number.isFinite(raw)) {
+    return homeAttacksRightForStat(match, stat) ? raw : PITCH_W - raw;
+  }
+
+  const fallback = Number(stat?.[fallbackKey]);
+  if (!Number.isFinite(fallback)) return NaN;
+  if (possessionTeamSide === 'away') return PITCH_W - fallback;
+  return fallback;
+}
+
+function getFixedDirectionEndX(stat, match, possessionTeamSide) {
   const rawEnd = Number(stat?.raw_end_x_position);
-  if (Number.isFinite(rawEnd)) return rawEnd;
+  if (Number.isFinite(rawEnd)) {
+    return homeAttacksRightForStat(match, stat) ? rawEnd : PITCH_W - rawEnd;
+  }
   const rawStart = Number(stat?.raw_x_position);
-  if (Number.isFinite(rawStart)) return rawStart;
+  if (Number.isFinite(rawStart)) {
+    return homeAttacksRightForStat(match, stat) ? rawStart : PITCH_W - rawStart;
+  }
   const end = Number(stat?.end_x_position);
-  if (Number.isFinite(end)) return end;
+  if (Number.isFinite(end)) return possessionTeamSide === 'away' ? PITCH_W - end : end;
   const start = Number(stat?.x_position);
-  return Number.isFinite(start) ? start : NaN;
+  if (!Number.isFinite(start)) return NaN;
+  return possessionTeamSide === 'away' ? PITCH_W - start : start;
 }
 
 function splitPhysicalZoneDuration(fromX, toX, duration) {
@@ -146,7 +173,7 @@ function splitPhysicalZoneDuration(fromX, toX, duration) {
   return out;
 }
 
-function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchorTimeS) {
+function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchorTimeS, possessionTeamSide) {
   const ordered = (Array.isArray(events) ? events : [])
     .filter((s) => s && !['substitution', 'period_end'].includes(String(s?.stat_type || '')))
     .slice()
@@ -167,7 +194,7 @@ function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchor
   if (first && Number.isFinite(anchor)) {
     const firstTime = getMatchTimeS(first, match, imputedMap);
     if (Number.isFinite(firstTime) && firstTime >= anchor) {
-      const firstX = getRawX(first);
+      const firstX = getFixedDirectionX(first, match, possessionTeamSide);
       add(splitPhysicalZoneDuration(firstX, firstX, firstTime - anchor));
     }
   }
@@ -179,7 +206,11 @@ function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchor
     const a = getMatchTimeS(current, match, imputedMap);
     const b = getMatchTimeS(next, match, imputedMap);
     if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) continue;
-    add(splitPhysicalZoneDuration(getRawX(current), getRawEndX(current), b - a));
+    add(splitPhysicalZoneDuration(
+      getFixedDirectionX(current, match, possessionTeamSide),
+      getFixedDirectionEndX(current, match, possessionTeamSide),
+      b - a,
+    ));
   }
   return out;
 }
@@ -310,7 +341,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
       const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
       const timeSummary = getPossessionTimeSummary(evs, teamSide, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
-      const physicalZoneSeconds = getPhysicalPossessionZoneSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById, liveStartAnchor);
+      const physicalZoneSeconds = getPhysicalPossessionZoneSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById, liveStartAnchor, teamSide);
       const anchorGap =
         Number.isFinite(liveStartAnchor) && Number.isFinite(firstEventTime) && firstEventTime >= liveStartAnchor
           ? firstEventTime - liveStartAnchor
@@ -621,31 +652,31 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
               </Card>
             </div>
 
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div>
-                  <div className="font-semibold text-slate-900">Possession Duration Distribution</div>
-                  <div className="text-xs text-slate-500">Number of possessions by live possession length.</div>
-                </div>
-                <ChartContainer id="possession-duration-distribution" className="h-[260px] w-full" config={{}}>
-                  <BarChart data={possessionDurationDistributionData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis dataKey="bin" className="text-xs" />
-                    <YAxis allowDecimals={false} className="text-xs" />
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                    {(teamMode === 'both' || teamMode === 'home') && (
-                      <Bar dataKey="home" name={homeTeam?.name || 'Home'} fill={homeTeam?.color || '#fb4b14'} radius={[4, 4, 0, 0]} />
-                    )}
-                    {(teamMode === 'both' || teamMode === 'away') && (
-                      <Bar dataKey="away" name={awayTeam?.name || 'Away'} fill={awayTeam?.color || '#5b1f32'} radius={[4, 4, 0, 0]} />
-                    )}
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div>
+                    <div className="font-semibold text-slate-900">Possession Duration Distribution</div>
+                    <div className="text-xs text-slate-500">Number of possessions by live possession length.</div>
+                  </div>
+                  <ChartContainer id="possession-duration-distribution" className="h-[260px] w-full" config={{}}>
+                    <BarChart data={possessionDurationDistributionData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="bin" className="text-xs" />
+                      <YAxis allowDecimals={false} className="text-xs" />
+                      <Tooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      {(teamMode === 'both' || teamMode === 'home') && (
+                        <Bar dataKey="home" name={homeTeam?.name || 'Home'} fill={homeTeam?.color || '#fb4b14'} radius={[4, 4, 0, 0]} />
+                      )}
+                      {(teamMode === 'both' || teamMode === 'away') && (
+                        <Bar dataKey="away" name={awayTeam?.name || 'Away'} fill={awayTeam?.color || '#5b1f32'} radius={[4, 4, 0, 0]} />
+                      )}
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div>
@@ -661,7 +692,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                   />
                 </CardContent>
               </Card>
+            </div>
 
+            <div className="grid lg:grid-cols-2 gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="font-semibold text-slate-900">Possession Origins</div>
