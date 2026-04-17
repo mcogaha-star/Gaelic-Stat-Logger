@@ -88,11 +88,80 @@ function getLivePossessionStartAnchor(previousStat, startSource, match, imputedM
   return getMatchTimeS(previousStat, match, imputedMap);
 }
 
+const PHYSICAL_ZONE_LABELS = ['Left 45', 'Middle', 'Right 45'];
+
+function splitPhysicalZoneDuration(fromX, toX, duration) {
+  const seconds = Number(duration);
+  const a = Number(fromX);
+  const b = Number(toX);
+  const out = Object.fromEntries(PHYSICAL_ZONE_LABELS.map((z) => [z, 0]));
+  if (!Number.isFinite(seconds) || seconds <= 0) return out;
+  if (!Number.isFinite(a) && !Number.isFinite(b)) return out;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(b - a) < 0.001) {
+    const x = Number.isFinite(a) ? a : b;
+    if (x < 45) out['Left 45'] += seconds;
+    else if (x < PITCH_W - 45) out.Middle += seconds;
+    else out['Right 45'] += seconds;
+    return out;
+  }
+
+  const minX = Math.max(0, Math.min(a, b));
+  const maxX = Math.min(PITCH_W, Math.max(a, b));
+  const total = Math.max(0.001, maxX - minX);
+  [
+    ['Left 45', 0, 45],
+    ['Middle', 45, PITCH_W - 45],
+    ['Right 45', PITCH_W - 45, PITCH_W],
+  ].forEach(([zone, start, end]) => {
+    const overlap = Math.max(0, Math.min(maxX, end) - Math.max(minX, start));
+    if (overlap > 0) out[zone] += seconds * (overlap / total);
+  });
+  return out;
+}
+
+function getPhysicalPossessionZoneSeconds(events, match, imputedMap, startAnchorTimeS) {
+  const ordered = (Array.isArray(events) ? events : [])
+    .filter((s) => s && !['substitution', 'period_end'].includes(String(s?.stat_type || '')))
+    .slice()
+    .sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, match, imputedMap);
+      const tb = getMatchTimeS(b, match, imputedMap);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+  const out = Object.fromEntries(PHYSICAL_ZONE_LABELS.map((z) => [z, 0]));
+  const add = (parts) => PHYSICAL_ZONE_LABELS.forEach((z) => { out[z] += Number(parts?.[z] || 0); });
+
+  const first = ordered[0] || null;
+  const anchor = Number(startAnchorTimeS);
+  if (first && Number.isFinite(anchor)) {
+    const firstTime = getMatchTimeS(first, match, imputedMap);
+    if (Number.isFinite(firstTime) && firstTime >= anchor) {
+      add(splitPhysicalZoneDuration(first.x_position, first.x_position, firstTime - anchor));
+    }
+  }
+
+  for (let i = 0; i < ordered.length - 1; i += 1) {
+    const current = ordered[i];
+    const next = ordered[i + 1];
+    if (isDeadBallGapStart(current)) continue;
+    const a = getMatchTimeS(current, match, imputedMap);
+    const b = getMatchTimeS(next, match, imputedMap);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) continue;
+    const endX = Number.isFinite(Number(current?.end_x_position)) ? current.end_x_position : current?.x_position;
+    add(splitPhysicalZoneDuration(current?.x_position, endX, b - a));
+  }
+  return out;
+}
+
 function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSeconds }) {
   const zones = [
-    { key: 'Defensive Third', label: 'Defensive', x: 0, width: 45 },
-    { key: 'Middle Third', label: 'Middle', x: 45, width: PITCH_W - 90 },
-    { key: 'Attacking Third', label: 'Attacking', x: PITCH_W - 45, width: 45 },
+    { key: 'Left 45', label: 'Left 45', subLabel: 'Home Def / Away Att', x: 0, width: 45 },
+    { key: 'Middle', label: 'Middle', subLabel: 'Middle Third', x: 45, width: PITCH_W - 90 },
+    { key: 'Right 45', label: 'Right 45', subLabel: 'Home Att / Away Def', x: PITCH_W - 45, width: 45 },
   ];
   const home = zoneSeconds?.home || {};
   const away = zoneSeconds?.away || {};
@@ -103,6 +172,12 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
   const awayName = awayTeam?.name || 'Away';
   return (
     <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}`, backgroundImage: `url(${pitchImg})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+      <div className="absolute left-3 top-3 z-10 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold shadow-sm" style={{ color: homeColor || '#fb4b14' }}>
+        {homeName} attacks &rarr;
+      </div>
+      <div className="absolute right-3 top-3 z-10 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold shadow-sm" style={{ color: awayColor || '#5b1f32' }}>
+        &lt;- {awayName} attacks
+      </div>
       <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
         {zones.map((zone, index) => (
           <g key={zone.key}>
@@ -121,7 +196,10 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
       <div className="absolute inset-0 grid grid-cols-3">
         {zones.map((zone) => (
           <div key={zone.key} className="flex flex-col items-center justify-center gap-3 px-2 text-center">
-            <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm">{zone.label}</div>
+            <div className="rounded-xl bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm">
+              <div>{zone.label}</div>
+              <div className="text-[10px] font-medium text-slate-500">{zone.subLabel}</div>
+            </div>
             <div className="w-full max-w-[190px] rounded-xl bg-white/90 p-2 shadow-sm">
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-1 truncate">
@@ -210,6 +288,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
       const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
       const timeSummary = getPossessionTimeSummary(evs, teamSide, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
+      const physicalZoneSeconds = getPhysicalPossessionZoneSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById, liveStartAnchor);
       const anchorGap =
         Number.isFinite(liveStartAnchor) && Number.isFinite(firstEventTime) && firstEventTime >= liveStartAnchor
           ? firstEventTime - liveStartAnchor
@@ -251,6 +330,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         attackEntryChannel,
         startZone,
         zoneSeconds: timeSummary.zoneSeconds || {},
+        physicalZoneSeconds,
         stats: evs,
       });
     }
@@ -362,15 +442,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     return rows;
   }, [possessionsFiltered, homeTeam, awayTeam, teamMode]);
 
-  const possessionZoneSeconds = useMemo(() => {
-    const zones = ['Defensive Third', 'Middle Third', 'Attacking Third', 'Unknown'];
+  const possessionPhysicalZoneSeconds = useMemo(() => {
+    const zones = PHYSICAL_ZONE_LABELS;
     const seconds = {
       home: Object.fromEntries(zones.map((z) => [z, 0])),
       away: Object.fromEntries(zones.map((z) => [z, 0])),
     };
     for (const p of possessionsFiltered) {
       if (!seconds[p.teamSide]) continue;
-      for (const z of zones) seconds[p.teamSide][z] += Number(p.zoneSeconds?.[z] || 0);
+      for (const z of zones) seconds[p.teamSide][z] += Number(p.physicalZoneSeconds?.[z] || 0);
     }
     return seconds;
   }, [possessionsFiltered]);
@@ -507,15 +587,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                 <CardContent className="p-4 space-y-3">
                   <div>
                     <div className="font-semibold text-slate-900">Possession Time By Zone</div>
-                    <div className="text-xs text-slate-500">Each percentage is that team's share of their own live possession time in the zone.</div>
+                    <div className="text-xs text-slate-500">Physical pitch view: Home attacks left-to-right, Away attacks right-to-left.</div>
                   </div>
                   <PossessionZonePitch
                     homeTeam={homeTeam}
                     awayTeam={awayTeam}
                     homeColor={homeTeam?.color || '#fb4b14'}
                     awayColor={awayTeam?.color || '#5b1f32'}
-                    zoneSeconds={possessionZoneSeconds}
-                  />
+                  zoneSeconds={possessionPhysicalZoneSeconds}
+                />
                 </CardContent>
               </Card>
 
