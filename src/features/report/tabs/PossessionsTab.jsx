@@ -15,6 +15,7 @@ import {
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  getDerivedPossessionDurationSeconds,
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
@@ -116,7 +117,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const times = evs.map((s) => getMatchTimeS(s, reportFilters?.match, reportFilters?.imputedTimeById)).filter(Number.isFinite);
       const startTime = times.length ? Math.min(...times) : NaN;
       const endTime = times.length ? Math.max(...times) : NaN;
-      const duration = Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN;
+      const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
+      const duration = Number.isFinite(liveDuration) ? liveDuration : (Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN);
 
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;

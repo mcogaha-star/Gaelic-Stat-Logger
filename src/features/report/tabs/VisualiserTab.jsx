@@ -51,7 +51,7 @@ export default function VisualiserTab({
             </SelectContent>
           </Select>
         </div>
-        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
         <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
         <MultiSelect label="Set Defence" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
         <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
@@ -74,3 +74,4 @@ export default function VisualiserTab({
     </div>
   );
 }
+

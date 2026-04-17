@@ -3,7 +3,6 @@ export const DEFAULT_CLICK_STATS = [
     { value: 'kickout', label: 'Kickout', color: '#8b5cf6', category: 'click', visible: true },
     { value: 'turnover', label: 'Turnover', color: '#ef4444', category: 'click', visible: true },
     { value: 'foul', label: 'Foul', color: '#eab308', category: 'click', visible: true },
-    { value: 'defensive_contact', label: 'Defensive Contact', color: '#64748b', category: 'click', visible: true },
     { value: 'throw_in', label: 'Throw In', color: '#0ea5e9', category: 'click', visible: true },
 ];
 
@@ -44,9 +43,9 @@ export const DEFAULT_SUB_MENUS = [
         options: [{ value: 'right', label: 'Right Foot' }, { value: 'left', label: 'Left Foot' }, { value: 'handpass', label: 'Handpass' }],
     },
     {
-        id: 'pass_style', label: 'Pass Style', applies_to: ['pass'],
-        display_type: 'buttons', condition: 'not_handpass', group: 'pre', default_value: '',
-        options: [{ value: 'high', label: 'High' }, { value: 'chest', label: 'Chest' }, { value: 'one_bounce', label: '1 Bounce' }, { value: 'two_plus_bounce', label: '2+ Bounce' }, { value: 'ground', label: 'Ground' }],
+        id: 'pass_accuracy', label: 'Pass Accuracy', applies_to: ['pass'],
+        display_type: 'buttons', condition: null, group: 'pre', default_value: '+',
+        options: [{ value: '++', label: '++ Excellent' }, { value: '+', label: '+ Good' }, { value: '-', label: '- Poor' }, { value: '--', label: '-- Very Poor' }],
     },
     {
         id: 'pass_pressure', label: 'Pressure on Passer', applies_to: ['pass'],

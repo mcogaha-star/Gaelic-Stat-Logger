@@ -19,6 +19,7 @@ import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
+import { deriveMatchLengthMinutes } from '@/lib/reportAnalytics';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
 
@@ -45,6 +46,7 @@ export default function Home() {
     const queryClient = useQueryClient();
     const windDegrees = Number(newMatch.wind_direction);
     const windPreviewRotation = Number.isFinite(windDegrees) ? windDegrees : 0;
+    const matchLengthMinutes = deriveMatchLengthMinutes(newMatch);
 
     const { data: matches = [], isLoading } = useQuery({
         queryKey: ['matches'],
@@ -127,6 +129,7 @@ export default function Home() {
 
             const payload = {
                 ...data,
+                match_length_minutes: deriveMatchLengthMinutes(data),
                 public_match_id: data.public_match_id || generatePublicMatchId(),
             };
 
@@ -238,21 +241,26 @@ export default function Home() {
                                     <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-4">
                                         <div className="space-y-2">
                                             <Label>Code</Label>
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    type="button"
-                                                    variant={newMatch.code === 'GAA' ? 'default' : 'outline'}
-                                                    onClick={() => setNewMatch({ ...newMatch, code: 'GAA' })}
-                                                >
-                                                    GAA
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant={newMatch.code === 'LGFA' ? 'default' : 'outline'}
-                                                    onClick={() => setNewMatch({ ...newMatch, code: 'LGFA' })}
-                                                >
-                                                    LGFA
-                                                </Button>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant={newMatch.code === 'GAA' ? 'default' : 'outline'}
+                                                        onClick={() => setNewMatch({ ...newMatch, code: 'GAA' })}
+                                                    >
+                                                        GAA
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant={newMatch.code === 'LGFA' ? 'default' : 'outline'}
+                                                        onClick={() => setNewMatch({ ...newMatch, code: 'LGFA' })}
+                                                    >
+                                                        LGFA
+                                                    </Button>
+                                                </div>
+                                                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                                                    Match Length: {matchLengthMinutes} mins
+                                                </div>
                                             </div>
                                         </div>
 

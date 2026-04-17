@@ -384,7 +384,7 @@ function presentablePathLabel(path) {
   const single = rest.length === 1 ? String(rest[0] || '') : '';
 
   // For action sections, show cleaner labels for common role keys (avoid "Pass Er", etc).
-  if (rest.length === 1 && ['pass', 'carry', 'kickout', 'turnover', 'throw_in', 'shot', 'foul', 'defensive_contact'].includes(sectionKey)) {
+  if (rest.length === 1 && ['pass', 'carry', 'kickout', 'turnover', 'throw_in', 'shot', 'foul'].includes(sectionKey)) {
     if (single && !single.startsWith(sectionKey + '_')) {
       return humanizeKey(single);
     }
@@ -486,7 +486,6 @@ function deriveOutcome(stat, extra) {
   if (t === 'turnover') return extra?.turnover?.turnover_type || '';
   if (t === 'throw_in') return extra?.throw_in?.outcome || '';
   if (t === 'foul') return extra?.foul?.foul_type || '';
-  if (t === 'defensive_contact') return extra?.defensive_contact?.type || '';
   return '';
 }
 
@@ -763,7 +762,6 @@ function getPrimaryActorSelection(stat, extra) {
   if (stat.stat_type === 'carry') return extra?.carry?.carrier || null;
   if (stat.stat_type === 'turnover') return extra?.turnover?.forced_by || extra?.turnover?.lost_by || null;
   if (stat.stat_type === 'throw_in') return extra?.throw_in?.won_by || extra?.throw_in?.broken_by || null;
-  if (stat.stat_type === 'defensive_contact') return extra?.defensive_contact?.player || null;
   if (stat.stat_type === 'foul') return extra?.foul?.foul_by || null;
   return null;
 }
@@ -989,7 +987,6 @@ function PitchViz({
     turnover: '#dc2626',
     foul: '#d97706',
     throw_in: '#0891b2',
-    defensive_contact: '#334155',
   };
 
   const defaultOutcomePalette = {
@@ -1231,7 +1228,7 @@ function PitchViz({
                 { key: 'away', label: 'Away' },
               ]
               : (colorBy === 'action'
-                ? ['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in', 'defensive_contact'].map((k) => ({ key: k, label: toTitleCase(k) }))
+                ? ['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((k) => ({ key: k, label: toTitleCase(k) }))
                 : Array.from(new Set(stats.map((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {}))).filter(Boolean)))
                   .sort((a, b) => String(a).localeCompare(String(b)))
                   .map((k) => ({ key: k, label: toTitleCase(k) }))
@@ -2153,3 +2150,4 @@ export {
   applyNonTeamReportFilters,
   FullscreenMapShell,
 };
+

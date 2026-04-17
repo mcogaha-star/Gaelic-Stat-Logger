@@ -148,8 +148,14 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [rawRecipientName, setRawRecipientName] = useState('');
   const [rawRecipientNumber, setRawRecipientNumber] = useState('');
   const [rawExtraJson, setRawExtraJson] = useState('{}');
+  const structuredExtra = useMemo(() => safeParseJSON(rawExtraJson || '{}', {}), [rawExtraJson]);
+  const setStructuredExtraValue = (section, key, value) => {
+    const next = safeParseJSON(rawExtraJson || '{}', {});
+    next[section] = { ...(next[section] || {}), [key]: value };
+    setRawExtraJson(JSON.stringify(next, null, 2));
+  };
 
-  const VIDEO_PRE_ROLL_S = 7;
+  const VIDEO_PRE_ROLL_S = 5;
 
   const persistMutation = useMutation({
     mutationFn: async (updates) => {
@@ -543,7 +549,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               label="Action"
               values={actions}
               onChange={setActions}
-              options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+              options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))}
             />
             <MultiSelect
               label="Half"
@@ -611,7 +617,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-4xl p-4 max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base">Edit Play / Possession IDs</DialogTitle>
+            <DialogTitle className="text-base">Edit Play / Stat Data</DialogTitle>
           </DialogHeader>
           {editStat ? (
             <div className="space-y-4 text-sm">
@@ -750,10 +756,10 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 </div>
               </details>
 
-              <details className="rounded-lg border border-slate-200 bg-slate-50/60 p-3" open={rawEditOpen} onToggle={(e) => setRawEditOpen(e.currentTarget.open)}>
-                <summary className="cursor-pointer font-semibold text-slate-900">Raw Stat Fields</summary>
+              <details className="rounded-lg border border-slate-200 bg-slate-50/60 p-3" open>
+                <summary className="cursor-pointer font-semibold text-slate-900">Structured Stat Fields</summary>
                 <div className="space-y-3 pt-3">
-                  <div className="text-xs text-slate-600">Edit the actual row fields without changing coordinates or possession structure.</div>
+                  <div className="text-xs text-slate-600">Edit the row's main fields without changing coordinates or possession structure. Use the advanced JSON box only when a field is not exposed here.</div>
                   <div className="grid md:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Stat Type</Label>
@@ -810,16 +816,90 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       <Input className="h-8 text-xs" value={rawRecipientName} onChange={(e) => setRawRecipientName(e.target.value)} />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Extra JSON</Label>
-                    <textarea
-                      className="min-h-[160px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-mono"
-                      value={rawExtraJson}
-                      onChange={(e) => setRawExtraJson(e.target.value)}
-                    />
-                  </div>
+                  {rawStatType === 'pass' && (
+                    <div className="grid md:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Method</Label>
+                        <Select value={structuredExtra?.pass?.method || 'hand'} onValueChange={(v) => setStructuredExtraValue('pass', 'method', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['hand', 'left', 'right'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Accuracy</Label>
+                        <Select value={structuredExtra?.pass?.accuracy || '+'} onValueChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['++', '+', '-', '--'].map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Pressure</Label>
+                        <Select value={structuredExtra?.pass?.pressure_on_passer || 'low'} onValueChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['low', 'medium', 'high'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Outcome</Label>
+                        <Select value={structuredExtra?.pass?.outcome || 'completed'} onValueChange={(v) => setStructuredExtraValue('pass', 'outcome', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                  {rawStatType === 'carry' && (
+                    <div className="grid md:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Pressure</Label>
+                        <Select value={structuredExtra?.carry?.pressure_on_carrier || 'low'} onValueChange={(v) => setStructuredExtraValue('carry', 'pressure_on_carrier', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['low', 'medium', 'high'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Take On</Label>
+                        <Select value={structuredExtra?.carry?.take_on || 'no'} onValueChange={(v) => setStructuredExtraValue('carry', 'take_on', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['no', 'completed', 'failed'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Outcome</Label>
+                        <Select value={structuredExtra?.carry?.outcome || 'completed'} onValueChange={(v) => setStructuredExtraValue('carry', 'outcome', v)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                  <details className="rounded-lg border border-slate-200 bg-white p-3" open={rawEditOpen} onToggle={(e) => setRawEditOpen(e.currentTarget.open)}>
+                    <summary className="cursor-pointer text-xs font-semibold text-slate-900">Advanced Raw JSON</summary>
+                    <div className="space-y-1 pt-3">
+                      <Label className="text-xs text-slate-600">Extra JSON</Label>
+                      <textarea
+                        className="min-h-[160px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-mono"
+                        value={rawExtraJson}
+                        onChange={(e) => setRawExtraJson(e.target.value)}
+                      />
+                    </div>
+                  </details>
                   <div className="flex justify-end">
-                    <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyRawStatChanges}>Apply Raw Stat Changes</Button>
+                    <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyRawStatChanges}>Apply Stat Changes</Button>
                   </div>
                 </div>
               </details>
@@ -896,7 +976,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <TableCell className="text-right tabular-nums">{r.count}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
                           <TableCell className="text-right">
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit IDs</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit</Button>
                           </TableCell>
                         </>
                       );
@@ -967,7 +1047,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-slate-900">Details</div>
-                                <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit IDs</Button>
+                                <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button>
                               </div>
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
                                 <Table>
@@ -1040,3 +1120,5 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 }
 
 export default DataTab;
+
+

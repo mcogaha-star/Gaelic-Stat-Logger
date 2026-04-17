@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPageUrl } from '@/utils';
 
-export function usePossessionVisualiser({ matchId, preRollSeconds = 7 }) {
+export function usePossessionVisualiser({ matchId, preRollSeconds = 5 }) {
   const [sharedVizOpen, setSharedVizOpen] = useState(false);
   const [sharedVizTitle, setSharedVizTitle] = useState('');
   const [sharedVizStats, setSharedVizStats] = useState([]);
@@ -41,3 +41,4 @@ export function usePossessionVisualiser({ matchId, preRollSeconds = 7 }) {
 }
 
 export default usePossessionVisualiser;
+

@@ -4,7 +4,6 @@ export const DEFAULT_SHORTCUTS = {
     kickout: 'u',
     turnover: 'i',
     foul: 'h',
-    defensive_contact: 'j',
     throw_in: 'k',
   },
   stat_drag: {

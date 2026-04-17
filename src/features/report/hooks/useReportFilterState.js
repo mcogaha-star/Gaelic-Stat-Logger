@@ -66,9 +66,9 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
       build_up: ['pass', 'carry'],
       kickouts: ['kickout', 'throw_in'],
       misc: ['throw_in'],
-      defense: ['turnover', 'defensive_contact', 'foul'],
+      defense: ['turnover', 'foul'],
       fouls: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'],
-      players_ana: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'],
+      players_ana: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'],
     };
     const allowed = allowedByTab[activeTab] || null;
     if (!allowed) return;
@@ -236,3 +236,4 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
 }
 
 export default useReportFilterState;
+

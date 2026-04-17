@@ -19,7 +19,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, normalizeDefenceSetRows, rebuildPossessionRows, sequencePossessionRows, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -53,6 +53,15 @@ export default function MatchStats() {
         select: (data) => data[0]
     });
 
+    useEffect(() => {
+        if (!match?.id) return;
+        const expected = deriveMatchLengthMinutes(match);
+        if (Number(match.match_length_minutes) === expected) return;
+        db.entities.Match.update(match.id, { match_length_minutes: expected })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
+            .catch(() => {});
+    }, [match?.id, match?.code, match?.level, match?.match_length_minutes, matchId, queryClient]);
+
     const { data: teams = [] } = useQuery({
         queryKey: ['teams'],
         queryFn: () => db.entities.Team.list('name')
@@ -81,7 +90,19 @@ export default function MatchStats() {
     useEffect(() => {
         setDefenceSetMigrationDone(readDefenceSetMigrationDone(defenceSetMigrationKey));
     }, [defenceSetMigrationKey]);
-    const stats = useMemo(() => rebuildPossessionRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone)), [rawStats, defenceSetMigrationDone]);
+    const statModelMigrationKey = matchId ? `gstl-stat-model:${STAT_MODEL_MIGRATION_VERSION}:${matchId}` : null;
+    const readStatModelMigrationDone = (key) => {
+        try {
+            return !!key && localStorage.getItem(key) === 'done';
+        } catch {
+            return false;
+        }
+    };
+    const [statModelMigrationDone, setStatModelMigrationDone] = useState(() => readStatModelMigrationDone(statModelMigrationKey));
+    useEffect(() => {
+        setStatModelMigrationDone(readStatModelMigrationDone(statModelMigrationKey));
+    }, [statModelMigrationKey]);
+    const stats = useMemo(() => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone), statModelMigrationDone)), [rawStats, defenceSetMigrationDone, statModelMigrationDone]);
 
     const { data: settingsRecords = [] } = useQuery({
         queryKey: ['app-settings'],
@@ -336,6 +357,47 @@ export default function MatchStats() {
 
     const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
     const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
+    const [migratingStatModel, setMigratingStatModel] = useState(false);
+
+    useEffect(() => {
+        if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
+        if (!statModelMigrationKey) return;
+        try {
+            if (localStorage.getItem(statModelMigrationKey) === 'done') return;
+        } catch {}
+        const repairs = buildStatModelRepairs(rawStats);
+        if (!repairs.length) {
+            try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
+            setStatModelMigrationDone(true);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                setMigratingStatModel(true);
+                for (const repair of repairs) {
+                    if (cancelled) return;
+                    const current = rawStats.find((s) => s.id === repair.id);
+                    await db.entities.StatEntry.update(repair.id, repair.data);
+                    if (current?.server_stat_id) {
+                        await updateServerStat(current.server_stat_id, repair.data);
+                    }
+                }
+                if (!cancelled) {
+                    await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+                    await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+                    try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
+                    setStatModelMigrationDone(true);
+                    toast.success(`Updated ${repairs.length} stat model row${repairs.length === 1 ? '' : 's'}`);
+                }
+            } catch (error) {
+                if (!cancelled) toast.error(error?.message || 'Failed to update stat model rows');
+            } finally {
+                if (!cancelled) setMigratingStatModel(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [matchId, rawStats, migratingStatModel, queryClient, statModelMigrationKey]);
 
     useEffect(() => {
         if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;

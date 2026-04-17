@@ -21,6 +21,7 @@ import {
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
+  getDerivedPossessionDurationSeconds,
   isAttackPossession,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
@@ -231,8 +232,8 @@ function BuildUpTab({
         if (!acting.length) continue;
         const zone = getPossessionStartZone(acting);
         if (startZones[zone] != null) startZones[zone] += 1;
-        const times = acting.map((e) => getMatchTimeS(e, reportFilters?.match, reportFilters?.imputedTimeById)).filter(Number.isFinite);
-        if (times.length >= 2) possessionDurations.push(Math.max(0, Math.max(...times) - Math.min(...times)));
+        const liveDuration = getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
+        if (Number.isFinite(liveDuration) && liveDuration > 0) possessionDurations.push(liveDuration);
         if (!isAttackPossession(acting, side)) continue;
         const channel = getAttackEntryChannelForPossession(acting, side);
         if (channel) channels[channel] += 1;

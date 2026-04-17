@@ -116,7 +116,7 @@ function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
 }
 
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, focusPlayerId, setFocusPlayerId }) {
-  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }), [reportFilters]);
+  const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
   const [playerBucket, setPlayerBucket] = useState('scoring');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
@@ -315,17 +315,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const con = ensure(f?.foul_by);
         if (won) won.foulsWon += 1;
         if (con) con.foulsConceded += 1;
-      }
-      if (s.stat_type === 'defensive_contact') {
-        const p = ex?.defensive_contact?.player;
-        const r = ensure(p);
-        if (r) {
-          r.defActions += 1;
-          const type = String(ex?.defensive_contact?.type || '');
-          if (type === 'contact') r.contacts += 1;
-          if (type === 'dispossess' || type === 'dispossession') r.dispossessions += 1;
-          if (type === 'block') r.blocks += 1;
-        }
       }
       if (s.stat_type === 'kickout') {
         const kick = ex?.kickout || {};

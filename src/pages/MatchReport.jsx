@@ -23,11 +23,15 @@ import {
   oppositeTeamSide,
   buildLegacyPossessionRepairs,
   buildLegacyDefenceSetRepairs,
+  buildStatModelRepairs,
+  deriveMatchLengthMinutes,
   inferRestartWinnerSide,
   normalizeDefenceSetRows,
+  normalizeStatModelRows,
   rebuildPossessionRows,
   POSSESSION_REBUILD_VERSION,
   DEFENCE_SET_MIGRATION_VERSION,
+  STAT_MODEL_MIGRATION_VERSION,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -221,18 +225,74 @@ export default function MatchReport() {
     }
   };
   const [defenceSetMigrationDone, setDefenceSetMigrationDone] = useState(() => readDefenceSetMigrationDone(defenceSetMigrationKey));
+  const statModelMigrationKey = matchId ? `gstl-stat-model:${STAT_MODEL_MIGRATION_VERSION}:${matchId}` : null;
+  const readStatModelMigrationDone = (key) => {
+    try {
+      return !!key && localStorage.getItem(key) === 'done';
+    } catch {
+      return false;
+    }
+  };
+  const [statModelMigrationDone, setStatModelMigrationDone] = useState(() => readStatModelMigrationDone(statModelMigrationKey));
+
+  useEffect(() => {
+    if (!match?.id) return;
+    const expected = deriveMatchLengthMinutes(match);
+    if (Number(match.match_length_minutes) === expected) return;
+    db.entities.Match.update(match.id, { match_length_minutes: expected })
+      .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
+      .catch(() => {});
+  }, [match?.id, match?.code, match?.level, match?.match_length_minutes, matchId, queryClient]);
 
   useEffect(() => {
     setDefenceSetMigrationDone(readDefenceSetMigrationDone(defenceSetMigrationKey));
   }, [defenceSetMigrationKey]);
 
+  useEffect(() => {
+    setStatModelMigrationDone(readStatModelMigrationDone(statModelMigrationKey));
+  }, [statModelMigrationKey]);
+
   const stats = useMemo(
-    () => rebuildPossessionRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone)),
-    [rawStats, defenceSetMigrationDone]
+    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone), statModelMigrationDone)),
+    [rawStats, defenceSetMigrationDone, statModelMigrationDone]
   );
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
   const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
+  const [migratingStatModel, setMigratingStatModel] = useState(false);
+
+  useEffect(() => {
+    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
+    if (!statModelMigrationKey) return;
+    try {
+      if (localStorage.getItem(statModelMigrationKey) === 'done') return;
+    } catch {}
+    const repairs = buildStatModelRepairs(rawStats);
+    if (!repairs.length) {
+      try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
+      setStatModelMigrationDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setMigratingStatModel(true);
+        for (const repair of repairs) {
+          if (cancelled) return;
+          await db.entities.StatEntry.update(repair.id, repair.data);
+        }
+        if (!cancelled) {
+          await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+          await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+          try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
+          setStatModelMigrationDone(true);
+        }
+      } finally {
+        if (!cancelled) setMigratingStatModel(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [matchId, rawStats, migratingStatModel, queryClient, statModelMigrationKey]);
 
   useEffect(() => {
     if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
@@ -471,11 +531,11 @@ export default function MatchReport() {
       if (s.stat_type === 'carry') out[side].carries += 1;
 
       if (s.stat_type === 'carry') {
-        if (extra?.carry?.take_on_attempted) out[side].takeOnsAttempted += 1;
-        if (extra?.carry?.take_on_attempted && extra?.carry?.take_on_completed) out[side].takeOnsCompleted += 1;
+        const takeOn = String(extra?.carry?.take_on || '');
+        if (takeOn === 'completed' || takeOn === 'failed') out[side].takeOnsAttempted += 1;
+        if (takeOn === 'completed') out[side].takeOnsCompleted += 1;
       }
 
-      if (s.stat_type === 'defensive_contact') out[side].defensiveActions += 1;
 
       if (s.stat_type === 'kickout') {
         out[side].kickoutsTaken += 1;
@@ -970,7 +1030,7 @@ export default function MatchReport() {
                     {activeTab === 'defense' && (
                       <>
                         <div className="font-semibold text-slate-900">Defense Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Event Category</Label>
                           <Select value={defenseEventCategory} onValueChange={setDefenseEventCategory}>
@@ -1006,7 +1066,7 @@ export default function MatchReport() {
                     {activeTab === 'players_ana' && (
                       <>
                         <div className="font-semibold text-slate-900">Players Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in', 'defensive_contact'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Focus Player</Label>
                           <Select value={playersFocusPlayerId} onValueChange={setPlayersFocusPlayerId}>
@@ -1037,7 +1097,7 @@ export default function MatchReport() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'defensive_contact', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <MultiSelect label="Set Defence" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
                         <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
@@ -1285,3 +1345,4 @@ export default function MatchReport() {
     </div>
   );
 }
+

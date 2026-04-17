@@ -9,6 +9,17 @@ export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
 export const POSSESSION_REBUILD_VERSION = 'v12';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
+export const STAT_MODEL_MIGRATION_VERSION = 'v1';
+
+export function deriveMatchLengthMinutes(matchOrCode, maybeLevel) {
+  const code = typeof matchOrCode === 'object' ? matchOrCode?.code : matchOrCode;
+  const level = typeof matchOrCode === 'object' ? matchOrCode?.level : maybeLevel;
+  return String(code || '').toUpperCase() === 'GAA' && String(level || '') === 'Intercounty' ? 70 : 60;
+}
+
+export function deriveMatchHalfMinutes(matchOrCode, maybeLevel) {
+  return deriveMatchLengthMinutes(matchOrCode, maybeLevel) / 2;
+}
 
 function shouldMigrateDefenceSetRow(stat) {
   if (!stat || typeof stat?.counter_attack !== 'boolean') return false;
@@ -31,6 +42,65 @@ export function normalizeDefenceSetRows(stats, migrated = false) {
       ? { ...stat, counter_attack: !stat.counter_attack }
       : stat
   ));
+}
+
+function normalizeStatModelExtra(stat) {
+  if (!stat?.extra_data) return null;
+  const extra = safeParseJSONLocal(stat.extra_data, {});
+  const next = JSON.parse(JSON.stringify(extra || {}));
+  let changed = false;
+
+  if (stat?.stat_type === 'pass' && next?.pass) {
+    if (!next.pass.accuracy) {
+      next.pass.accuracy = '+';
+      changed = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(next.pass, 'style')) {
+      delete next.pass.style;
+      changed = true;
+    }
+  }
+
+  if (stat?.stat_type === 'carry' && next?.carry) {
+    if (Object.prototype.hasOwnProperty.call(next.carry, 'defensive_contact_type')) {
+      delete next.carry.defensive_contact_type;
+      changed = true;
+    }
+    if (!next.carry.take_on && Object.prototype.hasOwnProperty.call(next.carry, 'take_on_attempted')) {
+      next.carry.take_on = next.carry.take_on_attempted
+        ? (next.carry.take_on_completed ? 'completed' : 'failed')
+        : 'no';
+      changed = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(next.carry, 'take_on_attempted')) {
+      delete next.carry.take_on_attempted;
+      changed = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(next.carry, 'take_on_completed')) {
+      delete next.carry.take_on_completed;
+      changed = true;
+    }
+  }
+
+  if (!changed) return null;
+  return JSON.stringify(next);
+}
+
+export function buildStatModelRepairs(stats) {
+  return (Array.isArray(stats) ? stats : [])
+    .map((stat) => {
+      const extra_data = normalizeStatModelExtra(stat);
+      return extra_data == null ? null : { id: stat.id, data: { extra_data } };
+    })
+    .filter(Boolean);
+}
+
+export function normalizeStatModelRows(stats, migrated = false) {
+  if (migrated) return Array.isArray(stats) ? stats : [];
+  return (Array.isArray(stats) ? stats : []).map((stat) => {
+    const extra_data = normalizeStatModelExtra(stat);
+    return extra_data == null ? stat : { ...stat, extra_data };
+  });
 }
 
 function safeParseJSONLocal(s, fallback = {}) {
@@ -71,7 +141,7 @@ export function getNormalizedTimeS(stat, imputedMap) {
 }
 
 export function getSecondHalfStartS(match) {
-  return match?.code === 'GAA' && match?.level === 'Intercounty' ? 35 * 60 : 30 * 60;
+  return deriveMatchHalfMinutes(match) * 60;
 }
 
 export function getMatchSectionOffsets(match) {
@@ -95,6 +165,50 @@ export function getMatchTimeS(stat, match, imputedMap) {
   if (stat?.half === 'et_first') return offsets.et_first + normalized;
   if (stat?.half === 'et_second') return offsets.et_second + normalized;
   return normalized;
+}
+
+export function isNonLiveStat(stat) {
+  return ['substitution', 'period_end'].includes(String(stat?.stat_type || ''));
+}
+
+export function isDeadBallGapStart(stat) {
+  if (!stat) return false;
+  const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
+  if (stat?.stat_type === 'period_end') return true;
+  if (extractFoulFromStat(stat)) return true;
+  if (stat?.stat_type === 'shot') {
+    const outcome = String(ex?.shot?.outcome || '');
+    const result = String(ex?.shot?.result || '');
+    if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide' || result === '45') return true;
+  }
+  if (stat?.stat_type === 'kickout' && String(ex?.kickout?.outcome || '') === 'foul') return true;
+  if (stat?.stat_type === 'throw_in' && String(ex?.throw_in?.outcome || '') === 'foul') return true;
+  return false;
+}
+
+export function getDerivedPossessionDurationSeconds(events, match, imputedMap) {
+  const ordered = (Array.isArray(events) ? events : [])
+    .filter((s) => s && !isNonLiveStat(s))
+    .slice()
+    .sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, match, imputedMap);
+      const tb = getMatchTimeS(b, match, imputedMap);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+  let total = 0;
+  for (let i = 0; i < ordered.length - 1; i += 1) {
+    const current = ordered[i];
+    const next = ordered[i + 1];
+    if (isDeadBallGapStart(current)) continue;
+    const a = getMatchTimeS(current, match, imputedMap);
+    const b = getMatchTimeS(next, match, imputedMap);
+    if (Number.isFinite(a) && Number.isFinite(b) && b >= a) total += b - a;
+  }
+  return total;
 }
 
 export function getHalfClockBaseS(half, match) {
@@ -410,7 +524,6 @@ export function classifyTerminalOutcome(stat, teamSide) {
     stat?.stat_type === 'turnover' ? ex?.turnover?.turnover_type :
     stat?.stat_type === 'throw_in' ? ex?.throw_in?.outcome :
     stat?.stat_type === 'foul' ? ex?.foul?.foul_type :
-    stat?.stat_type === 'defensive_contact' ? ex?.defensive_contact?.type :
     ''
   );
 

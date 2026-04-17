@@ -499,24 +499,19 @@ export default function StatModalV4({
     return parsedVideoTimeS - hs;
   }, [parsedVideoTimeS, halfStartTimeS]);
 
-  // Defensive contact
-  const [defType, setDefType] = useState('contact');
-
   // Carry (drag)
   const [carrier, setCarrier] = useState(NONE);
   const [carrierPressure, setCarrierPressure] = useState('low');
-  const [takeOnAttempted, setTakeOnAttempted] = useState(false);
-  const [takeOnCompleted, setTakeOnCompleted] = useState(false);
+  const [takeOnStatus, setTakeOnStatus] = useState('no');
   const [defender, setDefender] = useState(NONE);
   const [carryOutcome, setCarryOutcome] = useState('completed');
   const [soloPlusGo, setSoloPlusGo] = useState(false);
-  const [carryDefContact, setCarryDefContact] = useState('none');
 
   // Pass (drag)
   const [passer, setPasser] = useState(NONE);
   const [passIntendedRecipient, setPassIntendedRecipient] = useState(NONE);
   const [passMethod, setPassMethod] = useState('hand');
-  const [passStyle, setPassStyle] = useState('chest');
+  const [passAccuracy, setPassAccuracy] = useState('+');
   const [passPressure, setPassPressure] = useState('low');
   const [passOutcome, setPassOutcome] = useState('completed');
   const [passWonBy, setPassWonBy] = useState(NONE);
@@ -609,19 +604,16 @@ export default function StatModalV4({
     setShotBlockedBy(NONE);
     setShotSavedBy(NONE);
     setShotBroughtBackAdv(false);
-    setDefType('contact');
     setCarrier(NONE);
     setCarrierPressure('low');
-    setTakeOnAttempted(false);
-    setTakeOnCompleted(false);
+    setTakeOnStatus('no');
     setDefender(NONE);
     setCarryOutcome('completed');
     setSoloPlusGo(false);
-    setCarryDefContact('none');
     setPasser(NONE);
     setPassIntendedRecipient(NONE);
     setPassMethod('hand');
-    setPassStyle('chest');
+    setPassAccuracy('+');
     setPassPressure('low');
     setPassOutcome('completed');
     setPassWonBy(NONE);
@@ -693,23 +685,19 @@ export default function StatModalV4({
       setWonBy(selectionToValue(extra?.throw_in?.won_by));
       setThrowLostBy(selectionToValue(extra?.throw_in?.lost_by));
       setBrokenBy(selectionToValue(extra?.throw_in?.broken_by));
-    } else if (type === 'defensive_contact') {
-      setPrimaryPlayer(primaryFromStat);
-      setDefType(extra?.defensive_contact?.type || '');
     } else if (type === 'carry') {
       setCarrier(selectionToValue(extra?.carry?.carrier));
       setCarrierPressure(extra?.carry?.pressure_on_carrier || 'low');
-      setTakeOnAttempted(!!extra?.carry?.take_on_attempted);
-      setTakeOnCompleted(!!extra?.carry?.take_on_completed);
+      setTakeOnStatus(extra?.carry?.take_on || (extra?.carry?.take_on_attempted ? (extra?.carry?.take_on_completed ? 'completed' : 'failed') : 'no'));
       setDefender(selectionToValue(extra?.carry?.defender));
       setCarryOutcome(extra?.carry?.outcome || '');
       setSoloPlusGo(!!extra?.carry?.solo_plus_go);
-      setCarryDefContact(extra?.carry?.defensive_contact_type || 'none');
+      setRecoveredBy(selectionToValue(extra?.carry?.recovered_by));
     } else if (type === 'pass') {
       setPasser(selectionToValue(extra?.pass?.passer));
       setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
       setPassMethod(extra?.pass?.method === 'other' ? 'hand' : (extra?.pass?.method || ''));
-      setPassStyle(extra?.pass?.style || '');
+      setPassAccuracy(extra?.pass?.accuracy || '+');
       setPassPressure(extra?.pass?.pressure_on_passer || 'low');
       setPassOutcome(extra?.pass?.outcome || '');
       setPassWonBy(selectionToValue(extra?.pass?.won_by));
@@ -831,7 +819,7 @@ export default function StatModalV4({
     if (initialStat) return;
     const def = selectionToValue(defaultReceiver);
     setPassMethod('hand');
-    setPassStyle('chest');
+    setPassAccuracy('+');
     setPassPressure('low');
     setPassOutcome('completed');
     setDeadball(false);
@@ -873,7 +861,7 @@ export default function StatModalV4({
     previousActionRef.current = action;
     if (action === 'pass') {
       if (!passMethod) setPassMethod('hand');
-      if (!passStyle) setPassStyle('chest');
+      if (!passAccuracy) setPassAccuracy('+');
       if (!passPressure) setPassPressure('low');
       if (!passOutcome) setPassOutcome('completed');
       if (previousAction !== 'pass') {
@@ -887,8 +875,7 @@ export default function StatModalV4({
       if (!carryOutcome) setCarryOutcome('completed');
       if (previousAction !== 'carry') {
         setSoloPlusGo(false);
-        setTakeOnAttempted(false);
-        setTakeOnCompleted(false);
+        setTakeOnStatus('no');
         setDefender(NONE);
       }
     }
@@ -902,9 +889,6 @@ export default function StatModalV4({
       }
       if (!shotMethod) setShotMethod('right');
     }
-    if (action === 'defensive_contact' && !defType) {
-      setDefType('contact');
-    }
     if (action === 'kickout' && !kickoutPress) {
       setKickoutPress('m2m');
     }
@@ -915,7 +899,7 @@ export default function StatModalV4({
       setIntendedRecipient(NONE);
       setKickoutWonBy(NONE);
     }
-  }, [open, initialStat?.id, action, passMethod, passStyle, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, defType, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+  }, [open, initialStat?.id, action, passMethod, passAccuracy, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
 
   useEffect(() => {
     if (!open) return;
@@ -927,11 +911,10 @@ export default function StatModalV4({
 
   useEffect(() => {
     if (action !== 'carry') return;
-    if (!takeOnAttempted) {
-      if (takeOnCompleted) setTakeOnCompleted(false);
-      if (defender !== NONE) setDefender(NONE);
+    if (carrierPressure !== 'high' && takeOnStatus === 'no' && defender !== NONE) {
+      setDefender(NONE);
     }
-  }, [action, takeOnAttempted, takeOnCompleted, defender]);
+  }, [action, carrierPressure, takeOnStatus, defender]);
 
   useEffect(() => {
     if (!open) return;
@@ -1225,10 +1208,9 @@ export default function StatModalV4({
       if (shotResult === 'retained' || shotResult === 'opposition') base.push('shot_recovered_by');
       return base;
     }
-    if (action === 'defensive_contact') return ['player'];
     if (action === 'foul') return ['foul_by', 'foul_on'];
     if (action === 'turnover') {
-      if (turnoverType === 'foul') return ['lost_by', 'forced_by', 'foul_by', 'foul_on'];
+      if (turnoverType === 'foul') return ['foul_on', 'foul_by'];
       return ['lost_by', 'forced_by', 'recovered_by'];
     }
     if (action === 'throw_in') {
@@ -1246,14 +1228,15 @@ export default function StatModalV4({
     if (action === 'pass') {
       // For turnover, "won by" is not required/used.
       const base = passOutcome === 'turnover' ? ['pass_intended', 'passer'] : ['pass_intended', 'passer', 'pass_won_by'];
-      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_on', 'foul_by'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base;
     }
     if (action === 'carry') {
-      const base = ['carrier'].concat(takeOnAttempted ? ['defender'] : []);
-      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['lost_by', 'forced_by', 'foul_by', 'foul_on'] : ['lost_by', 'forced_by', 'recovered_by']);
+      const base = ['carrier'].concat((carrierPressure === 'high' || takeOnStatus !== 'no') ? ['defender'] : []);
+      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_on', 'foul_by'] : ['lost_by', 'forced_by', 'recovered_by']);
       if (carryOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
+      if (carryOutcome === 'dispossessed_retained') return base.concat(['recovered_by']);
       return base;
     }
     return [];
@@ -1264,7 +1247,8 @@ export default function StatModalV4({
     kickoutOutcome,
     passOutcome,
     carryOutcome,
-    takeOnAttempted,
+    takeOnStatus,
+    carrierPressure,
   ]);
 
   const nextUnfilledRole = (override = {}) => {
@@ -1286,6 +1270,10 @@ export default function StatModalV4({
     }
     if (k === 'kickout_intended') return kickoutTeam === 'home' || kickoutTeam === 'away' ? kickoutTeam : null;
     if (k === 'recovered_by') {
+      if (action === 'carry' && carryOutcome === 'dispossessed_retained') {
+        const carrierSide = makeSelection(carrier, ctx).team_side;
+        return carrierSide === 'home' || carrierSide === 'away' ? carrierSide : null;
+      }
       const lostSide = makeSelection(lostBy, ctx).team_side;
       if (lostSide === 'home') return 'away';
       if (lostSide === 'away') return 'home';
@@ -1358,7 +1346,8 @@ export default function StatModalV4({
     kickoutOutcome,
     passOutcome,
     carryOutcome,
-    takeOnAttempted,
+    takeOnStatus,
+    carrierPressure,
     shotOutcome,
     shotResult,
     // Role values that can satisfy activeRole
@@ -1491,14 +1480,13 @@ export default function StatModalV4({
       {turnoverType === 'foul' && foulLayout === 'stack' ? (
         <div className="space-y-2">
           {turnoverFieldsBlock()}
-          {turnoverRolesBlock()}
           {foulPanel()}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 items-start">
           <div>{turnoverFieldsBlock()}</div>
           <div className="space-y-2">
-            {turnoverRolesBlock()}
+            {turnoverType !== 'foul' && turnoverRolesBlock()}
             {turnoverType === 'foul' && foulPanel()}
           </div>
         </div>
@@ -1517,9 +1505,7 @@ export default function StatModalV4({
     if (action === 'turnover') {
       if (!turnoverType) return false;
       if (turnoverType === 'foul') {
-        return isRoleFilled('lost_by', lostBy)
-          && isRoleFilled('forced_by', forcedBy)
-          && isRoleFilled('foul_by', foulBy)
+        return isRoleFilled('foul_by', foulBy)
           && isRoleFilled('foul_on', foulOn)
           && !!foulType;
       }
@@ -1539,9 +1525,27 @@ export default function StatModalV4({
       if (kickoutOutcome === 'break') return isRoleFilled('kickout_broken_by', kickoutBrokenBy) && isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       return true; // sideline outcomes
     }
-    if (action === 'defensive_contact') return !!defType && isRoleFilled('player', primaryPlayer);
-    if (action === 'carry') return isRoleFilled('carrier', carrier) && !!carryOutcome;
-    if (action === 'pass') return isRoleFilled('passer', passer) && !!passOutcome;
+    if (action === 'carry') {
+      if (!isRoleFilled('carrier', carrier) || !carryOutcome) return false;
+      if (carryOutcome === 'turnover') {
+        if (!turnoverType) return false;
+        if (turnoverType === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+        return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
+      }
+      if (carryOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      if (carryOutcome === 'dispossessed_retained') return isRoleFilled('recovered_by', recoveredBy);
+      return true;
+    }
+    if (action === 'pass') {
+      if (!isRoleFilled('passer', passer) || !passOutcome) return false;
+      if (passOutcome === 'turnover') {
+        if (!turnoverType) return false;
+        if (turnoverType === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+        return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
+      }
+      if (passOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      return true;
+    }
     return false;
   };
 
@@ -1604,16 +1608,17 @@ export default function StatModalV4({
       primary = makeSelection(foulOn, ctx).kind !== 'none' ? makeSelection(foulOn, ctx) : makeSelection(foulBy, ctx);
       extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     } else if (action === 'turnover') {
-      const forced = sel(forcedBy);
-      const lost = sel(lostBy);
+      const foulOnSel = sel(foulOn);
+      const foulBySel = sel(foulBy);
+      const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+      const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
       actingSide = lost.team_side || forced.team_side || 'unknown';
       primary = lost.kind !== 'none' ? lost : forced;
       extra.turnover = {
         turnover_type: turnoverType,
-        lost_by: sel(lostBy),
-        forced_by: sel(forcedBy),
-        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
-        recovered_by: sel(turnoverType === 'foul' ? forcedBy : recoveredBy),
+        lost_by: lost,
+        forced_by: forced,
+        recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy),
         unforced: !!unforced,
         brought_back_adv: !!broughtBackAdv,
       };
@@ -1648,27 +1653,26 @@ export default function StatModalV4({
         saved_by: sel(shotSavedBy),
         brought_back_adv: !!shotBroughtBackAdv,
       };
-    } else if (action === 'defensive_contact') {
-      actingSide = makeSelection(primaryPlayer, ctx).team_side || 'unknown';
-      primary = makeSelection(primaryPlayer, ctx);
-      extra.defensive_contact = { type: defType };
     } else if (action === 'carry') {
       actingSide = makeSelection(carrier, ctx).team_side || 'unknown';
       primary = makeSelection(carrier, ctx);
       extra.carry = {
         carrier: sel(carrier),
         pressure_on_carrier: carrierPressure,
-        take_on_attempted: !!takeOnAttempted,
-        take_on_completed: !!takeOnCompleted,
+        take_on: takeOnStatus || 'no',
         defender: sel(defender),
         solo_plus_go: !!soloPlusGo,
-        defensive_contact_type: carryDefContact,
         outcome: carryOutcome,
       };
+      if (carryOutcome === 'dispossessed_retained') {
+        extra.carry.recovered_by = sel(recoveredBy);
+      }
       if (carryOutcome === 'turnover') {
-        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
-        const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
-        extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+        const foulOnSel = sel(foulOn);
+        const foulBySel = sel(foulBy);
+        const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
+        const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+        extra.turnover = { turnover_type: turnoverType, lost_by: lost, forced_by: forced, recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (carryOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1680,16 +1684,18 @@ export default function StatModalV4({
         passer: passerSel,
         intended_recipient: sel(passIntendedRecipient),
         method: passMethod,
-        style: passStyle,
+        accuracy: passAccuracy || '+',
         pressure_on_passer: passPressure,
         outcome: passOutcome,
         won_by: sel(passWonBy),
         deadball: !!deadball,
       };
       if (passOutcome === 'turnover') {
-        // For foul turnovers, recovered_by is implicit (forced_by) and not chosen in the UI.
-        const recovered = turnoverType === 'foul' ? forcedBy : recoveredBy;
-        extra.turnover = { turnover_type: turnoverType, lost_by: sel(lostBy), forced_by: sel(forcedBy), recovered_by: sel(recovered), unforced: !!unforced };
+        const foulOnSel = sel(foulOn);
+        const foulBySel = sel(foulBy);
+        const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
+        const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+        extra.turnover = { turnover_type: turnoverType, lost_by: lost, forced_by: forced, recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1763,7 +1769,6 @@ export default function StatModalV4({
                     { value: 'kickout', label: 'Kickout' },
                     { value: 'turnover', label: 'Turnover' },
                     { value: 'foul', label: 'Foul' },
-                    { value: 'defensive_contact', label: 'Def. Action' },
                     { value: 'throw_in', label: 'Throw In' },
                   ]}
                 />
@@ -1907,46 +1912,17 @@ export default function StatModalV4({
                 </div>
               )}
 
-              {action === 'defensive_contact' && !isDrag && (
-                <>
-                  <Buttons
-                    label="Type"
-                    value={defType}
-                    onChange={setDefType}
-                    options={[
-                      { value: 'dispossession', label: 'Dispossession' },
-                      { value: 'contact', label: 'Contact' },
-                      { value: 'block', label: 'Block' },
-                    ]}
-                  />
-                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
-                </>
-              )}
-
               {action === 'carry' && isDrag && (
                 <>
                   <Buttons label="Pressure on Carrier" value={carrierPressure} onChange={setCarrierPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
-                  <YesNo label="Take On Attempted" value={takeOnAttempted} onChange={setTakeOnAttempted} />
-                  {takeOnAttempted && (
-                    <>
-                      <YesNo label="Take On Completed" value={takeOnCompleted} onChange={setTakeOnCompleted} />
-                    </>
-                  )}
+                  <Buttons label="Take On" value={takeOnStatus} onChange={setTakeOnStatus} options={[{ value: 'no', label: 'No' }, { value: 'completed', label: 'Completed' }, { value: 'failed', label: 'Failed' }]} />
                   <YesNo label="Solo & Go" value={soloPlusGo} onChange={setSoloPlusGo} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
-                        {['completed', 'turnover', 'foul', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
+                        {['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1954,16 +1930,6 @@ export default function StatModalV4({
                   </div>
                   {/* Defence set doesn't need to live at the very bottom for pass/carry */}
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <Buttons
-                    label="Defensive Contact"
-                    value={carryDefContact}
-                    onChange={setCarryDefContact}
-                    options={[
-                      { value: 'none', label: 'None' },
-                      { value: 'contact', label: 'Contact' },
-                      { value: 'dispossess', label: 'Dispossess' },
-                    ]}
-                  />
                   <VideoTimeBlock
                     currentVideoTimeS={currentVideoTimeS}
                     videoTimeText={videoTimeText}
@@ -1988,15 +1954,17 @@ export default function StatModalV4({
                       { value: 'hand', label: 'Hand' },
                     ]}
                   />
-                    <div className="space-y-2">
-                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Style</Label>
-                      <Select value={passStyle} onValueChange={setPassStyle}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
-                        <SelectContent>
-                          {['high', 'chest', '1_bounce', '2plus_bounce', 'ground'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <Buttons
+                      label="Accuracy"
+                      value={passAccuracy}
+                      onChange={setPassAccuracy}
+                      options={[
+                        { value: '++', label: '++' },
+                        { value: '+', label: '+' },
+                        { value: '-', label: '-' },
+                        { value: '--', label: '--' },
+                      ]}
+                    />
                   </div>
                   <Buttons label="Pressure on Passer" value={passPressure} onChange={setPassPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
                   <div className="space-y-2">
@@ -2087,20 +2055,18 @@ export default function StatModalV4({
                 </>
               )}
 
-              {action === 'defensive_contact' && !isDrag && roleButton('player')}
-
               {action === 'foul' && !isDrag && foulRolesBlock()}
 
               {action === 'turnover' && !isDrag && (
                 <div className="space-y-2">
-                  {turnoverRolesBlock()}
+                  {turnoverType !== 'foul' && turnoverRolesBlock()}
                   {turnoverType === 'foul' && foulPanel()}
                 </div>
               )}
 
               {action === 'carry' && isDrag && (
                 <>
-                  {takeOnAttempted ? (
+                  {(carrierPressure === 'high' || takeOnStatus !== 'no') ? (
                     <div className="grid grid-cols-2 gap-2">
                       {roleButton('carrier')}
                       {roleButton('defender')}
@@ -2110,6 +2076,7 @@ export default function StatModalV4({
                   )}
                   {carryOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {carryOutcome === 'foul' && foulPanel()}
+                  {carryOutcome === 'dispossessed_retained' && roleButton('recovered_by')}
                 </>
               )}
 
@@ -2213,3 +2180,4 @@ export default function StatModalV4({
     </Dialog>
   );
 }
+

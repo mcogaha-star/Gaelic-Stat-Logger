@@ -132,8 +132,6 @@ export default function StatModal({
         if (section.condition === 'kickpass_mark_show') {
             if (!isPass || passType !== 'pass') return false;
             if ((subMenuValues.pass_outcome || '') !== 'completed') return false;
-            const style = subMenuValues.pass_style || '';
-            if (!(style === 'high' || style === 'chest')) return false;
             const passBodySection = subMenus.find(s => s.applies_to?.includes('pass') && s.options?.some(o => o.value === 'handpass'));
             const isHandpass = passBodySection ? (subMenuValues[passBodySection.id] === 'handpass') : false;
             return !isHandpass;

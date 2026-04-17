@@ -68,12 +68,11 @@ function DefenseTab({
   setDefTypes,
   onOpenVideoAt,
 }) {
-  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'defensive_contact', 'foul'] }), [reportFilters]);
+  const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
 
   const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
-  const defActions = useMemo(() => base.filter((s) => s?.stat_type === 'defensive_contact'), [base]);
   const defensiveFouls = useMemo(() => base.filter((s) => {
     const f = extractFoulFromStat(s);
     if (!f?.foul_by?.team_side) return false;
@@ -141,7 +140,6 @@ function DefenseTab({
       }).length;
       const defActionCount =
         won +
-        defActions.filter((s) => s?.team_side === teamSide).length +
         defensiveFouls.filter((s) => extractFoulFromStat(s)?.foul_by?.team_side === teamSide).length;
 
       const concededKeys = new Set();
@@ -176,7 +174,7 @@ function DefenseTab({
       };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [turnovers, base, defActions, defensiveFouls]);
+  }, [turnovers, base, defensiveFouls]);
 
   const typeRows = useMemo(() => {
     const rows = new Map();
@@ -204,13 +202,6 @@ function DefenseTab({
     if (turnoverTypes.length && !turnoverTypes.includes(normalizeFoulType(String(c.typ || '')))) return false;
     return true;
   }), [turnovers, turnoverResult, turnoverTypes, teamMode]);
-
-  const filteredDefActions = useMemo(() => defActions.filter((s) => {
-    if (teamMode !== 'both' && s?.team_side !== teamMode) return false;
-    if (!defTypes.length) return true;
-    const ex = safeParseJSON(s?.extra_data || '{}', {});
-    return defTypes.includes(String(ex?.defensive_contact?.type || ''));
-  }), [defActions, defTypes, teamMode]);
 
   const mapStats = useMemo(() => filteredTurnovers, [filteredTurnovers]);
   const [typeSort, setTypeSort] = useState({ key: teamMode === 'both' ? 'home' : 'won', dir: 'desc' });

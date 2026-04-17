@@ -172,7 +172,6 @@ export default function Settings() {
                     ['kickout', 'Kickout'],
                     ['turnover', 'Turnover'],
                     ['foul', 'Foul'],
-                    ['defensive_contact', 'Def. Action'],
                     ['throw_in', 'Throw In'],
                   ],
                 },
@@ -406,3 +405,4 @@ export default function Settings() {
     </div>
   );
 }
+
