@@ -4,7 +4,7 @@ import pitchImg from '@/assets/pitch.png';
 const PITCH_W = 145;
 const PITCH_H = 85;
 
-export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
+export default function GAAPitch({ onPointClick, onPassDraw, debug = false, disableDrag = false }) {
     const svgRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
     const [startPoint, setStartPoint] = useState(null);
@@ -29,6 +29,13 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
         e.preventDefault();
         const coords = getCoordinates(e);
         if (coords) {
+            if (disableDrag) {
+                setStartPoint(null);
+                setCurrentPoint(null);
+                setIsDragging(false);
+                onPointClick?.(coords);
+                return;
+            }
             setStartPoint(coords);
             setCurrentPoint(coords);
             setIsDragging(true);
@@ -52,10 +59,10 @@ export default function GAAPitch({ onPointClick, onPassDraw, debug = false }) {
             Math.pow(endPoint.y - startPoint.y, 2)
         );
 
-        if (distance < 3) {
-            onPointClick(startPoint);
+        if (distance < 3 || !onPassDraw) {
+            onPointClick?.(startPoint);
         } else {
-            onPassDraw(startPoint, endPoint);
+            onPassDraw?.(startPoint, endPoint);
         }
 
         setIsDragging(false);

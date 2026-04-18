@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 
 import GAAPitch from '@/components/pitch/GAAPitch';
@@ -22,7 +23,7 @@ import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib
 import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
-import LiveModeLogger, { createDefaultLiveDraft, NONE, TEAM_HOME, TEAM_AWAY } from '@/features/match-stats/components/LiveModeLogger';
+import LiveModeLogger, { createDefaultLiveDraft, NONE, TEAM_HOME, TEAM_AWAY, formatMMSS as formatLiveClock } from '@/features/match-stats/components/LiveModeLogger';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
 import useHalfManagement from '@/features/match-stats/hooks/useHalfManagement';
 import useStatLogging from '@/features/match-stats/hooks/useStatLogging';
@@ -148,6 +149,8 @@ export default function MatchStats() {
     const [liveDraft, setLiveDraft] = useState(() => createDefaultLiveDraft('home'));
     const [liveClockSecondsByHalf, setLiveClockSecondsByHalf] = useState({});
     const [liveClockRunning, setLiveClockRunning] = useState(false);
+    const [liveLoggerOpen, setLiveLoggerOpen] = useState(false);
+    const [liveClickCoords, setLiveClickCoords] = useState(null);
 
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -874,13 +877,21 @@ export default function MatchStats() {
 
     const handleLivePointClick = (coords) => {
         if (!coords) return;
+        setLiveClickCoords(coords);
+        setLiveLoggerOpen(true);
+    };
+
+    const submitLiveLogger = () => {
+        if (!liveClickCoords) return;
         const error = validateLiveDraft();
         if (error) {
             toast.error(error);
             return;
         }
         const payload = buildLivePayload();
-        commitPointStat(payload, coords, null);
+        commitPointStat(payload, liveClickCoords, null);
+        setLiveLoggerOpen(false);
+        setLiveClickCoords(null);
     };
 
     const handleStatSubmit = (payload) => {
@@ -1297,36 +1308,36 @@ export default function MatchStats() {
                             <GAAPitch
                                 onPointClick={isLiveMode ? handleLivePointClick : handlePointClick}
                                 onPassDraw={isLiveMode ? undefined : handlePassDraw}
+                                disableDrag={isLiveMode}
                                 debug={debugPitch}
                             />
                             <StatMarkers stats={stats} clickStats={clickStats} />
                         </div>
                         <p className="text-center text-sm text-slate-500 mt-2">
-                            {isLiveMode ? 'Select a live action, then click the pitch location to log it.' : 'Click to log a stat. Click and drag to log a pass / carry.'}
+                            {isLiveMode ? 'Click the pitch location to open the live logger. Dragging is disabled in live mode.' : 'Click to log a stat. Click and drag to log a pass / carry.'}
                         </p>
                     </div>
 
                     <div className="space-y-6">
                         {isLiveMode && (
-                            <LiveModeLogger
-                                draft={liveDraft}
-                                onDraftChange={setLiveDraft}
-                                clockSeconds={liveClockSeconds}
-                                running={liveClockRunning}
-                                onToggleClock={() => setLiveClockRunning((v) => !v)}
-                                onResetClock={() => setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }))}
-                                half={half}
-                                getDirForHalf={getDirForHalf}
-                                homeTeamName={homeTeam?.name || 'Home'}
-                                awayTeamName={awayTeam?.name || 'Away'}
-                                homePlayers={homePlayers}
-                                awayPlayers={awayPlayers}
-                                liveModeSettings={liveModeSettings}
-                                onLogSubstitution={() => setSubDialogOpen(true)}
-                                onEndHalf={openEndHalfPrompt}
-                                onUndo={handleUndoLast}
-                                statsCount={stats.length}
-                            />
+                            <div className="rounded-xl border bg-white p-4 space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <div className="font-semibold text-slate-900">Live Clock</div>
+                                        <div className="text-xs text-slate-500">
+                                            Click the pitch to open the logger.
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-mono text-2xl font-bold">{formatLiveClock(liveClockSeconds)}</div>
+                                        <div className="text-xs text-slate-500">{half.replace('_', ' ')}</div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button type="button" onClick={() => setLiveClockRunning((v) => !v)}>{liveClockRunning ? 'Pause' : 'Start'}</Button>
+                                    <Button type="button" variant="outline" onClick={() => setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }))}>Reset</Button>
+                                </div>
+                            </div>
                         )}
                         <RecentStats
                             stats={stats}
@@ -1338,6 +1349,45 @@ export default function MatchStats() {
                     </div>
                 </div>
             </div>
+
+            <Dialog open={liveLoggerOpen} onOpenChange={(open) => {
+                setLiveLoggerOpen(open);
+                if (!open) setLiveClickCoords(null);
+            }}>
+                <DialogContent className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-0">
+                    <DialogHeader className="px-4 pt-4">
+                        <DialogTitle>Live Stat</DialogTitle>
+                    </DialogHeader>
+                    <div className="p-4 pt-2">
+                        <LiveModeLogger
+                            draft={liveDraft}
+                            onDraftChange={setLiveDraft}
+                            clockSeconds={liveClockSeconds}
+                            running={liveClockRunning}
+                            onToggleClock={() => setLiveClockRunning((v) => !v)}
+                            onResetClock={() => setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }))}
+                            half={half}
+                            getDirForHalf={getDirForHalf}
+                            homeTeamName={homeTeam?.name || 'Home'}
+                            awayTeamName={awayTeam?.name || 'Away'}
+                            homePlayers={homePlayers}
+                            awayPlayers={awayPlayers}
+                            liveModeSettings={liveModeSettings}
+                            onLogSubstitution={() => setSubDialogOpen(true)}
+                            onEndHalf={openEndHalfPrompt}
+                            onUndo={handleUndoLast}
+                            statsCount={stats.length}
+                            selectedCoords={liveClickCoords}
+                            showUtilityActions={false}
+                            onCancel={() => {
+                                setLiveLoggerOpen(false);
+                                setLiveClickCoords(null);
+                            }}
+                            onSubmit={submitLiveLogger}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <MatchStatsDialogs
                 modalProps={{

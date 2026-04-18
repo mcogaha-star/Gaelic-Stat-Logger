@@ -157,6 +157,10 @@ export default function LiveModeLogger({
   onEndHalf,
   onUndo,
   statsCount,
+  selectedCoords = null,
+  onSubmit = null,
+  onCancel = null,
+  showUtilityActions = true,
 }) {
   const players = React.useMemo(() => [...(homePlayers || []), ...(awayPlayers || [])], [homePlayers, awayPlayers]);
   const settings = liveModeSettings || {};
@@ -180,19 +184,21 @@ export default function LiveModeLogger({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <Button type="button" variant={running ? 'secondary' : 'default'} onClick={onToggleClock} className="gap-2">
-            {running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {running ? 'Pause' : 'Start'}
-          </Button>
-          <Button type="button" variant="outline" onClick={onResetClock} className="gap-2">
-            <RotateCcw className="w-4 h-4" />
-            Reset
-          </Button>
-          <Button type="button" variant="outline" onClick={onUndo} disabled={!statsCount}>
-            Undo
-          </Button>
-        </div>
+        {showUtilityActions && (
+          <div className="grid grid-cols-3 gap-2">
+            <Button type="button" variant={running ? 'secondary' : 'default'} onClick={onToggleClock} className="gap-2">
+              {running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              {running ? 'Pause' : 'Start'}
+            </Button>
+            <Button type="button" variant="outline" onClick={onResetClock} className="gap-2">
+              <RotateCcw className="w-4 h-4" />
+              Reset
+            </Button>
+            <Button type="button" variant="outline" onClick={onUndo} disabled={!statsCount}>
+              Undo
+            </Button>
+          </div>
+        )}
 
         <Field label="Action">
           <ChoiceButtons
@@ -281,14 +287,29 @@ export default function LiveModeLogger({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t">
-          <Button type="button" variant="outline" onClick={onLogSubstitution}>Substitution</Button>
-          <Button type="button" variant="outline" onClick={onEndHalf}>End Half</Button>
-        </div>
+        {showUtilityActions && (
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+            <Button type="button" variant="outline" onClick={onLogSubstitution}>Substitution</Button>
+            <Button type="button" variant="outline" onClick={onEndHalf}>End Half</Button>
+          </div>
+        )}
 
-        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
-          Select the action and fields, then click the pitch location to log it.
-        </div>
+        {selectedCoords ? (
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
+            Location selected: x={Number(selectedCoords.x).toFixed(1)}, y={Number(selectedCoords.y).toFixed(1)}
+          </div>
+        ) : (
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
+            Select the action and fields, then click the pitch location to log it.
+          </div>
+        )}
+
+        {onSubmit && (
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+            <Button type="button" className="bg-green-600 hover:bg-green-700" onClick={onSubmit}>Log Stat</Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
