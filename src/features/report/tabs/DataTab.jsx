@@ -4,7 +4,7 @@ const db = globalThis.__B44_DB__ || {
 
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Trash2 } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -207,9 +207,13 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       }
       return stat;
     },
-    onSuccess: async () => {
+    onSuccess: async (deletedStat) => {
       setDeleteTarget(null);
-      setExpandedRowId((cur) => (cur === deleteTarget?.id ? null : cur));
+      setExpandedRowId((cur) => (cur === deletedStat?.id ? null : cur));
+      if (editStatId === deletedStat?.id) {
+        setEditOpen(false);
+        setEditStatId(null);
+      }
       await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
       await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
       toast.success('Row deleted');
@@ -1057,7 +1061,17 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       />
                     </div>
                   </details>
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between gap-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:text-red-700"
+                      disabled={deleteMutation.isPending || persistMutation.isPending}
+                      onClick={() => setDeleteTarget(editStat)}
+                    >
+                      Delete Row
+                    </Button>
                     <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyRawStatChanges}>Apply Stat Changes</Button>
                   </div>
                 </div>
@@ -1198,16 +1212,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Open Video</Button>
                             )}
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => { setVizStats([s]); setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`); setVizOpen(true); }}>Visualise</Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                              onClick={() => setDeleteTarget(s)}
-                              title="Delete row"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1220,15 +1224,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                 <div className="text-xs font-semibold text-slate-900">Details</div>
                                 <div className="flex items-center gap-2">
                                   <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                                    onClick={() => setDeleteTarget(s)}
-                                  >
-                                    Delete
-                                  </Button>
                                 </div>
                               </div>
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">

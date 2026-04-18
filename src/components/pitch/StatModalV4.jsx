@@ -96,6 +96,20 @@ function VideoTimeBlock({
   );
 }
 
+function LiveTimeBlock({ liveClockSeconds }) {
+  const seconds = Number(liveClockSeconds);
+  return (
+    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+      <Label className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 leading-tight">
+        Live Time
+      </Label>
+      <div className="font-mono text-sm font-semibold text-emerald-950">
+        {Number.isFinite(seconds) ? formatMMSS(seconds) : '--:--'}
+      </div>
+    </div>
+  );
+}
+
 function selectionToValue(sel) {
   if (!sel) return NONE;
   if (sel.kind === 'none') return NONE;
@@ -441,6 +455,8 @@ export default function StatModalV4({
   shortcutConfig,
   defaultCounterAttack = false,
   homeAttacksRight = true,
+  liveMode = false,
+  liveClockSeconds = null,
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -517,6 +533,20 @@ export default function StatModalV4({
     if (!Number.isFinite(hs)) return null;
     return parsedVideoTimeS - hs;
   }, [parsedVideoTimeS, halfStartTimeS]);
+  const liveNormalizedTimeS = Number(liveClockSeconds);
+  const fallbackInitialNormalizedTimeS = Number(initialStat?.normalized_time_s);
+  const renderTimeBlock = () => liveMode ? (
+    <LiveTimeBlock liveClockSeconds={liveClockSeconds} />
+  ) : (
+    <VideoTimeBlock
+      currentVideoTimeS={currentVideoTimeS}
+      videoTimeText={videoTimeText}
+      setVideoTimeText={setVideoTimeText}
+      setVideoTimeTouched={setVideoTimeTouched}
+      normalizedVideoTimeS={normalizedVideoTimeS}
+      videoTimeInvalid={videoTimeInvalid}
+    />
+  );
 
   // Carry (drag)
   const [carrier, setCarrier] = useState(NONE);
@@ -1534,7 +1564,7 @@ export default function StatModalV4({
     if (!startCoords) return false;
     if (isDrag && !endCoords) return false;
     if (!action) return false;
-    if (videoTimeInvalid) return false;
+    if (!liveMode && videoTimeInvalid) return false;
     // Minimal validation per action.
     if (action === 'shot') return !!shotOutcome && isRoleFilled('player', primaryPlayer);
     if (action === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
@@ -1737,14 +1767,18 @@ export default function StatModalV4({
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
     }
 
+    if (liveMode) extra.live_mode = true;
+
     onClose?.();
     onSubmit?.({
       stat_type: action,
       is_pass: isDrag,
       team_side: actingSide,
       counter_attack: !!counterAttack,
-      time_s: Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null,
-      normalized_time_s: Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null,
+      time_s: liveMode ? null : (Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null),
+      normalized_time_s: liveMode
+        ? (Number.isFinite(liveNormalizedTimeS) ? liveNormalizedTimeS : (Number.isFinite(fallbackInitialNormalizedTimeS) ? fallbackInitialNormalizedTimeS : null))
+        : (Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null),
       primary_player: primary,
       extra,
     });
@@ -1850,14 +1884,7 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                   <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />
                 </>
               )}
@@ -1887,14 +1914,7 @@ export default function StatModalV4({
                       { value: 'conceded', label: 'Conceded' },
                     ]}
                   />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </>
               )}
 
@@ -1902,14 +1922,7 @@ export default function StatModalV4({
                 <>
                   {foulFieldsBlock()}
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </>
               )}
 
@@ -1917,14 +1930,7 @@ export default function StatModalV4({
                 <>
                   {turnoverFieldsBlock()}
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </>
               )}
 
@@ -1938,14 +1944,7 @@ export default function StatModalV4({
                     </SelectContent>
                   </Select>
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </div>
               )}
 
@@ -1967,14 +1966,7 @@ export default function StatModalV4({
                   </div>
                   {/* Defence set doesn't need to live at the very bottom for pass/carry */}
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </>
               )}
 
@@ -2016,14 +2008,7 @@ export default function StatModalV4({
                   <YesNo label="Deadball" value={deadball} onChange={setDeadball} />
                   {/* Defence set doesn't need to live at the very bottom for pass/carry */}
                   <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
-                  <VideoTimeBlock
-                    currentVideoTimeS={currentVideoTimeS}
-                    videoTimeText={videoTimeText}
-                    setVideoTimeText={setVideoTimeText}
-                    setVideoTimeTouched={setVideoTimeTouched}
-                    normalizedVideoTimeS={normalizedVideoTimeS}
-                    videoTimeInvalid={videoTimeInvalid}
-                  />
+                  {renderTimeBlock()}
                 </>
               )}
             </div>

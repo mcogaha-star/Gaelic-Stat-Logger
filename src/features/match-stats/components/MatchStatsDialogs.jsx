@@ -36,6 +36,8 @@ export default function MatchStatsDialogs({
     shortcutConfig,
     defaultCounterAttack,
     homeAttacksRight,
+    liveMode,
+    liveClockSeconds,
   } = modalProps;
 
   const {
@@ -117,6 +119,8 @@ export default function MatchStatsDialogs({
         shortcutConfig={shortcutConfig}
         defaultCounterAttack={defaultCounterAttack}
         homeAttacksRight={homeAttacksRight}
+        liveMode={liveMode}
+        liveClockSeconds={liveClockSeconds}
       />
 
       <AlertDialog open={halfPrompt.open} onOpenChange={(open) => !open && setHalfPrompt({ open: false, nextHalf: null })}>
