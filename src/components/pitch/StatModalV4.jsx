@@ -1512,7 +1512,7 @@ export default function StatModalV4({
     <div className="grid grid-cols-2 gap-2">
       {roleButton('lost_by')}
       {roleButton('forced_by')}
-      {turnoverType !== 'foul' && roleButton('recovered_by')}
+      {turnoverType !== 'foul' && !liveMode && roleButton('recovered_by')}
     </div>
   );
 
@@ -1575,11 +1575,13 @@ export default function StatModalV4({
           && isRoleFilled('foul_on', foulOn)
           && !!foulType;
       }
+      if (liveMode) return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy);
       return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
     }
     if (action === 'throw_in') {
       if (!throwOutcome) return false;
       if (throwOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      if (liveMode) return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       if (throwOutcome === 'clean') return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       if (throwOutcome === 'break') return isRoleFilled('broken_by', brokenBy) && isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       return false;
@@ -1587,6 +1589,7 @@ export default function StatModalV4({
     if (action === 'kickout') {
       if (!kickoutOutcome) return false;
       if (kickoutOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
+      if (liveMode) return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       if (kickoutOutcome === 'clean') return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       if (kickoutOutcome === 'break') return isRoleFilled('kickout_broken_by', kickoutBrokenBy) && isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       return true; // sideline outcomes
@@ -1658,12 +1661,12 @@ export default function StatModalV4({
       primary = { kind: 'team', team_side: kickoutTeam };
       extra.kickout = {
         team_side: kickoutTeam,
-        intended_recipient: sel(intendedRecipient),
+        intended_recipient: liveMode ? { kind: 'none' } : sel(intendedRecipient),
         outcome: kickoutOutcome,
         won_by: sel(kickoutWonBy),
         lost_by: sel(kickoutLostBy),
-        broken_by: sel(kickoutBrokenBy),
-        mark: !!kickoutMark,
+        broken_by: liveMode ? { kind: 'none' } : sel(kickoutBrokenBy),
+        mark: liveMode ? false : !!kickoutMark,
         press: kickoutPress || '',
       };
       if (kickoutOutcome === 'foul') {
@@ -1684,7 +1687,7 @@ export default function StatModalV4({
         turnover_type: turnoverType,
         lost_by: lost,
         forced_by: forced,
-        recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy),
+        recovered_by: turnoverType === 'foul' || liveMode ? forced : sel(recoveredBy),
         unforced: !!unforced,
         brought_back_adv: !!broughtBackAdv,
       };
@@ -1698,7 +1701,7 @@ export default function StatModalV4({
         outcome: throwOutcome,
         won_by: sel(wonBy),
         lost_by: sel(throwLostBy),
-        broken_by: sel(brokenBy),
+        broken_by: liveMode ? { kind: 'none' } : sel(brokenBy),
       };
       if (throwOutcome === 'foul') {
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1714,7 +1717,7 @@ export default function StatModalV4({
         pressure: shotPressure,
         outcome: shotOutcome,
         result: shotResult,
-        recovered_by: sel(shotRecoveredBy),
+        recovered_by: liveMode ? { kind: 'none' } : sel(shotRecoveredBy),
         blocked_by: sel(shotBlockedBy),
         saved_by: sel(shotSavedBy),
         brought_back_adv: !!shotBroughtBackAdv,
@@ -1853,7 +1856,8 @@ export default function StatModalV4({
               {action === 'shot' && !isDrag && (
                 <>
                   <Buttons label="Shot Type" value={shotType} onChange={(value) => { setShotType(value); setShotTypeTouched(true); }} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-                  <div className="grid sm:grid-cols-2 gap-2">
+                  <div className={liveMode ? "space-y-2" : "grid sm:grid-cols-2 gap-2"}>
+                    {!liveMode && (
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Situation</Label>
                       <Select value={shotSituation} onValueChange={setShotSituation}>
@@ -1863,6 +1867,7 @@ export default function StatModalV4({
                         </SelectContent>
                       </Select>
                     </div>
+                    )}
                     <Buttons label="Method" value={shotMethod} onChange={setShotMethod} options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'hand', label: 'Hand' }]} />
                   </div>
                   <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
@@ -1883,7 +1888,7 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
+                  {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
                   <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />
                 </>
@@ -1903,7 +1908,7 @@ export default function StatModalV4({
                       </SelectContent>
                     </Select>
                   </div>
-                  <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />
+                  {!liveMode && <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />}
                   <Buttons
                     label="Press"
                     value={kickoutPress}
@@ -1921,7 +1926,7 @@ export default function StatModalV4({
               {action === 'foul' && !isDrag && (
                 <>
                   {foulFieldsBlock()}
-                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
+                  {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
                 </>
               )}
@@ -1929,7 +1934,7 @@ export default function StatModalV4({
               {action === 'turnover' && !isDrag && (
                 <>
                   {turnoverFieldsBlock()}
-                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
+                  {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
                 </>
               )}
@@ -1943,7 +1948,7 @@ export default function StatModalV4({
                       {['clean', 'break', 'foul'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />
+                  {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
                 </div>
               )}
@@ -2018,7 +2023,7 @@ export default function StatModalV4({
               {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
               )}
-              {action === 'shot' && !isDrag && (shotResult === 'retained' || shotResult === 'opposition') && (
+              {action === 'shot' && !isDrag && !liveMode && (shotResult === 'retained' || shotResult === 'opposition') && (
                 roleButton('shot_recovered_by')
               )}
               {action === 'shot' && !isDrag && shotOutcome === 'blocked' && (
@@ -2030,8 +2035,14 @@ export default function StatModalV4({
 
               {action === 'kickout' && !isDrag && (
                 <>
-                  {roleButton('kickout_intended')}
-                  {(kickoutOutcome === 'clean') && (
+                  {!liveMode && roleButton('kickout_intended')}
+                  {(liveMode && kickoutOutcome && kickoutOutcome !== 'foul') && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {roleButton('kickout_won_by')}
+                      {roleButton('kickout_lost_by')}
+                    </div>
+                  )}
+                  {(!liveMode && kickoutOutcome === 'clean') && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         {roleButton('kickout_won_by')}
@@ -2039,7 +2050,7 @@ export default function StatModalV4({
                       </div>
                     </>
                   )}
-                  {(kickoutOutcome === 'break') && (
+                  {(!liveMode && kickoutOutcome === 'break') && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         {roleButton('kickout_broken_by')}
@@ -2054,7 +2065,13 @@ export default function StatModalV4({
 
               {action === 'throw_in' && !isDrag && (
                 <>
-                  {throwOutcome === 'clean' && (
+                  {(liveMode && throwOutcome && throwOutcome !== 'foul') && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {roleButton('throw_won_by')}
+                      {roleButton('throw_lost_by')}
+                    </div>
+                  )}
+                  {(!liveMode && throwOutcome === 'clean') && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         {roleButton('throw_won_by')}
@@ -2062,7 +2079,7 @@ export default function StatModalV4({
                       </div>
                     </>
                   )}
-                  {throwOutcome === 'break' && (
+                  {(!liveMode && throwOutcome === 'break') && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         {roleButton('broken_by')}
@@ -2114,6 +2131,7 @@ export default function StatModalV4({
             </div>
           </div>
 
+          {!liveMode && (
           <div className="pt-2 border-t border-slate-200">
             <div className="grid grid-cols-3 gap-2">
               <CustomFieldInput label="Custom 1" config={customFields?.custom_1} value={custom1} onChange={setCustom1} />
@@ -2121,6 +2139,7 @@ export default function StatModalV4({
               <CustomFieldInput label="Custom 3" config={customFields?.custom_3} value={custom3} onChange={setCustom3} />
             </div>
           </div>
+          )}
             </div>
 
             <RosterPanel
