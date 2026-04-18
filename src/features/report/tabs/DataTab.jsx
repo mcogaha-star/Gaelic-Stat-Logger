@@ -4,7 +4,7 @@ const db = globalThis.__B44_DB__ || {
 
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,8 +13,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { createPageUrl } from '@/utils';
 import { getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession } from '@/lib/reportAnalytics';
+import { softDeleteServerStat } from '@/lib/serverSync';
 import {
   safeParseJSON,
   toTitleCase,
@@ -126,6 +128,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editStatId, setEditStatId] = useState(null);
@@ -188,6 +191,31 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     },
     onError: (error) => {
       toast.error(error?.message || 'Failed to update IDs');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (stat) => {
+      if (!stat?.id) throw new Error('No row selected');
+      await db.entities.StatEntry.delete(stat.id);
+      if (stat.server_stat_id) {
+        try {
+          await softDeleteServerStat(stat.server_stat_id);
+        } catch {
+          // Local delete should still succeed if server sync is unavailable.
+        }
+      }
+      return stat;
+    },
+    onSuccess: async () => {
+      setDeleteTarget(null);
+      setExpandedRowId((cur) => (cur === deleteTarget?.id ? null : cur));
+      await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+      toast.success('Row deleted');
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to delete row');
     },
   });
 
@@ -1170,6 +1198,16 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Open Video</Button>
                             )}
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => { setVizStats([s]); setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`); setVizOpen(true); }}>Visualise</Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                              onClick={() => setDeleteTarget(s)}
+                              title="Delete row"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1180,7 +1218,18 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-slate-900">Details</div>
-                                <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button>
+                                <div className="flex items-center gap-2">
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                    onClick={() => setDeleteTarget(s)}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
                               </div>
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
                                 <Table>
@@ -1248,6 +1297,28 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this row?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {deleteTarget ? summarizeRow(deleteTarget, match, imputedTimeById, homeTeam, awayTeam) : 'this stat row'} from the match.
+              Possessions and reports will rebuild after deletion.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Row'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
