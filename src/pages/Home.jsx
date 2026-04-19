@@ -19,7 +19,7 @@ import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
-import { deriveMatchLengthMinutes } from '@/lib/reportAnalytics';
+import { deriveMatchLengthMinutes, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
 
@@ -87,6 +87,7 @@ export default function Home() {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
             if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
+            if (isBroughtBackAdvantageStat(s)) continue;
             let extra = {};
             try { extra = s.extra_data ? JSON.parse(s.extra_data) : {}; } catch {}
             const o = extra?.shot?.outcome || '';
@@ -155,6 +156,7 @@ export default function Home() {
                 windSpeed: created.wind_speed === '' ? null : created.wind_speed,
                 windDirection: created.wind_direction === '' ? null : created.wind_direction,
                 mode: created.mode || 'analysis',
+                matchLengthMinutes: created.match_length_minutes,
             });
 
             if (res.ok && res.id) {

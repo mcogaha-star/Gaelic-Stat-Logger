@@ -12,15 +12,18 @@ import {
   PITCH_W,
   PITCH_H,
   calcDistanceToGoal,
+  classifyKickoutLength,
   extractFoulFromStat,
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  getNextBallActionStat,
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
   inferRestartWinnerSide,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -121,6 +124,20 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
+  const nextStatById = useMemo(() => {
+    const ordered = (Array.isArray(stats) ? stats : []).slice().sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const map = new Map();
+    for (let i = 0; i < ordered.length; i += 1) map.set(ordered[i]?.id, getNextBallActionStat(ordered, i));
+    return map;
+  }, [stats]);
 
   const playerMetaByKey = useMemo(() => {
     const map = new Map();
@@ -216,7 +233,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
     for (const s of base) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
-      if (s.stat_type === 'shot') {
+      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
         const p = ex?.shot?.player || getPrimaryActorSelection(s, ex) || (
           (s?.team_side === 'home' || s?.team_side === 'away') && (s?.player_number || s?.player_name)
             ? {
@@ -302,7 +319,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           if (getScoringZoneEntry(s)) r.scoringZoneEntriesCreated += 1;
         }
       }
-      if (s.stat_type === 'turnover' || ex?.turnover) {
+      if (!isBroughtBackAdvantageStat(s) && (s.stat_type === 'turnover' || ex?.turnover)) {
         const t = ex?.turnover || {};
         const rec = ensure(t?.recovered_by);
         const lost = ensure(t?.lost_by);
@@ -322,12 +339,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const keeper = ensure(koTeam === 'home' ? homeKeeper : koTeam === 'away' ? awayKeeper : null);
         if (keeper) {
           keeper.kickoutsTaken += 1;
-          const won = inferRestartWinnerSide(s, null) === koTeam;
+          const won = inferRestartWinnerSide(s, nextStatById.get(s.id)) === koTeam;
           const cleanWon = kick?.outcome === 'clean' && kick?.won_by?.team_side === koTeam;
           if (won) keeper.ownKickoutsWon += 1;
           if (cleanWon) keeper.cleanKickoutsWon += 1;
-          const endX = Number(s.end_x_position);
-          const isLong = Number.isFinite(endX) && endX > 45;
+          const isLong = classifyKickoutLength(s) === 'long';
           const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
           if (isLong) {
             keeper.longKickoutsTaken += 1;
@@ -443,7 +459,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         longKickoutWinPct,
       };
     });
-  }, [base, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
+  }, [base, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {

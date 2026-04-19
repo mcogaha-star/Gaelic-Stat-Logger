@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { getMatchTimeS } from '@/lib/reportAnalytics';
-import { collectPlayerIds, deriveOutcome, safeParseJSON } from '../shared';
+import { collectPlayerIds, deriveOutcome, safeParseJSON, statMatchesActionType } from '../shared';
 
 export function useFilteredReportStats({ stats, overviewHalf, reportFilters, match, imputedTimeById }) {
   const overviewStats = useMemo(() => {
@@ -21,7 +21,7 @@ export function useFilteredReportStats({ stats, overviewHalf, reportFilters, mat
       if (!s) return false;
       if (reportFilters.team !== 'both' && s.team_side !== reportFilters.team) return false;
       if (reportFilters.halves.length && !reportFilters.halves.includes(s.half)) return false;
-      if (reportFilters.actionTypes.length && !reportFilters.actionTypes.includes(String(s.stat_type || ''))) return false;
+      if (reportFilters.actionTypes.length && !reportFilters.actionTypes.some((value) => statMatchesActionType(s, value))) return false;
       if (reportFilters.outcomes.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const out = deriveOutcome(s, extra);

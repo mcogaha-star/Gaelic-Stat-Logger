@@ -11,15 +11,18 @@ import {
   PITCH_W,
   PITCH_H,
   calcDistanceToGoal,
+  classifyKickoutLength,
   extractFoulFromStat,
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  getNextBallActionStat,
   inferRestartWinnerSide,
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -117,7 +120,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
     const out = new Map();
-    for (let i = 0; i < ordered.length; i += 1) out.set(ordered[i]?.id, ordered[i + 1] || null);
+    for (let i = 0; i < ordered.length; i += 1) out.set(ordered[i]?.id, getNextBallActionStat(ordered, i));
     return out;
   }, [stats]);
 
@@ -162,9 +165,9 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
       const restartPoss = Array.from(restartPossKeys).map((k) => byPoss.get(k) || []);
       const restartWins = restartPoss.length;
-      const restartToShot = restartPoss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot')).length;
+      const restartToShot = restartPoss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e))).length;
       const restartToScore = restartPoss.filter((evs) => evs.some((e) => {
-        if (e.team_side !== teamSide || e.stat_type !== 'shot') return false;
+        if (e.team_side !== teamSide || e.stat_type !== 'shot' || isBroughtBackAdvantageStat(e)) return false;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;
@@ -238,15 +241,14 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
         },
       };
       current.kickoutsTaken += 1;
-      const won = inferRestartWinnerSide(stat, null) === team;
+      const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
       if (won) current.ownKickoutsWon += 1;
       const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
       if (!pressKey) {
         keeperRows.set(keeperKey, current);
         continue;
       }
-      const endX = Number(stat.end_x_position);
-      const isLong = Number.isFinite(endX) && endX > 45;
+      const isLong = classifyKickoutLength(stat) === 'long';
       current.pressBreakdown[pressKey].taken += 1;
       if (won) current.pressBreakdown[pressKey].won += 1;
       if (isLong) {

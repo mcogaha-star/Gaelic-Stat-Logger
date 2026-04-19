@@ -38,6 +38,7 @@ export default function MatchStatsDialogs({
     homeAttacksRight,
     liveMode,
     liveClockSeconds,
+    liveModeSettings,
   } = modalProps;
 
   const {
@@ -59,6 +60,7 @@ export default function MatchStatsDialogs({
     setSubIn,
     subTemporary,
     setSubTemporary,
+    liveModeSettings: subLiveModeSettings,
     allPlayers,
     homePlayers: subHomePlayers,
     awayPlayers: subAwayPlayers,
@@ -121,6 +123,7 @@ export default function MatchStatsDialogs({
         homeAttacksRight={homeAttacksRight}
         liveMode={liveMode}
         liveClockSeconds={liveClockSeconds}
+        liveModeSettings={liveModeSettings}
       />
 
       <AlertDialog open={halfPrompt.open} onOpenChange={(open) => !open && setHalfPrompt({ open: false, nextHalf: null })}>
@@ -200,13 +203,13 @@ export default function MatchStatsDialogs({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
+            {subLiveModeSettings?.showTemporarySub !== false && <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
               <div className="space-y-0.5">
                 <Label>Temporary Sub</Label>
                 <div className="text-xs text-slate-500">Mark this substitution as temporary.</div>
               </div>
               <Switch checked={!!subTemporary} onCheckedChange={setSubTemporary} />
-            </div>
+            </div>}
             <div className="flex gap-2 pt-2">
               <Button
                 variant="outline"

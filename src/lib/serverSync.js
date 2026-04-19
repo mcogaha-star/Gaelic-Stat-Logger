@@ -23,6 +23,7 @@ export async function ensureServerMatch({
   windSpeed,
   windDirection,
   mode,
+  matchLengthMinutes,
 }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
@@ -40,6 +41,7 @@ export async function ensureServerMatch({
     ...basePayload,
     wind_speed: windSpeed ?? null,
     wind_direction: windDirection ?? null,
+    match_length_minutes: Number.isFinite(Number(matchLengthMinutes)) ? Number(matchLengthMinutes) : null,
   };
 
   let inserted = null;
@@ -50,8 +52,9 @@ export async function ensureServerMatch({
     .select('id,public_match_id')
     .maybeSingle());
 
-  // If the live schema doesn't yet have wind columns, retry with the original payload.
-  if (insertErr?.message && /wind_(speed|direction)|\bmode\b/i.test(insertErr.message)) {
+  // If the live schema doesn't yet have newer optional columns, retry with
+  // the original minimum payload so local logging is never blocked by rollout.
+  if (insertErr?.message && /wind_(speed|direction)|\bmode\b|match_length_minutes/i.test(insertErr.message)) {
     const retryPayload = {
       user_id: user.id,
       public_match_id: publicMatchId,
@@ -78,16 +81,21 @@ export async function ensureServerMatch({
 
   if (fetchErr || !existing?.id) return { ok: false, reason: fetchErr?.message || insertErr?.message || 'match_upsert_failed' };
 
-  // Best-effort update so existing server rows can receive wind metadata when columns are available.
-  if (windSpeed != null || windDirection != null) {
-    const patch = { wind_speed: windSpeed ?? null, wind_direction: windDirection ?? null };
+  // Best-effort update so existing server rows can receive newer metadata when columns are available.
+  if (windSpeed != null || windDirection != null || matchLengthMinutes != null || mode) {
+    const patch = {
+      wind_speed: windSpeed ?? null,
+      wind_direction: windDirection ?? null,
+      mode: mode || 'analysis',
+      match_length_minutes: Number.isFinite(Number(matchLengthMinutes)) ? Number(matchLengthMinutes) : null,
+    };
     const { error: updateErr } = await supabase
       .from('matches')
       .update(patch)
       .eq('id', existing.id)
       .eq('user_id', user.id);
 
-    if (updateErr?.message && /wind_(speed|direction)/i.test(updateErr.message)) {
+    if (updateErr?.message && /wind_(speed|direction)|\bmode\b|match_length_minutes/i.test(updateErr.message)) {
       // Ignore missing-column errors so older Supabase schemas don't block match creation.
     }
   }
@@ -121,7 +129,12 @@ export async function insertServerStat({
     play_id: stat.play_id ?? null,
     possession_id: stat.possession_id ?? null,
     possession_team_side: stat.possession_team_side ?? null,
-    counter_attack: stat.counter_attack ?? false,
+    // The boolean is now semantically Set Defence. Keep counter_attack as a
+    // compatibility alias for older schemas, but also send the explicit name.
+    counter_attack: stat.set_defence ?? stat.counter_attack ?? false,
+    set_defence: stat.set_defence ?? stat.counter_attack ?? false,
+    defence_set_migration_version: stat.defence_set_migration_version ?? null,
+    stat_model_migration_version: stat.stat_model_migration_version ?? null,
     time_s: stat.time_s ?? null,
     normalized_time_s: stat.normalized_time_s ?? null,
 
@@ -139,11 +152,25 @@ export async function insertServerStat({
     extra_data: extra,
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('stat_entries')
     .insert(payload)
     .select('id')
     .maybeSingle();
+
+  if (error?.message && /set_defence|defence_set_migration_version|stat_model_migration_version/i.test(error.message)) {
+    const {
+      set_defence,
+      defence_set_migration_version,
+      stat_model_migration_version,
+      ...fallbackPayload
+    } = payload;
+    ({ data, error } = await supabase
+      .from('stat_entries')
+      .insert(fallbackPayload)
+      .select('id')
+      .maybeSingle());
+  }
 
   if (error) return { ok: false, reason: error.message };
   return { ok: true, id: data?.id };
@@ -196,12 +223,31 @@ export async function updateServerStat(statId, patch) {
   if (payload.extra_data && typeof payload.extra_data === 'string') {
     try { payload.extra_data = JSON.parse(payload.extra_data); } catch { payload.extra_data = null; }
   }
+  if (Object.prototype.hasOwnProperty.call(payload, 'set_defence')) {
+    payload.counter_attack = !!payload.set_defence;
+  } else if (Object.prototype.hasOwnProperty.call(payload, 'counter_attack')) {
+    payload.set_defence = !!payload.counter_attack;
+  }
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from('stat_entries')
     .update(payload)
     .eq('id', statId)
     .eq('user_id', user.id);
+
+  if (error?.message && /set_defence|defence_set_migration_version|stat_model_migration_version/i.test(error.message)) {
+    const {
+      set_defence,
+      defence_set_migration_version,
+      stat_model_migration_version,
+      ...fallbackPayload
+    } = payload;
+    ({ error } = await supabase
+      .from('stat_entries')
+      .update(fallbackPayload)
+      .eq('id', statId)
+      .eq('user_id', user.id));
+  }
 
   if (error) return { ok: false, reason: error.message };
   return { ok: true };

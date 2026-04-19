@@ -24,6 +24,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -252,23 +253,10 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
       </svg>
       <div className="absolute inset-0 grid grid-cols-3">
         {zones.map((zone) => (
-          <div key={zone.key} className="flex flex-col items-center justify-center gap-2 px-2 text-center">
-            <div className="w-full max-w-[190px] rounded-xl bg-white/90 p-2 shadow-sm">
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="flex items-center gap-1 truncate">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: homeColor || '#fb4b14' }} />
-                  <span className="truncate">{homeName}</span>
-                </span>
-                <span className="font-mono font-semibold">{pct(home[zone.key])}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-2 text-xs">
-                <span className="flex items-center gap-1 truncate">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: awayColor || '#5b1f32' }} />
-                  <span className="truncate">{awayName}</span>
-                </span>
-                <span className="font-mono font-semibold">{pct(away[zone.key])}</span>
-              </div>
-            </div>
+          <div key={zone.key} className="flex flex-col items-center justify-center gap-1 px-2 text-center drop-shadow">
+            <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-white/85">{zone.key}</div>
+            <div className="text-sm font-bold" style={{ color: homeColor || '#fb4b14' }}>{homeName}: {pct(home[zone.key])}</div>
+            <div className="text-sm font-bold" style={{ color: awayColor || '#5b1f32' }}>{awayName}: {pct(away[zone.key])}</div>
           </div>
         ))}
       </div>
@@ -354,13 +342,14 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;
+        if (isBroughtBackAdvantageStat(e)) return a;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
 
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
-      const shots = acting.filter((e) => e.stat_type === 'shot').length;
+      const shots = acting.filter((e) => e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e)).length;
       const counterState = deriveCounterAttackState(acting);
       const attackEntryChannel = isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '';
       const startZone = getPossessionStartZone(acting);

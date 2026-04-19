@@ -7,14 +7,19 @@ export const GOAL_POST_TOP_Y = 39.25;
 export const GOAL_POST_BOTTOM_Y = 45.75;
 export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
-export const POSSESSION_REBUILD_VERSION = 'v12';
-export const DEFENCE_SET_MIGRATION_VERSION = 'v1';
-export const STAT_MODEL_MIGRATION_VERSION = 'v2';
+export const POSSESSION_REBUILD_VERSION = 'v13';
+export const DEFENCE_SET_MIGRATION_VERSION = 'v2';
+export const STAT_MODEL_MIGRATION_VERSION = 'v3';
+
+const SHOT_REQUIRES_RESULT_OUTCOMES = ['short', 'saved', 'blocked', 'post'];
+const ADMIN_STAT_TYPES = ['substitution', 'period_end'];
+const DEAD_BALL_TURNOVER_OUTCOMES = ['sideline_against', '45_against', 'goal_kick_against'];
 
 export function deriveMatchLengthMinutes(matchOrCode, maybeLevel) {
   const code = typeof matchOrCode === 'object' ? matchOrCode?.code : matchOrCode;
   const level = typeof matchOrCode === 'object' ? matchOrCode?.level : maybeLevel;
-  return String(code || '').toUpperCase() === 'GAA' && String(level || '') === 'Intercounty' ? 70 : 60;
+  const normalizedLevel = String(level || '').toLowerCase().replace(/[\s_-]+/g, '');
+  return String(code || '').toUpperCase() === 'GAA' && normalizedLevel === 'intercounty' ? 70 : 60;
 }
 
 export function deriveMatchHalfMinutes(matchOrCode, maybeLevel) {
@@ -23,6 +28,7 @@ export function deriveMatchHalfMinutes(matchOrCode, maybeLevel) {
 
 function shouldMigrateDefenceSetRow(stat) {
   if (!stat || typeof stat?.counter_attack !== 'boolean') return false;
+  if (stat?.defence_set_migration_version === DEFENCE_SET_MIGRATION_VERSION) return false;
   return !['kickout', 'period_end', 'substitution'].includes(String(stat?.stat_type || ''));
 }
 
@@ -31,20 +37,38 @@ export function buildLegacyDefenceSetRepairs(stats) {
     .filter(shouldMigrateDefenceSetRow)
     .map((stat) => ({
       id: stat.id,
-      data: { counter_attack: !stat.counter_attack },
+      // The legacy inversion has already been applied in live data. Freeze the
+      // current boolean as Set Defence and mark it so another browser cannot flip it.
+      data: {
+        counter_attack: !!stat.counter_attack,
+        set_defence: !!stat.counter_attack,
+        defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
+      },
     }));
 }
 
 export function normalizeDefenceSetRows(stats, migrated = false) {
-  if (migrated) return Array.isArray(stats) ? stats : [];
-  return (Array.isArray(stats) ? stats : []).map((stat) => (
-    shouldMigrateDefenceSetRow(stat)
-      ? { ...stat, counter_attack: !stat.counter_attack }
-      : stat
-  ));
+  return (Array.isArray(stats) ? stats : []).map((stat) => {
+    if (!stat || typeof stat.counter_attack !== 'boolean') return stat;
+    return stat.set_defence == null ? { ...stat, set_defence: !!stat.counter_attack } : stat;
+  });
+}
+
+export function isLegacyDefensiveContactStat(stat) {
+  return String(stat?.stat_type || '') === 'defensive_contact';
+}
+
+export function buildLegacyDefensiveContactDeletes(stats) {
+  return (Array.isArray(stats) ? stats : [])
+    .filter(isLegacyDefensiveContactStat)
+    .map((stat) => ({ id: stat.id, server_stat_id: stat.server_stat_id || null }));
 }
 
 function normalizeStatModelExtra(stat) {
+  if (isLegacyDefensiveContactStat(stat)) {
+    const extra = stat?.extra_data ? safeParseJSONLocal(stat.extra_data, {}) : {};
+    return JSON.stringify({ ...(extra || {}), __delete_legacy_defensive_contact: true });
+  }
   if (!stat?.extra_data) return null;
   const extra = safeParseJSONLocal(stat.extra_data, {});
   const next = JSON.parse(JSON.stringify(extra || {}));
@@ -57,6 +81,11 @@ function normalizeStatModelExtra(stat) {
     }
     if (Object.prototype.hasOwnProperty.call(next.pass, 'style')) {
       delete next.pass.style;
+      changed = true;
+    }
+    const outcome = String(next.pass.outcome || '');
+    if (outcome === 'sidelineagainst') {
+      next.pass.outcome = 'sideline_against';
       changed = true;
     }
   }
@@ -95,6 +124,21 @@ function normalizeStatModelExtra(stat) {
       next.carry.defender = { kind: 'none' };
       changed = true;
     }
+    const outcome = String(next.carry.outcome || '');
+    if (outcome === 'sidelineagainst') {
+      next.carry.outcome = 'sideline_against';
+      changed = true;
+    }
+  }
+
+  for (const key of ['kickout', 'throw_in', 'turnover']) {
+    if (!next?.[key]) continue;
+    const outcomeKey = key === 'turnover' ? 'turnover_type' : 'outcome';
+    const value = String(next[key][outcomeKey] || '');
+    if (value === 'sidelineagainst') {
+      next[key][outcomeKey] = 'sideline_against';
+      changed = true;
+    }
   }
 
   if (!changed) return null;
@@ -103,6 +147,7 @@ function normalizeStatModelExtra(stat) {
 
 export function buildStatModelRepairs(stats) {
   return (Array.isArray(stats) ? stats : [])
+    .filter((stat) => !isLegacyDefensiveContactStat(stat))
     .map((stat) => {
       const extra_data = normalizeStatModelExtra(stat);
       return extra_data == null ? null : { id: stat.id, data: { extra_data } };
@@ -111,7 +156,6 @@ export function buildStatModelRepairs(stats) {
 }
 
 export function normalizeStatModelRows(stats, migrated = false) {
-  if (migrated) return Array.isArray(stats) ? stats : [];
   return (Array.isArray(stats) ? stats : []).map((stat) => {
     const extra_data = normalizeStatModelExtra(stat);
     return extra_data == null ? stat : { ...stat, extra_data };
@@ -159,6 +203,21 @@ export function getSecondHalfStartS(match) {
   return deriveMatchHalfMinutes(match) * 60;
 }
 
+export function shotRequiresResult(outcome) {
+  return SHOT_REQUIRES_RESULT_OUTCOMES.includes(String(outcome || ''));
+}
+
+export function isBroughtBackAdvantageStat(stat) {
+  if (!stat) return false;
+  const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
+  return !!(
+    ex?.shot?.brought_back_adv
+    || ex?.turnover?.brought_back_adv
+    || ex?.pass?.brought_back_adv
+    || ex?.carry?.brought_back_adv
+  );
+}
+
 export function getMatchSectionOffsets(match) {
   const second = getSecondHalfStartS(match);
   const secondHalfDuration = second;
@@ -183,7 +242,7 @@ export function getMatchTimeS(stat, match, imputedMap) {
 }
 
 export function isNonLiveStat(stat) {
-  return ['substitution', 'period_end'].includes(String(stat?.stat_type || ''));
+  return ADMIN_STAT_TYPES.includes(String(stat?.stat_type || ''));
 }
 
 export function isDeadBallGapStart(stat) {
@@ -196,8 +255,24 @@ export function isDeadBallGapStart(stat) {
     const result = String(ex?.shot?.result || '');
     if (shotOutcomeGroup(outcome) === 'score' || outcome === 'wide' || result === '45') return true;
   }
-  if (stat?.stat_type === 'kickout' && String(ex?.kickout?.outcome || '') === 'foul') return true;
-  if (stat?.stat_type === 'throw_in' && String(ex?.throw_in?.outcome || '') === 'foul') return true;
+  const outcome =
+    stat?.stat_type === 'pass' ? String(ex?.pass?.outcome || '') :
+    stat?.stat_type === 'carry' ? String(ex?.carry?.outcome || '') :
+    stat?.stat_type === 'kickout' ? String(ex?.kickout?.outcome || '') :
+    stat?.stat_type === 'throw_in' ? String(ex?.throw_in?.outcome || '') :
+    stat?.stat_type === 'turnover' ? String(ex?.turnover?.turnover_type || '') :
+    '';
+  if ([
+    'foul',
+    'sideline_for',
+    'sideline_against',
+    'sidelineagainst',
+    '45',
+    '45_for',
+    '45_against',
+    'goal_kick_for',
+    'goal_kick_against',
+  ].includes(outcome)) return true;
   return false;
 }
 
@@ -351,29 +426,36 @@ export function formatHalfClock(normalizedTimeS, half, match) {
   return formatClockBase(normalized);
 }
 
-export function formatMatchClock(matchTimeS, match) {
+export function formatMatchClock(matchTimeS, match, half = null) {
   const total = Number(matchTimeS);
-  if (!Number.isFinite(total) || total < 0) return '00:00';
+  if (!Number.isFinite(total) || total < 0) return '--:--';
 
-  const secondStart = getSecondHalfStartS(match);
+  const halfLength = getSecondHalfStartS(match);
   const offsets = getMatchSectionOffsets(match);
-  const formatBase = (seconds) => {
-    const mins = Math.floor(Math.max(0, seconds) / 60);
-    const secs = Math.floor(Math.max(0, seconds) % 60);
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
-  const formatStoppage = (baseMinutes, secondsIntoSection) => {
-    const added = Math.max(0, secondsIntoSection - baseMinutes * 60);
-    if (added <= 0) return formatBase(secondsIntoSection);
+
+  const section = (() => {
+    if (half === 'first') return { start: offsets.first, normal: halfLength, baseClock: 0, et: false };
+    if (half === 'second') return { start: offsets.second, normal: halfLength, baseClock: halfLength, et: false };
+    if (half === 'et_first') return { start: offsets.et_first, normal: 10 * 60, baseClock: 0, et: true };
+    if (half === 'et_second') return { start: offsets.et_second, normal: 10 * 60, baseClock: 0, et: true };
+    if (total >= offsets.et_second) return { start: offsets.et_second, normal: 10 * 60, baseClock: 0, et: true };
+    if (total >= offsets.et_first) return { start: offsets.et_first, normal: 10 * 60, baseClock: 0, et: true };
+    if (total >= offsets.second) return { start: offsets.second, normal: halfLength, baseClock: halfLength, et: false };
+    return { start: offsets.first, normal: halfLength, baseClock: 0, et: false };
+  })();
+
+  const local = Math.max(0, total - section.start);
+  const baseClock = section.et ? 0 : section.baseClock;
+  const displaySeconds = section.et ? local : baseClock + local;
+  if (local <= section.normal) return formatClockBase(displaySeconds);
+
+  const baseLabelMinutes = section.et
+    ? Math.floor(section.normal / 60)
+    : Math.floor((baseClock + section.normal) / 60);
+  const added = Math.max(0, Math.floor(local - section.normal));
     const addMins = Math.floor(added / 60);
     const addSecs = Math.floor(added % 60);
-    return `${baseMinutes}+${addMins}:${String(addSecs).padStart(2, '0')}`;
-  };
-
-  if (total < secondStart) return formatStoppage(secondStart / 60, total);
-  if (total <= offsets.et_first) return formatStoppage((secondStart * 2) / 60, total);
-  if (total < offsets.et_second) return formatBase(total - offsets.et_first);
-  return formatBase(total - offsets.et_second);
+  return `${baseLabelMinutes}+${addMins}:${String(addSecs).padStart(2, '0')}`;
 }
 
 export function normalizeFoulType(value) {
@@ -533,9 +615,30 @@ export function oppositeTeamSide(side) {
   return side === 'home' ? 'away' : side === 'away' ? 'home' : null;
 }
 
+export function normalizeOutcomeAlias(value, context = '') {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'sidelineagainst' || v === 'sideline against') return 'sideline_against';
+  if (v === 'sidelinefor' || v === 'sideline for') return 'sideline_for';
+  if (v === 'goal kick for') return 'goal_kick_for';
+  if (v === 'goal kick against') return 'goal_kick_against';
+  // Plain "sideline" was mostly used as a turnover-against type.
+  if (v === 'sideline' && context === 'turnover') return 'sideline_against';
+  return v;
+}
+
 export function inferPossessionOwnerFromNextPlay(stat) {
   if (!stat) return null;
   const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
+
+  const passTurnover = stat?.stat_type === 'pass' && normalizeOutcomeAlias(ex?.pass?.outcome) === 'turnover';
+  const carryTurnover = stat?.stat_type === 'carry' && normalizeOutcomeAlias(ex?.carry?.outcome) === 'turnover';
+  if (stat?.stat_type === 'turnover' || ex?.turnover || passTurnover || carryTurnover) {
+    const lost = ex?.turnover?.lost_by?.team_side
+      || ex?.pass?.passer?.team_side
+      || ex?.carry?.carrier?.team_side
+      || stat?.team_side;
+    if (validTeamSide(lost)) return lost;
+  }
 
   if (stat?.stat_type === 'pass') {
     return ex?.pass?.passer?.team_side || stat?.team_side || null;
@@ -549,28 +652,20 @@ export function inferPossessionOwnerFromNextPlay(stat) {
   if (stat?.stat_type === 'kickout' || stat?.stat_type === 'throw_in') {
     return inferRestartWinnerSide(stat, null);
   }
-  const passTurnover = stat?.stat_type === 'pass' && String(ex?.pass?.outcome || '') === 'turnover';
-  const carryTurnover = stat?.stat_type === 'carry' && String(ex?.carry?.outcome || '') === 'turnover';
-  if (stat?.stat_type === 'turnover' || ex?.turnover || passTurnover || carryTurnover) {
-    const recovered = ex?.turnover?.recovered_by?.team_side;
-    if (validTeamSide(recovered)) return recovered;
-    const forced = ex?.turnover?.forced_by?.team_side;
-    if (validTeamSide(forced)) return forced;
-    const lost = ex?.turnover?.lost_by?.team_side || stat?.team_side;
-    return oppositeTeamSide(lost);
-  }
   return validTeamSide(stat?.team_side) ? stat.team_side : null;
 }
 
-function isNonBallInterruption(stat) {
-  return String(stat?.stat_type || '') === 'substitution';
-}
-
-function getNextBallActionStat(list, startIndex) {
+export function getNextBallActionStat(list, startIndex, options = {}) {
   if (!Array.isArray(list)) return null;
+  const stopAtPeriodEnd = options?.stopAtPeriodEnd !== false;
   for (let i = startIndex + 1; i < list.length; i += 1) {
     const stat = list[i];
-    if (!stat || isNonBallInterruption(stat)) continue;
+    if (!stat) continue;
+    if (String(stat?.stat_type || '') === 'period_end') {
+      if (stopAtPeriodEnd) return null;
+      continue;
+    }
+    if (String(stat?.stat_type || '') === 'substitution') continue;
     return stat;
   }
   return null;
@@ -579,9 +674,11 @@ function getNextBallActionStat(list, startIndex) {
 function isTurnoverLikeStat(stat, ex = null) {
   if (!stat) return false;
   const extra = ex || safeParseJSONLocal(stat?.extra_data || '{}', {});
-  const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
-  const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
-  return stat?.stat_type === 'turnover' || !!extra?.turnover || passTurnover || carryTurnover;
+  const passTurnover = stat?.stat_type === 'pass' && normalizeOutcomeAlias(extra?.pass?.outcome) === 'turnover';
+  const carryTurnover = stat?.stat_type === 'carry' && normalizeOutcomeAlias(extra?.carry?.outcome) === 'turnover';
+  const passDeadBallTurnover = stat?.stat_type === 'pass' && DEAD_BALL_TURNOVER_OUTCOMES.includes(normalizeOutcomeAlias(extra?.pass?.outcome));
+  const carryDeadBallTurnover = stat?.stat_type === 'carry' && DEAD_BALL_TURNOVER_OUTCOMES.includes(normalizeOutcomeAlias(extra?.carry?.outcome));
+  return stat?.stat_type === 'turnover' || !!extra?.turnover || passTurnover || carryTurnover || passDeadBallTurnover || carryDeadBallTurnover;
 }
 
 export function inferRestartWinnerSide(stat, nextStat = null) {
@@ -591,7 +688,7 @@ export function inferRestartWinnerSide(stat, nextStat = null) {
   if (!restart) return null;
 
   const restartTeam = restart?.team_side || stat?.team_side || null;
-  const outcome = String(restart?.outcome || '');
+  const outcome = normalizeOutcomeAlias(restart?.outcome);
   const explicitWon = restart?.won_by?.team_side;
   if (validTeamSide(explicitWon)) return explicitWon;
 
@@ -622,16 +719,31 @@ export function inferRestartWinnerSide(stat, nextStat = null) {
   return null;
 }
 
+export function classifyKickoutLength(stat) {
+  if (!stat || String(stat?.stat_type || '') !== 'kickout') return 'unknown';
+  const endX = Number(stat?.end_x_position);
+  if (!Number.isFinite(endX)) return 'unknown';
+  // Coordinates are normalized from the kickout team's attacking direction, so
+  // own 45 is always x <= 45 regardless of home/away or half direction.
+  return endX > 45 ? 'long' : 'short';
+}
+
+export function statHasEmbeddedTurnover(stat) {
+  if (!stat) return false;
+  const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
+  return isTurnoverLikeStat(stat, ex);
+}
+
 export function classifyTerminalOutcome(stat, teamSide) {
   if (!stat) return 'OTHER';
   const ex = safeParseJSONLocal(stat?.extra_data || '{}', {});
   const outcome = String(
     stat?.stat_type === 'shot' ? ex?.shot?.outcome :
-    stat?.stat_type === 'pass' ? ex?.pass?.outcome :
-    stat?.stat_type === 'carry' ? ex?.carry?.outcome :
-    stat?.stat_type === 'kickout' ? ex?.kickout?.outcome :
-    stat?.stat_type === 'turnover' ? ex?.turnover?.turnover_type :
-    stat?.stat_type === 'throw_in' ? ex?.throw_in?.outcome :
+    stat?.stat_type === 'pass' ? normalizeOutcomeAlias(ex?.pass?.outcome) :
+    stat?.stat_type === 'carry' ? normalizeOutcomeAlias(ex?.carry?.outcome) :
+    stat?.stat_type === 'kickout' ? normalizeOutcomeAlias(ex?.kickout?.outcome) :
+    stat?.stat_type === 'turnover' ? normalizeOutcomeAlias(ex?.turnover?.turnover_type, 'turnover') :
+    stat?.stat_type === 'throw_in' ? normalizeOutcomeAlias(ex?.throw_in?.outcome) :
     stat?.stat_type === 'foul' ? ex?.foul?.foul_type :
     ''
   );
@@ -643,7 +755,7 @@ export function classifyTerminalOutcome(stat, teamSide) {
     if (shotOutcomeGroup(ex?.shot?.outcome) === 'score') return 'SCORE';
     const res = String(ex?.shot?.result || '');
     if (ex?.shot?.outcome === 'wide') return 'WIDE';
-    if (['saved', 'blocked', 'short', 'post'].includes(String(ex?.shot?.outcome || ''))) {
+    if (SHOT_REQUIRES_RESULT_OUTCOMES.includes(String(ex?.shot?.outcome || ''))) {
       if (res === 'opposition') return String(ex?.shot?.outcome || '').toUpperCase();
       return 'CONTINUE';
     }
@@ -659,7 +771,7 @@ export function classifyTerminalOutcome(stat, teamSide) {
   if (isTurnoverLikeStat(stat, ex)) return 'TURNOVER';
   const { foulBy, foulOn } = getFoulTeams(stat);
   if (foulOn === teamSide) return 'CONTINUE';
-  if (outcome === 'sideline_against' || outcome === 'goal_kick_against') return 'TURNOVER';
+  if (outcome === 'sideline_against' || outcome === '45_against' || outcome === 'goal_kick_against') return 'TURNOVER';
   if (outcome === 'sideline_for' || outcome === '45_for' || outcome === '45' || outcome === 'goal_kick_for') return 'CONTINUE';
   if (foulBy === teamSide) return 'CONTINUE';
 
@@ -687,7 +799,7 @@ export function derivePossessionOutcome(events, teamSide) {
   const relevant = ordered.filter((stat) => {
     if (!stat) return false;
     const { foulBy, foulOn } = getFoulTeams(stat);
-    return stat.team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
+    return stat.team_side === teamSide || stat.possession_team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
   });
   if (!relevant.length) return 'Other';
 
@@ -711,7 +823,7 @@ export function derivePossessionOutcome(events, teamSide) {
     const stat = ordered[i];
     if (!stat) continue;
     const { foulBy, foulOn } = getFoulTeams(stat);
-    const isRelevant = stat.team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
+    const isRelevant = stat.team_side === teamSide || stat.possession_team_side === teamSide || foulBy === teamSide || foulOn === teamSide;
     if (!isRelevant) continue;
 
     // If the grouped possession already contains later rows, a foul cannot be
@@ -793,6 +905,80 @@ export function findScorableFreeConcededRows(stats) {
     });
   }
   return out;
+}
+
+export function buildDataHealthChecks(stats) {
+  const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
+  const checks = [];
+  const add = (severity, title, detail, stat = null) => {
+    checks.push({
+      severity,
+      title,
+      detail,
+      statId: stat?.id || null,
+      playId: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
+    });
+  };
+
+  const possessionTeams = new Map();
+  const possessionIds = new Set();
+  for (const stat of list) {
+    const type = String(stat?.stat_type || '');
+    const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
+    const pid = Number(stat?.possession_id);
+    const pside = stat?.possession_team_side;
+    if (Number.isFinite(pid) && pid > 0) {
+      possessionIds.add(pid);
+      const key = `${pside}-${pid}`;
+      const set = possessionTeams.get(key) || new Set();
+      if (stat?.team_side === 'home' || stat?.team_side === 'away') set.add(stat.team_side);
+      possessionTeams.set(key, set);
+    }
+
+    if (type === 'defensive_contact') add('error', 'Legacy Defensive Contact row', 'This row should be deleted; defensive contact is no longer a stat type.', stat);
+    if (extra?.pass?.style) add('warning', 'Legacy pass style', 'Pass style should be removed and pass accuracy should be used instead.', stat);
+    if (type === 'period_end' && pid > 0 && stat?.team_side !== 'unknown') add('warning', 'Period end acting team', 'Period-end markers should not have an acting team.', stat);
+    if (type === 'substitution' && pid > 0) add('warning', 'Substitution in possession', 'Substitutions should not belong to a possession.', stat);
+    if (type === 'shot' && shotRequiresResult(extra?.shot?.outcome) && !extra?.shot?.result) add('error', 'Shot missing result', 'Short/saved/blocked/post shots need a result so possession can be rebuilt.', stat);
+    if (type === 'kickout') {
+      if (!validTeamSide(extra?.kickout?.won_by?.team_side) && !['sideline_for', 'sideline_against', 'foul'].includes(normalizeOutcomeAlias(extra?.kickout?.outcome))) {
+        add('warning', 'Kickout missing winner', 'Kickouts should have Won By/Lost By, or a clear foul/sideline outcome.', stat);
+      }
+    }
+    if (type === 'throw_in' && !validTeamSide(extra?.throw_in?.won_by?.team_side) && normalizeOutcomeAlias(extra?.throw_in?.outcome) !== 'foul') {
+      add('warning', 'Throw-in missing winner', 'Throw-ins should have Won By/Lost By unless the outcome is a foul.', stat);
+    }
+    if ((type === 'pass' && normalizeOutcomeAlias(extra?.pass?.outcome) === 'turnover') || (type === 'carry' && normalizeOutcomeAlias(extra?.carry?.outcome) === 'turnover') || type === 'turnover') {
+      if (!validTeamSide(extra?.turnover?.lost_by?.team_side)) add('warning', 'Turnover missing lost-by team', 'Turnovers need a lost-by side for robust possession logic.', stat);
+    }
+    const foul = extractFoulFromStat(stat);
+    if (foul && (!validTeamSide(foul?.foul_by?.team_side) || !validTeamSide(foul?.foul_on?.team_side))) {
+      add('warning', 'Foul missing team side', 'Foul By and Foul On should be player/team selections with home/away side.', stat);
+    }
+    if (type === 'carry') {
+      const carrierSide = extra?.carry?.carrier?.team_side;
+      const defenderSide = extra?.carry?.defender?.team_side;
+      if (validTeamSide(carrierSide) && defenderSide === carrierSide) add('warning', 'Same-team carry defender', 'High-pressure carry defender should be on the opposite team.', stat);
+    }
+    if (!validTeamSide(stat?.team_side) && !ADMIN_STAT_TYPES.includes(type)) {
+      add('warning', 'Unknown acting team', 'Live/action rows should have a clear acting team.', stat);
+    }
+    if (normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover') !== String(extra?.turnover?.turnover_type || '') && extra?.turnover?.turnover_type) {
+      add('info', 'Legacy turnover enum', 'This row uses a legacy turnover enum alias and should be normalized.', stat);
+    }
+  }
+
+  for (const [key, teams] of possessionTeams.entries()) {
+    if (teams.size > 1) add('error', 'Mixed-team possession', `Possession ${key} contains actions by both teams.`);
+  }
+  const ids = Array.from(possessionIds).sort((a, b) => a - b);
+  for (let i = 0; i < ids.length; i += 1) {
+    if (ids[i] !== i + 1) {
+      add('warning', 'Possession ID gap', `Expected possession #${i + 1}, found #${ids[i]}.`);
+      break;
+    }
+  }
+  return checks;
 }
 
 export function buildLegacyPossessionRepairs(stats) {
@@ -905,7 +1091,7 @@ export function buildLegacyPossessionRepairs(stats) {
         if (nextStat?.stat_type === 'period_end') return null;
         return { forceStart: true, team: null, source: 'Open Play' };
       }
-      if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
+      if (SHOT_REQUIRES_RESULT_OUTCOMES.includes(outcome) && result === 'opposition') {
         if (nextStat?.stat_type === 'period_end') return null;
         const recovered = extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
         const labelMap = { short: 'Shot Short', blocked: 'Shot Blocked', post: 'Shot Post', saved: 'Shot Saved' };
@@ -917,11 +1103,15 @@ export function buildLegacyPossessionRepairs(stats) {
       }
       return null;
     }
-    const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
-    const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
-    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover) {
+    const passOutcome = normalizeOutcomeAlias(extra?.pass?.outcome);
+    const carryOutcome = normalizeOutcomeAlias(extra?.carry?.outcome);
+    const passTurnover = stat?.stat_type === 'pass' && passOutcome === 'turnover';
+    const carryTurnover = stat?.stat_type === 'carry' && carryOutcome === 'turnover';
+    const passDeadBallTurnover = stat?.stat_type === 'pass' && DEAD_BALL_TURNOVER_OUTCOMES.includes(passOutcome);
+    const carryDeadBallTurnover = stat?.stat_type === 'carry' && DEAD_BALL_TURNOVER_OUTCOMES.includes(carryOutcome);
+    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover || passDeadBallTurnover || carryDeadBallTurnover) {
       if (extra?.turnover?.brought_back_adv) return null;
-      const turnoverType = String(extra?.turnover?.turnover_type || '');
+      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
       const recoveredSide = extra?.turnover?.recovered_by?.team_side;
       const forcedSide = extra?.turnover?.forced_by?.team_side;
       const nextBallTeam = inferPossessionOwnerFromNextPlay(nextStat);
@@ -1042,7 +1232,7 @@ export function sequencePossessionRows(stats, injected = {}) {
         if (nextStat?.stat_type === 'period_end') return null;
         return { forceStart: true, team: null, source: 'Open Play' };
       }
-      if (['short', 'post', 'saved', 'blocked'].includes(outcome) && result === 'opposition') {
+      if (SHOT_REQUIRES_RESULT_OUTCOMES.includes(outcome) && result === 'opposition') {
         if (nextStat?.stat_type === 'period_end') return null;
         const recovered = extra?.shot?.recovered_by?.team_side || oppositeSide(rowActingTeam || stat?.team_side);
         const labelMap = { short: 'Shot Short', blocked: 'Shot Blocked', post: 'Shot Post', saved: 'Shot Saved' };
@@ -1050,11 +1240,15 @@ export function sequencePossessionRows(stats, injected = {}) {
       }
       return null;
     }
-    const passTurnover = stat?.stat_type === 'pass' && String(extra?.pass?.outcome || '') === 'turnover';
-    const carryTurnover = stat?.stat_type === 'carry' && String(extra?.carry?.outcome || '') === 'turnover';
-    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover) {
+    const passOutcome = normalizeOutcomeAlias(extra?.pass?.outcome);
+    const carryOutcome = normalizeOutcomeAlias(extra?.carry?.outcome);
+    const passTurnover = stat?.stat_type === 'pass' && passOutcome === 'turnover';
+    const carryTurnover = stat?.stat_type === 'carry' && carryOutcome === 'turnover';
+    const passDeadBallTurnover = stat?.stat_type === 'pass' && DEAD_BALL_TURNOVER_OUTCOMES.includes(passOutcome);
+    const carryDeadBallTurnover = stat?.stat_type === 'carry' && DEAD_BALL_TURNOVER_OUTCOMES.includes(carryOutcome);
+    if (stat?.stat_type === 'turnover' || extra?.turnover || passTurnover || carryTurnover || passDeadBallTurnover || carryDeadBallTurnover) {
       if (extra?.turnover?.brought_back_adv) return null;
-      const turnoverType = String(extra?.turnover?.turnover_type || '');
+      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
       const recoveredSide = extra?.turnover?.recovered_by?.team_side;
       const forcedSide = extra?.turnover?.forced_by?.team_side;
       const nextBallTeam = inferPossessionOwnerFromNextPlay(nextStat);
@@ -1092,7 +1286,8 @@ export function sequencePossessionRows(stats, injected = {}) {
     const original = ordered[idx];
     if (!original) continue;
     const stat = original;
-    if (String(stat?.stat_type || '') === 'substitution') {
+    const statType = String(stat?.stat_type || '');
+    if (statType === 'substitution') {
       rebuilt.push({
         ...stat,
         team_side: 'unknown',
@@ -1100,6 +1295,20 @@ export function sequencePossessionRows(stats, injected = {}) {
         possession_id: 0,
         __possession_start_source: 'Open Play',
       });
+      continue;
+    }
+    if (statType === 'period_end') {
+      const attachedTeam = validSide(currentPossessionTeam) ? currentPossessionTeam : 'unknown';
+      rebuilt.push({
+        ...stat,
+        team_side: 'unknown',
+        possession_team_side: attachedTeam,
+        possession_id: currentPossessionId > 0 && validSide(attachedTeam) ? currentPossessionId : 0,
+        __possession_start_source: currentStartSource,
+      });
+      // Close the live possession. The next half starts only when a real
+      // restart/live action arrives; immediate restart rows still override this.
+      nextPossession = { forceStart: true, team: null, source: 'Open Play' };
       continue;
     }
     const nextStat = getNextBallActionStat(ordered, idx);

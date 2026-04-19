@@ -35,7 +35,7 @@ export function useStatLogging({ matchId, stats }) {
       if (Number.isFinite(tsa) && Number.isFinite(tsb) && tsa !== tsb) return tsa - tsb;
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
-    const last = ordered[ordered.length - 1];
+    const last = ordered.filter((s) => s?.stat_type !== 'substitution' && s?.stat_type !== 'period_end').slice(-1)[0] || ordered[ordered.length - 1];
     setCurrentPossessionId(Number(last?.possession_id || 0));
     setCurrentPossessionTeamSide(last?.possession_team_side || 'unknown');
     setPendingNextPossessionTeamSide(null);

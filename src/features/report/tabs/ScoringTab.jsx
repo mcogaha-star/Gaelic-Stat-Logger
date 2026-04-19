@@ -20,6 +20,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -394,6 +395,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
         method: String(sh.method || ''),
         pressure: pr,
         outcome: o,
+        broughtBackAdv: !!sh.brought_back_adv || isBroughtBackAdvantageStat(s),
         distance: dist,
         angle: calcAngleToGoal(x, y),
         zone: z,
@@ -412,10 +414,22 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
 
   const filteredShots = useMemo(() => {
     return shots.filter((s) => {
+      if (s.broughtBackAdv) return false;
       if (shotType.length && !shotType.includes(s.shotType)) return false;
       if (situation.length && !situation.includes(s.situation)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
       if (outcome.length && !outcome.includes(s.outcome)) return false;
+      if (zone.length && !zone.includes(s.zone)) return false;
+      return true;
+    });
+  }, [shots, shotType, situation, pressure, outcome, zone]);
+
+  const mapShots = useMemo(() => {
+    return shots.filter((s) => {
+      if (shotType.length && !shotType.includes(s.shotType)) return false;
+      if (situation.length && !situation.includes(s.situation)) return false;
+      if (pressure.length && !pressure.includes(s.pressure)) return false;
+      if (!s.broughtBackAdv && outcome.length && !outcome.includes(s.outcome)) return false;
       if (zone.length && !zone.includes(s.zone)) return false;
       return true;
     });
@@ -473,7 +487,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
         const t = String(s.shotType || 'point');
         const cur = m.get(t) || { type: t, attempts: 0, scores: 0, points: 0 };
         cur.attempts += 1;
-        if (s.isScore) cur.scores += 1;
+        if (s.outcome === t) cur.scores += 1;
         cur.points += s.points || 0;
         m.set(t, cur);
       }
@@ -663,7 +677,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
           ]}
         />
 
-        {filteredShots.length === 0 ? (
+        {mapShots.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
               No shots available for current filters.
@@ -671,7 +685,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
           </Card>
         ) : (
           <>
-            <ShotMap shots={filteredShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
+            <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
 
             <div className="grid lg:grid-cols-2 gap-4">
               {teamMode === 'both' ? (

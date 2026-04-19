@@ -17,15 +17,18 @@ import {
   formatHalfClock,
   getNormalizedTimeS,
   getMatchTimeS,
+  getNextBallActionStat,
   normalizeFoulType,
   shotPointsForOutcome,
   extractFoulFromStat,
   oppositeTeamSide,
   buildLegacyPossessionRepairs,
   buildLegacyDefenceSetRepairs,
+  buildLegacyDefensiveContactDeletes,
   buildStatModelRepairs,
   deriveMatchLengthMinutes,
   inferRestartWinnerSide,
+  isBroughtBackAdvantageStat,
   normalizeDefenceSetRows,
   normalizeStatModelRows,
   rebuildPossessionRows,
@@ -59,12 +62,15 @@ import VisualiserTab from '@/features/report/tabs/VisualiserTab';
 import useFilteredReportStats from '@/features/report/hooks/useFilteredReportStats';
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
 import useReportFilterState from '@/features/report/hooks/useReportFilterState';
+import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
     get: () => ({
       filter: async () => [],
       get: async () => null,
+      update: async () => ({}),
+      delete: async () => ({}),
     }),
   }),
 };
@@ -253,20 +259,44 @@ export default function MatchReport() {
   }, [statModelMigrationKey]);
 
   const stats = useMemo(
-    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone), statModelMigrationDone)),
+    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((rawStats || []).filter((s) => s?.stat_type !== 'defensive_contact'), defenceSetMigrationDone), statModelMigrationDone)),
     [rawStats, defenceSetMigrationDone, statModelMigrationDone]
   );
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
   const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
   const [migratingStatModel, setMigratingStatModel] = useState(false);
+  const [deletingLegacyDefContact, setDeletingLegacyDefContact] = useState(false);
+
+  useEffect(() => {
+    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || deletingLegacyDefContact) return;
+    const deletes = buildLegacyDefensiveContactDeletes(rawStats).filter((row) => row?.id);
+    if (!deletes.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setDeletingLegacyDefContact(true);
+        for (const row of deletes) {
+          if (cancelled) return;
+          await db.entities.StatEntry.delete(row.id);
+          if (row.server_stat_id) {
+            try { await softDeleteServerStat(row.server_stat_id); } catch {}
+          }
+        }
+        if (!cancelled) {
+          await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+          await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+        }
+      } finally {
+        if (!cancelled) setDeletingLegacyDefContact(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [matchId, rawStats, deletingLegacyDefContact, queryClient]);
 
   useEffect(() => {
     if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
     if (!statModelMigrationKey) return;
-    try {
-      if (localStorage.getItem(statModelMigrationKey) === 'done') return;
-    } catch {}
     const repairs = buildStatModelRepairs(rawStats);
     if (!repairs.length) {
       try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
@@ -279,7 +309,11 @@ export default function MatchReport() {
         setMigratingStatModel(true);
         for (const repair of repairs) {
           if (cancelled) return;
+          const current = rawStats.find((s) => s.id === repair.id);
           await db.entities.StatEntry.update(repair.id, repair.data);
+          if (current?.server_stat_id) {
+            try { await updateServerStat(current.server_stat_id, repair.data); } catch {}
+          }
         }
         if (!cancelled) {
           await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
@@ -297,9 +331,6 @@ export default function MatchReport() {
   useEffect(() => {
     if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
     if (!defenceSetMigrationKey) return;
-    try {
-      if (localStorage.getItem(defenceSetMigrationKey) === 'done') return;
-    } catch {}
     const repairs = buildLegacyDefenceSetRepairs(rawStats);
     if (!repairs.length) {
       try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
@@ -312,7 +343,11 @@ export default function MatchReport() {
         setMigratingDefenceSet(true);
         for (const repair of repairs) {
           if (cancelled) return;
+          const current = rawStats.find((s) => s.id === repair.id);
           await db.entities.StatEntry.update(repair.id, repair.data);
+          if (current?.server_stat_id) {
+            try { await updateServerStat(current.server_stat_id, repair.data); } catch {}
+          }
         }
         if (!cancelled) {
           await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
@@ -330,9 +365,6 @@ export default function MatchReport() {
   useEffect(() => {
     if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
     const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
-    try {
-      if (localStorage.getItem(rebuildKey) === 'done') return;
-    } catch {}
     const repairs = buildLegacyPossessionRepairs(rawStats);
     if (!repairs.length) {
       try { localStorage.setItem(rebuildKey, 'done'); } catch {}
@@ -345,7 +377,11 @@ export default function MatchReport() {
         setRepairingLegacyPossessions(true);
         for (const repair of repairs) {
           if (cancelled) return;
+          const current = rawStats.find((s) => s.id === repair.id);
           await db.entities.StatEntry.update(repair.id, repair.data);
+          if (current?.server_stat_id) {
+            try { await updateServerStat(current.server_stat_id, repair.data); } catch {}
+          }
         }
         if (!cancelled) {
           await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
@@ -361,6 +397,20 @@ export default function MatchReport() {
   }, [matchId, rawStats, repairingLegacyPossessions, queryClient]);
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
+  const nextStatById = useMemo(() => {
+    const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, match, imputedTimeById);
+      const tb = getMatchTimeS(b, match, imputedTimeById);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const out = new Map();
+    for (let i = 0; i < ordered.length; i += 1) out.set(ordered[i]?.id, getNextBallActionStat(ordered, i));
+    return out;
+  }, [stats, match, imputedTimeById]);
 
   const playerOptions = useMemo(() => {
     const all = [
@@ -386,7 +436,7 @@ export default function MatchReport() {
     for (const s of Array.isArray(stats) ? stats : []) {
       const extra = safeParseJSON(s?.extra_data || '{}', {});
       const turnover = extra?.turnover;
-      if (!(s?.stat_type === 'turnover' || turnover)) continue;
+      if (isBroughtBackAdvantageStat(s) || !(s?.stat_type === 'turnover' || turnover)) continue;
       const raw = String(turnover?.type || turnover?.turnover_type || '');
       const normalized = normalizeFoulType(raw);
       if (!normalized) continue;
@@ -519,7 +569,7 @@ export default function MatchReport() {
       const side = s.team_side === 'away' ? 'away' : 'home';
       const extra = safeParseJSON(s.extra_data || '{}', {});
 
-      if (s.stat_type === 'shot') {
+      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
         out[side].shots += 1;
         const o = extra?.shot?.outcome;
         if (o === 'goal') out[side].goals += 1;
@@ -540,7 +590,7 @@ export default function MatchReport() {
       if (s.stat_type === 'kickout') {
         out[side].kickoutsTaken += 1;
         const o = extra?.kickout?.outcome;
-        const wonSide = inferRestartWinnerSide(s, null);
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
         if ((wonSide === 'home' || wonSide === 'away')) {
           out[wonSide].kickoutsWon += 1;
         }
@@ -555,7 +605,7 @@ export default function MatchReport() {
 
       // Turnovers: count as "lost" by the lost_by selection when present.
       const turnover = extra?.turnover;
-      if (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object')) {
+      if (!isBroughtBackAdvantageStat(s) && (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object'))) {
         const foul = extractFoulFromStat(s);
         const lostSide =
           turnover?.lost_by?.team_side ||
@@ -588,7 +638,7 @@ export default function MatchReport() {
     out.away.attacks = groupedPossessions.filter((p) => p.teamSide === 'away' && p.isAttack).length;
 
     return out;
-  }, [overviewStats]);
+  }, [overviewStats, nextStatById]);
 
   const scoreTimeline = useMemo(() => {
     const list = Array.isArray(overviewStats) ? overviewStats : [];
@@ -597,6 +647,7 @@ export default function MatchReport() {
 
     for (const s of list) {
       if (!s || s.stat_type !== 'shot') continue;
+      if (isBroughtBackAdvantageStat(s)) continue;
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const o = extra?.shot?.outcome;
       if (!['point', '2_point', 'goal'].includes(o)) continue;
@@ -681,7 +732,7 @@ export default function MatchReport() {
       if (teamSide !== 'home' && teamSide !== 'away') continue;
       if (!possessionHasOpp45Entry(evs, teamSide)) continue; // attack = entry to opp 45 (one per possession)
       const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
-      const shots = acting.filter((e) => e.stat_type === 'shot');
+      const shots = acting.filter((e) => e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e));
       let scoreType = '';
       for (const e of shots) {
         const ex = safeParseJSON(e.extra_data || '{}', {});
@@ -792,7 +843,7 @@ export default function MatchReport() {
           statsBySide[pside].poss.add(`${pside}-${pid}`);
         }
 
-        if (stat.stat_type === 'shot') {
+        if (stat.stat_type === 'shot' && !isBroughtBackAdvantageStat(stat)) {
           const ex = safeParseJSON(stat.extra_data || '{}', {});
           const o = ex?.shot?.outcome;
           const add = shotPointsForOutcome(o);
@@ -806,7 +857,7 @@ export default function MatchReport() {
           }
         }
 
-        if (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover) {
+        if (!isBroughtBackAdvantageStat(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
           const lostSide = turnoverLostSide(stat);
           if (lostSide) statsBySide[lostSide].toLost += 1;
         }

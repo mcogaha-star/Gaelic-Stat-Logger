@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { collectPlayerIds, defenceSetStateKey, deriveCounterAttackState, deriveOutcome, groupByPossession, safeParseJSON } from '../shared';
+
+const DEFAULT_REPORT_FILTERS = {
+  team: 'both',
+  halves: [],
+  playerIds: [],
+  actionTypes: [],
+  outcomes: [],
+  timeMin: '',
+  timeMax: '',
+};
 
 export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [vizTeam, setVizTeam] = useState('both');
@@ -11,6 +21,8 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [activeTab, setActiveTab] = useState('summary');
   const [topFiltersOpen, setTopFiltersOpen] = useState(false);
   const [overviewHalf, setOverviewHalf] = useState('all');
+  const previousActiveTabRef = useRef(activeTab);
+  const [reportFiltersByTab, setReportFiltersByTab] = useState({});
 
   const [reportTeam, setReportTeam] = useState('both');
   const [reportHalves, setReportHalves] = useState([]);
@@ -38,6 +50,35 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [defenseTurnoverTypes, setDefenseTurnoverTypes] = useState([]);
   const [defenseDefTypes, setDefenseDefTypes] = useState([]);
   const [playersFocusPlayerId, setPlayersFocusPlayerId] = useState('all');
+
+  useEffect(() => {
+    const previousTab = previousActiveTabRef.current;
+    if (previousTab === activeTab) return;
+
+    const currentSnapshot = {
+      team: reportTeam,
+      halves: reportHalves,
+      playerIds: reportPlayerIds,
+      actionTypes: reportActionTypes,
+      outcomes: reportOutcomes,
+      timeMin: reportTimeMin,
+      timeMax: reportTimeMax,
+    };
+    const nextSnapshot = { ...DEFAULT_REPORT_FILTERS, ...(reportFiltersByTab[activeTab] || {}) };
+
+    setReportFiltersByTab((current) => ({
+      ...current,
+      [previousTab]: currentSnapshot,
+    }));
+    setReportTeam(nextSnapshot.team);
+    setReportHalves(nextSnapshot.halves);
+    setReportPlayerIds(nextSnapshot.playerIds);
+    setReportActionTypes(nextSnapshot.actionTypes);
+    setReportOutcomes(nextSnapshot.outcomes);
+    setReportTimeMin(nextSnapshot.timeMin);
+    setReportTimeMax(nextSnapshot.timeMax);
+    previousActiveTabRef.current = activeTab;
+  }, [activeTab]);
 
   const reportFilters = useMemo(() => ({
     team: reportTeam,
@@ -141,6 +182,7 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     setReportOutcomes([]);
     setReportTimeMin('');
     setReportTimeMax('');
+    setReportFiltersByTab({});
 
     setScoringShotType([]);
     setScoringSituation([]);

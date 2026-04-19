@@ -18,6 +18,7 @@ import {
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
+  isBroughtBackAdvantageStat,
   isAttackPossession,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
@@ -72,7 +73,7 @@ function DefenseTab({
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const teamMode = String(reportFilters?.team || 'both');
 
-  const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
+  const turnovers = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s) && (s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover))), [base]);
   const defensiveFouls = useMemo(() => base.filter((s) => {
     const f = extractFoulFromStat(s);
     if (!f?.foul_by?.team_side) return false;
@@ -125,9 +126,9 @@ function DefenseTab({
         if (Number.isFinite(pid) && pside === teamSide) startKeys.add(`${pside}-${pid}`);
       }
       const poss = Array.from(startKeys).map((k) => byPoss.get(k) || []);
-      const shotsFrom = poss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot')).length;
+      const shotsFrom = poss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e))).length;
       const scoresFrom = poss.filter((evs) => evs.some((e) => {
-        if (e.team_side !== teamSide || e.stat_type !== 'shot') return false;
+        if (e.team_side !== teamSide || e.stat_type !== 'shot' || isBroughtBackAdvantageStat(e)) return false;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;
@@ -152,7 +153,7 @@ function DefenseTab({
       }
       const concededPoss = Array.from(concededKeys).map((k) => byPoss.get(k) || []);
       const scoresConceded = concededPoss.filter((evs) => evs.some((e) => {
-        if (e.team_side !== oppSide || e.stat_type !== 'shot') return false;
+        if (e.team_side !== oppSide || e.stat_type !== 'shot' || isBroughtBackAdvantageStat(e)) return false;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;

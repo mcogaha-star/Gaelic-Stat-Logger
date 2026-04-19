@@ -19,7 +19,8 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, isBroughtBackAdvantageStat, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -109,7 +110,10 @@ export default function MatchStats() {
     useEffect(() => {
         setStatModelMigrationDone(readStatModelMigrationDone(statModelMigrationKey));
     }, [statModelMigrationKey]);
-    const stats = useMemo(() => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows(rawStats, defenceSetMigrationDone), statModelMigrationDone)), [rawStats, defenceSetMigrationDone, statModelMigrationDone]);
+    const stats = useMemo(
+        () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((rawStats || []).filter((s) => s?.stat_type !== 'defensive_contact'), defenceSetMigrationDone), statModelMigrationDone)),
+        [rawStats, defenceSetMigrationDone, statModelMigrationDone]
+    );
 
     const { data: settingsRecords = [] } = useQuery({
         queryKey: ['app-settings'],
@@ -122,6 +126,7 @@ export default function MatchStats() {
     const appDefaultsRaw = settingsRecord?.defaults_config ? (() => { try { return JSON.parse(settingsRecord.defaults_config); } catch { return DEFAULT_DEFAULTS; } })() : DEFAULT_DEFAULTS;
     const customFieldsRaw = settingsRecord?.custom_fields_config ? (() => { try { return JSON.parse(settingsRecord.custom_fields_config); } catch { return DEFAULT_CUSTOM_FIELDS; } })() : DEFAULT_CUSTOM_FIELDS;
     const shortcutConfig = useMemo(() => parseShortcutConfig(settingsRecord?.keyboard_shortcuts_config), [settingsRecord?.keyboard_shortcuts_config]);
+    const liveModeSettings = useMemo(() => parseLiveModeSettings(settingsRecord?.live_mode_settings_config), [settingsRecord?.live_mode_settings_config]);
     const isLiveMode = String(match?.mode || 'analysis') === 'live';
 
     const appDefaults = useMemo(() => {
@@ -212,7 +217,7 @@ export default function MatchStats() {
     const awayPlayers = awayTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
     const previousStat = useMemo(() => {
         const ordered = [...(stats || [])]
-            .filter((s) => s?.stat_type !== 'substitution')
+            .filter((s) => s?.stat_type !== 'substitution' && s?.stat_type !== 'period_end')
             .sort((a, b) => String(b?.timestamp || b?.created_date || '').localeCompare(String(a?.timestamp || a?.created_date || '')));
         return ordered[0] || null;
     }, [stats]);
@@ -313,7 +318,6 @@ export default function MatchStats() {
 
     const ensureMatchServerId = async () => {
         if (!match) return null;
-        if (match.server_match_id) return match.server_match_id;
         if (!match.public_match_id) return null;
 
         const res = await ensureServerMatch({
@@ -322,7 +326,9 @@ export default function MatchStats() {
             code: match.code || 'GAA',
             level: match.level || 'Other',
             mode: match.mode || 'analysis',
+            matchLengthMinutes: match.match_length_minutes,
         });
+        if (match.server_match_id) return match.server_match_id;
         if (res.ok && res.id) {
             await db.entities.Match.update(match.id, { server_match_id: res.id });
             return res.id;
@@ -368,6 +374,8 @@ export default function MatchStats() {
                         is_pass: !!updated.is_pass,
                         team_side: updated.team_side || 'unknown',
                         counter_attack: !!updated.counter_attack,
+                        set_defence: !!updated.counter_attack,
+                        defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
                         time_s: updated.time_s ?? null,
                         normalized_time_s: updated.normalized_time_s ?? null,
                         player_number: updated.player_number ?? null,
@@ -401,13 +409,40 @@ export default function MatchStats() {
     const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
     const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
     const [migratingStatModel, setMigratingStatModel] = useState(false);
+    const [deletingLegacyDefContact, setDeletingLegacyDefContact] = useState(false);
+
+    useEffect(() => {
+        if (!matchId || !Array.isArray(rawStats) || !rawStats.length || deletingLegacyDefContact) return;
+        const deletes = buildLegacyDefensiveContactDeletes(rawStats).filter((row) => row?.id);
+        if (!deletes.length) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                setDeletingLegacyDefContact(true);
+                for (const row of deletes) {
+                    if (cancelled) return;
+                    await db.entities.StatEntry.delete(row.id);
+                    if (row.server_stat_id) {
+                        try { await softDeleteServerStat(row.server_stat_id); } catch {}
+                    }
+                }
+                if (!cancelled) {
+                    await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+                    await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+                    toast.success(`Deleted ${deletes.length} legacy defensive-contact row${deletes.length === 1 ? '' : 's'}`);
+                }
+            } catch (error) {
+                if (!cancelled) toast.error(error?.message || 'Failed to delete defensive-contact rows');
+            } finally {
+                if (!cancelled) setDeletingLegacyDefContact(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [matchId, rawStats, deletingLegacyDefContact, queryClient]);
 
     useEffect(() => {
         if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
         if (!statModelMigrationKey) return;
-        try {
-            if (localStorage.getItem(statModelMigrationKey) === 'done') return;
-        } catch {}
         const repairs = buildStatModelRepairs(rawStats);
         if (!repairs.length) {
             try { localStorage.setItem(statModelMigrationKey, 'done'); } catch {}
@@ -445,9 +480,6 @@ export default function MatchStats() {
     useEffect(() => {
         if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
         if (!defenceSetMigrationKey) return;
-        try {
-            if (localStorage.getItem(defenceSetMigrationKey) === 'done') return;
-        } catch {}
         const repairs = buildLegacyDefenceSetRepairs(rawStats);
         if (!repairs.length) {
             try { localStorage.setItem(defenceSetMigrationKey, 'done'); } catch {}
@@ -485,9 +517,6 @@ export default function MatchStats() {
     useEffect(() => {
         if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
         const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
-        try {
-            if (localStorage.getItem(rebuildKey) === 'done') return;
-        } catch {}
         const repairs = buildLegacyPossessionRepairs(rawStats);
         if (!repairs.length) {
             try { localStorage.setItem(rebuildKey, 'done'); } catch {}
@@ -679,8 +708,10 @@ export default function MatchStats() {
                     is_pass: !!payload.is_pass,
                     team_side: payload?.team_side || editingStat.team_side || 'unknown',
                     counter_attack: !!payload.counter_attack,
-            time_s: payload.time_s ?? null,
-            normalized_time_s: payload.normalized_time_s ?? null,
+                    set_defence: !!payload.counter_attack,
+                    defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
+                    time_s: payload.time_s ?? null,
+                    normalized_time_s: payload.normalized_time_s ?? null,
                     player_name: primary?.kind === 'player' ? (primary.name || '') : null,
                     player_number: primary?.kind === 'player' ? (primary.number ?? null) : null,
                     recipient_name: recipientSel?.kind === 'player' ? (recipientSel.name || '') : null,
@@ -733,6 +764,8 @@ export default function MatchStats() {
             possession_team_side: currentPossessionTeamSide || 'unknown',
             team_side: teamSide,
             counter_attack: !!payload.counter_attack,
+            set_defence: !!payload.counter_attack,
+            defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
 
             raw_x_position: rawStart.x,
             raw_y_position: rawStart.y,
@@ -800,6 +833,8 @@ export default function MatchStats() {
             possession_team_side: statData.possession_team_side,
             team_side: 'unknown',
             counter_attack: true,
+            set_defence: true,
+            defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
             raw_x_position: null,
             raw_y_position: null,
             raw_end_x_position: null,
@@ -947,6 +982,7 @@ export default function MatchStats() {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
             if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
+            if (isBroughtBackAdvantageStat(s)) continue;
             const extra = s.extra_data ? safeParse(s.extra_data) : {};
             const o = extra?.shot?.outcome || '';
             if (o === 'goal') score[side].goals += 1;
@@ -966,7 +1002,11 @@ export default function MatchStats() {
             : outP?.team_id && outP.team_id === match?.away_team_id ? 'away'
             : 'unknown';
         const nextPlayId = playCounter + 1;
-        const extra = { sub_out_id: subOut, sub_in_id: subIn, temporary: !!subTemporary };
+        const extra = {
+            sub_out_id: subOut,
+            sub_in_id: subIn,
+            temporary: liveModeSettings?.showTemporarySub === false ? false : !!subTemporary,
+        };
         const statData = {
             match_id: matchId,
             player_name: outP?.name,
@@ -982,6 +1022,8 @@ export default function MatchStats() {
             possession_team_side: 'unknown',
             team_side: outSide,
             counter_attack: false,
+            set_defence: false,
+            defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
             time_s: null,
             normalized_time_s: isLiveMode ? liveClockSeconds : null,
             extra_data: JSON.stringify(extra),
@@ -1027,6 +1069,8 @@ export default function MatchStats() {
             possession_team_side: possTeam,
             team_side: 'unknown',
             counter_attack: false,
+            set_defence: false,
+            defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
             time_s: null,
             normalized_time_s: isLiveMode ? liveClockSeconds : null,
             extra_data: JSON.stringify({ period: half }),
@@ -1142,6 +1186,7 @@ export default function MatchStats() {
                     homeAttacksRight: getDirForHalf(half) !== 'left',
                     liveMode: isLiveMode,
                     liveClockSeconds,
+                    liveModeSettings,
                 }}
                 halfPromptProps={{
                     halfPrompt,
@@ -1161,6 +1206,7 @@ export default function MatchStats() {
                     setSubIn,
                     subTemporary,
                     setSubTemporary,
+                    liveModeSettings,
                     allPlayers,
                     homePlayers,
                     awayPlayers,

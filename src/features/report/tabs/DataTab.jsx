@@ -15,8 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { createPageUrl } from '@/utils';
-import { getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession } from '@/lib/reportAnalytics';
-import { softDeleteServerStat } from '@/lib/serverSync';
+import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
+import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import {
   safeParseJSON,
   toTitleCase,
@@ -145,6 +145,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [rawStatType, setRawStatType] = useState('');
   const [rawTeamSide, setRawTeamSide] = useState('home');
   const [rawHalf, setRawHalf] = useState('first');
+  const [rawSetDefence, setRawSetDefence] = useState(true);
   const [rawTimeS, setRawTimeS] = useState('');
   const [rawNormalizedTimeS, setRawNormalizedTimeS] = useState('');
   const [rawPlayerName, setRawPlayerName] = useState('');
@@ -176,7 +177,14 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           || Object.prototype.hasOwnProperty.call(data, 'possession_team_side');
       });
       for (const update of updates) {
-        await db.entities.StatEntry.update(update.id, update.data);
+        const updated = await db.entities.StatEntry.update(update.id, update.data);
+        if (updated?.server_stat_id) {
+          try {
+            await updateServerStat(updated.server_stat_id, update.data);
+          } catch {
+            // Local edits remain the source of truth if optional server sync is unavailable.
+          }
+        }
       }
       return { count: updates.length, touchedManualIds };
     },
@@ -351,7 +359,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           label="Turnover Type"
           value={structuredExtra?.turnover?.turnover_type || 'interception'}
           onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v)}
-          options={['interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline', 'other'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+          options={['interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: toTitleCase(v) }))}
         />
         <SelectionField label="Lost By" section="turnover" field="lost_by" />
         <SelectionField label="Forced By" section="turnover" field="forced_by" />
@@ -363,6 +371,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   );
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
+  const healthChecks = useMemo(() => buildDataHealthChecks(stats), [stats]);
+  const healthSummary = useMemo(() => ({
+    errors: healthChecks.filter((c) => c.severity === 'error').length,
+    warnings: healthChecks.filter((c) => c.severity !== 'error').length,
+  }), [healthChecks]);
   const orderedAllStats = useMemo(() => sortStatsForEditing(stats, match, imputedTimeById), [stats, match, imputedTimeById]);
   const maxPossessionId = useMemo(() => orderedAllStats.reduce((max, stat) => {
     const pid = Number(stat?.possession_id);
@@ -458,7 +471,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         attack_entry_channel: '',
       };
       cur.count += 1;
-      if (s.stat_type === 'shot') {
+      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
         const o = extra?.shot?.outcome;
         if (o === 'goal') cur.shotPoints += 3;
         if (o === 'point') cur.shotPoints += 1;
@@ -548,8 +561,9 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     setAdvancedPossessionTeam(currentTeam);
     setRawEditOpen(false);
     setRawStatType(stat?.stat_type || '');
-    setRawTeamSide(stat?.team_side === 'away' ? 'away' : 'home');
+    setRawTeamSide(stat?.team_side === 'away' ? 'away' : (stat?.team_side === 'unknown' ? 'unknown' : 'home'));
     setRawHalf(stat?.half || 'first');
+    setRawSetDefence(typeof stat?.set_defence === 'boolean' ? !!stat.set_defence : (typeof stat?.counter_attack === 'boolean' ? !!stat.counter_attack : true));
     setRawTimeS(Number.isFinite(Number(stat?.time_s)) ? String(Number(stat.time_s)) : '');
     setRawNormalizedTimeS(Number.isFinite(Number(stat?.normalized_time_s)) ? String(Number(stat.normalized_time_s)) : '');
     setRawPlayerName(stat?.player_name || '');
@@ -645,13 +659,18 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       toast.error('Extra JSON is invalid');
       return;
     }
+    if (String(rawStatType || editStat.stat_type || '') === 'pass') {
+      parsedExtra.pass = { ...(parsedExtra.pass || {}) };
+      if (!parsedExtra.pass.accuracy) parsedExtra.pass.accuracy = '+';
+      if (Object.prototype.hasOwnProperty.call(parsedExtra.pass, 'style')) delete parsedExtra.pass.style;
+    }
 
     const nextTime = rawTimeS === '' ? null : Number(rawTimeS);
     const nextNormTime = rawNormalizedTimeS === '' ? null : Number(rawNormalizedTimeS);
     const nextPlayerNumber = rawPlayerNumber === '' ? null : Number(rawPlayerNumber);
     const nextRecipientNumber = rawRecipientNumber === '' ? null : Number(rawRecipientNumber);
-    if (rawTimeS !== '' && !Number.isFinite(nextTime)) return toast.error('Time (s) must be numeric');
-    if (rawNormalizedTimeS !== '' && !Number.isFinite(nextNormTime)) return toast.error('Match Time (s) must be numeric');
+    if (rawTimeS !== '' && !Number.isFinite(nextTime)) return toast.error('Video Time (s) must be numeric');
+    if (rawNormalizedTimeS !== '' && !Number.isFinite(nextNormTime)) return toast.error('Period Clock (s) must be numeric');
     if (rawPlayerNumber !== '' && !Number.isFinite(nextPlayerNumber)) return toast.error('Player # must be numeric');
     if (rawRecipientNumber !== '' && !Number.isFinite(nextRecipientNumber)) return toast.error('Recipient # must be numeric');
 
@@ -661,6 +680,9 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         stat_type: String(rawStatType || editStat.stat_type || ''),
         team_side: rawTeamSide,
         half: rawHalf,
+        counter_attack: !!rawSetDefence,
+        set_defence: !!rawSetDefence,
+        defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
         time_s: nextTime,
         normalized_time_s: nextNormTime,
         player_name: rawPlayerName || null,
@@ -676,6 +698,54 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-slate-900">Data Health</div>
+              <div className="text-xs text-slate-500">Checks for rows that can break possession, filters, timing, or player reports.</div>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`rounded-full px-2 py-1 font-medium ${healthSummary.errors ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {healthSummary.errors} error{healthSummary.errors === 1 ? '' : 's'}
+              </span>
+              <span className={`rounded-full px-2 py-1 font-medium ${healthSummary.warnings ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                {healthSummary.warnings} warning{healthSummary.warnings === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+          {healthChecks.length ? (
+            <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-24">Severity</TableHead>
+                    <TableHead>Check</TableHead>
+                    <TableHead>Detail</TableHead>
+                    <TableHead className="text-right">Play</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {healthChecks.slice(0, 50).map((check, idx) => (
+                    <TableRow key={`${check.title}-${check.statId || idx}`}>
+                      <TableCell className={check.severity === 'error' ? 'font-medium text-red-700' : 'font-medium text-amber-700'}>
+                        {toTitleCase(check.severity)}
+                      </TableCell>
+                      <TableCell className="font-medium">{check.title}</TableCell>
+                      <TableCell className="text-xs text-slate-600">{check.detail}</TableCell>
+                      <TableCell className="text-right tabular-nums">{check.playId || 'NA'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              No obvious data-health issues found in the current filtered data model.
+            </div>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardContent className="p-4">
           <div className="font-semibold text-slate-900 mb-3">Filters</div>
@@ -821,6 +891,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <SelectContent>
                           <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
                           <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                          <SelectItem value="unknown">Unknown</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -941,13 +1012,14 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       </Select>
                     </div>
                   </div>
-                  <div className="grid md:grid-cols-4 gap-3">
+                  <div className="grid md:grid-cols-5 gap-3">
+                    <FieldBool label="Set Defence" value={!!rawSetDefence} onChange={setRawSetDefence} />
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Time (s)</Label>
+                      <Label className="text-xs text-slate-600">Video Time (s)</Label>
                       <Input className="h-8 text-xs" inputMode="numeric" value={rawTimeS} onChange={(e) => setRawTimeS(e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Match Time (s)</Label>
+                      <Label className="text-xs text-slate-600">Period Clock (s)</Label>
                       <Input className="h-8 text-xs" inputMode="numeric" value={rawNormalizedTimeS} onChange={(e) => setRawNormalizedTimeS(e.target.value)} />
                     </div>
                     <div className="space-y-1">
@@ -979,7 +1051,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <FieldSelect label="Method" value={structuredExtra?.pass?.method || 'hand'} onChange={(v) => setStructuredExtraValue('pass', 'method', v)} options={['hand', 'left', 'right'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <FieldSelect label="Accuracy" value={structuredExtra?.pass?.accuracy || '+'} onChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)} options={['--', '-', '+', '++'].map((v) => ({ value: v, label: v }))} />
                         <FieldSelect label="Pressure" value={structuredExtra?.pass?.pressure_on_passer || 'low'} onChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </div>
                       {structuredExtra?.pass?.outcome === 'turnover' && renderTurnoverFields('Embedded Pass Turnover')}
                       {structuredExtra?.pass?.outcome === 'foul' && renderFoulFields('Embedded Pass Foul')}
@@ -994,7 +1066,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <FieldBool label="Solo & Go" value={!!structuredExtra?.carry?.solo_plus_go} onChange={(v) => setStructuredExtraValue('carry', 'solo_plus_go', v)} />
                         <FieldSelect label="Pressure" value={structuredExtra?.carry?.pressure_on_carrier || 'low'} onChange={(v) => setStructuredExtraValue('carry', 'pressure_on_carrier', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <FieldSelect label="Take On" value={structuredExtra?.carry?.take_on || 'no'} onChange={(v) => setStructuredExtraValue('carry', 'take_on', v)} options={['no', 'completed', 'failed'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <FieldSelect label="Outcome" value={structuredExtra?.carry?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('carry', 'outcome', v)} options={['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Outcome" value={structuredExtra?.carry?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('carry', 'outcome', v)} options={['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </div>
                       {structuredExtra?.carry?.outcome === 'turnover' && renderTurnoverFields('Embedded Carry Turnover')}
                       {structuredExtra?.carry?.outcome === 'foul' && renderFoulFields('Embedded Carry Foul')}

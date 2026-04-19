@@ -23,9 +23,13 @@ import {
   isAttackPossession,
   getMatchSectionOffsets,
   getMatchTimeS,
+  formatMatchClock as formatMatchClockFromAnalytics,
   getProgressiveMeters,
+  isBroughtBackAdvantageStat,
   normalizeFoulType,
+  normalizeOutcomeAlias,
   shotOutcomeGroup,
+  statHasEmbeddedTurnover,
   statHasEnteredOpp45,
 } from '@/lib/reportAnalytics';
 
@@ -65,24 +69,7 @@ function formatAddedTime(baseSeconds, totalSeconds) {
 }
 
 function formatMatchClock(seconds, match, half) {
-  if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
-  const offsets = getMatchSectionOffsets(match);
-  if (half === 'first') {
-    return seconds > offsets.second ? formatAddedTime(offsets.second, seconds) : formatMMSS(seconds);
-  }
-  if (half === 'second') {
-    const fullTime = offsets.second * 2;
-    return seconds > fullTime ? formatAddedTime(fullTime, seconds) : formatMMSS(seconds);
-  }
-  if (half === 'et_first') {
-    const etFirstEnd = offsets.et_first + 10 * 60;
-    return seconds > etFirstEnd ? formatAddedTime(etFirstEnd, seconds) : formatMMSS(seconds);
-  }
-  if (half === 'et_second') {
-    const etSecondEnd = offsets.et_second + 10 * 60;
-    return seconds > etSecondEnd ? formatAddedTime(etSecondEnd, seconds) : formatMMSS(seconds);
-  }
-  return formatMMSS(seconds);
+  return formatMatchClockFromAnalytics(seconds, match, half);
 }
 
 function formatPct(n) {
@@ -281,50 +268,61 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
 
 function computeImputedNormalizedTimes(stats) {
   const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
-  // Sort by play order if possible, otherwise keep stable input order.
-  const sorted = list.slice().sort((a, b) => {
-    const pa = Number(a?.play_id);
-    const pb = Number(b?.play_id);
-    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
-    const ta = Number(a?.normalized_time_s);
-    const tb = Number(b?.normalized_time_s);
-    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
-    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  const out = new Map();
+
+  const byHalf = new Map();
+  list.forEach((stat, inputIndex) => {
+    const key = String(stat?.half || 'first');
+    const bucket = byHalf.get(key) || [];
+    bucket.push({ stat, inputIndex });
+    byHalf.set(key, bucket);
   });
 
-  const prev = new Array(sorted.length).fill(null);
-  const next = new Array(sorted.length).fill(null);
+  for (const bucket of byHalf.values()) {
+    const sorted = bucket.slice().sort((a, b) => {
+      const pa = Number(a?.stat?.play_id);
+      const pb = Number(b?.stat?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.stat?.normalized_time_s);
+      const tb = Number(b?.stat?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return a.inputIndex - b.inputIndex;
+    });
 
-  let lastT = null;
-  for (let i = 0; i < sorted.length; i += 1) {
-    const t = Number(sorted[i]?.normalized_time_s);
-    if (Number.isFinite(t)) lastT = Math.max(0, t);
-    prev[i] = lastT;
-  }
+    const prev = new Array(sorted.length).fill(null);
+    const next = new Array(sorted.length).fill(null);
 
-  let nextT = null;
-  for (let i = sorted.length - 1; i >= 0; i -= 1) {
-    const t = Number(sorted[i]?.normalized_time_s);
-    if (Number.isFinite(t)) nextT = Math.max(0, t);
-    next[i] = nextT;
-  }
-
-  const out = new Map();
-  for (let i = 0; i < sorted.length; i += 1) {
-    const s = sorted[i];
-    const id = s?.id;
-    if (!id) continue;
-    const t = Number(s?.normalized_time_s);
-    if (Number.isFinite(t)) {
-      out.set(id, Math.max(0, t));
-      continue;
+    let lastT = null;
+    for (let i = 0; i < sorted.length; i += 1) {
+      const t = Number(sorted[i]?.stat?.normalized_time_s);
+      if (Number.isFinite(t)) lastT = Math.max(0, t);
+      prev[i] = lastT;
     }
-    const a = prev[i];
-    const b = next[i];
-    if (Number.isFinite(a) && Number.isFinite(b)) out.set(id, Math.max(0, (a + b) / 2));
-    else if (Number.isFinite(a)) out.set(id, Math.max(0, a));
-    else if (Number.isFinite(b)) out.set(id, Math.max(0, b));
+
+    let nextT = null;
+    for (let i = sorted.length - 1; i >= 0; i -= 1) {
+      const t = Number(sorted[i]?.stat?.normalized_time_s);
+      if (Number.isFinite(t)) nextT = Math.max(0, t);
+      next[i] = nextT;
+    }
+
+    for (let i = 0; i < sorted.length; i += 1) {
+      const s = sorted[i]?.stat;
+      const id = s?.id;
+      if (!id) continue;
+      const t = Number(s?.normalized_time_s);
+      if (Number.isFinite(t)) {
+        out.set(id, Math.max(0, t));
+        continue;
+      }
+      const a = prev[i];
+      const b = next[i];
+      if (Number.isFinite(a) && Number.isFinite(b)) out.set(id, Math.max(0, (a + b) / 2));
+      else if (Number.isFinite(a)) out.set(id, Math.max(0, a));
+      else if (Number.isFinite(b)) out.set(id, Math.max(0, b));
+    }
   }
+
   return out;
 }
 
@@ -480,11 +478,11 @@ function deriveOutcome(stat, extra) {
   if (!stat) return '';
   const t = stat.stat_type;
   if (t === 'shot') return extra?.shot?.outcome || '';
-  if (t === 'pass') return extra?.pass?.outcome || '';
-  if (t === 'carry') return extra?.carry?.outcome || '';
-  if (t === 'kickout') return extra?.kickout?.outcome || '';
-  if (t === 'turnover') return extra?.turnover?.turnover_type || '';
-  if (t === 'throw_in') return extra?.throw_in?.outcome || '';
+  if (t === 'pass') return normalizeOutcomeAlias(extra?.pass?.outcome);
+  if (t === 'carry') return normalizeOutcomeAlias(extra?.carry?.outcome);
+  if (t === 'kickout') return normalizeOutcomeAlias(extra?.kickout?.outcome);
+  if (t === 'turnover') return normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
+  if (t === 'throw_in') return normalizeOutcomeAlias(extra?.throw_in?.outcome);
   if (t === 'foul') return extra?.foul?.foul_type || '';
   return '';
 }
@@ -495,9 +493,7 @@ function statMatchesActionType(stat, actionType) {
   const extra = safeParseJSON(stat?.extra_data || '{}', {});
   if (normalized === 'foul') return !!extractFoulFromStat(stat);
   if (normalized === 'turnover') {
-    return !!extra?.turnover
-      || String(extra?.pass?.outcome || '') === 'turnover'
-      || String(extra?.carry?.outcome || '') === 'turnover';
+    return statHasEmbeddedTurnover(stat);
   }
   return false;
 }
@@ -842,6 +838,7 @@ function buildShotAssistCredits(stats) {
     for (let i = 0; i < acting.length; i += 1) {
       const shot = acting[i];
       if (shot?.stat_type !== 'shot') continue;
+      if (isBroughtBackAdvantageStat(shot)) continue;
       for (let j = i - 1; j >= 0; j -= 1) {
         const prev = acting[j];
         if (prev?.stat_type !== 'pass') continue;
@@ -901,6 +898,7 @@ function buildTouchesMap(stats) {
     }
 
     if (stat.stat_type === 'shot') {
+      if (isBroughtBackAdvantageStat(stat)) continue;
       const situation = String(extra?.shot?.situation || '');
       if (['free_ground', 'free_hands', '45', 'penalty'].includes(situation)) {
         add(extra?.shot?.player);
@@ -1841,6 +1839,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   };
 
   const visible = list.filter((s) => {
+    if (s?.broughtBackAdv) return mode === 'all';
     if (mode === 'all') return true;
     const g = shotOutcomeGroup(s.outcome);
     if (mode === 'scores') return g === 'score';
@@ -1896,15 +1895,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const y = point.y;
               const g = shotOutcomeGroup(s.outcome);
               const outcomeColor = colors[g] || colors.other;
+              const isAdv = !!s.broughtBackAdv;
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
-              const fillColor = outcomeColor;
-              const strokeColor = teamMode === 'both' ? teamColor : '#ffffff';
+              const fillColor = isAdv ? '#e2e8f0' : outcomeColor;
+              const strokeColor = isAdv ? '#2563eb' : (teamMode === 'both' ? teamColor : '#ffffff');
               const shape = ['point', '2_point', 'goal'].includes(String(s.outcome || ''))
                 ? String(s.outcome)
                 : s.shotType; // point|2_point|goal
               const size = 1.87;
-              const blackStrokeWidth = teamMode === 'both' ? 1 : 0.425;
-              const teamStrokeWidth = teamMode === 'both' ? 0.95 : 0.6;
+              const blackStrokeWidth = isAdv ? 0.45 : (teamMode === 'both' ? 1 : 0.425);
+              const teamStrokeWidth = isAdv ? 0.95 : (teamMode === 'both' ? 0.95 : 0.6);
               const tip = [
                 `Player: ${s.playerLabel || 'NA'}`,
                 `Time: ${s.timeLabel || 'NA'}`,
@@ -1912,6 +1912,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 `Situation: ${toTitleCase(s.situation)}`,
                 `Pressure: ${toTitleCase(s.pressure)}`,
                 `Outcome: ${toTitleCase(s.outcome)}`,
+                isAdv ? 'Brought Back Advantage: excluded from scoring stats' : null,
                 Number.isFinite(s.distance) ? `Distance: ${s.distance.toFixed(1)}` : null,
                 s.possessionLabel ? `Possession: ${s.possessionLabel}` : null,
               ].filter(Boolean).join('\n');

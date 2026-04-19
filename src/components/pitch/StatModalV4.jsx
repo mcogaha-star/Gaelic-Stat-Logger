@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
+import { shotRequiresResult } from '@/lib/reportAnalytics';
 
 const NONE = 'none';
 const TEAM_HOME = 'team:home';
@@ -457,6 +458,7 @@ export default function StatModalV4({
   homeAttacksRight = true,
   liveMode = false,
   liveClockSeconds = null,
+  liveModeSettings = null,
   onSubmit,
 }) {
   const [action, setAction] = useState(isDrag ? 'pass' : 'shot');
@@ -571,6 +573,7 @@ export default function StatModalV4({
   const preferredSideTimerRef = useRef(null);
   const previousActionRef = useRef(action);
   const previousTurnoverContextRef = useRef(false);
+  const liveSettingEnabled = (key) => !liveMode || liveModeSettings?.[key] !== false;
 
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
@@ -615,7 +618,11 @@ export default function StatModalV4({
     return findPlayerByNumber(side, initialStat.player_number);
   })();
     setAction(initialStat.stat_type || (isDrag ? 'pass' : (previousShotNeedsKickout ? 'kickout' : 'shot')));
-    setCounterAttack(typeof initialStat.counter_attack === 'boolean' ? !!initialStat.counter_attack : true);
+    setCounterAttack(
+      typeof initialStat.set_defence === 'boolean'
+        ? !!initialStat.set_defence
+        : (typeof initialStat.counter_attack === 'boolean' ? !!initialStat.counter_attack : true)
+    );
 
     // Reset common fields before re-seeding.
     setPrimaryPlayer(NONE);
@@ -933,6 +940,9 @@ export default function StatModalV4({
     if (action === 'foul' && previousAction !== 'foul') {
       setCard('none');
     }
+    if (liveMode && liveModeSettings?.showTurnoverType === false && !turnoverType) {
+      setTurnoverType('tackle');
+    }
     if (action === 'shot') {
       if (!shotPressure) setShotPressure('low');
       if (!shotSituation) {
@@ -950,7 +960,7 @@ export default function StatModalV4({
       setIntendedRecipient(NONE);
       setKickoutWonBy(NONE);
     }
-  }, [open, initialStat?.id, action, passMethod, passAccuracy, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, kickoutPress, previousStat?.stat_type, previousShotOppositeSide]);
+  }, [open, initialStat?.id, action, passMethod, passAccuracy, passPressure, passOutcome, deadball, carrierPressure, carryOutcome, shotPressure, shotSituation, shotMethod, kickoutPress, previousStat?.stat_type, previousShotOppositeSide, liveMode, liveModeSettings?.showTurnoverType, turnoverType]);
 
   useEffect(() => {
     if (!open) return;
@@ -1151,6 +1161,17 @@ export default function StatModalV4({
   useEffect(() => {
     if (!open) return;
     if (initialStat) return;
+    if (action !== 'throw_in') return;
+    if (touchedRoles?.throw_lost_by) return;
+    const wonSide = makeSelection(wonBy, ctx).team_side;
+    if (wonSide !== 'home' && wonSide !== 'away') return;
+    const oppositeValue = wonSide === 'home' ? TEAM_AWAY : TEAM_HOME;
+    if (throwLostBy !== oppositeValue) setThrowLostBy(oppositeValue);
+  }, [open, action, wonBy, throwLostBy, touchedRoles, ctx, initialStat]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialStat) return;
     if (action !== 'carry') return;
     if (carryOutcome !== 'foul') return;
     if (touchedRoles?.foul_on) return;
@@ -1187,7 +1208,7 @@ export default function StatModalV4({
     if (!open) return;
     if (initialStat) return;
     if (action !== 'shot') return;
-    if (!['blocked', 'short'].includes(String(shotOutcome || ''))) return;
+    if (!['blocked', 'short', 'saved', 'post'].includes(String(shotOutcome || ''))) return;
     if (!['retained', 'opposition'].includes(String(shotResult || ''))) return;
     if (touchedRoles?.shot_recovered_by) return;
     const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
@@ -1346,7 +1367,7 @@ export default function StatModalV4({
       const forcedSide = makeSelection(forcedBy, ctx).team_side;
       return forcedSide === 'home' || forcedSide === 'away' ? forcedSide : null;
     }
-    if (k === 'shot_recovered_by' && ['blocked', 'short'].includes(String(shotOutcome || ''))) {
+    if (k === 'shot_recovered_by' && ['blocked', 'short', 'saved', 'post'].includes(String(shotOutcome || ''))) {
       const shooterSide = makeSelection(primaryPlayer, ctx).team_side;
       if (shooterSide !== 'home' && shooterSide !== 'away') return null;
       if (shotResult === 'retained') return shooterSide;
@@ -1480,7 +1501,7 @@ export default function StatModalV4({
           </SelectContent>
         </Select>
       </div>
-      <CardSwatches value={card} onChange={setCard} />
+      {liveSettingEnabled('showFoulCard') && <CardSwatches value={card} onChange={setCard} />}
     </div>
   );
 
@@ -1502,9 +1523,9 @@ export default function StatModalV4({
           {roleButton('foul_by')}
         </div>
       </div>
-      <div className="pt-2">
+      {liveSettingEnabled('showFoulCard') && <div className="pt-2">
         <CardSwatches value={card} onChange={setCard} />
-      </div>
+      </div>}
     </div>
   );
 
@@ -1518,26 +1539,28 @@ export default function StatModalV4({
 
   const turnoverFieldsBlock = () => (
     <div className="space-y-2">
-      <div className="space-y-1">
-        <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Turnover Type</Label>
-        <Select value={turnoverType} onValueChange={setTurnoverType}>
-          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
-          <SelectContent>
-            {[
-              { value: 'foul', label: 'Foul' },
-              { value: 'tackle', label: 'Tackle' },
-              { value: 'group_tackle', label: 'Group Tackle' },
-              { value: 'broken', label: 'Broken' },
-              { value: 'interception', label: 'Interception' },
-              { value: 'sidelineagainst', label: 'Sideline Against' },
-            ].map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {liveSettingEnabled('showTurnoverType') && (
+        <div className="space-y-1">
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Turnover Type</Label>
+          <Select value={turnoverType} onValueChange={setTurnoverType}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select turnover type..." /></SelectTrigger>
+            <SelectContent>
+              {[
+                { value: 'foul', label: 'Foul' },
+                { value: 'tackle', label: 'Tackle' },
+                { value: 'group_tackle', label: 'Group Tackle' },
+                { value: 'broken', label: 'Broken' },
+                { value: 'interception', label: 'Interception' },
+                { value: 'sideline_against', label: 'Sideline Against' },
+              ].map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <YesNo label="Unforced" value={unforced} onChange={setUnforced} />
-      <YesNo label="Brought Back - Adv." value={broughtBackAdv} onChange={setBroughtBackAdv} />
+      {liveSettingEnabled('showTurnoverBroughtBackAdv') && <YesNo label="Brought Back - Adv." value={broughtBackAdv} onChange={setBroughtBackAdv} />}
     </div>
   );
 
@@ -1566,10 +1589,14 @@ export default function StatModalV4({
     if (!action) return false;
     if (!liveMode && videoTimeInvalid) return false;
     // Minimal validation per action.
-    if (action === 'shot') return !!shotOutcome && isRoleFilled('player', primaryPlayer);
+    if (action === 'shot') {
+      if (!shotOutcome || !isRoleFilled('player', primaryPlayer)) return false;
+      if (!shotBroughtBackAdv && shotRequiresResult(shotOutcome) && !shotResult) return false;
+      return true;
+    }
     if (action === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
     if (action === 'turnover') {
-      if (!turnoverType) return false;
+      if (!turnoverType && liveSettingEnabled('showTurnoverType')) return false;
       if (turnoverType === 'foul') {
         return isRoleFilled('foul_by', foulBy)
           && isRoleFilled('foul_on', foulOn)
@@ -1581,7 +1608,7 @@ export default function StatModalV4({
     if (action === 'throw_in') {
       if (!throwOutcome) return false;
       if (throwOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-      if (liveMode) return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
+      if (liveMode) return isRoleFilled('throw_won_by', wonBy) && (!liveSettingEnabled('showThrowInLostBy') || isRoleFilled('throw_lost_by', throwLostBy));
       if (throwOutcome === 'clean') return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       if (throwOutcome === 'break') return isRoleFilled('broken_by', brokenBy) && isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       return false;
@@ -1589,7 +1616,7 @@ export default function StatModalV4({
     if (action === 'kickout') {
       if (!kickoutOutcome) return false;
       if (kickoutOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-      if (liveMode) return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
+      if (liveMode) return isRoleFilled('kickout_won_by', kickoutWonBy) && (!liveSettingEnabled('showKickoutLostBy') || isRoleFilled('kickout_lost_by', kickoutLostBy));
       if (kickoutOutcome === 'clean') return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       if (kickoutOutcome === 'break') return isRoleFilled('kickout_broken_by', kickoutBrokenBy) && isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       return true; // sideline outcomes
@@ -1620,6 +1647,7 @@ export default function StatModalV4({
 
   const submit = () => {
     if (!canSubmit()) return;
+    const effectiveTurnoverType = turnoverType || (liveMode && liveModeSettings?.showTurnoverType === false ? 'tackle' : '');
 
     const extra = {
       counter_attack: !!counterAttack,
@@ -1679,19 +1707,19 @@ export default function StatModalV4({
     } else if (action === 'turnover') {
       const foulOnSel = sel(foulOn);
       const foulBySel = sel(foulBy);
-      const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
-      const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
+      const forced = effectiveTurnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+      const lost = effectiveTurnoverType === 'foul' ? foulBySel : sel(lostBy);
       actingSide = lost.team_side || forced.team_side || 'unknown';
       primary = lost.kind !== 'none' ? lost : forced;
       extra.turnover = {
-        turnover_type: turnoverType,
+        turnover_type: effectiveTurnoverType,
         lost_by: lost,
         forced_by: forced,
-        recovered_by: turnoverType === 'foul' || liveMode ? forced : sel(recoveredBy),
+        recovered_by: effectiveTurnoverType === 'foul' || liveMode ? forced : sel(recoveredBy),
         unforced: !!unforced,
         brought_back_adv: !!broughtBackAdv,
       };
-      if (turnoverType === 'foul') {
+      if (effectiveTurnoverType === 'foul') {
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
       }
     } else if (action === 'throw_in') {
@@ -1739,9 +1767,9 @@ export default function StatModalV4({
       if (carryOutcome === 'turnover') {
         const foulOnSel = sel(foulOn);
         const foulBySel = sel(foulBy);
-        const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
-        const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
-        extra.turnover = { turnover_type: turnoverType, lost_by: lost, forced_by: forced, recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
+        const lost = effectiveTurnoverType === 'foul' ? foulBySel : sel(lostBy);
+        const forced = effectiveTurnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+        extra.turnover = { turnover_type: effectiveTurnoverType, lost_by: lost, forced_by: forced, recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (carryOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1762,9 +1790,9 @@ export default function StatModalV4({
       if (passOutcome === 'turnover') {
         const foulOnSel = sel(foulOn);
         const foulBySel = sel(foulBy);
-        const lost = turnoverType === 'foul' ? foulBySel : sel(lostBy);
-        const forced = turnoverType === 'foul' ? foulOnSel : sel(forcedBy);
-        extra.turnover = { turnover_type: turnoverType, lost_by: lost, forced_by: forced, recovered_by: turnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
+        const lost = effectiveTurnoverType === 'foul' ? foulBySel : sel(lostBy);
+        const forced = effectiveTurnoverType === 'foul' ? foulOnSel : sel(forcedBy);
+        extra.turnover = { turnover_type: effectiveTurnoverType, lost_by: lost, forced_by: forced, recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1868,9 +1896,9 @@ export default function StatModalV4({
                       </Select>
                     </div>
                     )}
-                    <Buttons label="Method" value={shotMethod} onChange={setShotMethod} options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'hand', label: 'Hand' }]} />
+                    {liveSettingEnabled('showShotMethod') && <Buttons label="Method" value={shotMethod} onChange={setShotMethod} options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'hand', label: 'Hand' }]} />}
                   </div>
-                  <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />
+                  {liveSettingEnabled('showShotPressure') && <Buttons label="Pressure" value={shotPressure} onChange={setShotPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} />}
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
                     <Select
@@ -1890,7 +1918,7 @@ export default function StatModalV4({
                   </div>
                   {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
-                  <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />
+                  {liveSettingEnabled('showShotBroughtBackAdv') && <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />}
                 </>
               )}
 
@@ -1909,7 +1937,7 @@ export default function StatModalV4({
                     </Select>
                   </div>
                   {!liveMode && <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />}
-                  <Buttons
+                  {liveSettingEnabled('showKickoutPress') && <Buttons
                     label="Press"
                     value={kickoutPress}
                     onChange={setKickoutPress}
@@ -1918,7 +1946,7 @@ export default function StatModalV4({
                       { value: 'zonal', label: 'Zonal' },
                       { value: 'conceded', label: 'Conceded' },
                     ]}
-                  />
+                  />}
                   {renderTimeBlock()}
                 </>
               )}
@@ -1963,7 +1991,7 @@ export default function StatModalV4({
                     <Select value={carryOutcome} onValueChange={setCarryOutcome}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
-                        {['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', '45', 'goal_kick_for'].map((v) => (
+                        {['completed', 'turnover', 'foul', 'dispossessed_retained', 'turned_back', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
@@ -2004,7 +2032,7 @@ export default function StatModalV4({
                     <Select value={passOutcome} onValueChange={setPassOutcome}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
-                        {['completed', 'broken', 'turnover', 'foul', 'sideline_for', '45_for', 'goal_kick_for', 'goal_kick_against'].map((v) => (
+                        {['completed', 'broken', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => (
                           <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
@@ -2026,10 +2054,10 @@ export default function StatModalV4({
               {action === 'shot' && !isDrag && !liveMode && (shotResult === 'retained' || shotResult === 'opposition') && (
                 roleButton('shot_recovered_by')
               )}
-              {action === 'shot' && !isDrag && shotOutcome === 'blocked' && (
+              {action === 'shot' && !isDrag && liveSettingEnabled('showShotBlockedSavedBy') && shotOutcome === 'blocked' && (
                 roleButton('shot_blocked_by')
               )}
-              {action === 'shot' && !isDrag && shotOutcome === 'saved' && (
+              {action === 'shot' && !isDrag && liveSettingEnabled('showShotBlockedSavedBy') && shotOutcome === 'saved' && (
                 roleButton('shot_saved_by')
               )}
 
@@ -2039,7 +2067,7 @@ export default function StatModalV4({
                   {(liveMode && kickoutOutcome && kickoutOutcome !== 'foul') && (
                     <div className="grid grid-cols-2 gap-2">
                       {roleButton('kickout_won_by')}
-                      {roleButton('kickout_lost_by')}
+                      {liveSettingEnabled('showKickoutLostBy') && roleButton('kickout_lost_by')}
                     </div>
                   )}
                   {(!liveMode && kickoutOutcome === 'clean') && (
@@ -2068,7 +2096,7 @@ export default function StatModalV4({
                   {(liveMode && throwOutcome && throwOutcome !== 'foul') && (
                     <div className="grid grid-cols-2 gap-2">
                       {roleButton('throw_won_by')}
-                      {roleButton('throw_lost_by')}
+                      {liveSettingEnabled('showThrowInLostBy') && roleButton('throw_lost_by')}
                     </div>
                   )}
                   {(!liveMode && throwOutcome === 'clean') && (

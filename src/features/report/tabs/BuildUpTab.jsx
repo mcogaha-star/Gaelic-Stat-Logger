@@ -23,6 +23,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   getDerivedPossessionDurationSeconds,
+  isDeadBallGapStart,
   isAttackPossession,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
@@ -47,6 +48,7 @@ import {
   buildShotAssistCredits,
   buildTouchesMap,
   getPossessionStartZone,
+  inferPossessionStartSource,
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
@@ -60,6 +62,32 @@ import {
   shotZoneFromDistance,
   applyNonTeamReportFilters,
 } from '../shared';
+
+function getLivePossessionStartAnchor(previousStat, startSource, match, imputedMap) {
+  if (!previousStat || isDeadBallGapStart(previousStat)) return NaN;
+  const source = String(startSource || '');
+  const allowedSource =
+    source === 'Turnover Won'
+    || source === 'Shot Short'
+    || source === 'Shot Blocked'
+    || source === 'Shot Post'
+    || source === 'Shot Saved';
+  if (!allowedSource) return NaN;
+
+  const previousTeam =
+    previousStat?.possession_team_side === 'home' || previousStat?.possession_team_side === 'away'
+      ? previousStat.possession_team_side
+      : previousStat?.team_side;
+  const terminal = classifyTerminalOutcome(previousStat, previousTeam);
+  const isMatchingTerminal =
+    (source === 'Turnover Won' && terminal === 'TURNOVER')
+    || (source === 'Shot Short' && terminal === 'SHORT')
+    || (source === 'Shot Blocked' && terminal === 'BLOCKED')
+    || (source === 'Shot Post' && terminal === 'POST')
+    || (source === 'Shot Saved' && terminal === 'SAVED');
+  if (!isMatchingTerminal) return NaN;
+  return getMatchTimeS(previousStat, match, imputedMap);
+}
 
 function PassHeatmapCard({ title, stats, side, teamColor }) {
   const cols = 6;
@@ -195,6 +223,23 @@ function BuildUpTab({
       return Math.sqrt(((ex - sx) ** 2) + ((ey - sy) ** 2));
     };
     const possessionGroups = groupByPossession(base);
+    const orderedBase = (Array.isArray(base) ? base : []).slice().sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, reportFilters?.match, reportFilters?.imputedTimeById);
+      const tb = getMatchTimeS(b, reportFilters?.match, reportFilters?.imputedTimeById);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const previousByPossessionKey = new Map();
+    orderedBase.forEach((stat, index) => {
+      const pid = Number(stat?.possession_id);
+      const pside = stat?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
+      const key = `${pside}-${pid}`;
+      if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, index > 0 ? orderedBase[index - 1] : null);
+    });
     const shotAssistCredits = buildShotAssistCredits(base);
     const calc = (side) => {
       const sideEvents = filtered.filter((s) => s.team_side === side);
@@ -233,7 +278,10 @@ function BuildUpTab({
         if (!acting.length) continue;
         const zone = getPossessionStartZone(acting);
         if (startZones[zone] != null) startZones[zone] += 1;
-        const timeSummary = getPossessionTimeSummary(evs, side, reportFilters?.match, reportFilters?.imputedTimeById);
+        const previousStat = previousByPossessionKey.get(key) || null;
+        const startSource = inferPossessionStartSource(evs, side, previousStat || []);
+        const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
+        const timeSummary = getPossessionTimeSummary(evs, side, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
         const liveDuration = Number.isFinite(timeSummary.liveSeconds)
           ? timeSummary.liveSeconds
           : getDerivedPossessionDurationSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById);
@@ -242,7 +290,8 @@ function BuildUpTab({
         const channel = getAttackEntryChannelForPossession(acting, side);
         if (channel) channels[channel] += 1;
 
-        const startTime = getMatchTimeS(acting[0], reportFilters?.match, reportFilters?.imputedTimeById);
+        const firstEventTime = getMatchTimeS(acting[0], reportFilters?.match, reportFilters?.imputedTimeById);
+        const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
         const attackEvent = acting.find((e) => {
           const sx = Number(e?.x_position);
           const ex = Number(e?.end_x_position);
