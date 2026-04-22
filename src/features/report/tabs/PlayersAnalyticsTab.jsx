@@ -62,6 +62,14 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
+function normalizePlayerShotType(value) {
+  const v = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (v === '1_point' || v === 'one_point') return 'point';
+  if (v === '2_point' || v === 'two_point') return '2_point';
+  if (v === 'goal') return 'goal';
+  return v;
+}
+
 function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
   const [sortState, setSortState] = useState({ key: 'overall', dir: 'desc' });
   const columns = useMemo(() => ([
@@ -251,7 +259,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           const o = ex?.shot?.outcome;
           if (shotOutcomeGroup(o) === 'score') r.scores += 1;
           r.points += shotPointsForOutcome(o);
-          const shotType = String(ex?.shot?.shot_type || ex?.shot?.type || '');
+          const shotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '');
           if (shotType === 'point') {
             r.pointAtt += 1;
             if (o === 'point') r.pointMade += 1;
@@ -270,7 +278,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
             r.avgShotDistCount += 1;
           }
         }
-        const goalShotType = String(ex?.shot?.shot_type || ex?.shot?.type || '') === 'goal';
+        const goalShotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '') === 'goal';
         if (goalShotType && ['goal', 'saved'].includes(String(ex?.shot?.outcome || ''))) {
           const keeperSide = s.team_side === 'away' ? 'home' : 'away';
           const savedBy = normalizePlayerRef(ex?.shot?.saved_by);

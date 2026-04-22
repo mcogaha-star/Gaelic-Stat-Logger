@@ -63,8 +63,9 @@ export default function MatchStats() {
 
     useEffect(() => {
         if (!match?.id) return;
+        const stored = Number(match.match_length_minutes);
+        if (Number.isFinite(stored) && stored > 0) return;
         const expected = deriveMatchLengthMinutes(match);
-        if (Number(match.match_length_minutes) === expected) return;
         db.entities.Match.update(match.id, { match_length_minutes: expected })
             .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
             .catch(() => {});

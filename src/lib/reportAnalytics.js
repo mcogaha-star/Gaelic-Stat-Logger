@@ -16,6 +16,10 @@ const ADMIN_STAT_TYPES = ['substitution', 'period_end'];
 const DEAD_BALL_TURNOVER_OUTCOMES = ['sideline_against', '45_against', 'goal_kick_against'];
 
 export function deriveMatchLengthMinutes(matchOrCode, maybeLevel) {
+  if (typeof matchOrCode === 'object') {
+    const stored = Number(matchOrCode?.match_length_minutes);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+  }
   const code = typeof matchOrCode === 'object' ? matchOrCode?.code : matchOrCode;
   const level = typeof matchOrCode === 'object' ? matchOrCode?.level : maybeLevel;
   const normalizedLevel = String(level || '').toLowerCase().replace(/[\s_-]+/g, '');
@@ -920,7 +924,7 @@ export function buildDataHealthChecks(stats) {
     });
   };
 
-  const possessionTeams = new Map();
+  const possessionTeamById = new Map();
   const possessionIds = new Set();
   for (const stat of list) {
     const type = String(stat?.stat_type || '');
@@ -929,10 +933,9 @@ export function buildDataHealthChecks(stats) {
     const pside = stat?.possession_team_side;
     if (Number.isFinite(pid) && pid > 0) {
       possessionIds.add(pid);
-      const key = `${pside}-${pid}`;
-      const set = possessionTeams.get(key) || new Set();
-      if (stat?.team_side === 'home' || stat?.team_side === 'away') set.add(stat.team_side);
-      possessionTeams.set(key, set);
+      const set = possessionTeamById.get(pid) || new Set();
+      if (validTeamSide(pside)) set.add(pside);
+      possessionTeamById.set(pid, set);
     }
 
     if (type === 'defensive_contact') add('error', 'Legacy Defensive Contact row', 'This row should be deleted; defensive contact is no longer a stat type.', stat);
@@ -968,8 +971,10 @@ export function buildDataHealthChecks(stats) {
     }
   }
 
-  for (const [key, teams] of possessionTeams.entries()) {
-    if (teams.size > 1) add('error', 'Mixed-team possession', `Possession ${key} contains actions by both teams.`);
+  for (const [pid, teams] of possessionTeamById.entries()) {
+    if (teams.size > 1) {
+      add('error', 'Mixed-team possession', `Possession #${pid} is assigned to multiple possession teams: ${Array.from(teams).join(', ')}.`);
+    }
   }
   const ids = Array.from(possessionIds).sort((a, b) => a - b);
   for (let i = 0; i < ids.length; i += 1) {

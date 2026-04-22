@@ -787,17 +787,12 @@ function deriveCounterAttackState(actingStats) {
   const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && typeof s.counter_attack === 'boolean');
   if (!relevant.length) return 'No';
   const flags = relevant.map((s) => !!s.counter_attack);
-  if (flags.every(Boolean)) return 'Yes';
-  if (flags.every((flag) => !flag)) return 'No';
-  const first = flags[0];
   const last = flags[flags.length - 1];
-  if (!first && last) return 'No -> Yes';
-  if (first && !last) return 'Yes -> No';
   return last ? 'Yes' : 'No';
 }
 
 function defenceSetStateKey(state) {
-  return state === 'Yes' || state === 'No -> Yes' ? 'defence_set_yes' : 'defence_set_no';
+  return state === 'Yes' ? 'defence_set_yes' : 'defence_set_no';
 }
 
 function getPossessionStartZone(actingStats) {
