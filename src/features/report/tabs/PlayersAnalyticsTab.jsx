@@ -39,7 +39,6 @@ import {
   sortRows,
   SortableTableHead,
   collectPlayerIds,
-  collectPlayerSelectionKeys,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -213,6 +212,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         shotAssists: 0,
         shotsCreated: 0,
         attacksInvolved: 0,
+        possessionsInvolved: 0,
         scoringPossessionsInvolved: 0,
         kickoutTargets: 0,
         kickoutWins: 0,
@@ -245,6 +245,17 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     const awayKeeper = getKeeperCandidate(playerOptions, 'away');
     ensure(homeKeeper);
     ensure(awayKeeper);
+    const touchPossessionsByPlayer = new Map();
+    for (const touch of touchEvents) {
+      const playerKey = selectionKey(touch?.player);
+      const teamSide = touch?.stat?.possession_team_side;
+      const possessionId = Number(touch?.stat?.possession_id);
+      if (!playerKey || (teamSide !== 'home' && teamSide !== 'away') || !Number.isFinite(possessionId)) continue;
+      const possessionKey = `${teamSide}-${possessionId}`;
+      const set = touchPossessionsByPlayer.get(playerKey) || new Set();
+      set.add(possessionKey);
+      touchPossessionsByPlayer.set(playerKey, set);
+    }
 
     for (const s of calcBase) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
@@ -285,6 +296,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
             r.avgShotDistCount += 1;
           }
         }
+        const blocker = ensure(ex?.shot?.blocked_by);
+        if (blocker && String(ex?.shot?.outcome || '') === 'blocked') blocker.blocks += 1;
         const goalShotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '') === 'goal';
         if (goalShotType && ['goal', 'saved'].includes(String(ex?.shot?.outcome || ''))) {
           const keeperSide = s.team_side === 'away' ? 'home' : 'away';
@@ -417,10 +430,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       const acting = evs.filter((e) => e && e.team_side === teamSide);
       if (!acting.length) continue;
       const carriedEarlier = new Set();
-      const involved = new Set();
       for (const e of acting) {
         const extra = safeParseJSON(e.extra_data || '{}', {});
-        for (const playerKey of collectPlayerSelectionKeys(extra)) involved.add(playerKey);
         if (e?.stat_type === 'pass') {
           const passerKey = selectionKey(extra?.pass?.passer);
           if (passerKey && !carriedEarlier.has(passerKey)) {
@@ -435,9 +446,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       }
       const isAttack = isAttackPossession(evs, teamSide);
       const outcome = derivePossessionOutcome(evs, teamSide);
-      for (const playerKey of involved) {
+      for (const [playerKey, possessionKeys] of touchPossessionsByPlayer.entries()) {
+        if (!possessionKeys.has(key)) continue;
         const row = rows.get(playerKey);
         if (!row) continue;
+        row.possessionsInvolved += 1;
         if (isAttack) row.attacksInvolved += 1;
         if (outcome === 'Score') row.scoringPossessionsInvolved += 1;
       }
@@ -457,7 +470,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       const passPct = row.passes ? (row.passComp / row.passes) * 100 : NaN;
       const carryPct = row.carries ? (row.carryComp / row.carries) * 100 : NaN;
       const progPassPct = row.progPassAtt ? (row.progPassComp / row.progPassAtt) * 100 : NaN;
-      const turnoverRate = row.touches ? (row.turnoversLost / row.touches) * 100 : NaN;
+      const turnoversLostPer10Poss = row.possessionsInvolved ? (row.turnoversLost / row.possessionsInvolved) * 10 : NaN;
       const passRate = row.touches ? (row.passes / row.touches) * 100 : NaN;
       const carryRate = row.touches ? (row.carries / row.touches) * 100 : NaN;
       const shootRate = row.touches ? (row.shots / row.touches) * 100 : NaN;
@@ -475,7 +488,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         passPct,
         carryPct,
         progPassPct,
-        turnoverRate,
+        turnoversLostPer10Poss,
         passRate,
         carryRate,
         shootRate,
@@ -488,7 +501,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         longKickoutWinPct,
       };
     });
-  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap, defensiveActions]);
+  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap, touchEvents, defensiveActions]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -533,7 +546,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'passFraction', label: 'Passes', numeric: true, sortValue: (r) => r.passComp, render: (r) => renderScoringFraction(r.passComp, r.passes) },
       { key: 'carryFraction', label: 'Carries', numeric: true, sortValue: (r) => r.carryComp, render: (r) => renderScoringFraction(r.carryComp, r.carries) },
       { key: 'turnoversLost', label: 'TO Lost', numeric: true },
-      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
+      { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
+      { key: 'possessionsInvolved', label: 'Poss', numeric: true },
       { key: 'touches', label: 'Touches', numeric: true },
     ],
     tendencies: [
@@ -544,7 +558,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'passRate', label: 'Pass Rate', numeric: true, sortValue: (r) => r.passRate, render: (r) => formatPct(r.passRate) },
       { key: 'shootRate', label: 'Shoot Rate', numeric: true, sortValue: (r) => r.shootRate, render: (r) => formatPct(r.shootRate) },
       { key: 'noCarryPassRate', label: 'No-Carry Pass Rate', numeric: true, sortValue: (r) => r.noCarryPassRate, render: (r) => formatPct(r.noCarryPassRate) },
-      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
+      { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
     ],
     creation: [
       { key: 'player', label: 'Player' },
@@ -570,7 +584,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'passRate', label: 'Pass Rate', numeric: true, sortValue: (r) => r.passRate, render: (r) => formatPct(r.passRate) },
       { key: 'carryRate', label: 'Carry Rate', numeric: true, sortValue: (r) => r.carryRate, render: (r) => formatPct(r.carryRate) },
       { key: 'shootRate', label: 'Shoot Rate', numeric: true, sortValue: (r) => r.shootRate, render: (r) => formatPct(r.shootRate) },
-      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
+      { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
     ],
     restarts: [
       { key: 'player', label: 'Player' },
@@ -696,31 +710,49 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
   return (
     <div className="space-y-4">
-        {focusPlayerId !== 'all' && focusStats.length > 0 && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Player Events</div>
-                <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+        <div className="grid gap-4 lg:grid-cols-2">
+          {focusPlayerId !== 'all' && focusStats.length > 0 ? (
+            <>
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-semibold text-slate-900">Player Events</div>
+                  <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+                </CardContent>
+              </Card>
+              <TouchMap
+                touchEvents={touchEvents}
+                playerId={focusPlayerId}
+                title="Touch Map"
+                homeColor={homeTeam?.color}
+                awayColor={awayTeam?.color}
+              />
+            </>
+          ) : (
+            <Card className="lg:col-span-2">
+              <CardContent className="p-4 text-sm text-slate-600">
+                Select a player in the filters to view their event map, touch map, and pass sonar.
               </CardContent>
             </Card>
-            <TouchMap
-              touchEvents={touchEvents}
-              playerId={focusPlayerId}
-              title="Touch Map"
-              homeColor={homeTeam?.color}
-              awayColor={awayTeam?.color}
-            />
-          </div>
-        )}
-        {focusPlayerId !== 'all' && (
-          <PassSonar
-            passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
-            playerId={focusPlayerId}
-            title="Player Pass Sonar"
-            subtitle="Direction and accuracy by start zone"
-          />
-        )}
+          )}
+        </div>
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            {focusPlayerId !== 'all' ? (
+              <PassSonar
+                passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
+                playerId={focusPlayerId}
+                title="Player Pass Sonar"
+                subtitle="Direction and accuracy by start zone"
+                fullscreenEnabled={false}
+              />
+            ) : (
+              <>
+                <div className="font-semibold text-slate-900">Player Pass Sonar</div>
+                <div className="text-sm text-slate-600">Select a player in the filters to show their sonar.</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-wrap gap-2">

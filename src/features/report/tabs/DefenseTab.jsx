@@ -167,7 +167,7 @@ function DefenseTab({
         scoresConceded,
         defActionCount,
         ppda: defActionCount ? oppCompletedPasses / defActionCount : NaN,
-        turnoverRate: possessionCount ? lost / possessionCount : NaN,
+        turnoverLostPer10Poss: possessionCount ? (lost / possessionCount) * 10 : NaN,
       };
     };
     return { home: calc('home'), away: calc('away') };
@@ -246,7 +246,7 @@ function DefenseTab({
               { label: 'Average DA Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
               { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
               { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
-              { label: 'Turnover Rate', home: formatPct(Number.isFinite(kpis.home.turnoverRate) ? kpis.home.turnoverRate * 100 : NaN), away: formatPct(Number.isFinite(kpis.away.turnoverRate) ? kpis.away.turnoverRate * 100 : NaN) },
+              { label: 'TO Lost / 10 Poss', home: Number.isFinite(kpis.home.turnoverLostPer10Poss) ? kpis.home.turnoverLostPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverLostPer10Poss) ? kpis.away.turnoverLostPer10Poss.toFixed(2) : 'NA' },
               { label: 'Shots From Regains', home: kpis.home.shotsFrom, away: kpis.away.shotsFrom },
               { label: 'Scores From Regains', home: kpis.home.scoresFrom, away: kpis.away.scoresFrom },
               { label: 'Scores Conceded After Lost Turnovers', home: kpis.home.scoresConceded, away: kpis.away.scoresConceded },

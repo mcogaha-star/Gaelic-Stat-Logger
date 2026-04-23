@@ -96,7 +96,7 @@ function buildDemoTeams(bundle, maps) {
     return remapJsonFields({
       ...base,
       id,
-      name: `${team.name || 'Team'} (Demo)`,
+      name: team.name || 'Team',
       is_demo: true,
       demo_source: DEMO_SOURCE_ID,
     }, ['starters', 'subs'], maps.idMap);
@@ -167,7 +167,15 @@ async function upsertMany(entity, records) {
 export async function openDemoMatch(db) {
   const existing = await db.entities.Match.filter({ is_demo: true, demo_source: DEMO_SOURCE_ID });
   const existingMatch = existing?.find((match) => match?.id === DEMO_MATCH_ID) || existing?.[0];
+  const maps = buildIdMaps(demoBundle);
+  const teams = buildDemoTeams(demoBundle, maps);
+  const players = buildDemoPlayers(demoBundle, maps);
   if (existingMatch?.id) {
+    const existingTeams = await db.entities.Team.filter({ is_demo: true, demo_source: DEMO_SOURCE_ID });
+    for (const team of teams) {
+      const existingTeam = (existingTeams || []).find((row) => row?.id === team.id);
+      if (existingTeam?.id) await db.entities.Team.update(existingTeam.id, team);
+    }
     await db.entities.Match.update(existingMatch.id, {
       video_config: JSON.stringify({ sourceType: 'youtube', youtubeUrl: DEMO_YOUTUBE_URL }),
       match_length_minutes: 70,
@@ -177,9 +185,6 @@ export async function openDemoMatch(db) {
     return { ...existingMatch, video_config: JSON.stringify({ sourceType: 'youtube', youtubeUrl: DEMO_YOUTUBE_URL }) };
   }
 
-  const maps = buildIdMaps(demoBundle);
-  const teams = buildDemoTeams(demoBundle, maps);
-  const players = buildDemoPlayers(demoBundle, maps);
   const match = buildDemoMatch(demoBundle, maps);
   const stats = buildDemoStats(demoBundle, maps);
 

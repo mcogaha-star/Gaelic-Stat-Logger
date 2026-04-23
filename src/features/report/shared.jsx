@@ -890,7 +890,7 @@ function getAccuracyColor(value) {
   if (!Number.isFinite(value)) return '#cbd5e1';
   if (value <= -2) return '#dc2626';
   if (value < 0) return '#f97316';
-  if (value < 2) return '#facc15';
+  if (value < 1) return '#facc15';
   if (value < 3) return '#86efac';
   return '#166534';
 }
@@ -1982,20 +1982,15 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                     </path>
                   );
                 })}
-                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
-                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
-                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
-                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
+                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Left</text>
+                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Toward Goal</text>
+                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Back</text>
+                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Right</text>
               </svg>
             </div>
           );
         })}
       </div>
-      {!isFullscreen && (
-        <div className="text-[11px] text-slate-500">
-          Wedge length = relative pass frequency by direction. Colour = average pass accuracy score (`--=-3`, `-=-1`, `+=1`, `++=3`).
-        </div>
-      )}
     </div>
   );
 
