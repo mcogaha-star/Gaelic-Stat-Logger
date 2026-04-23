@@ -24,7 +24,7 @@ const DEFINITIONS = [
   ['Own Kickout Win %', 'Own kickouts won divided by own kickouts taken.'],
   ['Turnover Rate', 'For player tables, turnovers lost divided by touches. For team-level defense cards, turnovers lost divided by possessions.'],
   ['PPDA', 'Opponent completed passes divided by defensive actions, where defensive actions include turnovers won and selected defensive fouls.'],
-  ['Pass Accuracy', '`++` = perfect in stride with no adjustment. `+` = standard completed pass with only minor adjustment. `-` = potentially winnable but major adjustment required. `--` = very poor or effectively unwinnable. Difficulty should not affect the accuracy rating.'],
+  ['Pass Accuracy', '`++` = perfect in stride with no adjustment. `+` = standard completed pass with only minor adjustment. `-` = potentially winnable but major adjustment required. `--` = very poor or effectively unwinnable. Judge the pass by defender positioning, pace, weight, and accuracy. Difficulty should not excuse or inflate the accuracy rating.'],
   ['Carry Pressure', 'High means contact or tackle pressure and should include the defender. Medium means a defender within 3m without contact. Low means the defender is more than 3m away.'],
   ['Dispossessed - Retained', 'A carry where the ball carrier is disrupted or dispossessed but the in-possession team recovers the ball. It is not a turnover and does not end the possession.'],
   ['Touches', 'Times a player gains or takes control of the ball: completed passes received, kickouts won, throw-ins won, turnovers recovered, qualifying dead-ball restarts taken, and shot recoveries logged to a player.'],

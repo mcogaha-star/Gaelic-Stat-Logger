@@ -199,7 +199,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         progPassAtt: 0,
         progPassComp: 0,
         progPassRecv: 0,
-        progCarries: 0,
+        progCarryAtt: 0,
+        progCarryComp: 0,
         progMeters: 0,
         scoringZoneEntriesCreated: 0,
         passesIntoScoringZone: 0,
@@ -294,7 +295,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const p = pass?.passer;
         const r = ensure(p);
         const isProg = isProgressiveShared(s);
-        const isCompleted = pass?.outcome === 'completed';
+        const isCompleted = deriveOutcome(s, ex) === 'completed';
         if (r) {
           r.passes += 1;
           if (isCompleted) r.passComp += 1;
@@ -317,11 +318,14 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       if (s.stat_type === 'carry') {
         const p = ex?.carry?.carrier;
         const r = ensure(p);
+        const isProg = isProgressiveShared(s);
+        const isCompleted = deriveOutcome(s, ex) === 'completed';
         if (r) {
           r.carries += 1;
-          if (deriveOutcome(s, ex) === 'completed') r.carryComp += 1;
-          if (isProgressiveShared(s)) {
-            r.progCarries += 1;
+          if (isCompleted) r.carryComp += 1;
+          if (isProg) {
+            r.progCarryAtt += 1;
+            if (isCompleted) r.progCarryComp += 1;
             r.progMeters += getProgressiveMeters(s);
           }
           if (getScoringZoneEntry(s)) r.scoringZoneEntriesCreated += 1;
@@ -501,7 +505,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'progPassFraction', label: 'Prog Passes', numeric: true, sortValue: (r) => r.progPassComp, render: (r) => renderScoringFraction(r.progPassComp, r.progPassAtt) },
       { key: 'progPassRecv', label: 'Prog Pass Rec', numeric: true },
-      { key: 'progCarries', label: 'Prog Carries', numeric: true },
+      { key: 'progCarryFraction', label: 'Prog Carries', numeric: true, sortValue: (r) => r.progCarryComp, render: (r) => renderScoringFraction(r.progCarryComp, r.progCarryAtt) },
       { key: 'progMeters', label: 'Prog Meters', numeric: true, render: (r) => Number.isFinite(r.progMeters) ? r.progMeters.toFixed(1) : '0.0' },
       { key: 'scoringZoneEntriesCreated', label: 'Scoring Zone Entries', numeric: true },
       { key: 'passesIntoScoringZone', label: 'Passes Into Scoring Zone', numeric: true },

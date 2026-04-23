@@ -1273,7 +1273,15 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                     >
                       Delete Row
                     </Button>
-                    <Button type="button" size="sm" variant="outline" disabled={persistMutation.isPending} onClick={applyRawStatChanges}>Apply Stat Changes</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="bg-emerald-600 text-white hover:bg-emerald-700"
+                      disabled={persistMutation.isPending}
+                      onClick={applyRawStatChanges}
+                    >
+                      Apply Stat Changes
+                    </Button>
                   </div>
                 </div>
               </details>

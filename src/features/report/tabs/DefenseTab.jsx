@@ -28,6 +28,7 @@ import {
 import {
   safeParseJSON,
   toTitleCase,
+  deriveOutcome,
   formatMMSS,
   formatPct,
   sortRows,
@@ -132,7 +133,7 @@ function DefenseTab({
       const oppCompletedPasses = base.filter((s) => {
         if (s?.stat_type !== 'pass' || s?.team_side !== oppSide) return false;
         const ex = safeParseJSON(s.extra_data || '{}', {});
-        return ex?.pass?.outcome === 'completed';
+        return deriveOutcome(s, ex) === 'completed';
       }).length;
       const defActionCount =
         won +

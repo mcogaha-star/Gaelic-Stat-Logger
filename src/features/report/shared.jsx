@@ -481,13 +481,36 @@ function deriveOutcome(stat, extra) {
   if (!stat) return '';
   const t = stat.stat_type;
   if (t === 'shot') return extra?.shot?.outcome || '';
-  if (t === 'pass') return normalizeOutcomeAlias(extra?.pass?.outcome);
-  if (t === 'carry') return normalizeOutcomeAlias(extra?.carry?.outcome);
+  if (t === 'pass') {
+    const outcome = normalizeOutcomeAlias(extra?.pass?.outcome);
+    if (outcome === 'foul' && isRetainedActionFoul(stat, extra, 'pass')) return 'completed';
+    return outcome;
+  }
+  if (t === 'carry') {
+    const outcome = normalizeOutcomeAlias(extra?.carry?.outcome);
+    if (outcome === 'foul' && isRetainedActionFoul(stat, extra, 'carry')) return 'completed';
+    return outcome;
+  }
   if (t === 'kickout') return normalizeOutcomeAlias(extra?.kickout?.outcome);
   if (t === 'turnover') return normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
   if (t === 'throw_in') return normalizeOutcomeAlias(extra?.throw_in?.outcome);
   if (t === 'foul') return extra?.foul?.foul_type || '';
   return '';
+}
+
+function isRetainedActionFoul(stat, extra, actionType) {
+  if (!stat || !extra) return false;
+  if (extra?.turnover) return false;
+  const action = actionType === 'pass' ? extra?.pass : extra?.carry;
+  const actor = actionType === 'pass' ? action?.passer : action?.carrier;
+  const actorSide = actor?.team_side || stat?.team_side;
+  const foul = action?.foul || extra?.foul || null;
+  if (!foul) return true;
+  const foulBy = foul?.foul_by?.team_side;
+  const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side;
+  if (foulOn && actorSide && foulOn === actorSide) return true;
+  if (foulBy && actorSide && foulBy !== actorSide) return true;
+  return false;
 }
 
 function statMatchesActionType(stat, actionType) {
@@ -768,7 +791,7 @@ function getPrimaryActorSelection(stat, extra) {
 function getCompletedReceiptSelection(stat, extra) {
   if (!stat) return null;
   if (stat.stat_type === 'pass') {
-    if (extra?.pass?.outcome !== 'completed') return null;
+    if (deriveOutcome(stat, extra) !== 'completed') return null;
     return extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : (extra?.pass?.intended_recipient?.kind === 'player' ? extra.pass.intended_recipient : null);
   }
   if (stat.stat_type === 'kickout') {
@@ -841,7 +864,7 @@ function buildShotAssistCredits(stats) {
         const prev = acting[j];
         if (prev?.stat_type !== 'pass') continue;
         const extra = safeParseJSON(prev.extra_data || '{}', {});
-        if (extra?.pass?.outcome !== 'completed') continue;
+        if (deriveOutcome(prev, extra) !== 'completed') continue;
         const passer = extra?.pass?.passer;
         if (passer?.kind === 'player') {
           out.push({ passer, shot, sourceStat: prev, possessionKey: key, teamSide });
@@ -866,7 +889,7 @@ function buildTouchesMap(stats) {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
 
     if (stat.stat_type === 'pass') {
-      if (extra?.pass?.outcome === 'completed') {
+      if (deriveOutcome(stat, extra) === 'completed') {
         add(extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : extra?.pass?.intended_recipient);
       }
       if (extra?.pass?.deadball) {
