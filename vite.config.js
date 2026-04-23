@@ -5,10 +5,9 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig(() => {
-  // GitHub Pages serves from /<repo>/, so we set base accordingly during Actions builds.
-  // This avoids a blank page if the URL is accessed without a trailing slash.
-  const repo = process.env.GITHUB_REPOSITORY?.split('/')?.[1];
-  const base = repo ? `/${repo}/` : '/';
+  // The app is now served from the custom domain root (e.g. https://gaeliq.com/),
+  // so production assets should always resolve from "/" rather than "/<repo>/".
+  const base = '/';
 
   return {
     base,
