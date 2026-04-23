@@ -57,6 +57,7 @@ import {
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
+  PassSonar,
   ShotMap,
   FullscreenMapShell,
   shotSideFromY,
@@ -525,6 +526,30 @@ function BuildUpTab({
                 stats={filtered}
                 side={teamMode === 'away' ? 'away' : 'home'}
                 teamColor={teamMode === 'away' ? (awayTeam?.color || '#ef4444') : (homeTeam?.color || '#2563eb')}
+              />
+            )}
+
+            {teamMode === 'both' ? (
+              <div className="grid lg:grid-cols-2 gap-4">
+                <PassSonar
+                  passes={calcFiltered.filter((stat) => stat?.team_side === 'home')}
+                  side="home"
+                  title={`${homeTeam?.name || 'Home'} Pass Sonar`}
+                  subtitle="Direction and accuracy by start zone"
+                />
+                <PassSonar
+                  passes={calcFiltered.filter((stat) => stat?.team_side === 'away')}
+                  side="away"
+                  title={`${awayTeam?.name || 'Away'} Pass Sonar`}
+                  subtitle="Direction and accuracy by start zone"
+                />
+              </div>
+            ) : (
+              <PassSonar
+                passes={calcFiltered.filter((stat) => stat?.team_side === teamMode)}
+                side={teamMode}
+                title={`${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar`}
+                subtitle="Direction and accuracy by start zone"
               />
             )}
 

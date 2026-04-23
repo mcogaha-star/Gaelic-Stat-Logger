@@ -877,12 +877,39 @@ function buildShotAssistCredits(stats) {
   return out;
 }
 
-function buildTouchesMap(stats) {
-  const out = new Map();
-  const add = (sel) => {
-    const key = selectionKey(sel);
-    if (!key) return;
-    out.set(key, (out.get(key) || 0) + 1);
+function getAccuracyScore(value) {
+  const v = String(value || '').trim();
+  if (v === '++') return 3;
+  if (v === '+') return 1;
+  if (v === '-') return -1;
+  if (v === '--') return -3;
+  return 0;
+}
+
+function getAccuracyColor(value) {
+  if (!Number.isFinite(value)) return '#cbd5e1';
+  if (value <= -2) return '#dc2626';
+  if (value < 0) return '#f97316';
+  if (value < 2) return '#facc15';
+  if (value < 3) return '#86efac';
+  return '#166534';
+}
+
+function buildTouchEvents(stats, playerOptions = []) {
+  const out = [];
+  const add = (sel, stat, x, y, reason) => {
+    const player = normalizePlayerRef(sel);
+    if (!player) return;
+    const xx = Number(x);
+    const yy = Number(y);
+    out.push({
+      key: `${stat?.id || 'stat'}:${player.team_side}:${player.id}:${reason}:${out.length}`,
+      player,
+      stat,
+      x: Number.isFinite(xx) ? xx : null,
+      y: Number.isFinite(yy) ? yy : null,
+      reason,
+    });
   };
 
   for (const stat of Array.isArray(stats) ? stats : []) {
@@ -891,52 +918,172 @@ function buildTouchesMap(stats) {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
 
     if (stat.stat_type === 'pass') {
-      if (deriveOutcome(stat, extra) === 'completed') {
-        add(extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : extra?.pass?.intended_recipient);
-      }
+      add(extra?.pass?.won_by, stat, stat?.end_x_position, stat?.end_y_position, 'Pass Won');
       if (normalizeOutcomeAlias(extra?.pass?.outcome) === 'broken_retained') {
-        add(extra?.pass?.recovered_by);
+        add(extra?.pass?.recovered_by, stat, stat?.end_x_position, stat?.end_y_position, 'Broken Retained');
       }
       if (extra?.pass?.deadball) {
-        add(extra?.pass?.passer);
+        add(extra?.pass?.passer, stat, stat?.x_position, stat?.y_position, 'Deadball Pass');
       }
-      continue;
-    }
-
-    if (stat.stat_type === 'kickout') {
-      if (['clean', 'break'].includes(String(extra?.kickout?.outcome || ''))) add(extra?.kickout?.won_by);
-      continue;
-    }
-
-    if (stat.stat_type === 'throw_in') {
-      if (['clean', 'break'].includes(String(extra?.throw_in?.outcome || ''))) add(extra?.throw_in?.won_by);
       continue;
     }
 
     if (stat.stat_type === 'turnover' || extra?.turnover) {
-      if (normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover') === 'foul') continue;
-      add(extra?.turnover?.recovered_by);
+      add(extra?.turnover?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Turnover Recovery');
       continue;
     }
 
-    if (stat.stat_type === 'carry') {
-      if (extra?.carry?.solo_plus_go) add(extra?.carry?.carrier);
+    if (stat.stat_type === 'kickout') {
+      add(extra?.kickout?.won_by, stat, stat?.end_x_position, stat?.end_y_position, 'Kickout Won');
+      const kickTeam = inferRestartTeamSide(stat, extra);
+      if (kickTeam) {
+        const keeper = getKeeperCandidate(playerOptions, kickTeam);
+        add(
+          keeper
+            ? { kind: 'player', ...keeper }
+            : null,
+          stat,
+          stat?.x_position,
+          stat?.y_position,
+          'Own Kickout Taken',
+        );
+      }
+      continue;
+    }
+
+    if (stat.stat_type === 'throw_in') {
+      add(extra?.throw_in?.won_by, stat, stat?.end_x_position, stat?.end_y_position, 'Throw In Won');
       continue;
     }
 
     if (stat.stat_type === 'shot') {
+      const outcome = String(extra?.shot?.outcome || '');
+      const result = String(extra?.shot?.result || '');
+      if (['short', 'blocked', 'saved', 'post'].includes(outcome) && ['retained', 'opposition'].includes(result)) {
+        add(extra?.shot?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Shot Recovery');
+      }
       const situation = String(extra?.shot?.situation || '');
       if (['free_ground', 'free_hands', '45', 'penalty'].includes(situation)) {
-        add(extra?.shot?.player);
+        add(extra?.shot?.player, stat, stat?.x_position, stat?.y_position, 'Placed Ball Shot');
       }
-      const result = String(extra?.shot?.result || '');
-      if (['retained', 'opposition'].includes(result)) {
-        add(extra?.shot?.recovered_by);
+      continue;
+    }
+
+    if (stat.stat_type === 'carry') {
+      if (extra?.carry?.deadball) {
+        add(extra?.carry?.carrier, stat, stat?.x_position, stat?.y_position, 'Deadball Carry');
+      }
+      if (extra?.carry?.solo_plus_go) {
+        add(extra?.carry?.carrier, stat, stat?.x_position, stat?.y_position, 'Solo & Go');
+      }
+      if (String(extra?.carry?.outcome || '') === 'dispossessed_retained') {
+        add(extra?.carry?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Dispossessed Retained');
       }
     }
   }
 
   return out;
+}
+
+function buildTouchesMap(stats, playerOptions = []) {
+  const out = new Map();
+  for (const touch of buildTouchEvents(stats, playerOptions)) {
+    const key = selectionKey(touch.player);
+    if (!key) continue;
+    out.set(key, (out.get(key) || 0) + 1);
+  }
+
+  return out;
+}
+
+function buildDefensiveActions(stats) {
+  const teamActions = [];
+  const playerActions = [];
+  const playerSeen = new Set();
+  const addPlayerAction = (stat, sel, reason, x, y) => {
+    const player = normalizePlayerRef(sel);
+    if (!player) return;
+    const key = `${stat?.id || 'stat'}:${player.team_side}:${player.id}`;
+    if (playerSeen.has(key)) return;
+    playerSeen.add(key);
+    playerActions.push({
+      key,
+      stat,
+      player,
+      teamSide: player.team_side,
+      reason,
+      x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
+      y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
+    });
+  };
+
+  for (const stat of Array.isArray(stats) ? stats : []) {
+    if (!stat) continue;
+    if (isBroughtBackAdvantageStat(stat)) continue;
+    const extra = safeParseJSON(stat.extra_data || '{}', {});
+    const actionsForRow = new Set();
+
+    const addTeamAction = (teamSide, reason, x, y) => {
+      if (teamSide !== 'home' && teamSide !== 'away') return;
+      const key = `${stat?.id || 'stat'}:${teamSide}`;
+      if (actionsForRow.has(key)) return;
+      actionsForRow.add(key);
+      teamActions.push({
+        key,
+        stat,
+        teamSide,
+        reason,
+        x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
+        y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
+      });
+    };
+
+    if (stat.stat_type === 'turnover' || extra?.turnover) {
+      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
+      const recovered = normalizePlayerRef(extra?.turnover?.recovered_by);
+      const forced = normalizePlayerRef(extra?.turnover?.forced_by);
+      const teamSide =
+        recovered?.team_side
+        || forced?.team_side
+        || (turnoverType === 'foul'
+          ? normalizePlayerRef(extractFoulFromStat(stat)?.foul_on || extractFoulFromStat(stat)?.foul_on_or_forced_by)?.team_side
+          : null);
+      addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      if (stat.stat_type === 'carry' && String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
+        addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+      }
+      continue;
+    }
+
+    if (stat.stat_type === 'carry') {
+      const carrierSide = extra?.carry?.carrier?.team_side || stat?.team_side;
+      if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
+        const defendingSide = oppositeTeamSide(carrierSide);
+        addTeamAction(defendingSide, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+        addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+      }
+      continue;
+    }
+
+    if (stat.stat_type === 'pass') {
+      const passerSide = extra?.pass?.passer?.team_side || stat?.team_side;
+      if (String(extra?.pass?.pressure_on_passer || '').toLowerCase() === 'high') {
+        addTeamAction(oppositeTeamSide(passerSide), 'High Pressure Pass', stat?.x_position, stat?.y_position);
+      }
+      continue;
+    }
+
+    if (stat.stat_type === 'shot') {
+      const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
+      if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') {
+        addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure Shot', stat?.x_position, stat?.y_position);
+      }
+    }
+  }
+
+  return { teamActions, playerActions };
 }
 
 function DirectionBadge({ className = '', label = 'Attacking ->' }) {
@@ -1085,6 +1232,14 @@ function PitchViz({
     if (out) lines.push(`Outcome: ${toTitleCase(out)}`);
     const actor = getPrimaryActorSelection(s, extra);
     const actorLabel = selectionTooltipLabel(actor);
+    if (s.stat_type === 'touch') {
+      const touchPlayer = selectionTooltipLabel(extra?.touch?.player);
+      if (touchPlayer) lines.push(`Player: ${touchPlayer}`);
+      if (extra?.touch?.reason) lines.push(`Touch: ${toTitleCase(extra.touch.reason)}`);
+    }
+    if (s.stat_type === 'defensive_action' && extra?.defensive_action?.reason) {
+      lines.push(`Defensive Action: ${toTitleCase(extra.defensive_action.reason)}`);
+    }
     if (actorLabel) lines.push(`Player: ${actorLabel}`);
     else if (s.player_name || s.player_number) lines.push(`Player: ${[s.player_number ? `#${s.player_number}` : '', s.player_name || ''].filter(Boolean).join(' ')}`);
     const kickoutWinner = s.stat_type === 'kickout'
@@ -1695,6 +1850,208 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   );
 }
 
+function describeSector(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const startOuter = {
+    x: cx + outerR * Math.cos(startAngle),
+    y: cy + outerR * Math.sin(startAngle),
+  };
+  const endOuter = {
+    x: cx + outerR * Math.cos(endAngle),
+    y: cy + outerR * Math.sin(endAngle),
+  };
+  const startInner = {
+    x: cx + innerR * Math.cos(endAngle),
+    y: cy + innerR * Math.sin(endAngle),
+  };
+  const endInner = {
+    x: cx + innerR * Math.cos(startAngle),
+    y: cy + innerR * Math.sin(startAngle),
+  };
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  return [
+    `M ${startOuter.x} ${startOuter.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArc} 1 ${endOuter.x} ${endOuter.y}`,
+    `L ${startInner.x} ${startInner.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${endInner.x} ${endInner.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } = {}) {
+  const zoneBuckets = {
+    'Defensive Third': [],
+    'Middle Third': [],
+    'Attacking Third': [],
+  };
+  for (const stat of Array.isArray(passes) ? passes : []) {
+    if (!stat || stat.stat_type !== 'pass') continue;
+    if (isBroughtBackAdvantageStat(stat)) continue;
+    const extra = safeParseJSON(stat.extra_data || '{}', {});
+    const passer = normalizePlayerRef(extra?.pass?.passer);
+    if (!passer) continue;
+    if (side && passer.team_side !== side) continue;
+    if (playerId && passer.id !== playerId) continue;
+    const start = transformDisplayPoint(stat?.x_position, stat?.y_position, passer.team_side, true);
+    const end = transformDisplayPoint(stat?.end_x_position, stat?.end_y_position, passer.team_side, true);
+    if (!start || !end) continue;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
+    const angle = Math.atan2(dy, dx);
+    const normalizedAngle = angle < 0 ? angle + (Math.PI * 2) : angle;
+    const bin = Math.min(bins - 1, Math.floor((normalizedAngle / (Math.PI * 2)) * bins));
+    const attackingX = start.x;
+    const zone = attackingX < 45 ? 'Defensive Third' : attackingX < (PITCH_W - 45) ? 'Middle Third' : 'Attacking Third';
+    if (!zoneBuckets[zone]) continue;
+    zoneBuckets[zone].push({
+      stat,
+      bin,
+      accuracyScore: getAccuracyScore(extra?.pass?.accuracy),
+      accuracyLabel: String(extra?.pass?.accuracy || '+'),
+    });
+  }
+
+  return Object.entries(zoneBuckets).map(([zone, events]) => {
+    const buckets = Array.from({ length: bins }, (_, index) => ({
+      index,
+      count: 0,
+      accuracyTotal: 0,
+      averageAccuracy: NaN,
+      color: '#cbd5e1',
+      events: [],
+    }));
+    events.forEach((event) => {
+      const bucket = buckets[event.bin];
+      bucket.count += 1;
+      bucket.accuracyTotal += event.accuracyScore;
+      bucket.events.push(event);
+    });
+    buckets.forEach((bucket) => {
+      if (bucket.count > 0) {
+        bucket.averageAccuracy = bucket.accuracyTotal / bucket.count;
+        bucket.color = getAccuracyColor(bucket.averageAccuracy);
+      }
+    });
+    return { zone, total: events.length, buckets };
+  });
+}
+
+function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true }) {
+  const zones = useMemo(() => buildPassSonarData(passes, { side, playerId }), [passes, side, playerId]);
+  const renderContent = (isFullscreen = false) => (
+    <div className="w-full space-y-3">
+      {!isFullscreen && (
+        <div>
+          <div className="font-semibold text-slate-900">{title}</div>
+          {subtitle ? <div className="text-xs text-slate-500">{subtitle}</div> : null}
+        </div>
+      )}
+      <div className={`grid gap-4 ${zones.length > 1 ? 'lg:grid-cols-3' : ''}`}>
+        {zones.map((zone) => {
+          const size = 220;
+          const cx = size / 2;
+          const cy = size / 2;
+          const maxCount = Math.max(1, ...zone.buckets.map((bucket) => bucket.count));
+          return (
+            <div key={zone.zone} className={`rounded-xl ${isFullscreen ? 'bg-white/95 p-4' : 'border border-slate-200 bg-white p-4'}`}>
+              <div className="mb-2">
+                <div className="font-medium text-slate-900">{zone.zone}</div>
+                <div className="text-xs text-slate-500">{zone.total} passes</div>
+              </div>
+              <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[260px] mx-auto">
+                {[0.25, 0.5, 0.75, 1].map((ratio) => (
+                  <circle
+                    key={ratio}
+                    cx={cx}
+                    cy={cy}
+                    r={80 * ratio}
+                    fill="none"
+                    stroke="rgba(148,163,184,0.35)"
+                    strokeWidth="1"
+                  />
+                ))}
+                {zone.buckets.map((bucket) => {
+                  const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+                  const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+                  const outerR = 18 + ((bucket.count / maxCount) * 62);
+                  const path = describeSector(cx, cy, 10, outerR, startAngle, endAngle);
+                  const accuracyLabel = Number.isFinite(bucket.averageAccuracy) ? bucket.averageAccuracy.toFixed(2) : 'NA';
+                  return (
+                    <path key={bucket.index} d={path} fill={bucket.color} opacity={bucket.count ? 0.92 : 0.15} stroke="rgba(15,23,42,0.35)" strokeWidth="1">
+                      <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nAvg Accuracy Score: ${accuracyLabel}`}</title>
+                    </path>
+                  );
+                })}
+                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
+                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
+                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
+                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
+              </svg>
+            </div>
+          );
+        })}
+      </div>
+      {!isFullscreen && (
+        <div className="text-[11px] text-slate-500">
+          Wedge length = relative pass frequency by direction. Colour = average pass accuracy score (`--=-3`, `-=-1`, `+=1`, `++=3`).
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <FullscreenMapShell title={title} enabled={fullscreenEnabled}>
+      {(isFullscreen) => renderContent(isFullscreen)}
+    </FullscreenMapShell>
+  );
+}
+
+function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null }) {
+  const filtered = useMemo(() => {
+    return (Array.isArray(touchEvents) ? touchEvents : []).filter((event) => !playerId || event?.player?.id === playerId);
+  }, [touchEvents, playerId]);
+
+  const stats = useMemo(() => filtered.map((event) => ({
+    id: event.key,
+    stat_type: 'touch',
+    team_side: event.player?.team_side,
+    x_position: event.x,
+    y_position: event.y,
+    time_s: event?.stat?.time_s,
+    normalized_time_s: event?.stat?.normalized_time_s,
+    play_id: event?.stat?.play_id,
+    possession_id: event?.stat?.possession_id,
+    extra_data: JSON.stringify({
+      touch: {
+        player: { kind: 'player', ...event.player },
+        reason: event.reason,
+      },
+    }),
+  })), [filtered]);
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">{title}</div>
+        {stats.length ? (
+          <PitchViz
+            stats={stats}
+            homeColor={homeColor}
+            awayColor={awayColor}
+            colorBy="team"
+            showColorControls={false}
+            fullscreenEnabled={fullscreenEnabled}
+            fullscreenTitle={title}
+            onOpenVideoAt={onOpenVideoAt}
+          />
+        ) : (
+          <div className="text-sm text-slate-500">Select a player to view their touches.</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam }) {
   const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
     ? reportFilters.allowedActionTypes
@@ -2193,12 +2550,16 @@ export {
   isGoalkeeperPlayer,
   getKeeperCandidate,
   buildShotAssistCredits,
+  buildDefensiveActions,
+  buildTouchEvents,
   buildTouchesMap,
   DirectionBadge,
   transformDisplayPoint,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
+  PassSonar,
+  TouchMap,
   defenceSetStateKey,
   ReportFiltersFields,
   ReportFiltersCard,

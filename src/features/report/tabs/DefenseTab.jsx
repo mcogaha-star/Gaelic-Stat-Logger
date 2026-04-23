@@ -41,12 +41,14 @@ import {
   getKeeperCandidate,
   isGoalkeeperPlayer,
   buildShotAssistCredits,
+  buildDefensiveActions,
   buildTouchesMap,
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
   PitchViz,
+  TouchMap,
   AttackChannelPitch,
   PassNetwork,
   ShotMap,
@@ -77,11 +79,7 @@ function DefenseTab({
 
   const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
   const calcTurnovers = useMemo(() => calcBase.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [calcBase]);
-  const defensiveFouls = useMemo(() => calcBase.filter((s) => {
-    const f = extractFoulFromStat(s);
-    if (!f?.foul_by?.team_side) return false;
-    return ['pull', 'push', 'tackle', 'high_tackle'].includes(normalizeFoulType(f?.foul_type));
-  }), [calcBase]);
+  const defensiveActions = useMemo(() => buildDefensiveActions(calcBase), [calcBase]);
 
   const classifyTurnover = (s) => {
     const ex = safeParseJSON(s?.extra_data || '{}', {});
@@ -110,12 +108,11 @@ function DefenseTab({
         const c = classifyTurnover(s);
         return c.lost === teamSide && c.unforced;
       }).length;
-
-      const winXs = calcTurnovers
-        .filter((s) => classifyTurnover(s).rec === teamSide)
-        .map((s) => Number(s?.x_position))
+      const actionXs = defensiveActions.teamActions
+        .filter((action) => action.teamSide === teamSide)
+        .map((action) => Number(action?.x))
         .filter(Number.isFinite);
-      const avgHeight = winXs.length ? (winXs.reduce((a, b) => a + b, 0) / winXs.length) : NaN;
+      const avgHeight = actionXs.length ? (actionXs.reduce((a, b) => a + b, 0) / actionXs.length) : NaN;
 
       const byPoss = groupByPossession(calcBase);
       const startKeys = new Set();
@@ -140,9 +137,7 @@ function DefenseTab({
         const ex = safeParseJSON(s.extra_data || '{}', {});
         return deriveOutcome(s, ex) === 'completed';
       }).length;
-      const defActionCount =
-        won +
-        defensiveFouls.filter((s) => extractFoulFromStat(s)?.foul_by?.team_side === teamSide).length;
+      const defActionCount = defensiveActions.teamActions.filter((action) => action.teamSide === teamSide).length;
 
       const concededKeys = new Set();
       for (const s of calcTurnovers) {
@@ -176,7 +171,25 @@ function DefenseTab({
       };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [calcTurnovers, calcBase, defensiveFouls]);
+  }, [calcTurnovers, calcBase, defensiveActions]);
+  const defActionMapStats = useMemo(() => defensiveActions.teamActions
+    .filter((action) => teamMode === 'both' || action.teamSide === teamMode)
+    .map((action) => ({
+      id: action.key,
+      stat_type: 'defensive_action',
+      team_side: action.teamSide,
+      x_position: action.x,
+      y_position: action.y,
+      time_s: action?.stat?.time_s,
+      normalized_time_s: action?.stat?.normalized_time_s,
+      play_id: action?.stat?.play_id,
+      possession_id: action?.stat?.possession_id,
+      extra_data: JSON.stringify({
+        defensive_action: {
+          reason: action.reason,
+        },
+      }),
+    })), [defensiveActions, teamMode]);
 
   const typeRows = useMemo(() => {
     const rows = new Map();
@@ -205,7 +218,6 @@ function DefenseTab({
     return true;
   }), [turnovers, turnoverResult, turnoverTypes, teamMode]);
 
-  const mapStats = useMemo(() => filteredTurnovers, [filteredTurnovers]);
   const [typeSort, setTypeSort] = useState({ key: teamMode === 'both' ? 'home' : 'won', dir: 'desc' });
   const typeColumns = useMemo(() => ([
     { key: 'type', label: 'Type', sortValue: (r) => r.type },
@@ -231,7 +243,7 @@ function DefenseTab({
               { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
               { label: 'Turnover Differential', home: kpis.home.diff, away: kpis.away.diff },
               { label: 'Unforced TO Lost', home: kpis.home.unforcedLost, away: kpis.away.unforcedLost },
-              { label: 'Average Regain Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
+              { label: 'Average DA Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
               { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
               { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
               { label: 'Turnover Rate', home: formatPct(Number.isFinite(kpis.home.turnoverRate) ? kpis.home.turnoverRate * 100 : NaN), away: formatPct(Number.isFinite(kpis.away.turnoverRate) ? kpis.away.turnoverRate * 100 : NaN) },
@@ -241,23 +253,22 @@ function DefenseTab({
             ]}
           />
 
-          {mapStats.length === 0 ? (
+          {defActionMapStats.length === 0 ? (
             <Card>
-              <CardContent className="p-6 text-sm text-slate-600 text-center">No turnover events available for current filters.</CardContent>
+              <CardContent className="p-6 text-sm text-slate-600 text-center">No defensive actions available for current filters.</CardContent>
             </Card>
           ) : (
             <Card>
               <CardContent className="p-4 space-y-3 h-full">
-                <div className="font-semibold text-slate-900">Turnover Lost Map</div>
+                <div className="font-semibold text-slate-900">Defensive Action Map</div>
                 <PitchViz
-                  stats={mapStats}
+                  stats={defActionMapStats}
                   homeColor={homeTeam?.color}
                   awayColor={awayTeam?.color}
-                  colorBy={teamMode === 'both' ? 'team' : 'action'}
+                  colorBy="team"
                   showColorControls={false}
-                  mirrorAwayWhenBoth={teamMode !== 'home'}
+                  mirrorAwayWhenBoth
                   directionLabel="Home ->"
-                  turnoverEndpointOnly
                   pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}
                 />

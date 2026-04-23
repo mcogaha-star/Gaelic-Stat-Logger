@@ -48,14 +48,18 @@ import {
   getKeeperCandidate,
   isGoalkeeperPlayer,
   buildShotAssistCredits,
+  buildDefensiveActions,
+  buildTouchEvents,
   buildTouchesMap,
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
   teamRowTint,
   PitchViz,
+  TouchMap,
   AttackChannelPitch,
   PassNetwork,
+  PassSonar,
   ShotMap,
   shotSideFromY,
   shotZoneFromDistance,
@@ -159,7 +163,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [playerOptions]);
 
   const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
-  const touchMap = useMemo(() => buildTouchesMap(calcBase), [calcBase]);
+  const touchMap = useMemo(() => buildTouchesMap(calcBase, playerOptions), [calcBase, playerOptions]);
+  const touchEvents = useMemo(() => buildTouchEvents(calcBase, playerOptions), [calcBase, playerOptions]);
+  const defensiveActions = useMemo(() => buildDefensiveActions(calcBase), [calcBase]);
 
   const leaderboard = useMemo(() => {
     const rows = new Map();
@@ -183,7 +189,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         passComp: 0,
         carries: 0,
         carryComp: 0,
-        turnoversWon: 0,
+        turnoversForced: 0,
+        turnoversRecovered: 0,
         turnoversLost: 0,
         foulsWon: 0,
         foulsConceded: 0,
@@ -194,8 +201,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         goalAtt: 0,
         goalMade: 0,
         defActions: 0,
-        contacts: 0,
-        dispossessions: 0,
         blocks: 0,
         progPassAtt: 0,
         progPassComp: 0,
@@ -339,8 +344,10 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         const rec = turnoverType === 'foul'
           ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || t?.forced_by)
           : ensure(t?.recovered_by);
+        const forced = ensure(t?.forced_by);
         const lost = ensure(t?.lost_by);
-        if (rec) rec.turnoversWon += 1;
+        if (rec) rec.turnoversRecovered += 1;
+        if (forced) forced.turnoversForced += 1;
         if (lost) lost.turnoversLost += 1;
       }
       const f = extractFoulFromStat(s);
@@ -441,6 +448,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       if (row) row.touches = count;
     }
 
+    for (const action of defensiveActions.playerActions) {
+      const row = rows.get(selectionKey(action.player));
+      if (row) row.defActions += 1;
+    }
+
     return Array.from(rows.values()).map((row) => {
       const passPct = row.passes ? (row.passComp / row.passes) * 100 : NaN;
       const carryPct = row.carries ? (row.carryComp / row.carries) * 100 : NaN;
@@ -476,7 +488,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         longKickoutWinPct,
       };
     });
-  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
+  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap, defensiveActions]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -545,13 +557,20 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     defense: [
       { key: 'player', label: 'Player' },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
-      { key: 'turnoversWon', label: 'TO Won', numeric: true },
+      { key: 'turnoversForced', label: 'TO Forced', numeric: true },
+      { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true },
       { key: 'defActions', label: 'Def. Actions', numeric: true },
-      { key: 'contacts', label: 'Contacts', numeric: true },
-      { key: 'dispossessions', label: 'Dispossessions', numeric: true },
       { key: 'blocks', label: 'Blocks', numeric: true },
-      { key: 'foulsWon', label: 'Fouls Won', numeric: true },
       { key: 'foulsConceded', label: 'Fouls Conceded', numeric: true },
+    ],
+    touches: [
+      { key: 'player', label: 'Player' },
+      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+      { key: 'touches', label: 'Touches', numeric: true },
+      { key: 'passRate', label: 'Pass Rate', numeric: true, sortValue: (r) => r.passRate, render: (r) => formatPct(r.passRate) },
+      { key: 'carryRate', label: 'Carry Rate', numeric: true, sortValue: (r) => r.carryRate, render: (r) => formatPct(r.carryRate) },
+      { key: 'shootRate', label: 'Shoot Rate', numeric: true, sortValue: (r) => r.shootRate, render: (r) => formatPct(r.shootRate) },
+      { key: 'turnoverRate', label: 'TO Rate', numeric: true, sortValue: (r) => r.turnoverRate, render: (r) => formatPct(r.turnoverRate) },
     ],
     restarts: [
       { key: 'player', label: 'Player' },
@@ -616,7 +635,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       retention: 'touches',
       tendencies: 'passRate',
       creation: 'shotsCreated',
-      defense: 'turnoversWon',
+      defense: 'defActions',
+      touches: 'touches',
       restarts: 'kickoutWins',
       goalkeepers: 'kickoutsTaken',
     };
@@ -677,12 +697,29 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   return (
     <div className="space-y-4">
         {focusPlayerId !== 'all' && focusStats.length > 0 && (
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="font-semibold text-slate-900">Player Events</div>
-              <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Player Events</div>
+                <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
+              </CardContent>
+            </Card>
+            <TouchMap
+              touchEvents={touchEvents}
+              playerId={focusPlayerId}
+              title="Touch Map"
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+            />
+          </div>
+        )}
+        {focusPlayerId !== 'all' && (
+          <PassSonar
+            passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
+            playerId={focusPlayerId}
+            title="Player Pass Sonar"
+            subtitle="Direction and accuracy by start zone"
+          />
         )}
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -694,6 +731,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 ['tendencies', 'Tendencies'],
                 ['creation', 'Creation'],
                 ['defense', 'Defense'],
+                ['touches', 'Touches'],
                 ['restarts', 'Restarts'],
                 ['goalkeepers', 'Goalkeepers'],
               ].map(([value, label]) => (
