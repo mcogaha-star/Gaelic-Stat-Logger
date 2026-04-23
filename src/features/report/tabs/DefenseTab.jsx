@@ -86,8 +86,8 @@ function DefenseTab({
     const foul = extractFoulFromStat(s);
     const lost = t?.lost_by?.team_side || foul?.foul_by?.team_side || null;
     const rec = t?.recovered_by?.team_side || foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || null;
-    const unforced = !!t?.unforced;
     const typ = String(t?.type || t?.turnover_type || ex?.turnover_type || foul?.foul_type || '');
+    const unforced = !!t?.unforced || normalizeFoulType(typ) === 'unforced';
     return { lost, rec, unforced, typ };
   };
 
@@ -100,15 +100,10 @@ function DefenseTab({
     const calc = (teamSide) => {
       const won = turnovers.filter((s) => classifyTurnover(s).rec === teamSide).length;
       const lost = turnovers.filter((s) => classifyTurnover(s).lost === teamSide).length;
-      const total = turnovers.filter((s) => {
+      const unforcedLost = turnovers.filter((s) => {
         const c = classifyTurnover(s);
-        return c.rec === teamSide || c.lost === teamSide;
+        return c.lost === teamSide && c.unforced;
       }).length;
-      const forced = turnovers.filter((s) => {
-        const c = classifyTurnover(s);
-        return (c.rec === teamSide || c.lost === teamSide) && !c.unforced;
-      }).length;
-      const forcedPct = total ? (forced / total) * 100 : NaN;
 
       const winXs = turnovers
         .filter((s) => classifyTurnover(s).rec === teamSide)
@@ -164,7 +159,7 @@ function DefenseTab({
         won,
         lost,
         diff: won - lost,
-        forcedPct,
+        unforcedLost,
         avgHeight,
         shotsFrom,
         scoresFrom,
@@ -229,7 +224,7 @@ function DefenseTab({
               { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
               { label: 'Turnovers Lost', home: kpis.home.lost, away: kpis.away.lost },
               { label: 'Turnover Differential', home: kpis.home.diff, away: kpis.away.diff },
-              { label: 'Forced Turnover %', home: formatPct(kpis.home.forcedPct), away: formatPct(kpis.away.forcedPct) },
+              { label: 'Unforced TO Lost', home: kpis.home.unforcedLost, away: kpis.away.unforcedLost },
               { label: 'Average Regain Height (x)', home: Number.isFinite(kpis.home.avgHeight) ? kpis.home.avgHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgHeight) ? kpis.away.avgHeight.toFixed(1) : 'NA' },
               { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
               { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
