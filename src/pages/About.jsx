@@ -18,7 +18,6 @@ const DEFINITIONS = [
   ['Scoring Zone Entry', 'A pass or carry that starts outside the scoring zone and ends inside it.'],
   ['Progressive Meters', 'Distance reduced to the centre of goal, measured from the action start to end point and clamped at zero or above.'],
   ['Progressive Action', 'A pass or carry that gains at least 10m outside the opposition 45, 5m inside it, or crosses into the opposition 45.'],
-  ['Pressure', 'High = contact. Medium = defender within 3m without contact. Low = defender more than 3m away.'],
   ['Build-Up Speed', 'Progression speed based on derived live possession time, so dead-ball gaps are not counted in the tempo denominator.'],
   ['Shot Assist', 'The final completed pass before a shot.'],
   ['Shots Created', 'Currently the same as shot assists: the final completed pass before a shot.'],
@@ -26,15 +25,25 @@ const DEFINITIONS = [
   ['Own Kickout Win %', 'Own kickouts won divided by own kickouts taken.'],
   ['Turnover Rate', 'For player tables, turnovers lost divided by touches. For team-level defense cards, turnovers lost divided by possessions.'],
   ['PPDA', 'Opponent completed passes divided by defensive actions, where defensive actions include turnovers won and selected defensive fouls.'],
-  ['Pass Accuracy', '`++` = perfect in stride with no adjustment. `+` = standard completed pass with only minor adjustment. `-` = potentially winnable but major adjustment required. `--` = very poor or effectively unwinnable. Judge the pass by defender positioning, pace, weight, and accuracy. Difficulty should not excuse or inflate the accuracy rating.'],
   ['Private Sync', 'Team and player names sync through account-private identity tables. Stat rows use private IDs and jersey-number fallbacks rather than duplicating names. This is pseudonymisation, not encryption.'],
-  ['Carry Pressure', 'High means contact or tackle pressure and should include the defender. Medium means a defender within 3m without contact. Low means the defender is more than 3m away.'],
   ['Dispossessed - Retained', 'A carry where the ball carrier is disrupted or dispossessed but the in-possession team recovers the ball. It is not a turnover and does not end the possession.'],
   ['Touches', 'Times a player gains or takes control of the ball: completed passes received, kickouts won, throw-ins won, turnovers recovered, qualifying dead-ball restarts taken, and shot recoveries logged to a player.'],
   ['Carry Rate', 'Carries divided by touches.'],
   ['Pass Rate', 'Passes divided by touches.'],
   ['Shoot Rate', 'Shots divided by touches.'],
   ['No-Carry Pass Rate', 'Passes played by a player before they have carried the ball in that same possession, divided by touches.'],
+];
+
+const LOGGING_GUIDE = [
+  ['Pressure', 'Use `High` when there is contact or tackle pressure. Use `Medium` when a defender is within 3m but there is no contact. Use `Low` when the nearest defender is more than 3m away.'],
+  ['Carry Pressure', 'On carries, `High` pressure should include the defender. The defender should be from the opposition team.'],
+  ['Pass Accuracy ++', 'Perfectly weighted or in stride. The receiver does not need to adjust. Judge defender positioning, pace, weight, and accuracy of the pass.'],
+  ['Pass Accuracy +', 'Standard completed pass. The receiver may make only a minor adjustment. This is the default for newly logged passes.'],
+  ['Pass Accuracy -', 'Potentially winnable, but the receiver needs a major adjustment. This can still be a completed pass if the receiver wins it.'],
+  ['Pass Accuracy --', 'Very poor or effectively unwinnable pass. Use this when the pass quality, not the difficulty of the situation, is the main problem.'],
+  ['Accuracy vs Difficulty', 'Do not increase or decrease the accuracy rating just because the pass was difficult. Rate whether the pass itself gave the receiver a fair chance.'],
+  ['Set Defence', '`Yes` means the opposition defence was set on that action. `No` means the action happened before the defence was set.'],
+  ['Team-Level Fouls', 'For breach, technical, and other team-level fouls, set `Foul By` to `Home Team` or `Away Team` and set `Foul On` to the opposite team.'],
 ];
 
 const ID_EDIT_GUIDE = [
@@ -102,6 +111,7 @@ export default function About() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="definitions">Definitions</TabsTrigger>
+            <TabsTrigger value="logging">Logging Guide</TabsTrigger>
             <TabsTrigger value="edit-ids">Edit IDs</TabsTrigger>
             <TabsTrigger value="possession">Possession</TabsTrigger>
           </TabsList>
@@ -172,10 +182,29 @@ export default function About() {
               <CardContent className="p-6 space-y-4">
                 <div>
                   <div className="text-xl font-semibold text-slate-900">Definitions</div>
-                  <div className="text-sm text-slate-500 mt-1">Key metrics and terms used throughout the reporting pages.</div>
+                  <div className="text-sm text-slate-500 mt-1">Automatic calculations and report metrics used throughout the app.</div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   {DEFINITIONS.map(([term, meaning]) => (
+                    <div key={term} className="rounded-xl border border-slate-200 p-4">
+                      <div className="font-semibold text-slate-900">{term}</div>
+                      <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="logging" className="mt-0">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Logging Guide</div>
+                  <div className="text-sm text-slate-500 mt-1">How to use subjective logging fields consistently while tagging a match.</div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {LOGGING_GUIDE.map(([term, meaning]) => (
                     <div key={term} className="rounded-xl border border-slate-200 p-4">
                       <div className="font-semibold text-slate-900">{term}</div>
                       <div className="text-sm text-slate-600 mt-1">{meaning}</div>
