@@ -262,16 +262,16 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           const shotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '');
           if (shotType === 'point') {
             r.pointAtt += 1;
-            if (o === 'point') r.pointMade += 1;
           }
           if (shotType === '2_point') {
             r.twoAtt += 1;
-            if (o === '2_point') r.twoMade += 1;
           }
           if (shotType === 'goal') {
             r.goalAtt += 1;
-            if (o === 'goal') r.goalMade += 1;
           }
+          if (o === 'point') r.pointMade += 1;
+          if (o === '2_point') r.twoMade += 1;
+          if (o === 'goal') r.goalMade += 1;
           const dist = calcDistanceToGoal(Number(s.x_position), Number(s.y_position));
           if (Number.isFinite(dist)) {
             r.avgShotDistTotal += dist;
@@ -477,8 +477,10 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   };
 
   const renderScoringFraction = (made, attempts) => {
-    if (!Number.isFinite(Number(attempts)) || Number(attempts) <= 0) return '0/0 (NA)';
-    return `${made}/${attempts} (${formatPct((Number(made) / Number(attempts)) * 100)})`;
+    const madeN = Number(made) || 0;
+    const attemptsN = Number(attempts) || 0;
+    if (!Number.isFinite(attemptsN) || attemptsN <= 0) return `${madeN}/0 (NA)`;
+    return `${madeN}/${attemptsN} (${formatPct((madeN / attemptsN) * 100)})`;
   };
 
   const bucketColumns = useMemo(() => ({
