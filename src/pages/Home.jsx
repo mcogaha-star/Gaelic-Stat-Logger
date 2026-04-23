@@ -110,6 +110,27 @@ function sameText(a, b) {
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
+function buildImportedMatchSheet(players = []) {
+    const ordered = (Array.isArray(players) ? players : [])
+        .filter((player) => player?.id)
+        .slice()
+        .sort((a, b) => Number(a?.number || 0) - Number(b?.number || 0));
+    const starters = ordered.slice(0, 15).map((player) => player.id);
+    const starterSet = new Set(starters);
+    const subs = ordered.filter((player) => !starterSet.has(player.id)).map((player) => player.id);
+    return { starters, subs, on_field: starters.slice() };
+}
+
+function parseIdList(value) {
+    if (!value || typeof value !== 'string') return [];
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+        return [];
+    }
+}
+
 async function hydratePrivateTeamsAndPlayers({ localTeams, localPlayers }) {
     const teamByServerId = new Map((localTeams || []).filter((t) => t?.server_team_id).map((t) => [t.server_team_id, t]));
     const playerByServerId = new Map((localPlayers || []).filter((p) => p?.server_player_id).map((p) => [p.server_player_id, p]));
@@ -236,6 +257,12 @@ async function hydrateServerAccountData({ localMatches, localStats, localTeams, 
             const awayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
             const fallbackHomeTeam = homeTeam || await createImportedTeam('home', serverMatch);
             const fallbackAwayTeam = awayTeam || await createImportedTeam('away', serverMatch);
+            const homeSheet = buildImportedMatchSheet(
+                Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackHomeTeam.id)
+            );
+            const awaySheet = buildImportedMatchSheet(
+                Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackAwayTeam.id)
+            );
             localMatch = await db.entities.Match.create({
                 home_team_id: fallbackHomeTeam.id,
                 away_team_id: fallbackAwayTeam.id,
@@ -251,12 +278,12 @@ async function hydrateServerAccountData({ localMatches, localStats, localTeams, 
                 public_match_id: publicMatchId || generatePublicMatchId(),
                 server_match_id: serverMatch?.id || null,
                 is_synced_import: true,
-                home_starters: '[]',
-                away_starters: '[]',
-                home_subs: '[]',
-                away_subs: '[]',
-                home_on_field: '[]',
-                away_on_field: '[]',
+                home_starters: JSON.stringify(homeSheet.starters),
+                away_starters: JSON.stringify(awaySheet.starters),
+                home_subs: JSON.stringify(homeSheet.subs),
+                away_subs: JSON.stringify(awaySheet.subs),
+                home_on_field: JSON.stringify(homeSheet.on_field),
+                away_on_field: JSON.stringify(awaySheet.on_field),
             });
             importedMatches += 1;
             if (publicMatchId) localByPublicId.set(publicMatchId, localMatch);
@@ -265,6 +292,37 @@ async function hydrateServerAccountData({ localMatches, localStats, localTeams, 
             await db.entities.Match.update(localMatch.id, { server_match_id: serverMatch.id });
             localMatch = { ...localMatch, server_match_id: serverMatch.id };
             localByServerId.set(serverMatch.id, localMatch);
+        }
+
+        if (localMatch) {
+            const localHomeTeam = serverMatch?.home_team_ref ? identity.teamByServerId.get(serverMatch.home_team_ref) : null;
+            const localAwayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
+            if (localHomeTeam?.id && localAwayTeam?.id) {
+                const homeSheet = buildImportedMatchSheet(
+                    Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localHomeTeam.id)
+                );
+                const awaySheet = buildImportedMatchSheet(
+                    Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localAwayTeam.id)
+                );
+                const needsRosterBackfill =
+                    parseIdList(localMatch.home_starters).length === 0
+                    && parseIdList(localMatch.away_starters).length === 0
+                    && (homeSheet.starters.length > 0 || awaySheet.starters.length > 0);
+                if (needsRosterBackfill) {
+                    const rosterPatch = {
+                        home_team_id: localHomeTeam.id,
+                        away_team_id: localAwayTeam.id,
+                        home_starters: JSON.stringify(homeSheet.starters),
+                        away_starters: JSON.stringify(awaySheet.starters),
+                        home_subs: JSON.stringify(homeSheet.subs),
+                        away_subs: JSON.stringify(awaySheet.subs),
+                        home_on_field: JSON.stringify(homeSheet.on_field),
+                        away_on_field: JSON.stringify(awaySheet.on_field),
+                    };
+                    await db.entities.Match.update(localMatch.id, rosterPatch);
+                    localMatch = { ...localMatch, ...rosterPatch };
+                }
+            }
         }
 
         const serverStatsResult = await fetchServerStatsForMatch({
@@ -548,7 +606,9 @@ export default function Home() {
                 <div className="max-w-7xl mx-auto px-4 py-6">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Gaelic Stats</h1>
+                            <h1 className="text-2xl font-bold text-slate-900">
+                                <span>Gael</span><span className="text-emerald-600">IQ</span>
+                            </h1>
                             <p className="text-slate-500 mt-1">Match analysis & performance tracking</p>
                         </div>
                         <div className="flex items-center gap-2">

@@ -16,7 +16,7 @@ export default function Privacy() {
 
         <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
           <p className="text-sm">
-            Gaelic Stats Logger syncs match data to your account so your matches can appear on your own devices. Team
+            GaelIQ syncs match data to your account so your matches can appear on your own devices. Team
             and player names are stored separately from stat rows in account-private identity tables.
           </p>
           <ul className="text-sm list-disc pl-5 space-y-1">

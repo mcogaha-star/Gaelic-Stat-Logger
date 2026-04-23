@@ -25,6 +25,7 @@ import {
   getDerivedPossessionDurationSeconds,
   isDeadBallGapStart,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
