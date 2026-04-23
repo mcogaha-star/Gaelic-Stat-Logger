@@ -338,10 +338,23 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   );
 }
 
-function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone, onOpenVideoAt }) {
+function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [shotMapMode, setShotMapMode] = useState('all');
+  const playerLookup = useMemo(() => {
+    const byId = new Map();
+    const bySideNumber = new Map();
+    for (const player of Array.isArray(playerOptions) ? playerOptions : []) {
+      if (player?.id) byId.set(String(player.id), player);
+      const side = player?.team_side;
+      const number = Number(player?.number);
+      if ((side === 'home' || side === 'away') && Number.isFinite(number)) {
+        bySideNumber.set(`${side}:${number}`, player);
+      }
+    }
+    return { byId, bySideNumber };
+  }, [playerOptions]);
 
   const shots = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
@@ -363,13 +376,27 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
       const z = shotZoneFromDistance(dist);
 
       const playerSel = sh.player && typeof sh.player === 'object' ? sh.player : null;
+      const rosterPlayer = (() => {
+        if (playerSel?.id && playerLookup.byId.has(String(playerSel.id))) return playerLookup.byId.get(String(playerSel.id));
+        const number = Number(playerSel?.number ?? s.player_number);
+        const side = playerSel?.team_side === 'away' || playerSel?.team_side === 'home'
+          ? playerSel.team_side
+          : s.team_side === 'away' ? 'away' : 'home';
+        if (Number.isFinite(number)) return playerLookup.bySideNumber.get(`${side}:${number}`) || null;
+        return null;
+      })();
+
       const playerLabel = (() => {
         if (playerSel?.kind === 'player') {
-          const n = playerSel.number ? `#${playerSel.number}` : '';
-          const name = playerSel.name ? String(playerSel.name) : '';
+          const n = (playerSel.number ?? rosterPlayer?.number) ? `#${playerSel.number ?? rosterPlayer?.number}` : '';
+          const name = String(playerSel.name || rosterPlayer?.name || s.player_name || '').trim();
           return `${n} ${name}`.trim() || 'Player';
         }
-        if (s.player_number) return `#${s.player_number}`;
+        if (s.player_number || rosterPlayer?.number) {
+          const n = s.player_number ?? rosterPlayer?.number;
+          const name = String(s.player_name || rosterPlayer?.name || '').trim();
+          return `#${n} ${name}`.trim();
+        }
         return 'NA';
       })();
 
@@ -405,12 +432,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, reportFilters, shotType, setSho
         isFromPlay: sit === 'play',
         isPlacedBall: sit && sit !== 'play',
         playerLabel,
-        playerId: playerSel?.id || null,
+        playerId: playerSel?.id || rosterPlayer?.id || null,
         timeLabel,
       });
     }
     return out;
-  }, [stats]);
+  }, [stats, playerLookup, scopedReportFilters]);
 
   const filteredShots = useMemo(() => {
     return shots.filter((s) => {

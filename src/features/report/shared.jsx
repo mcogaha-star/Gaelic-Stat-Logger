@@ -1895,12 +1895,13 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
               const outcomeColor = colors[g] || colors.other;
               const isAdv = !!s.broughtBackAdv;
               const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
-              const fillColor = isAdv ? '#e2e8f0' : outcomeColor;
-              const strokeColor = isAdv ? '#2563eb' : (teamMode === 'both' ? teamColor : '#ffffff');
+              const fillColor = isAdv ? teamColor : outcomeColor;
+              const strokeColor = isAdv ? teamColor : (teamMode === 'both' ? teamColor : '#ffffff');
               const shape = ['point', '2_point', 'goal'].includes(String(s.outcome || ''))
                 ? String(s.outcome)
                 : s.shotType; // point|2_point|goal
               const size = 1.87;
+              const advInnerSize = size * 0.48;
               const blackStrokeWidth = isAdv ? 0.45 : (teamMode === 'both' ? 1 : 0.425);
               const teamStrokeWidth = isAdv ? 0.95 : (teamMode === 'both' ? 0.95 : 0.6);
               const tip = [
@@ -1945,6 +1946,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     >
                       <title>{tip}</title>
                     </rect>
+                    {isAdv && (
+                      <rect
+                        x={x - advInnerSize}
+                        y={y - advInnerSize}
+                        width={advInnerSize * 2}
+                        height={advInnerSize * 2}
+                        fill="#ffffff"
+                        opacity="0.98"
+                      />
+                    )}
                     <rect
                       x={x - size}
                       y={y - size}
@@ -1989,6 +2000,17 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     >
                       <title>{tip}</title>
                     </rect>
+                    {isAdv && (
+                      <rect
+                        x={x - advInnerSize}
+                        y={y - advInnerSize}
+                        width={advInnerSize * 2}
+                        height={advInnerSize * 2}
+                        fill="#ffffff"
+                        opacity="0.98"
+                        transform={`rotate(45 ${x} ${y})`}
+                      />
+                    )}
                     <rect
                       x={x - size}
                       y={y - size}
@@ -2029,6 +2051,15 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                   >
                     <title>{tip}</title>
                   </circle>
+                  {isAdv && (
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={advInnerSize}
+                      fill="#ffffff"
+                      opacity="0.98"
+                    />
+                  )}
                   <circle
                     cx={x}
                     cy={y}
