@@ -303,7 +303,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
   return (
     <div className="space-y-4">
-      <div className={kickoutPressCards.length > 0 ? 'grid gap-4 xl:grid-cols-2' : 'grid gap-4'}>
+      <div className={kickoutPressCards.length > 0 ? 'report-metric-split' : 'grid gap-4'}>
         <ComparisonMetricsCard
           title="Kickout Metrics"
           cardClassName="w-full"
@@ -347,7 +347,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
-              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div className="report-companion-grid">
                 {kickoutPressCards.map((card) => (
                   <KickoutPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
                 ))}

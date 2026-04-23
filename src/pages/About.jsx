@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/AuthContext';
 import { createPageUrl } from '@/utils';
 
@@ -95,114 +96,134 @@ export default function About() {
         </div>
       </div>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">
-                <Info className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <div className="text-xl font-semibold text-slate-900">Gaelic Stats Logger</div>
-                <div className="text-sm text-slate-500">Match analysis and performance tracking</div>
-              </div>
-            </div>
+      <main className="max-w-5xl mx-auto px-4 py-8">
+        <Tabs defaultValue="overview" className="space-y-6">
+          <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-slate-100 p-2">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="account">Account</TabsTrigger>
+            <TabsTrigger value="definitions">Definitions</TabsTrigger>
+            <TabsTrigger value="edit-ids">Edit IDs</TabsTrigger>
+            <TabsTrigger value="possession">Possession</TabsTrigger>
+          </TabsList>
 
-            <div className="text-sm text-slate-700 space-y-2">
-              <p>
-                This app is designed to help log match events quickly on a pitch map and export the data for analysis.
-              </p>
-              <p>
-                For privacy information, see the Privacy page.
-              </p>
-            </div>
-
-            <div className="mt-4">
-              <Link to={createPageUrl('Privacy')}>
-                <Button variant="outline">Privacy</Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6 space-y-3">
-            <div>
-              <div className="text-xl font-semibold text-slate-900">Current Account</div>
-              <div className="text-sm text-slate-500 mt-1">The account currently signed into this app on this device.</div>
-            </div>
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Logged In As</div>
-              <div className="mt-1 text-sm font-medium text-slate-900 break-all">{accountLabel}</div>
-              {isAuthenticated && (
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant={hasGoogleIdentity ? 'outline' : 'default'}
-                    disabled={hasGoogleIdentity || isLinkingGoogle}
-                    onClick={handleLinkGoogle}
-                  >
-                    {hasGoogleIdentity ? 'Google Linked' : 'Link Google Account'}
-                  </Button>
-                  <div className="text-xs text-slate-500 max-w-md">
-                    Link Google to this signed-in account so using Google later opens the same account instead of creating a separate one.
+          <TabsContent value="overview" className="mt-0">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">
+                    <Info className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-xl font-semibold text-slate-900">Gaelic Stats Logger</div>
+                    <div className="text-sm text-slate-500">Match analysis and performance tracking</div>
                   </div>
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div>
-              <div className="text-xl font-semibold text-slate-900">Definitions</div>
-              <div className="text-sm text-slate-500 mt-1">Key metrics and terms used throughout the reporting pages.</div>
-            </div>
-            <div className="space-y-3">
-              {DEFINITIONS.map(([term, meaning]) => (
-                <div key={term} className="rounded-xl border border-slate-200 p-4">
-                  <div className="font-semibold text-slate-900">{term}</div>
-                  <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                <div className="text-sm text-slate-700 space-y-2">
+                  <p>
+                    This app is designed to help log match events quickly on a pitch map and export the data for analysis.
+                  </p>
+                  <p>
+                    For privacy information, see the Privacy page.
+                  </p>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div>
-              <div className="text-xl font-semibold text-slate-900">Edit IDs Guide</div>
-              <div className="text-sm text-slate-500 mt-1">How to fix play order and possession grouping safely in the Data tab.</div>
-            </div>
-            <div className="space-y-3">
-              {ID_EDIT_GUIDE.map(([term, meaning]) => (
-                <div key={term} className="rounded-xl border border-slate-200 p-4">
-                  <div className="font-semibold text-slate-900">{term}</div>
-                  <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                <div className="mt-4">
+                  <Link to={createPageUrl('Privacy')}>
+                    <Button variant="outline">Privacy</Button>
+                  </Link>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div>
-              <div className="text-xl font-semibold text-slate-900">Possession Logic Guide</div>
-              <div className="text-sm text-slate-500 mt-1">Practical rules for tagging possession starts, ends, advantage, and fallback inference safely.</div>
-            </div>
-            <div className="space-y-3">
-              {POSSESSION_LOGIC_GUIDE.map(([term, meaning]) => (
-                <div key={term} className="rounded-xl border border-slate-200 p-4">
-                  <div className="font-semibold text-slate-900">{term}</div>
-                  <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+          <TabsContent value="account" className="mt-0">
+            <Card>
+              <CardContent className="p-6 space-y-3">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Current Account</div>
+                  <div className="text-sm text-slate-500 mt-1">The account currently signed into this app on this device.</div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Logged In As</div>
+                  <div className="mt-1 text-sm font-medium text-slate-900 break-all">{accountLabel}</div>
+                  {isAuthenticated && (
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        variant={hasGoogleIdentity ? 'outline' : 'default'}
+                        disabled={hasGoogleIdentity || isLinkingGoogle}
+                        onClick={handleLinkGoogle}
+                      >
+                        {hasGoogleIdentity ? 'Google Linked' : 'Link Google Account'}
+                      </Button>
+                      <div className="text-xs text-slate-500 max-w-md">
+                        Link Google to this signed-in account so using Google later opens the same account instead of creating a separate one.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="definitions" className="mt-0">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Definitions</div>
+                  <div className="text-sm text-slate-500 mt-1">Key metrics and terms used throughout the reporting pages.</div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {DEFINITIONS.map(([term, meaning]) => (
+                    <div key={term} className="rounded-xl border border-slate-200 p-4">
+                      <div className="font-semibold text-slate-900">{term}</div>
+                      <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="edit-ids" className="mt-0">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Edit IDs Guide</div>
+                  <div className="text-sm text-slate-500 mt-1">How to fix play order and possession grouping safely in the Data tab.</div>
+                </div>
+                <div className="space-y-3">
+                  {ID_EDIT_GUIDE.map(([term, meaning]) => (
+                    <div key={term} className="rounded-xl border border-slate-200 p-4">
+                      <div className="font-semibold text-slate-900">{term}</div>
+                      <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="possession" className="mt-0">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Possession Logic Guide</div>
+                  <div className="text-sm text-slate-500 mt-1">Practical rules for tagging possession starts, ends, advantage, and fallback inference safely.</div>
+                </div>
+                <div className="space-y-3">
+                  {POSSESSION_LOGIC_GUIDE.map(([term, meaning]) => (
+                    <div key={term} className="rounded-xl border border-slate-200 p-4">
+                      <div className="font-semibold text-slate-900">{term}</div>
+                      <div className="text-sm text-slate-600 mt-1">{meaning}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

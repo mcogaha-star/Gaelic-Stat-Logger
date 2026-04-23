@@ -691,7 +691,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="report-metric-split">
         <ComparisonMetricsCard
           title="Scoring Metrics"
           cardClassName="w-full"
@@ -716,7 +716,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
             { label: '% Low Pressure Shots', home: formatPct(kpis.home.lowPressurePct), away: formatPct(kpis.away.lowPressurePct) },
           ]}
         />
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+        <div className="report-companion-grid">
           {teamMode === 'both' ? (
             <>
               <CategoryComparisonTable
