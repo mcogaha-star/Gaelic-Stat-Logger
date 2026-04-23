@@ -237,10 +237,17 @@ export default function LiveModeLogger({
           <div className="space-y-3">
             <Field label="Kickout Team"><ChoiceButtons value={draft.kickoutTeam} onChange={(v) => update({ kickoutTeam: v })} options={[{ value: 'home', label: homeTeamName || 'Home' }, { value: 'away', label: awayTeamName || 'Away' }]} /></Field>
             <Field label="Outcome">
-              <Select value={draft.kickoutOutcome} onValueChange={(v) => update({ kickoutOutcome: v })}>
-                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>{['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}</SelectContent>
-              </Select>
+              <ChoiceButtons
+                value={draft.kickoutOutcome}
+                onChange={(v) => update({ kickoutOutcome: v })}
+                options={[
+                  { value: 'clean', label: 'Clean' },
+                  { value: 'break', label: 'Break' },
+                  { value: 'foul', label: 'Foul' },
+                  { value: 'sideline_for', label: 'Line For' },
+                  { value: 'sideline_against', label: 'Line Against' },
+                ]}
+              />
             </Field>
             <Field label="Won By"><PlayerSelect value={draft.kickoutWonBy} onChange={(v) => update({ kickoutWonBy: v })} players={players} /></Field>
             {settings.showKickoutLostBy !== false && <Field label="Lost By"><PlayerSelect value={draft.kickoutLostBy} onChange={(v) => update({ kickoutLostBy: v })} players={players} /></Field>}

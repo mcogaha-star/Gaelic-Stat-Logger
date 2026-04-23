@@ -691,6 +691,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
 
   return (
     <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <ComparisonMetricsCard
           title="Scoring Metrics"
           homeTeam={homeTeam}
@@ -714,6 +715,58 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
             { label: '% Low Pressure Shots', home: formatPct(kpis.home.lowPressurePct), away: formatPct(kpis.away.lowPressurePct) },
           ]}
         />
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          {teamMode === 'both' ? (
+            <>
+              <CategoryComparisonTable
+                title="Shot Type Breakdown"
+                sortable={false}
+                categories={shotTypeCategories}
+                categoryKey="type"
+                categoryLabel="Type"
+                homeLabel={homeTeam?.name || 'Home'}
+                awayLabel={awayTeam?.name || 'Away'}
+                homeRows={shotTypeSummary.home}
+                awayRows={shotTypeSummary.away}
+                columns={[
+                  { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                  { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                  { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                  { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                ]}
+              />
+              <PressureConversionChart
+                title="Pressure vs Conversion"
+                data={pressureSummary.both}
+                homeColor={homeTeam?.color}
+                awayColor={awayTeam?.color}
+                teamMode={teamMode}
+              />
+            </>
+          ) : (
+            <>
+              <SideBreakdownTable
+                title="Shot Type Breakdown"
+                rows={shotTypeSummary.both}
+                columns={[
+                  { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                  { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                  { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
+                  { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                  { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                ]}
+              />
+              <PressureConversionChart
+                title="Pressure vs Conversion"
+                data={teamMode === 'away' ? pressureSummary.away : pressureSummary.home}
+                homeColor={homeTeam?.color}
+                awayColor={awayTeam?.color}
+                teamMode={teamMode}
+              />
+            </>
+          )}
+        </div>
+      </div>
 
         {mapShots.length === 0 ? (
           <Card>
@@ -724,58 +777,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         ) : (
           <>
             <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
-
-            <div className="grid lg:grid-cols-2 gap-4">
-              {teamMode === 'both' ? (
-                <>
-                  <CategoryComparisonTable
-                    title="Shot Type Breakdown"
-                    sortable={false}
-                    categories={shotTypeCategories}
-                    categoryKey="type"
-                    categoryLabel="Type"
-                    homeLabel={homeTeam?.name || 'Home'}
-                    awayLabel={awayTeam?.name || 'Away'}
-                    homeRows={shotTypeSummary.home}
-                    awayRows={shotTypeSummary.away}
-                    columns={[
-                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
-                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    ]}
-                  />
-                  <PressureConversionChart
-                    title="Pressure vs Conversion"
-                    data={pressureSummary.both}
-                    homeColor={homeTeam?.color}
-                    awayColor={awayTeam?.color}
-                    teamMode={teamMode}
-                  />
-                </>
-              ) : (
-                <>
-                  <SideBreakdownTable
-                    title="Shot Type Breakdown"
-                    rows={shotTypeSummary.both}
-                    columns={[
-                      { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
-                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                      { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
-                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    ]}
-                  />
-                  <PressureConversionChart
-                    title="Pressure vs Conversion"
-                    data={teamMode === 'away' ? pressureSummary.away : pressureSummary.home}
-                    homeColor={homeTeam?.color}
-                    awayColor={awayTeam?.color}
-                    teamMode={teamMode}
-                  />
-                </>
-              )}
-            </div>
 
             <div className="grid lg:grid-cols-2 gap-4">
               {teamMode === 'both' ? (

@@ -1946,11 +1946,10 @@ export default function StatModalV4({
               {action === 'kickout' && !isDrag && (
                 <>
                   <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
-                  <div className="space-y-2">
-                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
-                    <Select
-                      value={kickoutOutcome}
-                      onValueChange={(v) => {
+                  <Buttons
+                    label="Outcome"
+                    value={kickoutOutcome}
+                    onChange={(v) => {
                         setKickoutOutcome(v);
                         if (v === 'sideline_against' || v === 'sideline_for') {
                           setTouchedRoles((prev) => {
@@ -1961,15 +1960,14 @@ export default function StatModalV4({
                           });
                         }
                       }}
-                    >
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
-                      <SelectContent>
-                        {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
-                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    options={[
+                      { value: 'clean', label: 'Clean' },
+                      { value: 'break', label: 'Break' },
+                      { value: 'foul', label: 'Foul' },
+                      { value: 'sideline_for', label: 'Line For' },
+                      { value: 'sideline_against', label: 'Line Against' },
+                    ]}
+                  />
                   {!liveMode && <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />}
                   {liveSettingEnabled('showKickoutPress') && <Buttons
                     label="Press"

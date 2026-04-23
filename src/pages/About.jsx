@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Info, ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -57,10 +58,28 @@ const POSSESSION_LOGIC_GUIDE = [
 ];
 
 export default function About() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, linkGoogleIdentity, isSupabaseConfigured } = useAuth();
+  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
   const accountLabel = isAuthenticated
     ? (user?.email || user?.phone || user?.id || 'Signed in')
     : 'Not signed in';
+  const identities = Array.isArray(user?.identities) ? user.identities : [];
+  const hasGoogleIdentity = identities.some((identity) => identity?.provider === 'google');
+
+  const handleLinkGoogle = async () => {
+    if (!isSupabaseConfigured) {
+      toast.error('Account linking is not configured for this deployment.');
+      return;
+    }
+    setIsLinkingGoogle(true);
+    try {
+      await linkGoogleIdentity();
+      toast.message('Opening Google linking...');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to start Google linking');
+      setIsLinkingGoogle(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -114,6 +133,21 @@ export default function About() {
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="text-xs uppercase tracking-wide text-slate-500">Logged In As</div>
               <div className="mt-1 text-sm font-medium text-slate-900 break-all">{accountLabel}</div>
+              {isAuthenticated && (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant={hasGoogleIdentity ? 'outline' : 'default'}
+                    disabled={hasGoogleIdentity || isLinkingGoogle}
+                    onClick={handleLinkGoogle}
+                  >
+                    {hasGoogleIdentity ? 'Google Linked' : 'Link Google Account'}
+                  </Button>
+                  <div className="text-xs text-slate-500 max-w-md">
+                    Link Google to this signed-in account so using Google later opens the same account instead of creating a separate one.
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

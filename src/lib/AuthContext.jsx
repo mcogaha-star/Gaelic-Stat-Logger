@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext(null);
@@ -128,6 +128,16 @@ export const AuthProvider = ({ children }) => {
     if (error) throw error;
   };
 
+  const linkGoogleIdentity = useCallback(async () => {
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: { redirectTo },
+    });
+    if (error) throw error;
+  }, []);
+
   const logout = async () => {
     if (!isSupabaseConfigured) return;
     await supabase.auth.signOut();
@@ -156,9 +166,10 @@ export const AuthProvider = ({ children }) => {
       checkAppState,
       signInWithMagicLink,
       signInWithGoogle,
+      linkGoogleIdentity,
       isSupabaseConfigured,
     }),
-    [user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings, authError, appPublicSettings],
+    [user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings, authError, appPublicSettings, linkGoogleIdentity],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

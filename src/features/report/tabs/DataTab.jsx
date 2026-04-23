@@ -146,7 +146,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [timeMin, setTimeMin] = useState('');
   const [timeMax, setTimeMax] = useState('');
   const [rowLimit, setRowLimit] = useState('200');
-  const [groupBy, setGroupBy] = useState('none');
+  const groupBy = 'none';
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
   const [vizStats, setVizStats] = useState([]);
@@ -878,7 +878,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       <Card>
         <CardContent className="p-4">
           <div className="font-semibold text-slate-900 mb-3">Filters</div>
-          <div className="grid lg:grid-cols-7 gap-3 items-end">
+          <div className="grid lg:grid-cols-6 gap-3 items-end">
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Team</Label>
               <Select value={team} onValueChange={setTeam}>
@@ -909,21 +909,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               onChange={setPlayerIds}
               options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
             />
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Group By</Label>
-              <Select value={groupBy} onValueChange={setGroupBy}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="team">Team</SelectItem>
-                  <SelectItem value="action">Action</SelectItem>
-                  <SelectItem value="half">Half</SelectItem>
-                  <SelectItem value="outcome">Outcome</SelectItem>
-                  <SelectItem value="player">Player (Primary)</SelectItem>
-                  <SelectItem value="possession">Possession</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Start Time</Label>
               <Input className="h-8 text-xs" inputMode="numeric" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} placeholder="e.g. 0" />
@@ -1386,6 +1371,8 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[36px]"> </TableHead>
+                  <TableHead>Play</TableHead>
+                  <TableHead>Poss</TableHead>
                   <TableHead>Half</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Action</TableHead>
@@ -1409,6 +1396,8 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                             <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                           </Button>
                         </TableCell>
+                        <TableCell className="font-mono text-xs">{Number.isFinite(Number(s.play_id)) ? Number(s.play_id) : 'NA'}</TableCell>
+                        <TableCell className="font-mono text-xs">{Number.isFinite(Number(s.possession_id)) ? Number(s.possession_id) : 'NA'}</TableCell>
                         <TableCell>{toTitleCase(s.half)}</TableCell>
                         <TableCell>{s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
                         <TableCell>{toTitleCase(s.stat_type)}</TableCell>
@@ -1427,7 +1416,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 
                       {isOpen && (
                         <TableRow className="bg-slate-50/60">
-                          <TableCell colSpan={8} className="p-3">
+                          <TableCell colSpan={10} className="p-3">
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-slate-900">Details</div>

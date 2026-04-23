@@ -303,6 +303,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
   return (
     <div className="space-y-4">
+      <div className={kickoutPressCards.length > 0 ? 'grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]' : 'grid gap-4'}>
         <ComparisonMetricsCard
           title="Kickout Metrics"
           homeTeam={homeTeam}
@@ -341,6 +342,19 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
             },
           ]}
         />
+        {kickoutPressCards.length > 0 && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
+              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                {kickoutPressCards.map((card) => (
+                  <KickoutPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
         {visibleKickouts.length === 0 ? (
           <Card>
@@ -402,19 +416,6 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
                 </Table>
               </CardContent>
             </Card>
-
-            {kickoutPressCards.length > 0 && (
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {kickoutPressCards.map((card) => (
-                      <KickoutPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </>
         )}
     </div>

@@ -574,6 +574,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const togglePossessionSort = (key) => setPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'half' || key === 'startSource' || key === 'outcome' || key === 'startZone' || key === 'counterState' ? 'asc' : 'desc' });
   return (
     <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <ComparisonMetricsCard
           title="Possession Metrics"
           homeTeam={homeTeam}
@@ -594,6 +595,44 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             { label: 'Set Defence Possession %', home: formatPct(sideKpis.home.counterPoss), away: formatPct(sideKpis.away.counterPoss) },
           ]}
         />
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="font-semibold text-slate-900">Possession Outcomes</div>
+              <ChartContainer id="possession-outcomes" className="h-[240px] w-full" config={{}}>
+                <BarChart data={possessionOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="team" className="text-xs" />
+                  <YAxis allowDecimals={false} className="text-xs" />
+                  <Tooltip content={renderOutcomeTooltip} />
+                  <Legend />
+                  {outcomeSeries.map((o) => (
+                    <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                  ))}
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="font-semibold text-slate-900">Attack Outcomes</div>
+              <ChartContainer id="attack-outcomes-poss" className="h-[240px] w-full" config={{}}>
+                <BarChart data={attackOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="team" className="text-xs" />
+                  <YAxis allowDecimals={false} className="text-xs" />
+                  <Tooltip content={renderOutcomeTooltip} />
+                  <Legend />
+                  {outcomeSeries.map((o) => (
+                    <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                  ))}
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
         {possessionsFiltered.length === 0 ? (
           <Card>
@@ -603,44 +642,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
           </Card>
         ) : (
           <>
-            <div className="grid lg:grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Possession Outcomes</div>
-                  <ChartContainer id="possession-outcomes" className="h-[240px] w-full" config={{}}>
-                    <BarChart data={possessionOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="team" className="text-xs" />
-                      <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip content={renderOutcomeTooltip} />
-                      <Legend />
-                      {outcomeSeries.map((o) => (
-                        <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
-                      ))}
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Attack Outcomes</div>
-                  <ChartContainer id="attack-outcomes-poss" className="h-[240px] w-full" config={{}}>
-                    <BarChart data={attackOutcomeData} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="team" className="text-xs" />
-                      <YAxis allowDecimals={false} className="text-xs" />
-                      <Tooltip content={renderOutcomeTooltip} />
-                      <Legend />
-                      {outcomeSeries.map((o) => (
-                        <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
-                      ))}
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-            </div>
-
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
               <Card>
                 <CardContent className="p-4 space-y-3">

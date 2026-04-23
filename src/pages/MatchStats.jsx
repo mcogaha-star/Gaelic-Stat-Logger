@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from 'sonner';
 
 import GAAPitch from '@/components/pitch/GAAPitch';
@@ -43,6 +44,18 @@ function formatLiveClock(seconds) {
     const mm = Math.floor(total / 60);
     const ss = total % 60;
     return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+function parseLiveClockInput(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    if (/^\d+:\d{1,2}$/.test(raw)) {
+        const [m, s] = raw.split(':').map((part) => Number(part));
+        if (Number.isFinite(m) && Number.isFinite(s)) return Math.max(0, Math.floor((m * 60) + s));
+    }
+    const minutes = Number(raw);
+    if (Number.isFinite(minutes)) return Math.max(0, Math.floor(minutes * 60));
+    return null;
 }
 
 export default function MatchStats() {
@@ -157,6 +170,8 @@ export default function MatchStats() {
     const [lastDefenceSetByPossession, setLastDefenceSetByPossession] = useState(null);
     const [liveClockSecondsByHalf, setLiveClockSecondsByHalf] = useState({});
     const [liveClockRunning, setLiveClockRunning] = useState(false);
+    const [liveClockEditValue, setLiveClockEditValue] = useState(formatLiveClock(0));
+    const [isEditingLiveClock, setIsEditingLiveClock] = useState(false);
 
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -267,6 +282,10 @@ export default function MatchStats() {
 
     const liveClockSeconds = Number(liveClockSecondsByHalf?.[half] || 0);
     useEffect(() => {
+        if (isEditingLiveClock) return;
+        setLiveClockEditValue(formatLiveClock(liveClockSeconds));
+    }, [half, liveClockSeconds, isEditingLiveClock]);
+    useEffect(() => {
         if (!liveClockRunning) return undefined;
         const id = window.setInterval(() => {
             setLiveClockSecondsByHalf((prev) => {
@@ -276,6 +295,19 @@ export default function MatchStats() {
         }, 1000);
         return () => window.clearInterval(id);
     }, [liveClockRunning, half]);
+
+    const applyLiveClockEdit = () => {
+        const parsed = parseLiveClockInput(liveClockEditValue);
+        if (parsed == null) {
+            toast.error('Enter the clock as MM:SS, or minutes as a number.');
+            setLiveClockEditValue(formatLiveClock(liveClockSeconds));
+            setIsEditingLiveClock(false);
+            return;
+        }
+        setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: parsed }));
+        setLiveClockEditValue(formatLiveClock(parsed));
+        setIsEditingLiveClock(false);
+    };
 
     const {
         currentVideoTimeS,
@@ -1049,9 +1081,31 @@ export default function MatchStats() {
                                         <div className="text-xs text-slate-500">{half.replace('_', ' ')}</div>
                                     </div>
                                 </div>
+                                <div className="space-y-1">
+                                    <div className="text-xs font-medium text-slate-600">Edit Clock</div>
+                                    <Input
+                                        className="h-9 font-mono text-right"
+                                        value={liveClockEditValue}
+                                        onFocus={() => setIsEditingLiveClock(true)}
+                                        onChange={(e) => setLiveClockEditValue(e.target.value)}
+                                        onBlur={applyLiveClockEdit}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                applyLiveClockEdit();
+                                            }
+                                            if (e.key === 'Escape') {
+                                                e.preventDefault();
+                                                setLiveClockEditValue(formatLiveClock(liveClockSeconds));
+                                                setIsEditingLiveClock(false);
+                                            }
+                                        }}
+                                        placeholder="MM:SS"
+                                    />
+                                </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     <Button type="button" onClick={() => setLiveClockRunning((v) => !v)}>{liveClockRunning ? 'Pause' : 'Start'}</Button>
-                                    <Button type="button" variant="outline" onClick={() => setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }))}>Reset</Button>
+                                    <Button type="button" variant="outline" onClick={() => { setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 })); setLiveClockEditValue(formatLiveClock(0)); }}>Reset</Button>
                                 </div>
                             </div>
                         )}
