@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
 import { DEFAULT_CUSTOM_FIELDS, DEFAULT_DEFAULTS } from '@/components/statDefaults';
 import { DEFAULT_LIVE_MODE_SETTINGS, parseLiveModeSettings } from '@/lib/liveModeSettings';
+import { hydrateServerAccountData } from '@/lib/accountSync';
+import { useAuth } from '@/lib/AuthContext';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,18 +22,35 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Save } from 'lucide-react';
 import { clearConsent } from '@/components/ConsentGate';
 import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 import { DEFAULT_SHORTCUTS, mergeShortcutConfig, normalizeShortcutText, prettyShortcut } from '@/lib/shortcuts';
 
 export default function Settings() {
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
   const [revokeOpen, setRevokeOpen] = useState(false);
 
   const { data: settingsRecords = [] } = useQuery({
     queryKey: ['app-settings'],
     queryFn: () => db.entities.AppSettings.list()
+  });
+  const { data: matches = [] } = useQuery({
+    queryKey: ['matches'],
+    queryFn: () => db.entities.Match.list('-created_date')
+  });
+  const { data: teams = [] } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => db.entities.Team.list('name')
+  });
+  const { data: players = [] } = useQuery({
+    queryKey: ['players'],
+    queryFn: () => db.entities.Player.list('number')
+  });
+  const { data: allStats = [] } = useQuery({
+    queryKey: ['all-stats'],
+    queryFn: () => db.entities.StatEntry.list('-timestamp')
   });
 
   const settingsRecord = settingsRecords[0];
@@ -110,6 +129,24 @@ export default function Settings() {
     onError: (e) => toast.error(e?.message || 'Failed to save settings'),
   });
 
+  const accountSyncMutation = useMutation({
+    mutationFn: () => hydrateServerAccountData(db, {
+      localMatches: matches,
+      localStats: allStats,
+      localTeams: teams,
+      localPlayers: players,
+    }),
+    onSuccess: ({ importedMatches, importedStats, importedTeams, importedPlayers, skipped }) => {
+      if (skipped) return;
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['players'] });
+      queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+      toast.success(`Synced ${importedMatches || 0} match${importedMatches === 1 ? '' : 'es'}, ${importedStats || 0} stat row${importedStats === 1 ? '' : 's'}, ${importedTeams || 0} team${importedTeams === 1 ? '' : 's'}, and ${importedPlayers || 0} player${importedPlayers === 1 ? '' : 's'}`);
+    },
+    onError: (error) => toast.error(error?.message || 'Failed to sync account data'),
+  });
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b sticky top-0 z-10">
@@ -141,6 +178,26 @@ export default function Settings() {
 
           <TabsContent value="general">
             <div className="bg-white border rounded-xl p-6 space-y-6">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
+                <div>
+                  <Label>Account Sync</Label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Pull missing account-private teams, players, matches, and stat rows onto this device.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => accountSyncMutation.mutate()}
+                  disabled={!isAuthenticated || accountSyncMutation.isPending}
+                  title={isAuthenticated ? 'Pull missing account data onto this device' : 'Sign in to sync account data'}
+                >
+                  <RefreshCw className={`w-4 h-4 ${accountSyncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Sync
+                </Button>
+              </div>
+
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <Label>Quick Log</Label>
@@ -391,7 +448,8 @@ export default function Settings() {
           <TabsContent value="privacy">
             <div className="bg-white border rounded-xl p-6 space-y-4">
               <p className="text-sm text-slate-600">
-                You can review privacy details and revoke consent. Revoking consent stops further uploads.
+                You can review privacy details and revoke consent. Team/player names sync through account-private
+                identity tables; stat rows use private refs and jersey-number fallbacks. Revoking consent stops further uploads.
               </p>
               <div className="flex gap-2">
                 <Link to={createPageUrl('Privacy')}>

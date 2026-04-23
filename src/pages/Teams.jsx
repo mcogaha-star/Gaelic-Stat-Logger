@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ArrowLeft, Plus, ChevronDown, ChevronRight, Pencil, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { softDeletePrivatePlayer, softDeletePrivateTeam, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 
 const POSITIONS = [
     'Goalkeeper', 'Corner Back', 'Full Back', 'Wing Back',
@@ -46,28 +47,82 @@ export default function Teams() {
     });
 
     const createTeamMutation = useMutation({
-        mutationFn: (data) => db.entities.Team.create(data),
+        mutationFn: async (data) => {
+            const created = await db.entities.Team.create(data);
+            const res = await upsertPrivateTeamFromLocal(created);
+            if (res.ok && res.id) return await db.entities.Team.update(created.id, { server_team_id: res.id });
+            return created;
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['teams'] }); closeTeamDialog(); toast.success('Team created'); }
     });
     const updateTeamMutation = useMutation({
-        mutationFn: ({ id, data }) => db.entities.Team.update(id, data),
+        mutationFn: async ({ id, data }) => {
+            const updated = await db.entities.Team.update(id, data);
+            const res = await upsertPrivateTeamFromLocal(updated);
+            if (res.ok && res.id && updated.server_team_id !== res.id) {
+                return await db.entities.Team.update(id, { server_team_id: res.id });
+            }
+            return updated;
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['teams'] }); closeTeamDialog(); toast.success('Team updated'); }
     });
     const deleteTeamMutation = useMutation({
-        mutationFn: (id) => db.entities.Team.delete(id),
+        mutationFn: async (id) => {
+            const team = teams.find((t) => t.id === id);
+            if (team?.server_team_id) {
+                try { await softDeletePrivateTeam(team.server_team_id); } catch {}
+            }
+            return db.entities.Team.delete(id);
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['teams'] }); toast.success('Team deleted'); }
     });
 
     const createPlayerMutation = useMutation({
-        mutationFn: (data) => db.entities.Player.create(data),
+        mutationFn: async (data) => {
+            const created = await db.entities.Player.create(data);
+            const team = teams.find((t) => t.id === created.team_id);
+            let teamRef = team?.server_team_id || null;
+            if (team && !teamRef) {
+                const teamRes = await upsertPrivateTeamFromLocal(team);
+                if (teamRes.ok && teamRes.id) {
+                    teamRef = teamRes.id;
+                    await db.entities.Team.update(team.id, { server_team_id: teamRef });
+                }
+            }
+            const res = await upsertPrivatePlayerFromLocal(created, { teamServerId: teamRef });
+            if (res.ok && res.id) return await db.entities.Player.update(created.id, { server_player_id: res.id, server_team_id: teamRef });
+            return created;
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['players'] }); closePlayerDialog(); toast.success('Player added'); }
     });
     const updatePlayerMutation = useMutation({
-        mutationFn: ({ id, data }) => db.entities.Player.update(id, data),
+        mutationFn: async ({ id, data }) => {
+            const updated = await db.entities.Player.update(id, data);
+            const team = teams.find((t) => t.id === updated.team_id);
+            let teamRef = team?.server_team_id || null;
+            if (team && !teamRef) {
+                const teamRes = await upsertPrivateTeamFromLocal(team);
+                if (teamRes.ok && teamRes.id) {
+                    teamRef = teamRes.id;
+                    await db.entities.Team.update(team.id, { server_team_id: teamRef });
+                }
+            }
+            const res = await upsertPrivatePlayerFromLocal(updated, { teamServerId: teamRef });
+            if (res.ok && res.id && (updated.server_player_id !== res.id || updated.server_team_id !== teamRef)) {
+                return await db.entities.Player.update(id, { server_player_id: res.id, server_team_id: teamRef });
+            }
+            return updated;
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['players'] }); closePlayerDialog(); toast.success('Player updated'); }
     });
     const deletePlayerMutation = useMutation({
-        mutationFn: (id) => db.entities.Player.delete(id),
+        mutationFn: async (id) => {
+            const player = players.find((p) => p.id === id);
+            if (player?.server_player_id) {
+                try { await softDeletePrivatePlayer(player.server_player_id); } catch {}
+            }
+            return db.entities.Player.delete(id);
+        },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['players'] }); toast.success('Player deleted'); }
     });
 

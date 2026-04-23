@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, ArrowLeft, Trash2, Pencil, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { softDeletePrivatePlayer, upsertPrivatePlayerFromLocal } from '@/lib/serverSync';
 
 const POSITIONS = [
     'Goalkeeper',
@@ -51,7 +52,12 @@ export default function Players() {
     });
 
     const createMutation = useMutation({
-        mutationFn: (data) => db.entities.Player.create(data),
+        mutationFn: async (data) => {
+            const created = await db.entities.Player.create(data);
+            const res = await upsertPrivatePlayerFromLocal(created);
+            if (res.ok && res.id) return await db.entities.Player.update(created.id, { server_player_id: res.id });
+            return created;
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['players'] });
             handleCloseDialog();
@@ -60,7 +66,14 @@ export default function Players() {
     });
 
     const updateMutation = useMutation({
-        mutationFn: ({ id, data }) => db.entities.Player.update(id, data),
+        mutationFn: async ({ id, data }) => {
+            const updated = await db.entities.Player.update(id, data);
+            const res = await upsertPrivatePlayerFromLocal(updated);
+            if (res.ok && res.id && updated.server_player_id !== res.id) {
+                return await db.entities.Player.update(id, { server_player_id: res.id });
+            }
+            return updated;
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['players'] });
             handleCloseDialog();
@@ -69,7 +82,13 @@ export default function Players() {
     });
 
     const deleteMutation = useMutation({
-        mutationFn: (id) => db.entities.Player.delete(id),
+        mutationFn: async (id) => {
+            const player = players.find((p) => p.id === id);
+            if (player?.server_player_id) {
+                try { await softDeletePrivatePlayer(player.server_player_id); } catch {}
+            }
+            return db.entities.Player.delete(id);
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['players'] });
             toast.success('Player deleted');

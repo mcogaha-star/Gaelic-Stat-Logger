@@ -15,6 +15,317 @@ async function requireAuthUser() {
   return data?.user ?? null;
 }
 
+function isMissingOptionalSchema(error, pattern) {
+  const msg = String(error?.message || '');
+  return !!msg && pattern.test(msg);
+}
+
+function parseJsonMaybe(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return null; }
+  }
+  return null;
+}
+
+function normaliseTeamSide(side) {
+  return side === 'home' || side === 'away' ? side : null;
+}
+
+function playerRefFromSelection(selection, playerRefByLocalId = {}) {
+  if (!selection || typeof selection !== 'object') return null;
+  return selection.player_ref || selection.server_player_id || playerRefByLocalId[selection.id] || null;
+}
+
+function selectionNumber(selection) {
+  if (!selection || typeof selection !== 'object') return null;
+  const n = Number(selection.number);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sanitizeSelectionForServer(selection, playerRefByLocalId = {}) {
+  if (!selection || typeof selection !== 'object') return selection;
+  if (selection.kind === 'none') return { kind: 'none' };
+  if (selection.kind === 'team') {
+    return {
+      kind: 'team',
+      team_side: normaliseTeamSide(selection.team_side) || selection.team_side || null,
+    };
+  }
+  if (selection.kind === 'player' || selection.id || selection.name || selection.number != null) {
+    const ref = playerRefFromSelection(selection, playerRefByLocalId);
+    return {
+      kind: 'player',
+      ...(ref ? { player_ref: ref } : {}),
+      number: selectionNumber(selection),
+      team_side: normaliseTeamSide(selection.team_side) || selection.team_side || null,
+    };
+  }
+  return selection;
+}
+
+export function sanitizeExtraDataForServer(extraData, playerRefByLocalId = {}) {
+  const parsed = parseJsonMaybe(extraData);
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== 'object') return value;
+    if (value.kind === 'player' || value.kind === 'team' || value.kind === 'none') {
+      return sanitizeSelectionForServer(value, playerRefByLocalId);
+    }
+    const out = {};
+    for (const [key, child] of Object.entries(value)) {
+      // Do not duplicate identifying names or local-only ids inside server stat JSON.
+      if (key === 'name' || key === 'player_name' || key === 'recipient_name') continue;
+      if (key === 'id' && (value.kind === 'player' || value.kind === 'team')) continue;
+      out[key] = visit(child);
+    }
+    return out;
+  };
+
+  return visit(parsed);
+}
+
+export function restoreExtraDataFromPrivateRefs(extraData, playerByServerId = new Map()) {
+  const parsed = parseJsonMaybe(extraData);
+  if (!parsed || typeof parsed !== 'object') return parsed || {};
+
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== 'object') return value;
+    if (value.kind === 'player') {
+      const ref = value.player_ref || value.server_player_id || null;
+      const local = ref ? playerByServerId.get(ref) : null;
+      if (local) {
+        return {
+          kind: 'player',
+          id: local.id,
+          name: local.name || '',
+          number: local.number ?? value.number ?? null,
+          team_side: local.team_side || value.team_side || null,
+          server_player_id: ref,
+        };
+      }
+      return {
+        kind: 'player',
+        number: value.number ?? null,
+        team_side: value.team_side || null,
+        ...(ref ? { server_player_id: ref } : {}),
+      };
+    }
+    if (value.kind === 'team' || value.kind === 'none') return value;
+    const out = {};
+    for (const [key, child] of Object.entries(value)) out[key] = visit(child);
+    return out;
+  };
+
+  return visit(parsed);
+}
+
+function findPrimaryRefs(stat, playerRefByLocalId = {}) {
+  const extra = parseJsonMaybe(stat?.extra_data) || {};
+  const byType = String(stat?.stat_type || '').toLowerCase();
+  const primary =
+    byType === 'pass' ? extra?.pass?.passer
+    : byType === 'carry' ? extra?.carry?.carrier
+    : byType === 'shot' ? extra?.shot?.player
+    : byType === 'kickout' ? extra?.kickout?.won_by
+    : byType === 'throw_in' ? extra?.throw_in?.won_by
+    : byType === 'turnover' ? (extra?.turnover?.recovered_by || extra?.turnover?.forced_by || extra?.turnover?.lost_by)
+    : byType === 'foul' ? (extra?.foul?.foul_on || extra?.foul?.foul_by)
+    : null;
+  const recipient =
+    byType === 'pass' ? (extra?.pass?.intended_recipient || extra?.pass?.won_by)
+    : byType === 'kickout' ? (extra?.kickout?.won_by || extra?.kickout?.intended_recipient)
+    : byType === 'throw_in' ? extra?.throw_in?.won_by
+    : null;
+  return {
+    playerRef: playerRefFromSelection(primary, playerRefByLocalId),
+    recipientRef: playerRefFromSelection(recipient, playerRefByLocalId),
+  };
+}
+
+export async function fetchPrivateTeams({ limit = 1000 } = {}) {
+  const user = await requireAuthUser();
+  if (!user) return { ok: false, reason: 'not_authenticated', teams: [] };
+  const { data, error } = await supabase
+    .from('private_teams')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(limit);
+  if (error) return { ok: false, reason: error.message, teams: [] };
+  return { ok: true, teams: (data || []).filter((row) => !row?.deleted_at) };
+}
+
+export async function fetchPrivatePlayers({ limit = 3000 } = {}) {
+  const user = await requireAuthUser();
+  if (!user) return { ok: false, reason: 'not_authenticated', players: [] };
+  const { data, error } = await supabase
+    .from('private_players')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(limit);
+  if (error) return { ok: false, reason: error.message, players: [] };
+  return { ok: true, players: (data || []).filter((row) => !row?.deleted_at) };
+}
+
+export async function upsertPrivateTeamFromLocal(team) {
+  const user = await requireAuthUser();
+  if (!user || !team) return { ok: false, reason: user ? 'missing_team' : 'not_authenticated' };
+  const payload = {
+    user_id: user.id,
+    local_team_id: team.id || null,
+    name: team.name || '',
+    color: team.color || '#22c55e',
+    starters: team.starters || '[]',
+    subs: team.subs || '[]',
+    deleted_at: null,
+  };
+
+  const selectCols = 'id,local_team_id,name,color,starters,subs';
+  if (team.server_team_id) {
+    const { data, error } = await supabase
+      .from('private_teams')
+      .update(payload)
+      .eq('id', team.server_team_id)
+      .eq('user_id', user.id)
+      .select(selectCols)
+      .maybeSingle();
+    if (!error && data?.id) return { ok: true, id: data.id, team: data };
+    if (error && !isMissingOptionalSchema(error, /private_teams|local_team_id|starters|subs/i)) {
+      return { ok: false, reason: error.message };
+    }
+  }
+
+  if (team.id) {
+    const { data: existing } = await supabase
+      .from('private_teams')
+      .select(selectCols)
+      .eq('user_id', user.id)
+      .eq('local_team_id', team.id)
+      .maybeSingle();
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('private_teams')
+        .update(payload)
+        .eq('id', existing.id)
+        .eq('user_id', user.id)
+        .select(selectCols)
+        .maybeSingle();
+      if (!error && data?.id) return { ok: true, id: data.id, team: data };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('private_teams')
+    .insert(payload)
+    .select(selectCols)
+    .maybeSingle();
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true, id: data?.id, team: data };
+}
+
+export async function upsertPrivatePlayerFromLocal(player, { teamServerId = null } = {}) {
+  const user = await requireAuthUser();
+  if (!user || !player) return { ok: false, reason: user ? 'missing_player' : 'not_authenticated' };
+  const payload = {
+    user_id: user.id,
+    local_player_id: player.id || null,
+    team_ref: teamServerId || player.server_team_id || null,
+    local_team_id: player.team_id || null,
+    name: player.name || '',
+    number: Number.isFinite(Number(player.number)) ? Number(player.number) : null,
+    position: player.position || null,
+    deleted_at: null,
+  };
+
+  const selectCols = 'id,local_player_id,team_ref,local_team_id,name,number,position';
+  if (player.server_player_id) {
+    const { data, error } = await supabase
+      .from('private_players')
+      .update(payload)
+      .eq('id', player.server_player_id)
+      .eq('user_id', user.id)
+      .select(selectCols)
+      .maybeSingle();
+    if (!error && data?.id) return { ok: true, id: data.id, player: data };
+    if (error && !isMissingOptionalSchema(error, /private_players|team_ref|local_player_id|local_team_id/i)) {
+      return { ok: false, reason: error.message };
+    }
+  }
+
+  if (player.id) {
+    const { data: existing } = await supabase
+      .from('private_players')
+      .select(selectCols)
+      .eq('user_id', user.id)
+      .eq('local_player_id', player.id)
+      .maybeSingle();
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('private_players')
+        .update(payload)
+        .eq('id', existing.id)
+        .eq('user_id', user.id)
+        .select(selectCols)
+        .maybeSingle();
+      if (!error && data?.id) return { ok: true, id: data.id, player: data };
+    }
+  }
+
+  let query = supabase
+    .from('private_players')
+    .select(selectCols)
+    .eq('user_id', user.id)
+    .eq('number', payload.number);
+  if (teamServerId) query = query.eq('team_ref', teamServerId);
+  const { data: fallbackExisting } = await query.maybeSingle();
+  if (fallbackExisting?.id) {
+    const { data, error } = await supabase
+      .from('private_players')
+      .update(payload)
+      .eq('id', fallbackExisting.id)
+      .eq('user_id', user.id)
+      .select(selectCols)
+      .maybeSingle();
+    if (!error && data?.id) return { ok: true, id: data.id, player: data };
+  }
+
+  const { data, error } = await supabase
+    .from('private_players')
+    .insert(payload)
+    .select(selectCols)
+    .maybeSingle();
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true, id: data?.id, player: data };
+}
+
+export async function softDeletePrivateTeam(serverTeamId) {
+  const user = await requireAuthUser();
+  if (!user || !serverTeamId) return { ok: false, reason: user ? 'missing_team_reference' : 'not_authenticated' };
+  const { error } = await supabase
+    .from('private_teams')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', serverTeamId)
+    .eq('user_id', user.id);
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true };
+}
+
+export async function softDeletePrivatePlayer(serverPlayerId) {
+  const user = await requireAuthUser();
+  if (!user || !serverPlayerId) return { ok: false, reason: user ? 'missing_player_reference' : 'not_authenticated' };
+  const { error } = await supabase
+    .from('private_players')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', serverPlayerId)
+    .eq('user_id', user.id);
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true };
+}
+
 export async function ensureServerMatch({
   publicMatchId,
   matchDate,
@@ -24,6 +335,8 @@ export async function ensureServerMatch({
   windDirection,
   mode,
   matchLengthMinutes,
+  homeTeamRef,
+  awayTeamRef,
 }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
@@ -36,6 +349,8 @@ export async function ensureServerMatch({
     code,
     level,
     mode: mode || 'analysis',
+    home_team_ref: homeTeamRef || null,
+    away_team_ref: awayTeamRef || null,
   };
   const payload = {
     ...basePayload,
@@ -54,7 +369,7 @@ export async function ensureServerMatch({
 
   // If the live schema doesn't yet have newer optional columns, retry with
   // the original minimum payload so local logging is never blocked by rollout.
-  if (insertErr?.message && /wind_(speed|direction)|\bmode\b|match_length_minutes/i.test(insertErr.message)) {
+  if (isMissingOptionalSchema(insertErr, /wind_(speed|direction)|\bmode\b|match_length_minutes|home_team_ref|away_team_ref/i)) {
     const retryPayload = {
       user_id: user.id,
       public_match_id: publicMatchId,
@@ -82,12 +397,14 @@ export async function ensureServerMatch({
   if (fetchErr || !existing?.id) return { ok: false, reason: fetchErr?.message || insertErr?.message || 'match_upsert_failed' };
 
   // Best-effort update so existing server rows can receive newer metadata when columns are available.
-  if (windSpeed != null || windDirection != null || matchLengthMinutes != null || mode) {
+  if (windSpeed != null || windDirection != null || matchLengthMinutes != null || mode || homeTeamRef || awayTeamRef) {
     const patch = {
       wind_speed: windSpeed ?? null,
       wind_direction: windDirection ?? null,
       mode: mode || 'analysis',
       match_length_minutes: Number.isFinite(Number(matchLengthMinutes)) ? Number(matchLengthMinutes) : null,
+      home_team_ref: homeTeamRef || null,
+      away_team_ref: awayTeamRef || null,
     };
     const { error: updateErr } = await supabase
       .from('matches')
@@ -95,7 +412,7 @@ export async function ensureServerMatch({
       .eq('id', existing.id)
       .eq('user_id', user.id);
 
-    if (updateErr?.message && /wind_(speed|direction)|\bmode\b|match_length_minutes/i.test(updateErr.message)) {
+    if (isMissingOptionalSchema(updateErr, /wind_(speed|direction)|\bmode\b|match_length_minutes|home_team_ref|away_team_ref/i)) {
       // Ignore missing-column errors so older Supabase schemas don't block match creation.
     }
   }
@@ -108,13 +425,13 @@ export async function insertServerStat({
   publicMatchId,
   stat,
   teamSide = 'unknown',
+  playerRefByLocalId = {},
 }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
 
-  const extra = stat.extra_data ? (() => {
-    try { return JSON.parse(stat.extra_data); } catch { return null; }
-  })() : null;
+  const extra = sanitizeExtraDataForServer(stat.extra_data, playerRefByLocalId);
+  const { playerRef, recipientRef } = findPrimaryRefs(stat, playerRefByLocalId);
 
   const payload = {
     user_id: user.id,
@@ -148,6 +465,8 @@ export async function insertServerStat({
     raw_end_y_position: stat.raw_end_y_position ?? null,
     player_number: stat.player_number ?? null,
     recipient_number: stat.recipient_number ?? null,
+    player_ref: playerRef || null,
+    recipient_ref: recipientRef || null,
     team_side: teamSide ?? 'unknown',
     extra_data: extra,
   };
@@ -158,11 +477,13 @@ export async function insertServerStat({
     .select('id')
     .maybeSingle();
 
-  if (error?.message && /set_defence|defence_set_migration_version|stat_model_migration_version/i.test(error.message)) {
+  if (isMissingOptionalSchema(error, /set_defence|defence_set_migration_version|stat_model_migration_version|player_ref|recipient_ref/i)) {
     const {
       set_defence,
       defence_set_migration_version,
       stat_model_migration_version,
+      player_ref,
+      recipient_ref,
       ...fallbackPayload
     } = payload;
     ({ data, error } = await supabase
@@ -219,9 +540,11 @@ export async function updateServerStat(statId, patch) {
   if (!user) return { ok: false, reason: 'not_authenticated' };
 
   const payload = { ...(patch || {}) };
+  delete payload.player_name;
+  delete payload.recipient_name;
   // Ensure jsonb for extra_data
-  if (payload.extra_data && typeof payload.extra_data === 'string') {
-    try { payload.extra_data = JSON.parse(payload.extra_data); } catch { payload.extra_data = null; }
+  if (Object.prototype.hasOwnProperty.call(payload, 'extra_data')) {
+    payload.extra_data = sanitizeExtraDataForServer(payload.extra_data);
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'set_defence')) {
     payload.counter_attack = !!payload.set_defence;
@@ -235,11 +558,13 @@ export async function updateServerStat(statId, patch) {
     .eq('id', statId)
     .eq('user_id', user.id);
 
-  if (error?.message && /set_defence|defence_set_migration_version|stat_model_migration_version/i.test(error.message)) {
+  if (isMissingOptionalSchema(error, /set_defence|defence_set_migration_version|stat_model_migration_version|player_ref|recipient_ref/i)) {
     const {
       set_defence,
       defence_set_migration_version,
       stat_model_migration_version,
+      player_ref,
+      recipient_ref,
       ...fallbackPayload
     } = payload;
     ({ error } = await supabase

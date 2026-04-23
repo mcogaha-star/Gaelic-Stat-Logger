@@ -15,10 +15,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3, Sparkles, RefreshCw } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { ensureServerMatch, fetchServerMatches, fetchServerStatsForMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
+import {
+    ensureServerMatch,
+    fetchPrivatePlayers,
+    fetchPrivateTeams,
+    fetchServerMatches,
+    fetchServerStatsForMatch,
+    generatePublicMatchId,
+    restoreExtraDataFromPrivateRefs,
+    softDeleteServerMatch,
+    upsertPrivatePlayerFromLocal,
+    upsertPrivateTeamFromLocal,
+} from '@/lib/serverSync';
 import { deriveMatchLengthMinutes, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
 import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -43,8 +54,11 @@ function stringifyServerExtra(extraData) {
     return '{}';
 }
 
-function localStatFromServer(row, localMatchId) {
+function localStatFromServer(row, localMatchId, playerByServerId = new Map()) {
     const setDefence = typeof row?.set_defence === 'boolean' ? row.set_defence : !!row?.counter_attack;
+    const player = row?.player_ref ? playerByServerId.get(row.player_ref) : null;
+    const recipient = row?.recipient_ref ? playerByServerId.get(row.recipient_ref) : null;
+    const restoredExtra = restoreExtraDataFromPrivateRefs(row?.extra_data, playerByServerId);
     return {
         match_id: localMatchId,
         server_stat_id: row?.id || null,
@@ -70,11 +84,13 @@ function localStatFromServer(row, localMatchId) {
         raw_y_position: row?.raw_y_position ?? null,
         raw_end_x_position: row?.raw_end_x_position ?? null,
         raw_end_y_position: row?.raw_end_y_position ?? null,
-        player_number: row?.player_number ?? null,
-        recipient_number: row?.recipient_number ?? null,
-        player_name: null,
-        recipient_name: null,
-        extra_data: stringifyServerExtra(row?.extra_data),
+        player_number: player?.number ?? row?.player_number ?? null,
+        recipient_number: recipient?.number ?? row?.recipient_number ?? null,
+        player_name: player?.name || null,
+        recipient_name: recipient?.name || null,
+        server_player_id: row?.player_ref || null,
+        server_recipient_id: row?.recipient_ref || null,
+        extra_data: stringifyServerExtra(restoredExtra),
     };
 }
 
@@ -90,7 +106,113 @@ async function createImportedTeam(side, serverMatch) {
     });
 }
 
-async function hydrateServerAccountData({ localMatches, localStats }) {
+function sameText(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+async function hydratePrivateTeamsAndPlayers({ localTeams, localPlayers }) {
+    const teamByServerId = new Map((localTeams || []).filter((t) => t?.server_team_id).map((t) => [t.server_team_id, t]));
+    const playerByServerId = new Map((localPlayers || []).filter((p) => p?.server_player_id).map((p) => [p.server_player_id, p]));
+    let importedTeams = 0;
+    let importedPlayers = 0;
+
+    const privateTeams = await fetchPrivateTeams({ limit: 1000 });
+    if (privateTeams.ok) {
+        for (const serverTeam of (privateTeams.teams || [])) {
+            let local = serverTeam?.id ? teamByServerId.get(serverTeam.id) : null;
+            if (!local) {
+                local = (localTeams || []).find((team) => !team?.server_team_id && sameText(team?.name, serverTeam?.name));
+            }
+            const patch = {
+                name: serverTeam?.name || local?.name || 'Synced Team',
+                color: serverTeam?.color || local?.color || '#22c55e',
+                starters: serverTeam?.starters || local?.starters || '[]',
+                subs: serverTeam?.subs || local?.subs || '[]',
+                server_team_id: serverTeam?.id || null,
+                is_synced_placeholder: false,
+            };
+            if (local?.id) {
+                await db.entities.Team.update(local.id, patch);
+                local = { ...local, ...patch };
+            } else {
+                local = await db.entities.Team.create(patch);
+                importedTeams += 1;
+            }
+            if (serverTeam?.id && local?.id) teamByServerId.set(serverTeam.id, local);
+        }
+    }
+
+    const privatePlayers = await fetchPrivatePlayers({ limit: 5000 });
+    if (privatePlayers.ok) {
+        for (const serverPlayer of (privatePlayers.players || [])) {
+            const localTeam = serverPlayer?.team_ref ? teamByServerId.get(serverPlayer.team_ref) : null;
+            let local = serverPlayer?.id ? playerByServerId.get(serverPlayer.id) : null;
+            if (!local && localTeam?.id) {
+                local = (localPlayers || []).find((player) =>
+                    !player?.server_player_id
+                    && player.team_id === localTeam.id
+                    && Number(player.number) === Number(serverPlayer.number)
+                );
+            }
+            const patch = {
+                name: serverPlayer?.name || local?.name || String(serverPlayer?.number || ''),
+                number: Number.isFinite(Number(serverPlayer?.number)) ? Number(serverPlayer.number) : local?.number,
+                position: serverPlayer?.position || local?.position || '',
+                team_id: localTeam?.id || local?.team_id || null,
+                server_player_id: serverPlayer?.id || null,
+                server_team_id: serverPlayer?.team_ref || null,
+            };
+            if (local?.id) {
+                await db.entities.Player.update(local.id, patch);
+                local = { ...local, ...patch };
+            } else {
+                local = await db.entities.Player.create(patch);
+                importedPlayers += 1;
+            }
+            if (serverPlayer?.id && local?.id) playerByServerId.set(serverPlayer.id, local);
+        }
+    }
+
+    return { teamByServerId, playerByServerId, importedTeams, importedPlayers };
+}
+
+async function syncPrivateIdentityForTeams({ homeTeam, awayTeam, players }) {
+    const teamServerIds = {};
+    const playerRefByLocalId = {};
+    const teamEntries = [
+        ['home', homeTeam],
+        ['away', awayTeam],
+    ];
+
+    for (const [side, team] of teamEntries) {
+        if (!team?.id) continue;
+        let serverTeamId = team.server_team_id || null;
+        const teamRes = await upsertPrivateTeamFromLocal(team);
+        if (teamRes.ok && teamRes.id) {
+            serverTeamId = teamRes.id;
+            teamServerIds[side] = serverTeamId;
+            if (team.server_team_id !== serverTeamId) {
+                await db.entities.Team.update(team.id, { server_team_id: serverTeamId });
+            }
+        }
+        for (const player of (players || []).filter((p) => p.team_id === team.id)) {
+            const playerRes = await upsertPrivatePlayerFromLocal(player, { teamServerId: serverTeamId });
+            if (playerRes.ok && playerRes.id) {
+                playerRefByLocalId[player.id] = playerRes.id;
+                if (player.server_player_id !== playerRes.id || player.server_team_id !== serverTeamId) {
+                    await db.entities.Player.update(player.id, { server_player_id: playerRes.id, server_team_id: serverTeamId || null });
+                }
+            } else if (player.server_player_id) {
+                playerRefByLocalId[player.id] = player.server_player_id;
+            }
+        }
+    }
+
+    return { teamServerIds, playerRefByLocalId };
+}
+
+async function hydrateServerAccountData({ localMatches, localStats, localTeams, localPlayers }) {
+    const identity = await hydratePrivateTeamsAndPlayers({ localTeams, localPlayers });
     const serverMatchesResult = await fetchServerMatches({ limit: 150 });
     if (!serverMatchesResult.ok) {
         if (serverMatchesResult.reason === 'not_authenticated') return { importedMatches: 0, importedStats: 0, skipped: true };
@@ -110,11 +232,13 @@ async function hydrateServerAccountData({ localMatches, localStats }) {
             || (publicMatchId ? localByPublicId.get(publicMatchId) : null);
 
         if (!localMatch) {
-            const homeTeam = await createImportedTeam('home', serverMatch);
-            const awayTeam = await createImportedTeam('away', serverMatch);
+            const homeTeam = serverMatch?.home_team_ref ? identity.teamByServerId.get(serverMatch.home_team_ref) : null;
+            const awayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
+            const fallbackHomeTeam = homeTeam || await createImportedTeam('home', serverMatch);
+            const fallbackAwayTeam = awayTeam || await createImportedTeam('away', serverMatch);
             localMatch = await db.entities.Match.create({
-                home_team_id: homeTeam.id,
-                away_team_id: awayTeam.id,
+                home_team_id: fallbackHomeTeam.id,
+                away_team_id: fallbackAwayTeam.id,
                 date: serverMatch?.match_date || new Date().toISOString().slice(0, 10),
                 venue: '',
                 competition: 'Synced from account',
@@ -152,13 +276,19 @@ async function hydrateServerAccountData({ localMatches, localStats }) {
 
         for (const serverStat of (serverStatsResult.stats || [])) {
             if (serverStat?.id && localServerStatIds.has(serverStat.id)) continue;
-            const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id));
+            const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id, identity.playerByServerId));
             if (serverStat?.id) localServerStatIds.add(serverStat.id);
             if (created?.id) importedStats += 1;
         }
     }
 
-    return { importedMatches, importedStats, skipped: false };
+    return {
+        importedMatches,
+        importedStats,
+        importedTeams: identity.importedTeams || 0,
+        importedPlayers: identity.importedPlayers || 0,
+        skipped: false,
+    };
 }
 
 export default function Home() {
@@ -204,14 +334,14 @@ export default function Home() {
     });
 
     const serverHydrationMutation = useMutation({
-        mutationFn: () => hydrateServerAccountData({ localMatches: matches, localStats: allStats }),
-        onSuccess: ({ importedMatches, importedStats, skipped }) => {
-            if (skipped || (!importedMatches && !importedStats)) return;
+        mutationFn: () => hydrateServerAccountData({ localMatches: matches, localStats: allStats, localTeams: teams, localPlayers: players }),
+        onSuccess: ({ importedMatches, importedStats, importedTeams, importedPlayers, skipped }) => {
+            if (skipped || (!importedMatches && !importedStats && !importedTeams && !importedPlayers)) return;
             queryClient.invalidateQueries({ queryKey: ['matches'] });
             queryClient.invalidateQueries({ queryKey: ['teams'] });
             queryClient.invalidateQueries({ queryKey: ['players'] });
             queryClient.invalidateQueries({ queryKey: ['all-stats'] });
-            toast.success(`Synced ${importedMatches} match${importedMatches === 1 ? '' : 'es'} and ${importedStats} stat row${importedStats === 1 ? '' : 's'}`);
+            toast.success(`Synced ${importedMatches} match${importedMatches === 1 ? '' : 'es'}, ${importedStats} stat row${importedStats === 1 ? '' : 's'}, ${importedTeams || 0} team${importedTeams === 1 ? '' : 's'}, and ${importedPlayers || 0} player${importedPlayers === 1 ? '' : 's'}`);
         },
         onError: (error) => {
             toast.error(error?.message || 'Failed to sync account matches');
@@ -304,6 +434,9 @@ export default function Home() {
             const created = await db.entities.Match.create(payload);
 
             // Best-effort server upload (redacted): exclude venue/competition.
+            const homeTeam = teams.find((t) => t.id === created.home_team_id);
+            const awayTeam = teams.find((t) => t.id === created.away_team_id);
+            const identity = await syncPrivateIdentityForTeams({ homeTeam, awayTeam, players });
             const res = await ensureServerMatch({
                 publicMatchId: created.public_match_id,
                 matchDate: created.date,
@@ -313,6 +446,8 @@ export default function Home() {
                 windDirection: created.wind_direction === '' ? null : created.wind_direction,
                 mode: created.mode || 'analysis',
                 matchLengthMinutes: created.match_length_minutes,
+                homeTeamRef: identity.teamServerIds.home || homeTeam?.server_team_id || null,
+                awayTeamRef: identity.teamServerIds.away || awayTeam?.server_team_id || null,
             });
 
             if (res.ok && res.id) {
@@ -585,16 +720,6 @@ export default function Home() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => serverHydrationMutation.mutate()}
-                                disabled={!isAuthenticated || serverHydrationMutation.isPending}
-                                title={isAuthenticated ? 'Pull missing account matches onto this device' : 'Sign in to sync account matches'}
-                            >
-                                <RefreshCw className={`w-4 h-4 ${serverHydrationMutation.isPending ? 'animate-spin' : ''}`} /> Sync
-                            </Button>
                             <Button
                                 type="button"
                                 variant="outline"

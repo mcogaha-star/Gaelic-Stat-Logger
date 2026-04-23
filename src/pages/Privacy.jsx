@@ -16,13 +16,15 @@ export default function Privacy() {
 
         <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
           <p className="text-sm">
-            Gaelic stats tracker collects statistical event data for research and model tuning. Identifiable data such as
-            team and player names are not sent to the server.
+            Gaelic Stats Logger syncs match data to your account so your matches can appear on your own devices. Team
+            and player names are stored separately from stat rows in account-private identity tables.
           </p>
           <ul className="text-sm list-disc pl-5 space-y-1">
-            <li>Stored locally only: team names, player names.</li>
-            <li>Sent to server: match date, code (GAA/LGFA), level, event types, positions, timestamps, jersey numbers.</li>
+            <li>Private identity tables: team names, player names, colours, jersey numbers, and squad membership.</li>
+            <li>Stat rows: event type, positions, timestamps, private player/team references, and jersey-number fallbacks.</li>
+            <li>Not duplicated in stat rows: player names and team names.</li>
             <li>Not sent to server: competition, venue/location.</li>
+            <li>This is pseudonymisation, not encryption. Normal users only read their own rows, but database administrators could technically join private refs back to names.</li>
             <li>You can revoke consent in Settings, which stops any further uploads.</li>
           </ul>
         </div>
@@ -30,4 +32,3 @@ export default function Privacy() {
     </div>
   );
 }
-

@@ -18,7 +18,7 @@ import StatMarkers from '@/components/pitch/StatMarkers';
 import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
-import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
 import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, isBroughtBackAdvantageStat, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
@@ -354,6 +354,41 @@ export default function MatchStats() {
         if (match.is_demo) return null;
         if (!match.public_match_id) return null;
 
+        const syncIdentity = async () => {
+            const playerRefByLocalId = {};
+            const teamsToSync = [
+                ['home', homeTeam],
+                ['away', awayTeam],
+            ];
+            const teamRefs = {};
+            for (const [side, team] of teamsToSync) {
+                if (!team?.id) continue;
+                let teamRef = team.server_team_id || null;
+                const teamRes = await upsertPrivateTeamFromLocal(team);
+                if (teamRes.ok && teamRes.id) {
+                    teamRef = teamRes.id;
+                    teamRefs[side] = teamRef;
+                    if (team.server_team_id !== teamRef) {
+                        await db.entities.Team.update(team.id, { server_team_id: teamRef });
+                    }
+                }
+                for (const player of (allPlayers || []).filter((p) => p.team_id === team.id)) {
+                    const playerRes = await upsertPrivatePlayerFromLocal(player, { teamServerId: teamRef });
+                    if (playerRes.ok && playerRes.id) {
+                        playerRefByLocalId[player.id] = playerRes.id;
+                        if (player.server_player_id !== playerRes.id || player.server_team_id !== teamRef) {
+                            await db.entities.Player.update(player.id, { server_player_id: playerRes.id, server_team_id: teamRef || null });
+                        }
+                    } else if (player.server_player_id) {
+                        playerRefByLocalId[player.id] = player.server_player_id;
+                    }
+                }
+            }
+            return { teamRefs, playerRefByLocalId };
+        };
+
+        const identity = await syncIdentity();
+
         const res = await ensureServerMatch({
             publicMatchId: match.public_match_id,
             matchDate: match.date,
@@ -361,11 +396,13 @@ export default function MatchStats() {
             level: match.level || 'Other',
             mode: match.mode || 'analysis',
             matchLengthMinutes: match.match_length_minutes,
+            homeTeamRef: identity.teamRefs.home || homeTeam?.server_team_id || null,
+            awayTeamRef: identity.teamRefs.away || awayTeam?.server_team_id || null,
         });
-        if (match.server_match_id) return match.server_match_id;
+        if (match.server_match_id) return { id: match.server_match_id, playerRefByLocalId: identity.playerRefByLocalId };
         if (res.ok && res.id) {
             await db.entities.Match.update(match.id, { server_match_id: res.id });
-            return res.id;
+            return { id: res.id, playerRefByLocalId: identity.playerRefByLocalId };
         }
         return null;
     };
@@ -376,13 +413,14 @@ export default function MatchStats() {
 
             try {
                 // Best-effort server upload (redacted)
-                const serverMatchId = await ensureMatchServerId();
-                if (serverMatchId && match?.public_match_id) {
+                const serverSync = await ensureMatchServerId();
+                if (serverSync?.id && match?.public_match_id) {
                     const res = await insertServerStat({
-                        matchId: serverMatchId,
+                        matchId: serverSync.id,
                         publicMatchId: match.public_match_id,
                         stat: created,
                         teamSide: created.team_side || 'unknown',
+                        playerRefByLocalId: serverSync.playerRefByLocalId || {},
                     });
                     if (res.ok && res.id) {
                         await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
