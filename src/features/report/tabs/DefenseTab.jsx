@@ -247,7 +247,7 @@ function DefenseTab({
           ) : (
             <Card>
               <CardContent className="p-4 space-y-3 h-full">
-                <div className="font-semibold text-slate-900">Turnover Map</div>
+                <div className="font-semibold text-slate-900">Turnover Lost Map</div>
                 <PitchViz
                   stats={mapStats}
                   homeColor={homeTeam?.color}
