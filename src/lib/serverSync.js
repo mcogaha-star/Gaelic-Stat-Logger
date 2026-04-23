@@ -252,3 +252,47 @@ export async function updateServerStat(statId, patch) {
   if (error) return { ok: false, reason: error.message };
   return { ok: true };
 }
+
+export async function fetchServerMatches({ limit = 100 } = {}) {
+  const user = await requireAuthUser();
+  if (!user) return { ok: false, reason: 'not_authenticated', matches: [] };
+
+  const { data, error } = await supabase
+    .from('matches')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(limit);
+
+  if (error) return { ok: false, reason: error.message, matches: [] };
+  const matches = (data || []).filter((row) => !row?.deleted_at);
+  matches.sort((a, b) => String(b?.created_at || b?.match_date || '').localeCompare(String(a?.created_at || a?.match_date || '')));
+  return { ok: true, matches };
+}
+
+export async function fetchServerStatsForMatch({ serverMatchId, publicMatchId, limit = 5000 } = {}) {
+  const user = await requireAuthUser();
+  if (!user) return { ok: false, reason: 'not_authenticated', stats: [] };
+  if (!serverMatchId && !publicMatchId) return { ok: false, reason: 'missing_match_reference', stats: [] };
+
+  let query = supabase
+    .from('stat_entries')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(limit);
+
+  if (serverMatchId) {
+    query = query.eq('match_id', serverMatchId);
+  } else {
+    query = query.eq('public_match_id', publicMatchId);
+  }
+
+  const { data, error } = await query;
+  if (error) return { ok: false, reason: error.message, stats: [] };
+  const stats = (data || []).filter((row) => !row?.deleted_at);
+  stats.sort((a, b) => {
+    const playDiff = Number(a?.play_id || 0) - Number(b?.play_id || 0);
+    if (playDiff) return playDiff;
+    return String(a?.timestamp || '').localeCompare(String(b?.timestamp || ''));
+  });
+  return { ok: true, stats };
+}

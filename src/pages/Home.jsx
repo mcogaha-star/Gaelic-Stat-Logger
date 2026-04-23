@@ -4,7 +4,7 @@
   integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
 };
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
@@ -15,11 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3, Sparkles } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3, Sparkles, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
+import { ensureServerMatch, fetchServerMatches, fetchServerStatsForMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
 import { deriveMatchLengthMinutes, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
+import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
 
@@ -28,8 +29,141 @@ const WIND_DIRECTION_OPTIONS = Array.from({ length: 24 }, (_, index) => {
     return { value: String(degrees), label: `${degrees}°` };
 });
 
+function stringifyServerExtra(extraData) {
+    if (!extraData) return '{}';
+    if (typeof extraData === 'string') {
+        try {
+            const parsed = JSON.parse(extraData);
+            return JSON.stringify(parsed || {});
+        } catch {
+            return '{}';
+        }
+    }
+    if (typeof extraData === 'object') return JSON.stringify(extraData);
+    return '{}';
+}
+
+function localStatFromServer(row, localMatchId) {
+    const setDefence = typeof row?.set_defence === 'boolean' ? row.set_defence : !!row?.counter_attack;
+    return {
+        match_id: localMatchId,
+        server_stat_id: row?.id || null,
+        stat_type: row?.stat_type || 'unknown',
+        is_pass: !!row?.is_pass,
+        half: row?.half || 'first',
+        timestamp: row?.timestamp || new Date().toISOString(),
+        play_id: row?.play_id ?? null,
+        possession_id: row?.possession_id ?? null,
+        possession_team_side: row?.possession_team_side ?? null,
+        team_side: row?.team_side || 'unknown',
+        counter_attack: setDefence,
+        set_defence: setDefence,
+        defence_set_migration_version: row?.defence_set_migration_version ?? null,
+        stat_model_migration_version: row?.stat_model_migration_version ?? null,
+        time_s: row?.time_s ?? null,
+        normalized_time_s: row?.normalized_time_s ?? null,
+        x_position: row?.x_position ?? null,
+        y_position: row?.y_position ?? null,
+        end_x_position: row?.end_x_position ?? null,
+        end_y_position: row?.end_y_position ?? null,
+        raw_x_position: row?.raw_x_position ?? null,
+        raw_y_position: row?.raw_y_position ?? null,
+        raw_end_x_position: row?.raw_end_x_position ?? null,
+        raw_end_y_position: row?.raw_end_y_position ?? null,
+        player_number: row?.player_number ?? null,
+        recipient_number: row?.recipient_number ?? null,
+        player_name: null,
+        recipient_name: null,
+        extra_data: stringifyServerExtra(row?.extra_data),
+    };
+}
+
+async function createImportedTeam(side, serverMatch) {
+    const publicId = serverMatch?.public_match_id || String(serverMatch?.id || '').slice(0, 8) || 'match';
+    const label = side === 'home' ? 'Home' : 'Away';
+    return db.entities.Team.create({
+        name: `Synced ${label} (${publicId})`,
+        color: side === 'home' ? '#fb4b14' : '#5b1f2f',
+        starters: '[]',
+        subs: '[]',
+        is_synced_placeholder: true,
+    });
+}
+
+async function hydrateServerAccountData({ localMatches, localStats }) {
+    const serverMatchesResult = await fetchServerMatches({ limit: 150 });
+    if (!serverMatchesResult.ok) {
+        if (serverMatchesResult.reason === 'not_authenticated') return { importedMatches: 0, importedStats: 0, skipped: true };
+        throw new Error(serverMatchesResult.reason || 'Failed to fetch server matches');
+    }
+
+    const localByPublicId = new Map((localMatches || []).filter((m) => m?.public_match_id).map((m) => [m.public_match_id, m]));
+    const localByServerId = new Map((localMatches || []).filter((m) => m?.server_match_id).map((m) => [m.server_match_id, m]));
+    const localServerStatIds = new Set((localStats || []).map((s) => s?.server_stat_id).filter(Boolean));
+    let importedMatches = 0;
+    let importedStats = 0;
+
+    for (const serverMatch of (serverMatchesResult.matches || [])) {
+        const publicMatchId = serverMatch?.public_match_id || '';
+        let localMatch =
+            (serverMatch?.id ? localByServerId.get(serverMatch.id) : null)
+            || (publicMatchId ? localByPublicId.get(publicMatchId) : null);
+
+        if (!localMatch) {
+            const homeTeam = await createImportedTeam('home', serverMatch);
+            const awayTeam = await createImportedTeam('away', serverMatch);
+            localMatch = await db.entities.Match.create({
+                home_team_id: homeTeam.id,
+                away_team_id: awayTeam.id,
+                date: serverMatch?.match_date || new Date().toISOString().slice(0, 10),
+                venue: '',
+                competition: 'Synced from account',
+                level: serverMatch?.level || 'Other',
+                code: serverMatch?.code || 'GAA',
+                mode: serverMatch?.mode || 'analysis',
+                match_length_minutes: Number.isFinite(Number(serverMatch?.match_length_minutes)) ? Number(serverMatch.match_length_minutes) : deriveMatchLengthMinutes(serverMatch || {}),
+                wind_speed: serverMatch?.wind_speed ?? '',
+                wind_direction: serverMatch?.wind_direction ?? '',
+                public_match_id: publicMatchId || generatePublicMatchId(),
+                server_match_id: serverMatch?.id || null,
+                is_synced_import: true,
+                home_starters: '[]',
+                away_starters: '[]',
+                home_subs: '[]',
+                away_subs: '[]',
+                home_on_field: '[]',
+                away_on_field: '[]',
+            });
+            importedMatches += 1;
+            if (publicMatchId) localByPublicId.set(publicMatchId, localMatch);
+            if (serverMatch?.id) localByServerId.set(serverMatch.id, localMatch);
+        } else if (serverMatch?.id && !localMatch.server_match_id) {
+            await db.entities.Match.update(localMatch.id, { server_match_id: serverMatch.id });
+            localMatch = { ...localMatch, server_match_id: serverMatch.id };
+            localByServerId.set(serverMatch.id, localMatch);
+        }
+
+        const serverStatsResult = await fetchServerStatsForMatch({
+            serverMatchId: serverMatch?.id,
+            publicMatchId,
+            limit: 10000,
+        });
+        if (!serverStatsResult.ok) continue;
+
+        for (const serverStat of (serverStatsResult.stats || [])) {
+            if (serverStat?.id && localServerStatIds.has(serverStat.id)) continue;
+            const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id));
+            if (serverStat?.id) localServerStatIds.add(serverStat.id);
+            if (created?.id) importedStats += 1;
+        }
+    }
+
+    return { importedMatches, importedStats, skipped: false };
+}
+
 export default function Home() {
     const navigate = useNavigate();
+    const { isAuthenticated } = useAuth();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
     const [newMatch, setNewMatch] = useState({
@@ -64,12 +198,32 @@ export default function Home() {
         queryFn: () => db.entities.Player.list('number')
     });
 
-    const { data: allStats = [] } = useQuery({
+    const { data: allStats = [], isLoading: isLoadingStats } = useQuery({
         queryKey: ['all-stats'],
         queryFn: () => db.entities.StatEntry.list('-timestamp')
     });
 
-    const selectableTeams = React.useMemo(() => (teams || []).filter((team) => !team?.is_demo), [teams]);
+    const serverHydrationMutation = useMutation({
+        mutationFn: () => hydrateServerAccountData({ localMatches: matches, localStats: allStats }),
+        onSuccess: ({ importedMatches, importedStats, skipped }) => {
+            if (skipped || (!importedMatches && !importedStats)) return;
+            queryClient.invalidateQueries({ queryKey: ['matches'] });
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['players'] });
+            queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+            toast.success(`Synced ${importedMatches} match${importedMatches === 1 ? '' : 'es'} and ${importedStats} stat row${importedStats === 1 ? '' : 's'}`);
+        },
+        onError: (error) => {
+            toast.error(error?.message || 'Failed to sync account matches');
+        },
+    });
+
+    useEffect(() => {
+        if (!isAuthenticated || isLoading || isLoadingStats || serverHydrationMutation.isPending || serverHydrationMutation.isSuccess) return;
+        serverHydrationMutation.mutate();
+    }, [isAuthenticated, isLoading, isLoadingStats, serverHydrationMutation.isPending, serverHydrationMutation.isSuccess]);
+
+    const selectableTeams = React.useMemo(() => (teams || []).filter((team) => !team?.is_demo && !team?.is_synced_placeholder), [teams]);
 
     const scoreByMatch = React.useMemo(() => {
         const map = {};
@@ -435,6 +589,16 @@ export default function Home() {
                                 type="button"
                                 variant="outline"
                                 className="gap-2"
+                                onClick={() => serverHydrationMutation.mutate()}
+                                disabled={!isAuthenticated || serverHydrationMutation.isPending}
+                                title={isAuthenticated ? 'Pull missing account matches onto this device' : 'Sign in to sync account matches'}
+                            >
+                                <RefreshCw className={`w-4 h-4 ${serverHydrationMutation.isPending ? 'animate-spin' : ''}`} /> Sync
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="gap-2"
                                 onClick={() => openDemoMutation.mutate()}
                                 disabled={openDemoMutation.isPending}
                                 title="Open the bundled Armagh vs Galway demo match"
@@ -499,6 +663,11 @@ export default function Home() {
                                                 {match.is_demo && (
                                                     <div className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                                                         Demo
+                                                    </div>
+                                                )}
+                                                {match.is_synced_import && (
+                                                    <div className="mt-1 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                                                        Synced
                                                     </div>
                                                 )}
                                                 {match.competition && (
