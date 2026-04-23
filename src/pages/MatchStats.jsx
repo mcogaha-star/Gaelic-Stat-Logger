@@ -319,6 +319,7 @@ export default function MatchStats() {
 
     const ensureMatchServerId = async () => {
         if (!match) return null;
+        if (match.is_demo) return null;
         if (!match.public_match_id) return null;
 
         const res = await ensureServerMatch({

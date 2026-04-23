@@ -39,20 +39,22 @@ export default function SeasonStats() {
     queryFn: () => db.entities.Team.list('name'),
   });
 
+  const realMatches = useMemo(() => matches.filter((match) => !match?.is_demo), [matches]);
+  const realTeams = useMemo(() => teams.filter((team) => !team?.is_demo), [teams]);
   const selectedMatch = useMemo(() => matches.find((m) => m.id === matchId) || null, [matches, matchId]);
 
   const seasonOptions = useMemo(() => {
-    return Array.from(new Set(matches.map((m) => String(m.competition || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-  }, [matches]);
+    return Array.from(new Set(realMatches.map((m) => String(m.competition || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [realMatches]);
 
   const filteredMatches = useMemo(() => {
-    return matches.filter((match) => {
+    return realMatches.filter((match) => {
       if (seasonFilter !== 'all' && String(match.competition || '') !== seasonFilter) return false;
       if (codeFilter !== 'all' && String(match.code || '') !== codeFilter) return false;
       if (teamFilter !== 'all' && ![match.home_team_id, match.away_team_id].includes(teamFilter)) return false;
       return true;
     });
-  }, [matches, seasonFilter, codeFilter, teamFilter]);
+  }, [realMatches, seasonFilter, codeFilter, teamFilter]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -111,7 +113,7 @@ export default function SeasonStats() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Teams</SelectItem>
-                    {teams.map((team) => (
+                    {realTeams.map((team) => (
                       <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -143,7 +145,7 @@ export default function SeasonStats() {
                 </div>
                 <div className="rounded-xl border bg-slate-50 p-4">
                   <div className="text-xs uppercase tracking-wide text-slate-500">Selected Team</div>
-                  <div className="text-lg font-semibold text-slate-900 mt-1">{teamFilter === 'all' ? 'All' : (teams.find((t) => t.id === teamFilter)?.name || 'Team')}</div>
+                  <div className="text-lg font-semibold text-slate-900 mt-1">{teamFilter === 'all' ? 'All' : (realTeams.find((t) => t.id === teamFilter)?.name || 'Team')}</div>
                 </div>
               </div>
             </CardContent>

@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3 } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Users, Settings, Trash2, Info, BarChart3, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ensureServerMatch, generatePublicMatchId, softDeleteServerMatch } from '@/lib/serverSync';
@@ -68,6 +68,8 @@ export default function Home() {
         queryKey: ['all-stats'],
         queryFn: () => db.entities.StatEntry.list('-timestamp')
     });
+
+    const selectableTeams = React.useMemo(() => (teams || []).filter((team) => !team?.is_demo), [teams]);
 
     const scoreByMatch = React.useMemo(() => {
         const map = {};
@@ -185,6 +187,25 @@ export default function Home() {
         }
     });
 
+    const openDemoMutation = useMutation({
+        mutationFn: async () => {
+            const { openDemoMatch } = await import('@/lib/demoData');
+            return openDemoMatch(db);
+        },
+        onSuccess: (match) => {
+            queryClient.invalidateQueries({ queryKey: ['matches'] });
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['players'] });
+            queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+            if (match?.id) queryClient.invalidateQueries({ queryKey: ['stats', match.id] });
+            toast.success('Demo match ready');
+            if (match?.id) navigate(createPageUrl(`MatchReport?id=${match.id}`));
+        },
+        onError: (error) => {
+            toast.error(error?.message || 'Failed to load demo match');
+        },
+    });
+
     const handleCreateMatch = () => {
         if (!newMatch.date) { toast.error('Please fill in date'); return; }
         if (!newMatch.home_team_id || !newMatch.away_team_id) { toast.error('Please select both teams'); return; }
@@ -215,8 +236,15 @@ export default function Home() {
             const stats = await db.entities.StatEntry.filter({ match_id: m.id });
             await Promise.all((stats || []).map(s => db.entities.StatEntry.delete(s.id)));
             await db.entities.Match.delete(m.id);
+            if (m.is_demo) {
+                const { deleteDemoArtifactsForMatch } = await import('@/lib/demoData');
+                await deleteDemoArtifactsForMatch(db, m);
+            }
 
             queryClient.invalidateQueries({ queryKey: ['matches'] });
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['players'] });
+            queryClient.invalidateQueries({ queryKey: ['all-stats'] });
             toast.success('Match deleted');
         } catch (e) {
             toast.error(e?.message || 'Failed to delete match');
@@ -312,10 +340,10 @@ export default function Home() {
                                             <Select value={newMatch.home_team_id} onValueChange={(v) => setNewMatch({ ...newMatch, home_team_id: v })}>
                                                 <SelectTrigger><SelectValue placeholder="Select home team..." /></SelectTrigger>
                                                 <SelectContent>
-                                                    {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                                                    {selectableTeams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                                                 </SelectContent>
                                             </Select>
-                                            {teams.length === 0 && (
+                                            {selectableTeams.length === 0 && (
                                                 <p className="text-xs text-slate-400">
                                                     No teams yet. <Link to={createPageUrl('Teams')} className="text-green-600 underline">Add teams first.</Link>
                                                 </p>
@@ -326,7 +354,7 @@ export default function Home() {
                                             <Select value={newMatch.away_team_id} onValueChange={(v) => setNewMatch({ ...newMatch, away_team_id: v })}>
                                                 <SelectTrigger><SelectValue placeholder="Select away team..." /></SelectTrigger>
                                                 <SelectContent>
-                                                    {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                                                    {selectableTeams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -403,6 +431,16 @@ export default function Home() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="gap-2"
+                                onClick={() => openDemoMutation.mutate()}
+                                disabled={openDemoMutation.isPending}
+                                title="Open the bundled Armagh vs Galway demo match"
+                            >
+                                <Sparkles className="w-4 h-4" /> Demo
+                            </Button>
                             <Link to={createPageUrl('Teams')}>
                                 <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
                             </Link>
@@ -436,6 +474,15 @@ export default function Home() {
                             <Button onClick={() => setDialogOpen(true)} className="gap-2 bg-green-600 hover:bg-green-700">
                                 <Plus className="w-4 h-4" /> Create Match
                             </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="mt-3 gap-2"
+                                onClick={() => openDemoMutation.mutate()}
+                                disabled={openDemoMutation.isPending}
+                            >
+                                <Sparkles className="w-4 h-4" /> Open Demo Match
+                            </Button>
                         </CardContent>
                     </Card>
                 ) : (
@@ -449,6 +496,11 @@ export default function Home() {
                                                 <CardTitle className="text-lg group-hover:text-green-600 transition-colors">
                                                     {getMatchTitle(match)}
                                                 </CardTitle>
+                                                {match.is_demo && (
+                                                    <div className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                                                        Demo
+                                                    </div>
+                                                )}
                                                 {match.competition && (
                                                     <div className="flex items-center gap-1.5 mt-1 text-sm text-slate-500">
                                                         <Trophy className="w-3.5 h-3.5" />{match.competition}
