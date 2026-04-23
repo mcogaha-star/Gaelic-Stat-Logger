@@ -19,6 +19,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
+  isBroughtBackAdvantageStat,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -56,9 +57,10 @@ import {
 function FoulsDisciplineTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
-  const fouls = useMemo(() => base.filter((s) => !!extractFoulFromStat(s)), [base]);
-  const scorableFreeRows = useMemo(() => findScorableFreeConcededRows(base), [base]);
+  const fouls = useMemo(() => calcBase.filter((s) => !!extractFoulFromStat(s)), [calcBase]);
+  const scorableFreeRows = useMemo(() => findScorableFreeConcededRows(calcBase), [calcBase]);
 
   const kpis = useMemo(() => {
     const by = {

@@ -103,9 +103,11 @@ function KickoutPressTable({ card, homeTeam, awayTeam }) {
 function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
+  const calcKickouts = useMemo(() => calcBase.filter((s) => s?.stat_type === 'kickout'), [calcBase]);
   const nextStatById = useMemo(() => {
     const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
       const pa = Number(a?.play_id);
@@ -125,12 +127,12 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
   }, [stats]);
 
   const kpis = useMemo(() => {
-    const byPoss = groupByPossession(base);
+    const byPoss = groupByPossession(calcBase);
 
     const calcForTeam = (teamSide) => {
       const ownKickouts = [];
       const oppKickouts = [];
-      for (const s of kickouts) {
+      for (const s of calcKickouts) {
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const koTeam = ex?.kickout?.team_side;
         const o = ex?.kickout?.outcome;
@@ -152,7 +154,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
       // Restart-to-shot/score (best-effort): check possessions associated with won restarts.
       const restartPossKeys = new Set();
-      for (const s of kickouts) {
+      for (const s of calcKickouts) {
         const ex = safeParseJSON(s.extra_data || '{}', {});
         const koTeam = ex?.kickout?.team_side;
         if (koTeam !== teamSide) continue;
@@ -185,7 +187,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
     };
 
     // Break-ball recovery % across both restarts (best-effort).
-    const breakAll = kickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
+    const breakAll = calcKickouts.filter((s) => safeParseJSON(s.extra_data || '{}', {})?.kickout?.outcome === 'break');
     const breakWonHome = breakAll.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'home').length;
     const breakWonAway = breakAll.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'away').length;
 
@@ -196,11 +198,11 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       breakWonHome,
       breakWonAway,
     };
-  }, [kickouts, base, nextStatById]);
+  }, [calcKickouts, calcBase, nextStatById]);
 
   const kickoutTargets = useMemo(() => {
     const rows = new Map();
-    for (const s of kickouts) {
+    for (const s of calcKickouts) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
       const koTeam = ex?.kickout?.team_side;
       if (koTeam !== 'home' && koTeam !== 'away') continue;
@@ -217,11 +219,11 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       rows.set(`${koTeam}|${key}`, cur);
     }
     return Array.from(rows.values()).sort((a, b) => b.targeted - a.targeted || String(a.label).localeCompare(String(b.label)));
-  }, [kickouts, nextStatById]);
+  }, [calcKickouts, nextStatById]);
 
   const kickoutPressCards = useMemo(() => {
     const keeperRows = new Map();
-    for (const stat of kickouts) {
+    for (const stat of calcKickouts) {
       const extra = safeParseJSON(stat.extra_data || '{}', {});
       const kick = extra?.kickout || {};
       const team = kick?.team_side;
@@ -275,7 +277,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
         })
       return { ...row, pressRows };
     }).filter((row) => row.kickoutsTaken > 0 && (teamMode === 'both' || row.team === teamMode));
-  }, [kickouts, nextStatById, playerOptions, teamMode]);
+  }, [calcKickouts, nextStatById, playerOptions, teamMode]);
 
   const visibleKickouts = useMemo(() => {
     if (teamMode === 'both') return kickouts;

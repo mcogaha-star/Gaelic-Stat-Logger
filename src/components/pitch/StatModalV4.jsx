@@ -1095,6 +1095,14 @@ export default function StatModalV4({
   useEffect(() => {
     if (initialStat) return;
     if (!isDrag) return;
+    if (action !== 'pass') return;
+    if (passOutcome !== 'broken_retained') return;
+    if (recoveredBy === NONE && passer !== NONE) setRecoveredBy(passer);
+  }, [isDrag, action, passOutcome, passer, recoveredBy, initialStat]);
+
+  useEffect(() => {
+    if (initialStat) return;
+    if (!isDrag) return;
     if (action !== 'carry') return;
     if (carryOutcome !== 'turnover') return;
     if (lostBy === NONE && carrier !== NONE) setLostBy(carrier);
@@ -1106,6 +1114,10 @@ export default function StatModalV4({
     if (initialStat) return;
     if (!isDrag) return;
     if (action !== 'pass') return;
+    if (passOutcome === 'broken_retained') {
+      if (passWonBy !== NONE) setPassWonBy(NONE);
+      return;
+    }
     if (passOutcome === 'turnover') return; // "won_by" is not used for turnover passes
     if (touchedRoles?.pass_won_by) return;
     if (!passIntendedRecipient || passIntendedRecipient === NONE) {
@@ -1329,11 +1341,11 @@ export default function StatModalV4({
       return ['kickout_intended'];
     }
     if (action === 'pass') {
-      // For turnover, "won by" is not required/used.
-      const base = passOutcome === 'turnover' ? ['pass_intended', 'passer'] : ['pass_intended', 'passer', 'pass_won_by'];
+      const base = ['pass_intended', 'passer'];
       if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_on', 'foul_by'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'broken_retained') return base.concat(['recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
-      return base;
+      return base.concat(['pass_won_by']);
     }
     if (action === 'carry') {
       const base = ['carrier'].concat((carrierPressure === 'high' || takeOnStatus !== 'no') ? ['defender'] : []);
@@ -1378,6 +1390,10 @@ export default function StatModalV4({
       if (carrierSide === 'away') return 'home';
     }
     if (k === 'recovered_by') {
+      if (action === 'pass' && passOutcome === 'broken_retained') {
+        const passerSide = makeSelection(passer, ctx).team_side;
+        return passerSide === 'home' || passerSide === 'away' ? passerSide : null;
+      }
       if (action === 'carry' && carryOutcome === 'dispossessed_retained') {
         const carrierSide = makeSelection(carrier, ctx).team_side;
         return carrierSide === 'home' || carrierSide === 'away' ? carrierSide : null;
@@ -1660,6 +1676,7 @@ export default function StatModalV4({
         if (turnoverType === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
         return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
       }
+      if (passOutcome === 'broken_retained') return isRoleFilled('recovered_by', recoveredBy);
       if (passOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
       return true;
     }
@@ -1808,6 +1825,9 @@ export default function StatModalV4({
         won_by: sel(passWonBy),
         deadball: !!deadball,
       };
+      if (passOutcome === 'broken_retained') {
+        extra.pass.recovered_by = sel(recoveredBy);
+      }
       if (passOutcome === 'turnover') {
         const foulOnSel = sel(foulOn);
         const foulBySel = sel(foulBy);
@@ -2064,8 +2084,8 @@ export default function StatModalV4({
                     <Select value={passOutcome} onValueChange={setPassOutcome}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
-                        {['completed', 'broken', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => (
-                          <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>
+                        {['completed', 'broken_retained', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => (
+                          <SelectItem key={v} value={v}>{v === 'broken_retained' ? 'Broken - Retained' : toTitleCase(v)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -2183,7 +2203,8 @@ export default function StatModalV4({
                     {roleButton('passer')}
                     {roleButton('pass_intended')}
                   </div>
-                  {passOutcome !== 'turnover' && roleButton('pass_won_by')}
+                  {passOutcome === 'completed' && roleButton('pass_won_by')}
+                  {passOutcome === 'broken_retained' && roleButton('recovered_by')}
                   {passOutcome === 'turnover' && turnoverPanel({ foulLayout: 'stack' })}
                   {passOutcome === 'foul' && foulPanel()}
                 </>

@@ -199,6 +199,7 @@ function BuildUpTab({
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
   const events = useMemo(() => base.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry')), [base]);
 
@@ -212,6 +213,7 @@ function BuildUpTab({
     if (progressiveOnly && !isProgressiveShared(s)) return false;
     return true;
   }), [events, eventTypes, pressure, outcome, progressiveOnly]);
+  const calcFiltered = useMemo(() => filtered.filter((s) => !isBroughtBackAdvantageStat(s)), [filtered]);
 
   const kpis = useMemo(() => {
     const eventLength = (stat) => {
@@ -222,8 +224,8 @@ function BuildUpTab({
       if (![sx, sy, ex, ey].every(Number.isFinite)) return NaN;
       return Math.sqrt(((ex - sx) ** 2) + ((ey - sy) ** 2));
     };
-    const possessionGroups = groupByPossession(base);
-    const orderedBase = (Array.isArray(base) ? base : []).slice().sort((a, b) => {
+    const possessionGroups = groupByPossession(calcBase);
+    const orderedBase = (Array.isArray(calcBase) ? calcBase : []).slice().sort((a, b) => {
       const pa = Number(a?.play_id);
       const pb = Number(b?.play_id);
       if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
@@ -240,9 +242,9 @@ function BuildUpTab({
       const key = `${pside}-${pid}`;
       if (!previousByPossessionKey.has(key)) previousByPossessionKey.set(key, index > 0 ? orderedBase[index - 1] : null);
     });
-    const shotAssistCredits = buildShotAssistCredits(base);
+    const shotAssistCredits = buildShotAssistCredits(calcBase);
     const calc = (side) => {
-      const sideEvents = filtered.filter((s) => s.team_side === side);
+      const sideEvents = calcFiltered.filter((s) => s.team_side === side);
       const pass = sideEvents.filter((s) => s.stat_type === 'pass');
       const carry = sideEvents.filter((s) => s.stat_type === 'carry');
       const passComp = pass.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
@@ -251,6 +253,12 @@ function BuildUpTab({
       const progPassComp = pass.filter((s) => isProgressiveShared(s) && deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
       const progCarry = carry.filter((s) => isProgressiveShared(s)).length;
       const progCarryComp = carry.filter((s) => isProgressiveShared(s) && deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed').length;
+      const switches = pass.filter((s) => {
+        if (deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) !== 'completed') return false;
+        const sy = Number(s?.y_position);
+        const ey = Number(s?.end_y_position);
+        return Number.isFinite(sy) && Number.isFinite(ey) && Math.abs(ey - sy) > 30;
+      }).length;
       const scoringEntries = sideEvents.filter((s) => getScoringZoneEntry(s)).length;
       const passesIntoScoringZone = pass.filter((s) => deriveOutcome(s, safeParseJSON(s.extra_data || '{}', {})) === 'completed' && getScoringZoneEntry(s)).length;
       const turnovers = sideEvents.filter((s) => classifyTerminalOutcome(s, side) === 'TURNOVER').length;
@@ -310,10 +318,9 @@ function BuildUpTab({
         carryPct: carry.length ? (carryComp / carry.length) * 100 : NaN,
         progPass,
         progPassComp,
-        progPassPct: progPass ? (progPassComp / progPass) * 100 : NaN,
         progCarry,
         progCarryComp,
-        progCarryPct: progCarry ? (progCarryComp / progCarry) * 100 : NaN,
+        switches,
         scoringEntries,
         passesIntoScoringZone,
         shotAssists,
@@ -332,7 +339,7 @@ function BuildUpTab({
       };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [base, filtered, reportFilters]);
+  }, [calcBase, calcFiltered, reportFilters]);
 
   const fieldTiltPct = useMemo(() => {
     const total = (kpis.home.fieldTiltEvents || 0) + (kpis.away.fieldTiltEvents || 0);
@@ -450,8 +457,9 @@ function BuildUpTab({
           rows={[
             { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
             { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
-            { label: 'Progressive Passes', home: formatRatioPct(kpis.home.progPassComp, kpis.home.progPass), away: formatRatioPct(kpis.away.progPassComp, kpis.away.progPass) },
-            { label: 'Progressive Carries', home: formatRatioPct(kpis.home.progCarryComp, kpis.home.progCarry), away: formatRatioPct(kpis.away.progCarryComp, kpis.away.progCarry) },
+            { label: 'Successful Progressive Pass Events', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
+            { label: 'Successful Progressive Carry Events', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
+            { label: 'Switches', home: kpis.home.switches, away: kpis.away.switches },
             { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
             { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },

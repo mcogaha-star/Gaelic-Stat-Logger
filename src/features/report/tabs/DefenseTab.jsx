@@ -72,14 +72,16 @@ function DefenseTab({
 }) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
 
-  const turnovers = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s) && (s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover))), [base]);
-  const defensiveFouls = useMemo(() => base.filter((s) => {
+  const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
+  const calcTurnovers = useMemo(() => calcBase.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [calcBase]);
+  const defensiveFouls = useMemo(() => calcBase.filter((s) => {
     const f = extractFoulFromStat(s);
     if (!f?.foul_by?.team_side) return false;
     return ['pull', 'push', 'tackle', 'high_tackle'].includes(normalizeFoulType(f?.foul_type));
-  }), [base]);
+  }), [calcBase]);
 
   const classifyTurnover = (s) => {
     const ex = safeParseJSON(s?.extra_data || '{}', {});
@@ -102,22 +104,22 @@ function DefenseTab({
 
   const kpis = useMemo(() => {
     const calc = (teamSide) => {
-      const won = turnovers.filter((s) => classifyTurnover(s).rec === teamSide).length;
-      const lost = turnovers.filter((s) => classifyTurnover(s).lost === teamSide).length;
-      const unforcedLost = turnovers.filter((s) => {
+      const won = calcTurnovers.filter((s) => classifyTurnover(s).rec === teamSide).length;
+      const lost = calcTurnovers.filter((s) => classifyTurnover(s).lost === teamSide).length;
+      const unforcedLost = calcTurnovers.filter((s) => {
         const c = classifyTurnover(s);
         return c.lost === teamSide && c.unforced;
       }).length;
 
-      const winXs = turnovers
+      const winXs = calcTurnovers
         .filter((s) => classifyTurnover(s).rec === teamSide)
         .map((s) => Number(s?.x_position))
         .filter(Number.isFinite);
       const avgHeight = winXs.length ? (winXs.reduce((a, b) => a + b, 0) / winXs.length) : NaN;
 
-      const byPoss = groupByPossession(base);
+      const byPoss = groupByPossession(calcBase);
       const startKeys = new Set();
-      for (const s of turnovers) {
+      for (const s of calcTurnovers) {
         const c = classifyTurnover(s);
         if (c.rec !== teamSide) continue;
         const pid = Number(s?.possession_id);
@@ -133,7 +135,7 @@ function DefenseTab({
       })).length;
 
       const oppSide = teamSide === 'home' ? 'away' : 'home';
-      const oppCompletedPasses = base.filter((s) => {
+      const oppCompletedPasses = calcBase.filter((s) => {
         if (s?.stat_type !== 'pass' || s?.team_side !== oppSide) return false;
         const ex = safeParseJSON(s.extra_data || '{}', {});
         return deriveOutcome(s, ex) === 'completed';
@@ -143,7 +145,7 @@ function DefenseTab({
         defensiveFouls.filter((s) => extractFoulFromStat(s)?.foul_by?.team_side === teamSide).length;
 
       const concededKeys = new Set();
-      for (const s of turnovers) {
+      for (const s of calcTurnovers) {
         const c = classifyTurnover(s);
         if (c.lost !== teamSide) continue;
         const pid = Number(s?.possession_id);
@@ -174,11 +176,11 @@ function DefenseTab({
       };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [turnovers, base, defensiveFouls]);
+  }, [calcTurnovers, calcBase, defensiveFouls]);
 
   const typeRows = useMemo(() => {
     const rows = new Map();
-    for (const s of turnovers) {
+    for (const s of calcTurnovers) {
       const c = classifyTurnover(s);
       if (!teamRelevant(c, teamMode)) continue;
       const typ = toTitleCase(c.typ || 'Unknown');
@@ -190,7 +192,7 @@ function DefenseTab({
       rows.set(typ, cur);
     }
     return Array.from(rows.values()).sort((a, b) => String(a.type).localeCompare(String(b.type)));
-  }, [turnovers, teamMode]);
+  }, [calcTurnovers, teamMode]);
 
   const filteredTurnovers = useMemo(() => turnovers.filter((s) => {
     const c = classifyTurnover(s);

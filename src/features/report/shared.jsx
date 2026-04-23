@@ -863,6 +863,7 @@ function buildShotAssistCredits(stats) {
       for (let j = i - 1; j >= 0; j -= 1) {
         const prev = acting[j];
         if (prev?.stat_type !== 'pass') continue;
+        if (isBroughtBackAdvantageStat(prev)) continue;
         const extra = safeParseJSON(prev.extra_data || '{}', {});
         if (deriveOutcome(prev, extra) !== 'completed') continue;
         const passer = extra?.pass?.passer;
@@ -886,11 +887,15 @@ function buildTouchesMap(stats) {
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat) continue;
+    if (isBroughtBackAdvantageStat(stat)) continue;
     const extra = safeParseJSON(stat.extra_data || '{}', {});
 
     if (stat.stat_type === 'pass') {
       if (deriveOutcome(stat, extra) === 'completed') {
         add(extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : extra?.pass?.intended_recipient);
+      }
+      if (normalizeOutcomeAlias(extra?.pass?.outcome) === 'broken_retained') {
+        add(extra?.pass?.recovered_by);
       }
       if (extra?.pass?.deadball) {
         add(extra?.pass?.passer);
@@ -920,7 +925,6 @@ function buildTouchesMap(stats) {
     }
 
     if (stat.stat_type === 'shot') {
-      if (isBroughtBackAdvantageStat(stat)) continue;
       const situation = String(extra?.shot?.situation || '');
       if (['free_ground', 'free_hands', '45', 'penalty'].includes(situation)) {
         add(extra?.shot?.player);

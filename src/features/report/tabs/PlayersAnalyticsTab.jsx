@@ -131,6 +131,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   const [playerBucket, setPlayerBucket] = useState('scoring');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
   const nextStatById = useMemo(() => {
     const ordered = (Array.isArray(stats) ? stats : []).slice().sort((a, b) => {
@@ -157,8 +158,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     return map;
   }, [playerOptions]);
 
-  const shotAssistCredits = useMemo(() => buildShotAssistCredits(base), [base]);
-  const touchMap = useMemo(() => buildTouchesMap(base), [base]);
+  const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
+  const touchMap = useMemo(() => buildTouchesMap(calcBase), [calcBase]);
 
   const leaderboard = useMemo(() => {
     const rows = new Map();
@@ -240,7 +241,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     ensure(homeKeeper);
     ensure(awayKeeper);
 
-    for (const s of base) {
+    for (const s of calcBase) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
       if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
         const p = ex?.shot?.player || getPrimaryActorSelection(s, ex) || (
@@ -402,7 +403,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       }
     }
 
-    const possessionGroups = groupByPossession(base);
+    const possessionGroups = groupByPossession(calcBase);
     for (const [key, evs] of possessionGroups.entries()) {
       const [teamSide] = String(key).split('-');
       if (teamSide !== 'home' && teamSide !== 'away') continue;
@@ -475,7 +476,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         longKickoutWinPct,
       };
     });
-  }, [base, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
+  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {

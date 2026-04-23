@@ -9,7 +9,7 @@ export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
 export const POSSESSION_REBUILD_VERSION = 'v13';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v2';
-export const STAT_MODEL_MIGRATION_VERSION = 'v4';
+export const STAT_MODEL_MIGRATION_VERSION = 'v5';
 
 const SHOT_REQUIRES_RESULT_OUTCOMES = ['short', 'saved', 'blocked', 'post'];
 const ADMIN_STAT_TYPES = ['substitution', 'period_end'];
@@ -92,6 +92,19 @@ function normalizeStatModelExtra(stat) {
     if (outcome === 'sidelineagainst') {
       next.pass.outcome = 'sideline_against';
       changed = true;
+    }
+    if (outcome === 'broken') {
+      next.pass.outcome = 'broken_retained';
+      changed = true;
+    }
+    if (String(next.pass.outcome || '') === 'broken_retained') {
+      const passer = next.pass?.passer;
+      const recovered = next.pass?.recovered_by;
+      const recoveredFilled = recovered && recovered.kind && recovered.kind !== 'none';
+      if (!recoveredFilled && passer?.kind) {
+        next.pass.recovered_by = JSON.parse(JSON.stringify(passer));
+        changed = true;
+      }
     }
   }
 
@@ -517,11 +530,16 @@ export function getProgressiveMeters(stat) {
 
 export function isProgressive(stat) {
   const sx = Number(stat?.x_position);
+  const sy = Number(stat?.y_position);
   const ex = Number(stat?.end_x_position);
-  if (!Number.isFinite(sx) || !Number.isFinite(ex)) return false;
-  const progressiveMeters = getProgressiveMeters(stat);
-  const threshold = sx >= OPP_45_X ? 5 : 10;
-  return progressiveMeters >= threshold || (sx < OPP_45_X && ex >= OPP_45_X);
+  const ey = Number(stat?.end_y_position);
+  if (![sx, sy, ex, ey].every(Number.isFinite)) return false;
+  const startDist = calcDistanceToGoal(sx, sy);
+  const endDist = calcDistanceToGoal(ex, ey);
+  if (!Number.isFinite(startDist) || !Number.isFinite(endDist) || startDist <= 0) return false;
+  const closerPct = ((startDist - endDist) / startDist) * 100;
+  const thresholdPct = stat?.stat_type === 'carry' ? 15 : 20;
+  return closerPct > thresholdPct;
 }
 
 export function getScoringZoneEntry(stat) {

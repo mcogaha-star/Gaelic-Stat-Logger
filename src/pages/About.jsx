@@ -17,7 +17,7 @@ const DEFINITIONS = [
   ['Scoring Zone', 'Within a 32m arc from the centre of goal and not beyond a 60 degree angle from the pitch midline.'],
   ['Scoring Zone Entry', 'A pass or carry that starts outside the scoring zone and ends inside it.'],
   ['Progressive Meters', 'Distance reduced to the centre of goal, measured from the action start to end point and clamped at zero or above.'],
-  ['Progressive Action', 'A pass or carry that gains at least 10m outside the opposition 45, 5m inside it, or crosses into the opposition 45.'],
+  ['Progressive Action', 'A progressive pass finishes more than 20% closer to goal than it started. A progressive carry finishes more than 15% closer to goal than it started.'],
   ['Build-Up Speed', 'Progression speed based on derived live possession time, so dead-ball gaps are not counted in the tempo denominator.'],
   ['Shot Assist', 'The final completed pass before a shot.'],
   ['Shots Created', 'Currently the same as shot assists: the final completed pass before a shot.'],

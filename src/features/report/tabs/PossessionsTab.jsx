@@ -279,11 +279,12 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     playerIds: [],
   }), [scopedReportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, possessionLevelFilters), [stats, possessionLevelFilters]);
+  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
 
   const possessions = useMemo(() => {
-    const groups = groupByPossession(base);
-    const orderedBase = base.slice().sort((a, b) => {
+    const groups = groupByPossession(calcBase);
+    const orderedBase = calcBase.slice().sort((a, b) => {
       const pa = Number(a?.play_id);
       const pb = Number(b?.play_id);
       if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
@@ -383,7 +384,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       return String(a.key).localeCompare(String(b.key));
     });
     return out;
-  }, [base, reportFilters]);
+  }, [calcBase, reportFilters]);
 
   const possessionsFiltered = useMemo(() => {
     if (counterFilter === 'any') return possessions;

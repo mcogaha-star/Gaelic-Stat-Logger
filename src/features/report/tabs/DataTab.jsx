@@ -1188,8 +1188,9 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <FieldSelect label="Method" value={structuredExtra?.pass?.method || 'hand'} onChange={(v) => setStructuredExtraValue('pass', 'method', v)} options={['hand', 'left', 'right'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <FieldSelect label="Accuracy" value={normalizePassAccuracy(structuredExtra?.pass?.accuracy)} onChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)} options={['--', '-', '+', '++'].map((v) => ({ value: v, label: v }))} />
                         <FieldSelect label="Pressure" value={structuredExtra?.pass?.pressure_on_passer || 'low'} onChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken_retained', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: v === 'broken_retained' ? 'Broken - Retained' : toTitleCase(v) }))} />
                       </div>
+                      {structuredExtra?.pass?.outcome === 'broken_retained' && <SelectionField label="Recovered By" section="pass" field="recovered_by" />}
                       {structuredExtra?.pass?.outcome === 'turnover' && renderTurnoverFields('Embedded Pass Turnover')}
                       {structuredExtra?.pass?.outcome === 'foul' && renderFoulFields('Embedded Pass Foul')}
                     </div>
