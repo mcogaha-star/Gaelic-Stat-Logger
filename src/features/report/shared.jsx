@@ -673,15 +673,15 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
   const getTurnoverWinSide = (extra, stat = null) => {
     const turnoverType = String(extra?.turnover?.turnover_type || extra?.turnover?.type || '');
     if (!turnoverType) return null;
-    const recoveredSide = extra?.turnover?.recovered_by?.team_side;
-    const forcedSide = extra?.turnover?.forced_by?.team_side;
-    if (recoveredSide === 'home' || recoveredSide === 'away') return recoveredSide;
-    if (forcedSide === 'home' || forcedSide === 'away') return forcedSide;
-    if (turnoverType === 'foul' && stat) {
+    if (normalizeOutcomeAlias(turnoverType, 'turnover') === 'foul' && stat) {
       const foul = extractFoulFromStat(stat);
       const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
       if (foulOn === 'home' || foulOn === 'away') return foulOn;
     }
+    const recoveredSide = extra?.turnover?.recovered_by?.team_side;
+    const forcedSide = extra?.turnover?.forced_by?.team_side;
+    if (recoveredSide === 'home' || recoveredSide === 'away') return recoveredSide;
+    if (forcedSide === 'home' || forcedSide === 'away') return forcedSide;
     return null;
   };
 
@@ -909,6 +909,7 @@ function buildTouchesMap(stats) {
     }
 
     if (stat.stat_type === 'turnover' || extra?.turnover) {
+      if (normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover') === 'foul') continue;
       add(extra?.turnover?.recovered_by);
       continue;
     }

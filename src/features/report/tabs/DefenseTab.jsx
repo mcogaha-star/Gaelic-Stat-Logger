@@ -86,8 +86,11 @@ function DefenseTab({
     const t = ex?.turnover || {};
     const foul = extractFoulFromStat(s);
     const lost = t?.lost_by?.team_side || foul?.foul_by?.team_side || null;
-    const rec = t?.recovered_by?.team_side || foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || null;
     const typ = String(t?.type || t?.turnover_type || ex?.turnover_type || foul?.foul_type || '');
+    const normalizedType = normalizeFoulType(typ);
+    const rec = normalizedType === 'foul'
+      ? (foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || t?.forced_by?.team_side || null)
+      : (t?.recovered_by?.team_side || foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || null);
     const unforced = !!t?.unforced || normalizeFoulType(typ) === 'unforced';
     return { lost, rec, unforced, typ };
   };

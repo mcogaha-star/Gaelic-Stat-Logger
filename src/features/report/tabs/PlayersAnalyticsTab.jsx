@@ -333,7 +333,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       }
       if (!isBroughtBackAdvantageStat(s) && (s.stat_type === 'turnover' || ex?.turnover)) {
         const t = ex?.turnover || {};
-        const rec = ensure(t?.recovered_by);
+        const turnoverType = normalizeFoulType(t?.turnover_type || t?.type || '');
+        const foul = turnoverType === 'foul' ? extractFoulFromStat(s) : null;
+        const rec = turnoverType === 'foul'
+          ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || t?.forced_by)
+          : ensure(t?.recovered_by);
         const lost = ensure(t?.lost_by);
         if (rec) rec.turnoversWon += 1;
         if (lost) lost.turnoversLost += 1;
