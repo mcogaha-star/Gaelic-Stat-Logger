@@ -4,7 +4,7 @@ const db = globalThis.__B44_DB__ || {
 
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Download, FileJson } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -100,6 +100,28 @@ function formatTeamName(side, homeTeam, awayTeam) {
   if (side === 'away') return awayTeam?.name || 'Away';
   if (side === 'home') return homeTeam?.name || 'Home';
   return 'NA';
+}
+
+function safeFilePart(value, fallback = 'match') {
+  const text = String(value || fallback).trim().toLowerCase();
+  return (text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback).slice(0, 80);
+}
+
+function downloadTextFile(content, fileName, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function normalizePassAccuracy(value) {
+  const accuracy = String(value || '').trim();
+  return ['++', '+', '-', '--'].includes(accuracy) ? accuracy : '+';
 }
 
 function summarizeRow(stat, match, imputedTimeById, homeTeam, awayTeam) {
@@ -412,6 +434,113 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const filteredSorted = useMemo(() => sortStatsForEditing(filtered, match, imputedTimeById), [filtered, match, imputedTimeById]);
   const visibleRowLimit = rowLimit === 'all' ? filteredSorted.length : Math.max(50, Number(rowLimit) || 200);
   const visibleRows = useMemo(() => filteredSorted.slice(0, visibleRowLimit), [filteredSorted, visibleRowLimit]);
+  const exportBaseName = useMemo(() => {
+    const home = homeTeam?.name || 'home';
+    const away = awayTeam?.name || 'away';
+    const date = match?.date || new Date().toISOString().slice(0, 10);
+    return `match-data-${safeFilePart(home)}-vs-${safeFilePart(away)}-${safeFilePart(date)}`;
+  }, [homeTeam, awayTeam, match]);
+
+  const exportFilteredCsv = () => {
+    if (!filteredSorted.length) {
+      toast.error('No rows to export');
+      return;
+    }
+    const headers = [
+      'Match ID',
+      'Match Public ID',
+      'Match Date',
+      'Home Team',
+      'Away Team',
+      'Play ID',
+      'Possession ID',
+      'Possession Team',
+      'Acting Team',
+      'Set Defence',
+      'Stat Type',
+      'Outcome',
+      'Half',
+      'Clock',
+      'Video Time (s)',
+      'Match Time (s)',
+      'Raw X',
+      'Raw Y',
+      'Raw End X',
+      'Raw End Y',
+      'X',
+      'Y',
+      'End X',
+      'End Y',
+      'Primary Player #',
+      'Primary Player Name',
+      'Recipient #',
+      'Recipient Name',
+      'Extra JSON',
+    ];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filteredSorted.map((stat) => {
+      const extra = safeParseJSON(stat?.extra_data || '{}', {});
+      const matchTime = getMatchTimeS(stat, match, imputedTimeById);
+      return [
+        stat?.match_id || '',
+        match?.public_match_id || '',
+        match?.date || '',
+        homeTeam?.name || '',
+        awayTeam?.name || '',
+        stat?.play_id ?? '',
+        stat?.possession_id ?? '',
+        stat?.possession_team_side || '',
+        stat?.team_side || '',
+        stat?.counter_attack ? 'Yes' : 'No',
+        stat?.stat_type || '',
+        deriveOutcome(stat, extra) || '',
+        stat?.half || '',
+        Number.isFinite(matchTime) ? formatMatchClock(matchTime, match, stat?.half) : '',
+        stat?.time_s ?? '',
+        Number.isFinite(matchTime) ? matchTime : '',
+        stat?.raw_x_position ?? '',
+        stat?.raw_y_position ?? '',
+        stat?.raw_end_x_position ?? '',
+        stat?.raw_end_y_position ?? '',
+        stat?.x_position ?? '',
+        stat?.y_position ?? '',
+        stat?.end_x_position ?? '',
+        stat?.end_y_position ?? '',
+        stat?.player_number ?? '',
+        stat?.player_name || '',
+        stat?.recipient_number ?? '',
+        stat?.recipient_name || '',
+        JSON.stringify(extra),
+      ];
+    });
+    const csv = `\ufeff${[headers.map(esc).join(','), ...rows.map((row) => row.map(esc).join(','))].join('\n')}`;
+    downloadTextFile(csv, `${exportBaseName}.csv`, 'text/csv;charset=utf-8;');
+    toast.success(`CSV exported (${filteredSorted.length} row${filteredSorted.length === 1 ? '' : 's'})`);
+  };
+
+  const exportMatchJson = () => {
+    if (!orderedAllStats.length) {
+      toast.error('No match rows to export');
+      return;
+    }
+    const bundle = {
+      schema_version: 1,
+      exported_at: new Date().toISOString(),
+      source: 'gaa-stat-logger-data-tab',
+      notes: 'Full match bundle for backup/demo import. Stats include rebuilt in-app fields as currently loaded.',
+      match,
+      teams: [homeTeam, awayTeam].filter(Boolean),
+      players: [...(homePlayers || []), ...(awayPlayers || [])],
+      stats: orderedAllStats,
+      counts: {
+        teams: [homeTeam, awayTeam].filter(Boolean).length,
+        players: [...(homePlayers || []), ...(awayPlayers || [])].length,
+        stats: orderedAllStats.length,
+      },
+    };
+    downloadTextFile(JSON.stringify(bundle, null, 2), `${exportBaseName}.json`, 'application/json;charset=utf-8;');
+    toast.success(`JSON exported (${orderedAllStats.length} row${orderedAllStats.length === 1 ? '' : 's'})`);
+  };
 
   const keyForGroup = (s) => {
     const extra = safeParseJSON(s?.extra_data || '{}', {});
@@ -661,7 +790,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     }
     if (String(rawStatType || editStat.stat_type || '') === 'pass') {
       parsedExtra.pass = { ...(parsedExtra.pass || {}) };
-      if (!parsedExtra.pass.accuracy) parsedExtra.pass.accuracy = '+';
+      parsedExtra.pass.accuracy = normalizePassAccuracy(parsedExtra.pass.accuracy);
       if (Object.prototype.hasOwnProperty.call(parsedExtra.pass, 'style')) delete parsedExtra.pass.style;
     }
 
@@ -1049,7 +1178,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <SelectionField label="Won By" section="pass" field="won_by" />
                         <FieldBool label="Deadball" value={!!structuredExtra?.pass?.deadball} onChange={(v) => setStructuredExtraValue('pass', 'deadball', v)} />
                         <FieldSelect label="Method" value={structuredExtra?.pass?.method || 'hand'} onChange={(v) => setStructuredExtraValue('pass', 'method', v)} options={['hand', 'left', 'right'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <FieldSelect label="Accuracy" value={structuredExtra?.pass?.accuracy || '+'} onChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)} options={['--', '-', '+', '++'].map((v) => ({ value: v, label: v }))} />
+                        <FieldSelect label="Accuracy" value={normalizePassAccuracy(structuredExtra?.pass?.accuracy)} onChange={(v) => setStructuredExtraValue('pass', 'accuracy', v)} options={['--', '-', '+', '++'].map((v) => ({ value: v, label: v }))} />
                         <FieldSelect label="Pressure" value={structuredExtra?.pass?.pressure_on_passer || 'low'} onChange={(v) => setStructuredExtraValue('pass', 'pressure_on_passer', v)} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                         <FieldSelect label="Outcome" value={structuredExtra?.pass?.outcome || 'completed'} onChange={(v) => setStructuredExtraValue('pass', 'outcome', v)} options={['completed', 'broken', 'turnover', 'foul', 'sideline_for', 'sideline_against', '45_for', '45_against', 'goal_kick_for', 'goal_kick_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </div>
@@ -1364,6 +1493,29 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-semibold text-slate-900">Export Data</div>
+              <div className="text-xs text-slate-500">
+                CSV exports the current Data-tab filtered rows. JSON exports the full match bundle for backup or demo data.
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" className="gap-2" onClick={exportFilteredCsv} disabled={!filteredSorted.length}>
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+              <Button type="button" variant="outline" className="gap-2" onClick={exportMatchJson} disabled={!orderedAllStats.length}>
+                <FileJson className="h-4 w-4" />
+                Export JSON
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

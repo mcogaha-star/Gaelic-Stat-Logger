@@ -9,7 +9,7 @@ export const SCORING_ZONE_RADIUS = 32;
 export const SCORING_ZONE_ANGLE_DEG = 60;
 export const POSSESSION_REBUILD_VERSION = 'v13';
 export const DEFENCE_SET_MIGRATION_VERSION = 'v2';
-export const STAT_MODEL_MIGRATION_VERSION = 'v3';
+export const STAT_MODEL_MIGRATION_VERSION = 'v4';
 
 const SHOT_REQUIRES_RESULT_OUTCOMES = ['short', 'saved', 'blocked', 'post'];
 const ADMIN_STAT_TYPES = ['substitution', 'period_end'];
@@ -79,7 +79,8 @@ function normalizeStatModelExtra(stat) {
   let changed = false;
 
   if (stat?.stat_type === 'pass' && next?.pass) {
-    if (!next.pass.accuracy) {
+    const passAccuracy = String(next.pass.accuracy || '').trim();
+    if (!['++', '+', '-', '--'].includes(passAccuracy)) {
       next.pass.accuracy = '+';
       changed = true;
     }

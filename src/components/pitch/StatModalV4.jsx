@@ -11,6 +11,11 @@ const NONE = 'none';
 const TEAM_HOME = 'team:home';
 const TEAM_AWAY = 'team:away';
 
+function normalizePassAccuracy(value) {
+  const accuracy = String(value || '').trim();
+  return ['++', '+', '-', '--'].includes(accuracy) ? accuracy : '+';
+}
+
 function toTitleCase(s) {
   return String(s || '')
     .replace(/_/g, ' ')
@@ -753,7 +758,7 @@ export default function StatModalV4({
       setPasser(selectionToValue(extra?.pass?.passer));
       setPassIntendedRecipient(selectionToValue(extra?.pass?.intended_recipient));
       setPassMethod(extra?.pass?.method === 'other' ? 'hand' : (extra?.pass?.method || ''));
-      setPassAccuracy(extra?.pass?.accuracy || '+');
+      setPassAccuracy(normalizePassAccuracy(extra?.pass?.accuracy));
       setPassPressure(extra?.pass?.pressure_on_passer || 'low');
       setPassOutcome(extra?.pass?.outcome || '');
       setPassWonBy(selectionToValue(extra?.pass?.won_by));

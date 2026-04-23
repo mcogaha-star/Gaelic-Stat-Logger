@@ -868,103 +868,6 @@ export default function MatchStats() {
 
     };
 
-    const exportToCSV = () => {
-        if (stats.length === 0) { toast.error('No stats to export'); return; }
-
-        const buildCustomHeaderNames = () => {
-            const base = [
-                { key: 'custom_1', fallback: 'Custom 1' },
-                { key: 'custom_2', fallback: 'Custom 2' },
-                { key: 'custom_3', fallback: 'Custom 3' },
-            ].map(({ key, fallback }) => {
-                const label = String(customFields?.[key]?.label || '').trim();
-                return label || fallback;
-            });
-
-            const seen = new Map();
-            return base.map((name) => {
-                const n = String(name);
-                const count = (seen.get(n) || 0) + 1;
-                seen.set(n, count);
-                return count === 1 ? n : `${n} (${count})`;
-            });
-        };
-
-        const customHeaders = buildCustomHeaderNames();
-        const getCustomValueLabel = (extraData, key) => {
-            const v = extraData?.custom_fields?.[key];
-            if (!v) return '';
-            if (typeof v === 'string') return v;
-            return v.label || '';
-        };
-
-        const orderedStats = [...stats].sort((a, b) => {
-            const at = a?.timestamp || a?.created_date || '';
-            const bt = b?.timestamp || b?.created_date || '';
-            return String(at).localeCompare(String(bt));
-        });
-
-        const headers = [
-            'Match ID','Match Public ID','Match Date','Code','Level',
-            'Play ID','Possession ID','Possession Team','Acting Team','Set Defence',
-            'Stat Type','Is Drag','Half','Timestamp',
-            'Raw X','Raw Y','Raw End X','Raw End Y',
-            'X','Y','End X','End Y',
-            'Primary Player #','Primary Player Name',
-            'Recipient #','Recipient Name',
-            'Time (s)','Normalized Time (s)',
-            ...customHeaders,
-            'Extra JSON',
-        ];
-
-        const rows = orderedStats.map((stat) => {
-            const extraData = stat.extra_data ? safeParse(stat.extra_data) : {};
-            return [
-                stat.match_id || '',
-                match?.public_match_id || '',
-                match?.date || '',
-                match?.code || '',
-                match?.level || '',
-                stat.play_id ?? '',
-                stat.possession_id ?? '',
-                stat.possession_team_side || '',
-                stat.team_side || '',
-                stat.counter_attack ? 'Yes' : 'No',
-                stat.stat_type || '',
-                stat.is_pass ? 'Yes' : 'No',
-                stat.half || '',
-                stat.timestamp || '',
-                stat.raw_x_position ?? '',
-                stat.raw_y_position ?? '',
-                stat.raw_end_x_position ?? '',
-                stat.raw_end_y_position ?? '',
-                stat.x_position ?? '',
-                stat.y_position ?? '',
-                stat.end_x_position ?? '',
-                stat.end_y_position ?? '',
-                stat.player_number ?? '',
-                stat.player_name || '',
-                stat.recipient_number ?? '',
-                stat.recipient_name || '',
-                stat.time_s ?? '',
-                stat.normalized_time_s ?? '',
-                getCustomValueLabel(extraData, 'custom_1'),
-                getCustomValueLabel(extraData, 'custom_2'),
-                getCustomValueLabel(extraData, 'custom_3'),
-                JSON.stringify(extraData),
-            ];
-        });
-
-        const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-        const csvContent = [headers.join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `match_stats_${match?.public_match_id || 'match'}_${new Date().toISOString().split('T')[0]}.csv`;
-        link.click();
-        toast.success('CSV exported');
-    };
-
     if (!matchId) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -1156,7 +1059,6 @@ export default function MatchStats() {
                             statsCount={stats.length}
                             onEdit={handleEditStat}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
-                            onExport={exportToCSV}
                         />
                     </div>
                 </div>

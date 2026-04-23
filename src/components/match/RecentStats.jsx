@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, ArrowRight, Pencil, Download } from 'lucide-react';
+import { Trash2, ArrowRight, Pencil } from 'lucide-react';
 
 const formatStatType = (type) => {
     return type?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || '';
@@ -17,7 +17,7 @@ const formatHalf = (half) =>
             : half === 'et_second' ? 'ET 2nd'
                 : '1st';
 
-export default function RecentStats({ stats, statsCount, onDelete, onEdit, onExport }) {
+export default function RecentStats({ stats, statsCount, onDelete, onEdit }) {
     if (stats.length === 0) {
         return (
             <div className="bg-white rounded-xl border p-6 text-center text-slate-400">
@@ -124,19 +124,6 @@ export default function RecentStats({ stats, statsCount, onDelete, onEdit, onExp
                     ))}
                 </div>
             </ScrollArea>
-            <div className="p-3 border-t flex items-center justify-end">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => onExport?.()}
-                    disabled={!stats.length}
-                    title="Export CSV"
-                >
-                    <Download className="w-4 h-4" />
-                    Export CSV
-                </Button>
-            </div>
         </div>
     );
 }
