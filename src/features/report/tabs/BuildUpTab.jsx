@@ -458,8 +458,8 @@ function BuildUpTab({
           rows={[
             { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
             { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
-            { label: 'Successful Progressive Pass Events', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
-            { label: 'Successful Progressive Carry Events', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
+            { label: 'Successful Progressive Passes', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
+            { label: 'Successful Progressive Carries', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
             { label: 'Switches', home: kpis.home.switches, away: kpis.away.switches },
             { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
             { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },

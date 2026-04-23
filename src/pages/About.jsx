@@ -125,7 +125,7 @@ export default function About() {
                   </div>
                   <div>
                     <div className="text-xl font-semibold text-slate-900">
-                      <span>Gael</span><span className="text-emerald-600">IQ</span>
+                      <span>Gael</span><span className="text-red-600">IQ</span>
                     </div>
                     <div className="text-sm text-slate-500">Match analysis and performance tracking</div>
                   </div>
