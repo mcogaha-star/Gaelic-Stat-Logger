@@ -33,6 +33,7 @@ import {
   derivePossessionOutcome,
   inferPossessionStartSource,
   statMatchesActionType,
+  teamRowTint,
 } from '../shared';
 
 function sortStatsForEditing(list, match, imputedTimeById) {
@@ -61,6 +62,28 @@ function getPossessionKey(stat) {
   const pid = Number(stat?.possession_id);
   const side = stat?.possession_team_side;
   return Number.isFinite(pid) && (side === 'home' || side === 'away') ? `${side}-${pid}` : 'unknown';
+}
+
+function teamColor(side, homeTeam, awayTeam) {
+  if (side === 'away') return awayTeam?.color || '#ef4444';
+  if (side === 'home') return homeTeam?.color || '#22c55e';
+  return '#cbd5e1';
+}
+
+function dataRowStyle(stat, homeTeam, awayTeam) {
+  const possessionStyle = stat?.possession_team_side === 'home' || stat?.possession_team_side === 'away'
+    ? teamRowTint(stat.possession_team_side, homeTeam?.color, awayTeam?.color, 0.075)
+    : {};
+  return {
+    ...possessionStyle,
+    borderLeft: `6px solid ${teamColor(stat?.team_side, homeTeam, awayTeam)}`,
+  };
+}
+
+function possessionRowStyle(stat, homeTeam, awayTeam) {
+  return stat?.possession_team_side === 'home' || stat?.possession_team_side === 'away'
+    ? teamRowTint(stat.possession_team_side, homeTeam?.color, awayTeam?.color, 0.04)
+    : {};
 }
 
 function getContiguousRange(ordered, index, mode) {
@@ -1390,7 +1413,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   const isOpen = expandedRowId === s.id;
                   return (
                     <React.Fragment key={s.id}>
-                      <TableRow>
+                      <TableRow style={dataRowStyle(s, homeTeam, awayTeam)}>
                         <TableCell className="align-middle">
                           <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={isOpen ? 'Collapse row' : 'Expand row'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedRowId((cur) => (cur === s.id ? null : s.id)); }}>
                             <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -1415,7 +1438,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       </TableRow>
 
                       {isOpen && (
-                        <TableRow className="bg-slate-50/60">
+                        <TableRow style={possessionRowStyle(s, homeTeam, awayTeam)}>
                           <TableCell colSpan={10} className="p-3">
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
                               <div className="flex items-center justify-between gap-2">

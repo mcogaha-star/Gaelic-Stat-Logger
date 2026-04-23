@@ -691,9 +691,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <ComparisonMetricsCard
           title="Scoring Metrics"
+          cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamMode={teamMode}

@@ -574,9 +574,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const togglePossessionSort = (key) => setPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'half' || key === 'startSource' || key === 'outcome' || key === 'startZone' || key === 'counterState' ? 'asc' : 'desc' });
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <ComparisonMetricsCard
           title="Possession Metrics"
+          cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamMode={teamMode}

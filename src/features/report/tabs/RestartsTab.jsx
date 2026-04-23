@@ -303,9 +303,10 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
   return (
     <div className="space-y-4">
-      <div className={kickoutPressCards.length > 0 ? 'grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]' : 'grid gap-4'}>
+      <div className={kickoutPressCards.length > 0 ? 'grid gap-4 xl:grid-cols-2' : 'grid gap-4'}>
         <ComparisonMetricsCard
           title="Kickout Metrics"
+          cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamMode={teamMode}
