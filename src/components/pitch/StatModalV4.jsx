@@ -583,6 +583,8 @@ export default function StatModalV4({
   const safeParse = (s) => {
     try { return JSON.parse(s); } catch { return {}; }
   };
+  const teamValue = (side) => (side === 'home' ? TEAM_HOME : side === 'away' ? TEAM_AWAY : NONE);
+  const oppositeTeamValue = (side) => (side === 'home' ? TEAM_AWAY : side === 'away' ? TEAM_HOME : NONE);
   const shortcuts = useMemo(() => parseShortcutConfig(shortcutConfig), [shortcutConfig]);
   const previousShotOppositeSide =
     previousStat?.stat_type === 'shot'
@@ -1143,6 +1145,7 @@ export default function StatModalV4({
     if (!open) return;
     if (initialStat?.id) return;
     if (action !== 'kickout') return;
+    if (kickoutOutcome === 'sideline_against' || kickoutOutcome === 'sideline_for') return;
     if (touchedRoles?.kickout_won_by) return;
     if (!intendedRecipient || intendedRecipient === NONE) {
       if (kickoutWonBy !== NONE) setKickoutWonBy(NONE);
@@ -1150,7 +1153,20 @@ export default function StatModalV4({
     }
     if (!String(intendedRecipient).startsWith('player:')) return;
     if (kickoutWonBy !== intendedRecipient) setKickoutWonBy(intendedRecipient);
-  }, [open, initialStat?.id, action, kickoutWonBy, intendedRecipient, touchedRoles]);
+  }, [open, initialStat?.id, action, kickoutOutcome, kickoutWonBy, intendedRecipient, touchedRoles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (action !== 'kickout') return;
+    if (touchedRoles?.kickout_won_by) return;
+    const target =
+      kickoutOutcome === 'sideline_against'
+        ? oppositeTeamValue(kickoutTeam)
+        : kickoutOutcome === 'sideline_for'
+          ? teamValue(kickoutTeam)
+          : NONE;
+    if (target !== NONE && kickoutWonBy !== target) setKickoutWonBy(target);
+  }, [open, action, kickoutOutcome, kickoutTeam, kickoutWonBy, touchedRoles]);
 
   useEffect(() => {
     if (!open) return;
@@ -1932,7 +1948,20 @@ export default function StatModalV4({
                   <Buttons label="Team" value={kickoutTeam} onChange={setKickoutTeam} options={[{ value: 'home', label: 'Home' }, { value: 'away', label: 'Away' }]} />
                   <div className="space-y-2">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Outcome</Label>
-                    <Select value={kickoutOutcome} onValueChange={setKickoutOutcome}>
+                    <Select
+                      value={kickoutOutcome}
+                      onValueChange={(v) => {
+                        setKickoutOutcome(v);
+                        if (v === 'sideline_against' || v === 'sideline_for') {
+                          setTouchedRoles((prev) => {
+                            const next = { ...(prev || {}) };
+                            delete next.kickout_won_by;
+                            delete next.kickout_lost_by;
+                            return next;
+                          });
+                        }
+                      }}
+                    >
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select outcome..." /></SelectTrigger>
                       <SelectContent>
                         {['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => (
