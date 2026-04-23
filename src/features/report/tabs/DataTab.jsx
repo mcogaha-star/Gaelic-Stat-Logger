@@ -1446,7 +1446,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                       const extraItems = flattenExtra(extra)
                                         .filter((r) => r.key !== 'counter_attack')
                                         .filter((r) => !/(^|\\b)pitch([._-]?(w|h|width|height|length))\\b/i.test(String(r.key || '')))
-                                        .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value) }));
+                                        .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value, r.key) }));
                                       const items = [...baseItems, ...extraItems].filter((it, idx, arr) => it.label && arr.findIndex((other) => other.label === it.label) === idx);
                                       const pairs = [];
                                       for (let i = 0; i < items.length; i += 2) pairs.push([items[i], items[i + 1] || null]);

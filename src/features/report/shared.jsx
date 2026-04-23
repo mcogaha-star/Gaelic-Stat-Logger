@@ -405,7 +405,7 @@ function presentablePathLabel(path) {
   return tokens.join(' ').trim();
 }
 
-function formatExtraValue(v) {
+function formatExtraValue(v, path = '') {
   if (v == null) return 'NA';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NA';
@@ -413,6 +413,9 @@ function formatExtraValue(v) {
     const raw = String(v);
     const trimmed = raw.trim();
     if (!trimmed) return 'NA';
+    const lowerPath = String(path || '').toLowerCase();
+    const isPassAccuracy = lowerPath.endsWith('.accuracy') || lowerPath === 'pass_accuracy';
+    if (isPassAccuracy && ['++', '+', '-', '--'].includes(trimmed)) return trimmed;
     // Older rows can contain encoded dash placeholders for empty values (e.g. "â€”").
     if (['—', '–', '-', 'â€”', 'â€“', 'â€"'].includes(trimmed)) return 'NA';
     return toTitleCase(trimmed);
