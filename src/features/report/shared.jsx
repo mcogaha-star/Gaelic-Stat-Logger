@@ -1745,7 +1745,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   const maxTouches = nodes.reduce((m, n) => Math.max(m, n.made + n.received), 1);
 
   const strokeBase = teamColor || (side === 'away' ? '#ef4444' : '#22c55e');
-  const displayPoint = (x, y) => transformDisplayPoint(x, y, side, true);
+  const displayPoint = (x, y) => transformDisplayPoint(x, y, side, false);
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const computedCentralityRows = nodes
@@ -1987,7 +1987,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
       )}
       <div className={`grid gap-4 ${stacked ? 'grid-cols-1' : (zones.length > 1 ? 'lg:grid-cols-3' : '')}`}>
         {zones.map((zone) => {
-          const size = 220;
+          const size = 260;
           const cx = size / 2;
           const cy = size / 2;
           const maxCount = Math.max(1, ...zone.buckets.map((bucket) => bucket.count));
@@ -2003,7 +2003,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                     key={ratio}
                     cx={cx}
                     cy={cy}
-                    r={80 * ratio}
+                    r={82 * ratio}
                     fill="none"
                     stroke="rgba(148,163,184,0.35)"
                     strokeWidth="1"
@@ -2012,7 +2012,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                 {zone.buckets.map((bucket) => {
                   const startAngle = (bucket.index / zone.buckets.length) * Math.PI * 2;
                   const endAngle = ((bucket.index + 1) / zone.buckets.length) * Math.PI * 2;
-                  const outerR = 18 + ((bucket.count / maxCount) * 62);
+                  const outerR = 18 + ((bucket.count / maxCount) * 64);
                   const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
                   const mixLabel = Number.isFinite(bucket.kickShare) ? `${(bucket.kickShare * 100).toFixed(0)}% kick` : 'mixed / unknown';
                   return (
@@ -2021,10 +2021,10 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                     </path>
                   );
                 })}
-                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
-                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
-                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
-                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
+                <text x={cx} y={18} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Toward Goal</text>
+                <text x={size - 28} y={cy + 4} textAnchor="start" fontSize="11" fontWeight="700" fill="#475569">Right</text>
+                <text x={28} y={cy + 4} textAnchor="end" fontSize="11" fontWeight="700" fill="#475569">Left</text>
+                <text x={cx} y={size - 10} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Back</text>
               </svg>
             </div>
           );
@@ -2040,7 +2040,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
   );
 }
 
-function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null }) {
+function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null, mirrorAwayWhenBoth = true }) {
   const filtered = useMemo(() => {
     return (Array.isArray(touchEvents) ? touchEvents : []).filter((event) => !playerId || event?.player?.id === playerId);
   }, [touchEvents, playerId]);
@@ -2074,6 +2074,7 @@ function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayC
             awayColor={awayColor}
             colorBy="team"
             showColorControls={false}
+            mirrorAwayWhenBoth={mirrorAwayWhenBoth}
             fullscreenEnabled={fullscreenEnabled}
             fullscreenTitle={title}
             onOpenVideoAt={onOpenVideoAt}

@@ -706,7 +706,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [playerBucket, bucketColumns, lbSort.key]);
 
   const availableChartPlayers = useMemo(
-    () => (playerOptions || []).filter((p) => teamMode === 'both' || p.team_side === teamMode),
+    () => (playerOptions || [])
+      .filter((p) => p?.id != null && String(p.id).trim() !== '')
+      .filter((p) => teamMode === 'both' || p.team_side === teamMode),
     [playerOptions, teamMode],
   );
   React.useEffect(() => {
@@ -715,7 +717,10 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   }, [availableChartPlayers, chartPlayerId]);
 
   const activeChartPlayerId = chartPlayerId;
-  const activeChartPlayer = useMemo(() => (playerOptions || []).find((p) => p.id === activeChartPlayerId) || null, [playerOptions, activeChartPlayerId]);
+  const activeChartPlayer = useMemo(
+    () => (playerOptions || []).find((p) => String(p?.id) === String(activeChartPlayerId)) || null,
+    [playerOptions, activeChartPlayerId],
+  );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
 
   const focusStats = useMemo(() => {
@@ -858,13 +863,13 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               <div className="space-y-4">
                 <div className="max-w-sm space-y-1">
                   <Label className="text-xs text-slate-600">Player</Label>
-                  <Select value={activeChartPlayerId || 'all'} onValueChange={setChartPlayerId}>
+                  <Select value={String(activeChartPlayerId || 'all')} onValueChange={setChartPlayerId}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Select Player</SelectItem>
                       {availableChartPlayers
                         .map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
+                          <SelectItem key={String(p.id)} value={String(p.id)}>
                             {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
                           </SelectItem>
                         ))}
@@ -879,7 +884,15 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         <CardContent className="p-4 space-y-3">
                           <div className="font-semibold text-slate-900">Player Events</div>
                           {focusStats.length ? (
-                            <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} fullscreenEnabled={false} />
+                            <PitchViz
+                              stats={focusStats}
+                              homeColor={homeTeam?.color}
+                              awayColor={awayTeam?.color}
+                              colorBy="action"
+                              showColorControls={false}
+                              mirrorAwayWhenBoth={false}
+                              fullscreenEnabled={false}
+                            />
                           ) : (
                             <div className="text-sm text-slate-500">No player events under the current filters.</div>
                           )}
@@ -891,6 +904,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         title="Touch Map"
                         homeColor={homeTeam?.color}
                         awayColor={awayTeam?.color}
+                        mirrorAwayWhenBoth={false}
                         fullscreenEnabled={false}
                       />
                       <Card>
@@ -903,6 +917,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                               awayColor={awayTeam?.color}
                               colorBy="team"
                               showColorControls={false}
+                              mirrorAwayWhenBoth={false}
                               fullscreenEnabled={false}
                             />
                           ) : (

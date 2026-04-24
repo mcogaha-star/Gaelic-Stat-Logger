@@ -104,8 +104,8 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
       ];
       for (const [x, y] of points) {
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-        const displayX = side === 'away' ? (PITCH_W - x) : x;
-        const displayY = side === 'away' ? (PITCH_H - y) : y;
+        const displayX = x;
+        const displayY = y;
         const cx = Math.max(0, Math.min(cols - 1, Math.floor((displayX / PITCH_W) * cols)));
         const cy = Math.max(0, Math.min(rows - 1, Math.floor((displayY / PITCH_H) * rows)));
         counts[cy][cx] += 1;
@@ -143,7 +143,7 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
             backgroundPosition: 'center',
           }}
         >
-          <DirectionBadge label={side === 'away' ? 'AWAY <-' : 'HOME ->'} />
+          <DirectionBadge label="Attacking ->" />
           <svg className="absolute inset-0 w-full h-full" viewBox={`-3 -3 ${PITCH_W + 6} ${PITCH_H + 6}`} preserveAspectRatio="none">
             {zoneCounts.map((line, rowIndex) => line.map((count, colIndex) => {
               const x = (colIndex * PITCH_W) / cols;
@@ -198,7 +198,7 @@ function describeSectorVertical(cx, cy, innerR, outerR, startAngle, endAngle) {
 }
 
 function SonarZoneCard({ zone, title }) {
-  const size = 210;
+  const size = 260;
   const cx = size / 2;
   const cy = size / 2;
   const maxCount = Math.max(1, ...(zone?.buckets || []).map((bucket) => bucket.count));
@@ -214,7 +214,7 @@ function SonarZoneCard({ zone, title }) {
             key={ratio}
             cx={cx}
             cy={cy}
-            r={80 * ratio}
+                    r={82 * ratio}
             fill="none"
             stroke="rgba(148,163,184,0.35)"
             strokeWidth="1"
@@ -223,7 +223,7 @@ function SonarZoneCard({ zone, title }) {
         {(zone?.buckets || []).map((bucket) => {
           const startAngle = (bucket.index / zone.buckets.length) * Math.PI * 2;
           const endAngle = ((bucket.index + 1) / zone.buckets.length) * Math.PI * 2;
-          const outerR = 18 + ((bucket.count / maxCount) * 62);
+                  const outerR = 18 + ((bucket.count / maxCount) * 64);
           const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
           const mixLabel = Number.isFinite(bucket.kickShare) ? `${(bucket.kickShare * 100).toFixed(0)}% kick` : 'mixed / unknown';
           return (
@@ -232,10 +232,10 @@ function SonarZoneCard({ zone, title }) {
             </path>
           );
         })}
-        <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
-        <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
-        <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
-        <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
+        <text x={cx} y={18} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Toward Goal</text>
+        <text x={size - 28} y={cy + 4} textAnchor="start" fontSize="11" fontWeight="700" fill="#475569">Right</text>
+        <text x={28} y={cy + 4} textAnchor="end" fontSize="11" fontWeight="700" fill="#475569">Left</text>
+        <text x={cx} y={size - 10} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Back</text>
       </svg>
     </div>
   );
