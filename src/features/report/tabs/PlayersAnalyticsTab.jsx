@@ -133,6 +133,7 @@ function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
 function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, focusPlayerId, setFocusPlayerId }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
   const [playerBucket, setPlayerBucket] = useState('scoring');
+  const [chartPlayerId, setChartPlayerId] = useState(() => focusPlayerId && focusPlayerId !== 'all' ? focusPlayerId : 'all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
@@ -161,6 +162,47 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     }
     return map;
   }, [playerOptions]);
+  const playerMetaByTeamNumber = useMemo(() => {
+    const map = new Map();
+    for (const p of playerOptions || []) {
+      if ((p?.team_side === 'home' || p?.team_side === 'away') && p?.number != null) {
+        map.set(`${p.team_side}|${p.number}`, p);
+      }
+    }
+    return map;
+  }, [playerOptions]);
+  const playerMetaByTeamName = useMemo(() => {
+    const map = new Map();
+    for (const p of playerOptions || []) {
+      const name = String(p?.name || '').trim().toLowerCase();
+      if ((p?.team_side === 'home' || p?.team_side === 'away') && name) {
+        map.set(`${p.team_side}|${name}`, p);
+      }
+    }
+    return map;
+  }, [playerOptions]);
+  const resolveLeaderboardPlayer = (sel) => {
+    const player = normalizePlayerRef(sel);
+    if (!player) return null;
+    const direct = playerMetaByKey.get(`${player.team_side}|${player.id}`);
+    if (direct) return { ...player, ...direct, id: direct.id, team_side: direct.team_side };
+    if (player.number != null) {
+      const byNumber = playerMetaByTeamNumber.get(`${player.team_side}|${player.number}`);
+      if (byNumber) return { ...player, ...byNumber, id: byNumber.id, team_side: byNumber.team_side };
+    }
+    const lowered = String(player.name || '').trim().toLowerCase();
+    if (lowered) {
+      const byName = playerMetaByTeamName.get(`${player.team_side}|${lowered}`);
+      if (byName) return { ...player, ...byName, id: byName.id, team_side: byName.team_side };
+    }
+    return player;
+  };
+  const resolveLeaderboardKey = (sel) => {
+    const player = resolveLeaderboardPlayer(sel);
+    return player?.id && (player.team_side === 'home' || player.team_side === 'away')
+      ? `${player.team_side}|${player.id}`
+      : null;
+  };
 
   const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
   const touchMap = useMemo(() => buildTouchesMap(calcBase, playerOptions), [calcBase, playerOptions]);
@@ -170,9 +212,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   const leaderboard = useMemo(() => {
     const rows = new Map();
     const ensure = (sel) => {
-      const player = normalizePlayerRef(sel);
-      if (!player) return null;
-      const key = `${player.team_side}|${player.id}`;
+        const player = resolveLeaderboardPlayer(sel);
+        if (!player) return null;
+        const key = `${player.team_side}|${player.id}`;
       const meta = playerMetaByKey.get(key) || {};
       const cur = rows.get(key) || {
         key,
@@ -250,7 +292,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     for (const action of defensiveActions.playerActions) ensure(action?.player);
     const touchPossessionsByPlayer = new Map();
     for (const touch of touchEvents) {
-      const playerKey = selectionKey(touch?.player);
+      const playerKey = resolveLeaderboardKey(touch?.player);
       const teamSide = touch?.stat?.possession_team_side;
       const possessionId = Number(touch?.stat?.possession_id);
       if (!playerKey || (teamSide !== 'home' && teamSide !== 'away') || !Number.isFinite(possessionId)) continue;
@@ -459,13 +501,20 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       }
     }
 
-    for (const [key, count] of touchMap.entries()) {
+    const resolvedTouchCounts = new Map();
+    for (const touch of touchEvents) {
+      const key = resolveLeaderboardKey(touch?.player);
+      if (!key) continue;
+      resolvedTouchCounts.set(key, (resolvedTouchCounts.get(key) || 0) + 1);
+    }
+
+    for (const [key, count] of resolvedTouchCounts.entries()) {
       const row = rows.get(key);
       if (row) row.touches = count;
     }
 
     for (const action of defensiveActions.playerActions) {
-      const row = rows.get(selectionKey(action.player));
+      const row = rows.get(resolveLeaderboardKey(action.player));
       if (row) row.defActions += 1;
     }
 
@@ -504,7 +553,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         longKickoutWinPct,
       };
     });
-  }, [calcBase, nextStatById, playerMetaByKey, playerOptions, shotAssistCredits, touchMap, touchEvents, defensiveActions]);
+  }, [calcBase, nextStatById, playerMetaByKey, playerMetaByTeamName, playerMetaByTeamNumber, playerOptions, shotAssistCredits, touchEvents, defensiveActions]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -625,7 +674,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     };
     const list = (Array.isArray(leaderboard) ? leaderboard : [])
       .filter((r) => teamMode === 'both' || r.team === teamMode)
-      .filter((r) => (focusPlayerId === 'all' ? true : r.id === focusPlayerId))
       .filter(bucketFilters[playerBucket] || (() => true))
       .slice();
     const dir = lbSort?.dir === 'asc' ? 1 : -1;
@@ -666,25 +714,49 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     }
   }, [playerBucket, bucketColumns, lbSort.key]);
 
+  const activeChartPlayerId = chartPlayerId === 'all' ? (focusPlayerId || 'all') : chartPlayerId;
+  const activeChartPlayer = useMemo(() => (playerOptions || []).find((p) => p.id === activeChartPlayerId) || null, [playerOptions, activeChartPlayerId]);
+  const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
+
   const focusStats = useMemo(() => {
-    if (focusPlayerId === 'all') return [];
+    if (activeChartPlayerId === 'all') return [];
     return base.filter((s) => {
       if (teamMode !== 'both' && s?.team_side !== teamMode) return false;
       const extra = safeParseJSON(s.extra_data || '{}', {});
-      const ids = collectPlayerIds(extra);
-      return ids.has(focusPlayerId);
+      const candidates = [
+        extra?.pass?.passer,
+        extra?.pass?.intended_recipient,
+        extra?.pass?.won_by,
+        extra?.pass?.recovered_by,
+        extra?.carry?.carrier,
+        extra?.carry?.defender,
+        extra?.carry?.recovered_by,
+        extra?.shot?.player,
+        extra?.shot?.blocked_by,
+        extra?.shot?.saved_by,
+        extra?.shot?.recovered_by,
+        extra?.turnover?.lost_by,
+        extra?.turnover?.forced_by,
+        extra?.turnover?.recovered_by,
+        extra?.kickout?.intended_recipient,
+        extra?.kickout?.won_by,
+        extra?.throw_in?.won_by,
+        extra?.throw_in?.lost_by,
+        extra?.throw_in?.broken_by,
+      ];
+      return candidates.some((candidate) => activeChartPlayerKey && resolveLeaderboardKey(candidate) === activeChartPlayerKey);
     });
-  }, [base, focusPlayerId, teamMode]);
+  }, [activeChartPlayerId, activeChartPlayerKey, base, teamMode]);
 
   const focusPlayerSonar = useMemo(() => {
-    if (focusPlayerId === 'all') return [];
-    return buildPassSonarData(calcBase.filter((stat) => stat?.stat_type === 'pass'), { playerId: focusPlayerId });
-  }, [calcBase, focusPlayerId]);
+    if (activeChartPlayerId === 'all') return [];
+    return buildPassSonarData(calcBase.filter((stat) => stat?.stat_type === 'pass'), { playerId: activeChartPlayerId });
+  }, [calcBase, activeChartPlayerId]);
 
   const focusPlayerDefensiveActionStats = useMemo(() => {
-    if (focusPlayerId === 'all') return [];
+    if (activeChartPlayerId === 'all') return [];
     return defensiveActions.playerActions
-      .filter((action) => action?.player?.id === focusPlayerId)
+      .filter((action) => activeChartPlayerKey && resolveLeaderboardKey(action?.player) === activeChartPlayerKey)
       .map((action) => ({
         id: `player-da-${action.key}`,
         stat_type: 'defensive_action',
@@ -702,7 +774,17 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           },
         }),
       }));
-  }, [defensiveActions.playerActions, focusPlayerId]);
+  }, [activeChartPlayerId, activeChartPlayerKey, defensiveActions.playerActions]);
+  const focusTouchEvents = useMemo(() => {
+    if (activeChartPlayerId === 'all') return [];
+    return touchEvents.filter((event) => activeChartPlayerKey && resolveLeaderboardKey(event?.player) === activeChartPlayerKey);
+  }, [activeChartPlayerId, activeChartPlayerKey, touchEvents]);
+
+  React.useEffect(() => {
+    if (focusPlayerId && focusPlayerId !== 'all') {
+      setChartPlayerId(focusPlayerId);
+    }
+  }, [focusPlayerId]);
 
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
@@ -753,7 +835,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 ['tendencies', 'Tendencies'],
                 ['creation', 'Creation'],
                 ['defense', 'Defense'],
-                ['sonar', 'Pass Sonar'],
+                ['sonar', 'Charts'],
                 ['touches', 'Touches'],
                 ['restarts', 'Restarts'],
                 ['goalkeepers', 'Goalkeepers'],
@@ -771,57 +853,81 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               ))}
             </div>
             {playerBucket === 'sonar' ? (
-              focusPlayerId !== 'all' ? (
+              <div className="space-y-4">
+                <div className="max-w-sm space-y-1">
+                  <Label className="text-xs text-slate-600">Player</Label>
+                  <Select value={activeChartPlayerId || 'all'} onValueChange={(value) => {
+                    setChartPlayerId(value);
+                    setFocusPlayerId?.(value);
+                  }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Select Player</SelectItem>
+                      {(playerOptions || [])
+                        .filter((p) => teamMode === 'both' || p.team_side === teamMode)
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              {activeChartPlayerId !== 'all' ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                    <Card>
-                      <CardContent className="p-4 space-y-3">
-                        <div className="font-semibold text-slate-900">Player Events</div>
-                        {focusStats.length ? (
-                          <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} fullscreenEnabled={false} />
-                        ) : (
-                          <div className="text-sm text-slate-500">No player events under the current filters.</div>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <TouchMap
-                      touchEvents={touchEvents}
-                      playerId={focusPlayerId}
-                      title="Touch Map"
-                      homeColor={homeTeam?.color}
-                      awayColor={awayTeam?.color}
+                  <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
+                    <div className="space-y-4">
+                      <Card>
+                        <CardContent className="p-4 space-y-3">
+                          <div className="font-semibold text-slate-900">Player Events</div>
+                          {focusStats.length ? (
+                            <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} fullscreenEnabled={false} />
+                          ) : (
+                            <div className="text-sm text-slate-500">No player events under the current filters.</div>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <TouchMap
+                        touchEvents={focusTouchEvents}
+                        playerId={null}
+                        title="Touch Map"
+                        homeColor={homeTeam?.color}
+                        awayColor={awayTeam?.color}
+                        fullscreenEnabled={false}
+                      />
+                      <Card>
+                        <CardContent className="p-4 space-y-3">
+                          <div className="font-semibold text-slate-900">Defensive Action Map</div>
+                          {focusPlayerDefensiveActionStats.length ? (
+                            <PitchViz
+                              stats={focusPlayerDefensiveActionStats}
+                              homeColor={homeTeam?.color}
+                              awayColor={awayTeam?.color}
+                              colorBy="team"
+                              showColorControls={false}
+                              fullscreenEnabled={false}
+                            />
+                          ) : (
+                            <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <PassSonar
+                      passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
+                      playerId={activeChartPlayerId}
+                      title="Player Pass Sonar"
+                      subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
                       fullscreenEnabled={false}
+                      zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
+                      stacked
                     />
-                    <Card>
-                      <CardContent className="p-4 space-y-3">
-                        <div className="font-semibold text-slate-900">Defensive Action Map</div>
-                        {focusPlayerDefensiveActionStats.length ? (
-                          <PitchViz
-                            stats={focusPlayerDefensiveActionStats}
-                            homeColor={homeTeam?.color}
-                            awayColor={awayTeam?.color}
-                            colorBy="team"
-                            showColorControls={false}
-                            fullscreenEnabled={false}
-                          />
-                        ) : (
-                          <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
-                        )}
-                      </CardContent>
-                    </Card>
                   </div>
-                  <PassSonar
-                    passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
-                    playerId={focusPlayerId}
-                    title="Player Pass Sonar"
-                    subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and accuracy by start zone' : 'No passes available for the selected player under current filters'}
-                    fullscreenEnabled={false}
-                    zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
-                  />
                 </div>
               ) : (
-                <div className="text-sm text-slate-600">Select a player in the filters to show their pass sonar, event map, touch map, and defensive action map.</div>
-              )
+                <div className="text-sm text-slate-600">Select a player here to show their charts and maps.</div>
+              )}
+              </div>
             ) : (
               <Table>
                 <TableHeader>

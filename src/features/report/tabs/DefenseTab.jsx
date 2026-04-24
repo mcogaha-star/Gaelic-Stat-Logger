@@ -80,6 +80,8 @@ function DefenseTab({
   const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
   const calcTurnovers = useMemo(() => calcBase.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [calcBase]);
   const defensiveActions = useMemo(() => buildDefensiveActions(calcBase), [calcBase]);
+  const fouls = useMemo(() => calcBase.filter((s) => !!extractFoulFromStat(s)), [calcBase]);
+  const scorableFreeRows = useMemo(() => findScorableFreeConcededRows(calcBase), [calcBase]);
 
   const classifyTurnover = (s) => {
     const ex = safeParseJSON(s?.extra_data || '{}', {});
@@ -155,6 +157,8 @@ function DefenseTab({
       })).length;
 
       const possessionCount = Array.from(byPoss.keys()).filter((k) => String(k).startsWith(`${teamSide}-`)).length;
+      const foulConceded = fouls.filter((s) => extractFoulFromStat(s)?.foul_by?.team_side === teamSide).length;
+      const scorableFreesConceded = scorableFreeRows.filter((row) => row.concedingSide === teamSide).length;
 
       return {
         won,
@@ -168,10 +172,12 @@ function DefenseTab({
         defActionCount,
         ppda: defActionCount ? oppCompletedPasses / defActionCount : NaN,
         turnoverLostPer10Poss: possessionCount ? (lost / possessionCount) * 10 : NaN,
+        foulConceded,
+        scorableFreesConceded,
       };
     };
     return { home: calc('home'), away: calc('away') };
-  }, [calcTurnovers, calcBase, defensiveActions]);
+  }, [calcTurnovers, calcBase, defensiveActions, fouls, scorableFreeRows]);
   const defActionMapStats = useMemo(() => defensiveActions.teamActions
     .filter((action) => teamMode === 'both' || action.teamSide === teamMode)
     .map((action) => ({
@@ -206,6 +212,50 @@ function DefenseTab({
     }
     return Array.from(rows.values()).sort((a, b) => String(a.type).localeCompare(String(b.type)));
   }, [calcTurnovers, teamMode]);
+
+  const visibleFouls = useMemo(() => {
+    if (teamMode === 'both') return fouls;
+    return fouls.filter((s) => {
+      const foul = extractFoulFromStat(s);
+      return foul?.foul_by?.team_side === teamMode || foul?.foul_on_or_forced_by?.team_side === teamMode;
+    });
+  }, [fouls, teamMode]);
+  const foulMapStats = useMemo(() => {
+    return visibleFouls.map((stat) => {
+      const foul = extractFoulFromStat(stat);
+      const foulBySide = foul?.foul_by?.team_side || stat?.team_side;
+      const foulBy = foul?.foul_by;
+      const useEndPoint = stat?.stat_type === 'pass' || stat?.stat_type === 'carry';
+      return {
+        ...stat,
+        stat_type: 'foul',
+        team_side: stat?.team_side,
+        color_team_side: foulBySide || stat?.team_side,
+        player_name: foulBy?.name || stat?.player_name || '',
+        player_number: foulBy?.number ?? stat?.player_number ?? '',
+        x_position: useEndPoint ? stat?.end_x_position : stat?.x_position,
+        y_position: useEndPoint ? stat?.end_y_position : stat?.y_position,
+        raw_x_position: useEndPoint ? stat?.raw_end_x_position : stat?.raw_x_position,
+        raw_y_position: useEndPoint ? stat?.raw_end_y_position : stat?.raw_y_position,
+        end_x_position: undefined,
+        end_y_position: undefined,
+        raw_end_x_position: undefined,
+        raw_end_y_position: undefined,
+      };
+    }).filter((s) => Number.isFinite(Number(s?.x_position)) && Number.isFinite(Number(s?.y_position)));
+  }, [visibleFouls]);
+  const filteredScorableRows = useMemo(() => scorableFreeRows.filter((row) => teamMode === 'both' || row.concedingSide === teamMode), [scorableFreeRows, teamMode]);
+  const [freeSort, setFreeSort] = useState({ key: 'distance', dir: 'desc' });
+  const freeColumns = useMemo(() => ([
+    { key: 'team', label: 'Team', sortValue: (r) => r.concedingSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+    { key: 'foulType', label: 'Foul Type', sortValue: (r) => r?.foul?.foul_type || '' },
+    { key: 'restartType', label: 'Restart', sortValue: (r) => r.restartType || '' },
+    { key: 'distance', label: 'Distance', sortValue: (r) => r.distance },
+    { key: 'playId', label: 'Play', sortValue: (r) => r.playId },
+    { key: 'possessionId', label: 'Possession', sortValue: (r) => r.possessionId },
+  ]), [homeTeam, awayTeam]);
+  const sortedScorableRows = useMemo(() => sortRows(filteredScorableRows, freeSort, freeColumns, 'playId'), [filteredScorableRows, freeSort, freeColumns]);
+  const toggleFreeSort = (key) => setFreeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'foulType' || key === 'restartType' ? 'asc' : 'desc' });
 
   const filteredTurnovers = useMemo(() => turnovers.filter((s) => {
     const c = classifyTurnover(s);
@@ -247,6 +297,8 @@ function DefenseTab({
               { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
               { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
               { label: 'TO Lost / 10 Poss', home: Number.isFinite(kpis.home.turnoverLostPer10Poss) ? kpis.home.turnoverLostPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverLostPer10Poss) ? kpis.away.turnoverLostPer10Poss.toFixed(2) : 'NA' },
+              { label: 'Fouls Conceded', home: kpis.home.foulConceded, away: kpis.away.foulConceded },
+              { label: 'Scorable Frees Conceded', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
               { label: 'Shots From Regains', home: kpis.home.shotsFrom, away: kpis.away.shotsFrom },
               { label: 'Scores From Regains', home: kpis.home.scoresFrom, away: kpis.away.scoresFrom },
               { label: 'Scores Conceded After Lost Turnovers', home: kpis.home.scoresConceded, away: kpis.away.scoresConceded },
@@ -311,6 +363,63 @@ function DefenseTab({
               </TableBody>
             </Table>
             <div className="text-[11px] text-slate-500">Counts are best-effort from turnover.type and embedded turnover fields.</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Foul Map</div>
+            {foulMapStats.length ? (
+              <PitchViz
+                stats={foulMapStats}
+                homeColor={homeTeam?.color}
+                awayColor={awayTeam?.color}
+                colorBy="team"
+                showColorControls={false}
+                mirrorAwayWhenBoth={teamMode !== 'home'}
+                directionLabel="Home ->"
+                onOpenVideoAt={onOpenVideoAt}
+              />
+            ) : (
+              <div className="text-sm text-slate-600">No fouls available for current filters.</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="font-semibold text-slate-900">Scorable Free Conceded Events</div>
+            {sortedScorableRows.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {freeColumns.map((column) => (
+                      <SortableTableHead
+                        key={column.key}
+                        column={column}
+                        sortState={freeSort}
+                        onToggle={toggleFreeSort}
+                        className={['distance', 'playId', 'possessionId'].includes(column.key) ? 'text-right' : undefined}
+                      />
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedScorableRows.slice(0, 200).map((row) => (
+                    <TableRow key={`${row.playId}-${row.restartStat?.id || ''}`}>
+                      <TableCell>{row.concedingSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                      <TableCell>{toTitleCase(row.foul?.foul_type || 'Unknown')}</TableCell>
+                      <TableCell>{toTitleCase(row.restartType || 'Unknown')}</TableCell>
+                      <TableCell className="text-right tabular-nums">{Number.isFinite(row.distance) ? row.distance.toFixed(1) : 'NA'}m</TableCell>
+                      <TableCell className="text-right tabular-nums">{Number.isFinite(row.playId) ? row.playId : 'NA'}</TableCell>
+                      <TableCell className="text-right tabular-nums">{Number.isFinite(row.possessionId) ? row.possessionId : 'NA'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="text-sm text-slate-600">No scorable frees conceded for current filters.</div>
+            )}
           </CardContent>
         </Card>
     </div>

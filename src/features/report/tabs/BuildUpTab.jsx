@@ -221,14 +221,14 @@ function SonarZoneCard({ zone, title }) {
           />
         ))}
         {(zone?.buckets || []).map((bucket) => {
-          const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
-          const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+          const startAngle = (bucket.index / zone.buckets.length) * Math.PI * 2;
+          const endAngle = ((bucket.index + 1) / zone.buckets.length) * Math.PI * 2;
           const outerR = 18 + ((bucket.count / maxCount) * 62);
           const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
-          const accuracyLabel = Number.isFinite(bucket.averageAccuracy) ? bucket.averageAccuracy.toFixed(2) : 'NA';
+          const mixLabel = Number.isFinite(bucket.kickShare) ? `${(bucket.kickShare * 100).toFixed(0)}% kick` : 'mixed / unknown';
           return (
             <path key={bucket.index} d={path} fill={bucket.color} opacity={bucket.count ? 0.92 : 0.15} stroke="rgba(15,23,42,0.35)" strokeWidth="1">
-              <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nAvg Accuracy Score: ${accuracyLabel}`}</title>
+              <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nKickpasses: ${bucket.kickCount}\nHandpasses: ${bucket.handCount}\nMix: ${mixLabel}`}</title>
             </path>
           );
         })}
@@ -575,7 +575,7 @@ function BuildUpTab({
                 <div className="font-semibold text-slate-900">
                   {teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar
                 </div>
-                <div className="text-xs text-slate-500">Direction and accuracy by start zone</div>
+                <div className="text-xs text-slate-500">Direction and pass-method mix by start zone</div>
                 <div className="grid gap-4">
                   {['Attacking Third', 'Middle Third', 'Defensive Third'].map((zoneName) => {
                     const zone = singleTeamSonarZones.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };

@@ -108,6 +108,7 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
   const calcKickouts = useMemo(() => calcBase.filter((s) => s?.stat_type === 'kickout'), [calcBase]);
+  const throwIns = useMemo(() => calcBase.filter((s) => s?.stat_type === 'throw_in'), [calcBase]);
   const nextStatById = useMemo(() => {
     const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
       const pa = Number(a?.play_id);
@@ -197,8 +198,11 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
       breakAll: breakAll.length,
       breakWonHome,
       breakWonAway,
+      throwInWinHome: throwIns.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'home').length,
+      throwInWinAway: throwIns.filter((s) => inferRestartWinnerSide(s, nextStatById.get(s.id)) === 'away').length,
+      throwInsContested: throwIns.length,
     };
-  }, [calcKickouts, calcBase, nextStatById]);
+  }, [calcKickouts, calcBase, nextStatById, throwIns]);
 
   const kickoutTargets = useMemo(() => {
     const rows = new Map();
@@ -302,12 +306,50 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
     [kickoutTargets, teamMode, targetSort, targetColumns]
   );
   const toggleTargetSort = (key) => setTargetSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'label' || key === 'team' ? 'asc' : 'desc' });
+  const throwInPlayerRows = useMemo(() => {
+    const rows = new Map();
+    const bump = (sel, field) => {
+      const player = normalizePlayerRef(sel);
+      if (!player) return;
+      const key = `${player.team_side}|${player.id}`;
+      const current = rows.get(key) || {
+        key,
+        player: formatExtraValue(player),
+        team: player.team_side,
+        won: 0,
+        lost: 0,
+        broken: 0,
+      };
+      current[field] += 1;
+      rows.set(key, current);
+    };
+    for (const stat of throwIns) {
+      const extra = safeParseJSON(stat?.extra_data || '{}', {});
+      const info = extra?.throw_in || {};
+      bump(info?.won_by, 'won');
+      bump(info?.lost_by, 'lost');
+      bump(info?.broken_by, 'broken');
+    }
+    return Array.from(rows.values())
+      .filter((row) => teamMode === 'both' || row.team === teamMode)
+      .sort((a, b) => (b.won + b.lost + b.broken) - (a.won + a.lost + a.broken) || String(a.player).localeCompare(String(b.player)));
+  }, [throwIns, teamMode]);
+  const [throwInPlayerSort, setThrowInPlayerSort] = useState({ key: 'won', dir: 'desc' });
+  const throwInPlayerColumns = useMemo(() => ([
+    { key: 'player', label: 'Player', sortValue: (r) => r.player },
+    { key: 'team', label: 'Team', sortValue: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
+    { key: 'won', label: 'Won', sortValue: (r) => r.won },
+    { key: 'lost', label: 'Lost', sortValue: (r) => r.lost },
+    { key: 'broken', label: 'Broken', sortValue: (r) => r.broken },
+  ]), [homeTeam, awayTeam]);
+  const sortedThrowInPlayers = useMemo(() => sortRows(throwInPlayerRows, throwInPlayerSort, throwInPlayerColumns, 'key'), [throwInPlayerRows, throwInPlayerSort, throwInPlayerColumns]);
+  const toggleThrowInPlayerSort = (key) => setThrowInPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' || key === 'team' ? 'asc' : 'desc' });
 
   return (
     <div className="space-y-4">
       <div className={kickoutPressCards.length > 0 ? 'report-metric-split' : 'grid gap-4'}>
         <ComparisonMetricsCard
-          title="Kickout Metrics"
+          title="Restart Metrics"
           cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
@@ -342,6 +384,11 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
               label: 'Restart-to-Score %',
               home: `${kpis.home.restartToScore}/${kpis.home.restartWins} (${formatPct(kpis.home.restartWins ? (kpis.home.restartToScore / kpis.home.restartWins) * 100 : NaN)})`,
               away: `${kpis.away.restartToScore}/${kpis.away.restartWins} (${formatPct(kpis.away.restartWins ? (kpis.away.restartToScore / kpis.away.restartWins) * 100 : NaN)})`,
+            },
+            {
+              label: 'Throw-In Win %',
+              home: `${kpis.throwInWinHome}/${kpis.throwInsContested} (${formatPct(kpis.throwInsContested ? (kpis.throwInWinHome / kpis.throwInsContested) * 100 : NaN)})`,
+              away: `${kpis.throwInWinAway}/${kpis.throwInsContested} (${formatPct(kpis.throwInsContested ? (kpis.throwInWinAway / kpis.throwInsContested) * 100 : NaN)})`,
             },
           ]}
         />
@@ -421,6 +468,42 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
             </Card>
           </>
         )}
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="font-semibold text-slate-900">Throw-In Players</div>
+          {sortedThrowInPlayers.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {throwInPlayerColumns.map((column) => (
+                    <SortableTableHead
+                      key={column.key}
+                      column={column}
+                      sortState={throwInPlayerSort}
+                      onToggle={toggleThrowInPlayerSort}
+                      className={['won', 'lost', 'broken'].includes(column.key) ? 'text-right' : undefined}
+                    />
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedThrowInPlayers.slice(0, 200).map((row) => (
+                  <TableRow key={row.key} style={teamRowTint(row.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+                    <TableCell className="font-medium">{row.player}</TableCell>
+                    <TableCell>{row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.won}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.lost}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.broken}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="text-sm text-slate-600">No throw-in player data for current filters.</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

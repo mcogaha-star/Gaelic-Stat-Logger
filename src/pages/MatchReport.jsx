@@ -52,9 +52,7 @@ import ScoringTab from '@/features/report/tabs/ScoringTab';
 import PossessionsTab from '@/features/report/tabs/PossessionsTab';
 import BuildUpTab from '@/features/report/tabs/BuildUpTab';
 import RestartsTab from '@/features/report/tabs/RestartsTab';
-import MiscTab from '@/features/report/tabs/MiscTab';
 import DefenseTab from '@/features/report/tabs/DefenseTab';
-import FoulsDisciplineTab from '@/features/report/tabs/FoulsTab';
 import OverviewTab from '@/features/report/tabs/OverviewTab';
 import PlayersAnalyticsTab from '@/features/report/tabs/PlayersAnalyticsTab';
 import DataTab from '@/features/report/tabs/DataTab';
@@ -965,10 +963,8 @@ export default function MatchReport() {
               <TabsTrigger value="scoring">Scoring</TabsTrigger>
               <TabsTrigger value="possessions">Possessions</TabsTrigger>
               <TabsTrigger value="build_up">Build-Up</TabsTrigger>
-              <TabsTrigger value="kickouts">Kickouts</TabsTrigger>
-              <TabsTrigger value="misc">Misc</TabsTrigger>
+              <TabsTrigger value="kickouts">Restarts</TabsTrigger>
               <TabsTrigger value="defense">Defense</TabsTrigger>
-              <TabsTrigger value="fouls">Fouls</TabsTrigger>
               <TabsTrigger value="players_ana">Players</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="data">Data</TabsTrigger>
@@ -1069,31 +1065,14 @@ export default function MatchReport() {
                     )}
                     {activeTab === 'kickouts' && (
                       <>
-                        <div className="font-semibold text-slate-900">Kickouts Filters</div>
+                        <div className="font-semibold text-slate-900">Restarts Filters</div>
                         <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-                      </>
-                    )}
-                    {activeTab === 'misc' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Misc Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                       </>
                     )}
                     {activeTab === 'defense' && (
                       <>
                         <div className="font-semibold text-slate-900">Defense Filters</div>
                         <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Event Category</Label>
-                          <Select value={defenseEventCategory} onValueChange={setDefenseEventCategory}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All</SelectItem>
-                              <SelectItem value="turnovers">Turnovers</SelectItem>
-                              <SelectItem value="def_actions">Defensive Actions</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Turnover Result</Label>
                           <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
@@ -1106,33 +1085,12 @@ export default function MatchReport() {
                           </Select>
                         </div>
                         <MultiSelect label="Turnover Type" placeholder="Any" values={defenseTurnoverTypes} onChange={setDefenseTurnoverTypes} options={defenseTurnoverTypeOptions} />
-                        <MultiSelect label="Defensive Action Type" placeholder="All" values={defenseDefTypes} onChange={setDefenseDefTypes} options={[{ value: 'contact', label: 'Contact' }, { value: 'dispossession', label: 'Dispossess' }, { value: 'block', label: 'Block' }]} />
-                      </>
-                    )}
-                    {activeTab === 'fouls' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Fouls Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['foul', 'pass', 'carry', 'turnover', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                       </>
                     )}
                     {activeTab === 'players_ana' && (
                       <>
                         <div className="font-semibold text-slate-900">Players Filters</div>
                         <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Focus Player</Label>
-                          <Select value={playersFocusPlayerId} onValueChange={setPlayersFocusPlayerId}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Players</SelectItem>
-                              {(playerOptions || []).map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
                       </>
                     )}
                     {activeTab === 'visualiser' && (
@@ -1294,16 +1252,6 @@ export default function MatchReport() {
             />
           </TabsContent>
 
-          <TabsContent value="misc">
-            <MiscTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-            />
-          </TabsContent>
-
           <TabsContent value="defense">
             <DefenseTab
               stats={stats}
@@ -1318,17 +1266,6 @@ export default function MatchReport() {
               setTurnoverTypes={setDefenseTurnoverTypes}
               defTypes={defenseDefTypes}
               setDefTypes={setDefenseDefTypes}
-              onOpenVideoAt={openSharedVideoAt}
-            />
-          </TabsContent>
-
-          <TabsContent value="fouls">
-            <FoulsDisciplineTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
               onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>

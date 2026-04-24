@@ -878,22 +878,38 @@ function buildShotAssistCredits(stats) {
   return out;
 }
 
-function getAccuracyScore(value) {
-  const v = String(value || '').trim();
-  if (v === '++') return 3;
-  if (v === '+') return 1;
-  if (v === '-') return -1;
-  if (v === '--') return -3;
-  return 0;
+function blendHexColors(a, b, t = 0.5) {
+  const normalizeHex = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw.startsWith('#')) return null;
+    const hex = raw.slice(1);
+    if (hex.length === 3) return hex.split('').map((c) => c + c).join('');
+    if (hex.length === 6) return hex;
+    return null;
+  };
+  const ah = normalizeHex(a);
+  const bh = normalizeHex(b);
+  if (!ah || !bh) return '#8b5cf6';
+  const ai = Number.parseInt(ah, 16);
+  const bi = Number.parseInt(bh, 16);
+  const tt = Math.max(0, Math.min(1, Number(t) || 0));
+  const ar = (ai >> 16) & 255;
+  const ag = (ai >> 8) & 255;
+  const ab = ai & 255;
+  const br = (bi >> 16) & 255;
+  const bg = (bi >> 8) & 255;
+  const bb = bi & 255;
+  const rr = Math.round(ar + ((br - ar) * tt));
+  const rg = Math.round(ag + ((bg - ag) * tt));
+  const rb = Math.round(ab + ((bb - ab) * tt));
+  return `#${[rr, rg, rb].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function getAccuracyColor(value) {
-  if (!Number.isFinite(value)) return '#cbd5e1';
-  if (value <= -2) return '#dc2626';
-  if (value < 0) return '#f97316';
-  if (value < 1) return '#facc15';
-  if (value < 3) return '#86efac';
-  return '#166534';
+function getPassMethodColor(kickShare) {
+  if (!Number.isFinite(kickShare)) return '#8b5cf6';
+  const share = Math.max(0, Math.min(1, kickShare));
+  if (share <= 0.5) return blendHexColors('#dc2626', '#8b5cf6', share / 0.5);
+  return blendHexColors('#8b5cf6', '#2563eb', (share - 0.5) / 0.5);
 }
 
 function buildTouchEvents(stats, playerOptions = []) {
@@ -936,19 +952,6 @@ function buildTouchEvents(stats, playerOptions = []) {
 
     if (stat.stat_type === 'kickout') {
       add(extra?.kickout?.won_by, stat, stat?.end_x_position, stat?.end_y_position, 'Kickout Won');
-      const kickTeam = inferRestartTeamSide(stat, extra);
-      if (kickTeam) {
-        const keeper = getKeeperCandidate(playerOptions, kickTeam);
-        add(
-          keeper
-            ? { kind: 'player', ...keeper }
-            : null,
-          stat,
-          stat?.x_position,
-          stat?.y_position,
-          'Own Kickout Taken',
-        );
-      }
       continue;
     }
 
@@ -1501,7 +1504,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     const x1 = 14;
     const arrowLength = 26 + (strength * 28);
     const headLength = 7 + (strength * 5);
-    const shaftHeight = 2.3 + (strength * 3.7);
+    const shaftHeight = 2 + (strength * 2.8);
     const x2 = Math.min(64, x1 + arrowLength);
     const shaftEnd = x2 - headLength;
     const textX = 4;
@@ -1513,19 +1516,20 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         <text x={textX} y={y + 7.2} textAnchor="start" fontSize="2.7" fill="#64748b">
           {Number.isFinite(count) ? `${count} attacks` : 'NA'}
         </text>
-        <rect
-          x={x1}
-          y={y - (shaftHeight / 2)}
-          width={Math.max(1, shaftEnd - x1)}
-          height={shaftHeight}
-          rx={shaftHeight / 2}
-          fill={color}
-          opacity="0.95"
+        <line
+          x1={x1}
+          y1={y}
+          x2={shaftEnd}
+          y2={y}
+          stroke={color}
+          strokeWidth={shaftHeight}
+          strokeLinecap="round"
+          opacity="0.92"
         />
         <polygon
-          points={`${shaftEnd},${y - (shaftHeight * 1.55)} ${x2},${y} ${shaftEnd},${y + (shaftHeight * 1.55)}`}
+          points={`${shaftEnd - 0.6},${y - (shaftHeight * 1.55)} ${x2},${y} ${shaftEnd - 0.6},${y + (shaftHeight * 1.55)}`}
           fill={color}
-          opacity="0.95"
+          opacity="0.92"
         />
       </g>
     );
@@ -1916,16 +1920,19 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
     const angle = Math.atan2(dy, dx);
     const normalizedAngle = angle < 0 ? angle + (Math.PI * 2) : angle;
-    const bin = Math.min(bins - 1, Math.floor((normalizedAngle / (Math.PI * 2)) * bins));
+    const plotAngle = (normalizedAngle + (Math.PI / 2)) % (Math.PI * 2);
+    const bin = Math.min(bins - 1, Math.floor((plotAngle / (Math.PI * 2)) * bins));
     const attackingX = start.x;
-    const thirdWidth = PITCH_W / 3;
-    const zone = attackingX < thirdWidth ? 'Defensive Third' : attackingX < (thirdWidth * 2) ? 'Middle Third' : 'Attacking Third';
+    const zone = attackingX < 45 ? 'Defensive Third' : attackingX < (PITCH_W - 45) ? 'Middle Third' : 'Attacking Third';
     if (!zoneBuckets[zone]) continue;
+    const method = String(extra?.pass?.method || '').toLowerCase();
+    const isKick = method === 'left' || method === 'right';
+    const isHand = method === 'hand';
     zoneBuckets[zone].push({
       stat,
       bin,
-      accuracyScore: getAccuracyScore(extra?.pass?.accuracy),
-      accuracyLabel: String(extra?.pass?.accuracy || '+'),
+      kickCount: isKick ? 1 : 0,
+      handCount: isHand ? 1 : 0,
     });
   }
 
@@ -1933,28 +1940,31 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
     const buckets = Array.from({ length: bins }, (_, index) => ({
       index,
       count: 0,
-      accuracyTotal: 0,
-      averageAccuracy: NaN,
-      color: '#cbd5e1',
+      kickCount: 0,
+      handCount: 0,
+      kickShare: NaN,
+      color: '#8b5cf6',
       events: [],
     }));
     events.forEach((event) => {
       const bucket = buckets[event.bin];
       bucket.count += 1;
-      bucket.accuracyTotal += event.accuracyScore;
+      bucket.kickCount += event.kickCount || 0;
+      bucket.handCount += event.handCount || 0;
       bucket.events.push(event);
     });
     buckets.forEach((bucket) => {
       if (bucket.count > 0) {
-        bucket.averageAccuracy = bucket.accuracyTotal / bucket.count;
-        bucket.color = getAccuracyColor(bucket.averageAccuracy);
+        const comparable = bucket.kickCount + bucket.handCount;
+        bucket.kickShare = comparable > 0 ? bucket.kickCount / comparable : NaN;
+        bucket.color = getPassMethodColor(bucket.kickShare);
       }
     });
     return { zone, total: events.length, buckets };
   });
 }
 
-function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true, zoneOrder = ['Defensive Third', 'Middle Third', 'Attacking Third'] }) {
+function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true, zoneOrder = ['Defensive Third', 'Middle Third', 'Attacking Third'], stacked = false }) {
   const zones = useMemo(() => {
     const built = buildPassSonarData(passes, { side, playerId });
     const orderMap = new Map(zoneOrder.map((zone, index) => [zone, index]));
@@ -1968,7 +1978,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
           {subtitle ? <div className="text-xs text-slate-500">{subtitle}</div> : null}
         </div>
       )}
-      <div className={`grid gap-4 ${zones.length > 1 ? 'lg:grid-cols-3' : ''}`}>
+      <div className={`grid gap-4 ${stacked ? 'grid-cols-1' : (zones.length > 1 ? 'lg:grid-cols-3' : '')}`}>
         {zones.map((zone) => {
           const size = 220;
           const cx = size / 2;
@@ -1993,14 +2003,14 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                   />
                 ))}
                 {zone.buckets.map((bucket) => {
-                  const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length) - (Math.PI / 2);
-                  const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length) - (Math.PI / 2);
+                  const startAngle = (bucket.index / zone.buckets.length) * Math.PI * 2;
+                  const endAngle = ((bucket.index + 1) / zone.buckets.length) * Math.PI * 2;
                   const outerR = 18 + ((bucket.count / maxCount) * 62);
-                  const path = describeSector(cx, cy, 10, outerR, startAngle, endAngle);
-                  const accuracyLabel = Number.isFinite(bucket.averageAccuracy) ? bucket.averageAccuracy.toFixed(2) : 'NA';
+                  const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
+                  const mixLabel = Number.isFinite(bucket.kickShare) ? `${(bucket.kickShare * 100).toFixed(0)}% kick` : 'mixed / unknown';
                   return (
                     <path key={bucket.index} d={path} fill={bucket.color} opacity={bucket.count ? 0.92 : 0.15} stroke="rgba(15,23,42,0.35)" strokeWidth="1">
-                      <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nAvg Accuracy Score: ${accuracyLabel}`}</title>
+                      <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nKickpasses: ${bucket.kickCount}\nHandpasses: ${bucket.handCount}\nMix: ${mixLabel}`}</title>
                     </path>
                   );
                 })}
