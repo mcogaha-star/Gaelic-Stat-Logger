@@ -718,12 +718,15 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     })),
     [availableChartPlayers],
   );
+  const safeChartPlayerValue = useMemo(() => {
+    if (chartPlayerId === 'all') return 'all';
+    return chartPlayerOptions.some((p) => p.value === chartPlayerId) ? chartPlayerId : 'all';
+  }, [chartPlayerId, chartPlayerOptions]);
   React.useEffect(() => {
-    if (chartPlayerId === 'all') return;
-    if (!chartPlayerOptions.some((p) => p.value === chartPlayerId)) setChartPlayerId('all');
-  }, [chartPlayerOptions, chartPlayerId]);
+    if (safeChartPlayerValue !== chartPlayerId) setChartPlayerId(safeChartPlayerValue);
+  }, [safeChartPlayerValue, chartPlayerId]);
 
-  const activeChartPlayerId = chartPlayerId;
+  const activeChartPlayerId = safeChartPlayerValue;
   const activeChartPlayer = useMemo(
     () => chartPlayerOptions.find((p) => p.value === activeChartPlayerId) || null,
     [chartPlayerOptions, activeChartPlayerId],
@@ -870,7 +873,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               <div className="space-y-4">
                 <div className="max-w-sm space-y-1">
                   <Label className="text-xs text-slate-600">Player</Label>
-                  <Select value={String(activeChartPlayerId || 'all')} onValueChange={setChartPlayerId}>
+                  <Select value={String(safeChartPlayerValue || 'all')} onValueChange={setChartPlayerId}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Select Player</SelectItem>
@@ -883,7 +886,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                     </SelectContent>
                   </Select>
                 </div>
-              {activeChartPlayerId !== 'all' ? (
+              {activeChartPlayer ? (
                 <div className="space-y-4">
                   <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
                     <div className="space-y-4">
