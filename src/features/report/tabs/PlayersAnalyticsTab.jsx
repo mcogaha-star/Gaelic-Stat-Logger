@@ -58,12 +58,91 @@ import {
   TouchMap,
   AttackChannelPitch,
   PassNetwork,
-  PassSonar,
   ShotMap,
   shotSideFromY,
   shotZoneFromDistance,
   applyNonTeamReportFilters,
 } from '../shared';
+
+function describeSector(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const startOuter = {
+    x: cx + outerR * Math.cos(startAngle),
+    y: cy + outerR * Math.sin(startAngle),
+  };
+  const endOuter = {
+    x: cx + outerR * Math.cos(endAngle),
+    y: cy + outerR * Math.sin(endAngle),
+  };
+  const startInner = {
+    x: cx + innerR * Math.cos(endAngle),
+    y: cy + innerR * Math.sin(endAngle),
+  };
+  const endInner = {
+    x: cx + innerR * Math.cos(startAngle),
+    y: cy + innerR * Math.sin(startAngle),
+  };
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  return [
+    `M ${startOuter.x} ${startOuter.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArc} 1 ${endOuter.x} ${endOuter.y}`,
+    `L ${startInner.x} ${startInner.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${endInner.x} ${endInner.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function describeSectorVertical(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const rotation = -Math.PI / 2;
+  return describeSector(cx, cy, innerR, outerR, startAngle + rotation, endAngle + rotation);
+}
+
+function PlayerSonarZoneCard({ zone }) {
+  const size = 260;
+  const cx = size / 2;
+  const cy = size / 2;
+  const buckets = Array.isArray(zone?.buckets) ? zone.buckets : [];
+  const maxCount = Math.max(1, ...buckets.map((bucket) => bucket.count || 0));
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div>
+          <div className="font-semibold text-slate-900">{zone?.zone || 'Zone'}</div>
+          <div className="text-xs text-slate-500">{zone?.total || 0} passes</div>
+        </div>
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[240px] mx-auto">
+          {[0.25, 0.5, 0.75, 1].map((ratio) => (
+            <circle
+              key={ratio}
+              cx={cx}
+              cy={cy}
+              r={82 * ratio}
+              fill="none"
+              stroke="rgba(148,163,184,0.35)"
+              strokeWidth="1"
+            />
+          ))}
+          {buckets.map((bucket) => {
+            const startAngle = (bucket.index / buckets.length) * Math.PI * 2;
+            const endAngle = ((bucket.index + 1) / buckets.length) * Math.PI * 2;
+            const outerR = 18 + ((bucket.count / maxCount) * 64);
+            const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
+            const mixLabel = Number.isFinite(bucket.kickShare) ? `${(bucket.kickShare * 100).toFixed(0)}% kick` : 'mixed / unknown';
+            return (
+              <path key={bucket.index} d={path} fill={bucket.color} opacity={bucket.count ? 0.92 : 0.15} stroke="rgba(15,23,42,0.35)" strokeWidth="1">
+                <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nKickpasses: ${bucket.kickCount}\nHandpasses: ${bucket.handCount}\nMix: ${mixLabel}`}</title>
+              </path>
+            );
+          })}
+          <text x={cx} y={18} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Toward Goal</text>
+          <text x={size - 20} y={cy + 4} textAnchor="start" fontSize="11" fontWeight="700" fill="#475569">Right</text>
+          <text x={20} y={cy + 4} textAnchor="end" fontSize="11" fontWeight="700" fill="#475569">Left</text>
+          <text x={cx} y={size - 10} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">Back</text>
+        </svg>
+      </CardContent>
+    </Card>
+  );
+}
 
 class ChartsErrorBoundary extends React.Component {
   constructor(props) {
@@ -994,15 +1073,24 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                     </div>
                     <div className="min-w-0 space-y-4">
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
-                        <PassSonar
-                          passes={focusPlayerPasses}
-                          title="Player Pass Sonar"
-                          subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
-                          fullscreenEnabled={false}
-                          includeOverall
-                          zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall']}
-                          stacked
-                        />
+                        <Card>
+                          <CardContent className="p-4 space-y-3">
+                            <div>
+                              <div className="font-semibold text-slate-900">Player Pass Sonar</div>
+                              <div className="text-xs text-slate-500">
+                                {focusPlayerSonar.some((zone) => zone.total > 0)
+                                  ? 'Direction and pass-method mix by start zone'
+                                  : 'No passes available for the selected player under current filters'}
+                              </div>
+                            </div>
+                            <div className="space-y-4">
+                              {['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall'].map((zoneName) => {
+                                const zone = focusPlayerSonar.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
+                                return <PlayerSonarZoneCard key={zoneName} zone={zone} />;
+                              })}
+                            </div>
+                          </CardContent>
+                        </Card>
                       </ChartsErrorBoundary>
                     </div>
                   </div>

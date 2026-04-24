@@ -184,8 +184,10 @@ function DefenseTab({
       id: action.key,
       stat_type: 'defensive_action',
       team_side: action.teamSide,
-      x_position: action.x,
-      y_position: action.y,
+      // Stored DA coordinates are already normalized/team-relative.
+      // The shared comparison pitch mirrors away once via PitchViz.
+      x_position: Number(action.x),
+      y_position: Number(action.y),
       time_s: action?.stat?.time_s,
       normalized_time_s: action?.stat?.normalized_time_s,
       play_id: action?.stat?.play_id,
@@ -321,7 +323,7 @@ function DefenseTab({
                   showColorControls={false}
                   // Shared comparison pitch: away actions are mirrored once onto the home-attacking frame.
                   mirrorAwayWhenBoth
-                  directionLabel="Home ->"
+                  directionLabel="Attacking ->"
                   pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}
                 />
