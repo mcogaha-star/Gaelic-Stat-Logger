@@ -1908,8 +1908,9 @@ function describeSector(cx, cy, innerR, outerR, startAngle, endAngle) {
   ].join(' ');
 }
 
-function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } = {}) {
+function buildPassSonarData(passes, { side = null, playerId = null, bins = 12, includeOverall = false } = {}) {
   const zoneBuckets = {
+    ...(includeOverall ? { Overall: [] } : {}),
     'Defensive Third': [],
     'Middle Third': [],
     'Attacking Third': [],
@@ -1921,7 +1922,7 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
     const passer = normalizePlayerRef(extra?.pass?.passer);
     if (!passer) continue;
     if (side && passer.team_side !== side) continue;
-    if (playerId && passer.id !== playerId) continue;
+    if (playerId && String(passer.id) !== String(playerId)) continue;
     const start = getNormalizedSonarPoint(stat, 'start');
     const end = getNormalizedSonarPoint(stat, 'end');
     if (!start || !end) continue;
@@ -1943,6 +1944,14 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
       kickCount: isKick ? 1 : 0,
       handCount: isHand ? 1 : 0,
     });
+    if (includeOverall && zoneBuckets.Overall) {
+      zoneBuckets.Overall.push({
+        stat,
+        bin,
+        kickCount: isKick ? 1 : 0,
+        handCount: isHand ? 1 : 0,
+      });
+    }
   }
 
   return Object.entries(zoneBuckets).map(([zone, events]) => {
@@ -1973,12 +1982,12 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
   });
 }
 
-function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true, zoneOrder = ['Defensive Third', 'Middle Third', 'Attacking Third'], stacked = false }) {
+function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true, zoneOrder = ['Defensive Third', 'Middle Third', 'Attacking Third'], stacked = false, includeOverall = false }) {
   const zones = useMemo(() => {
-    const built = buildPassSonarData(passes, { side, playerId });
+    const built = buildPassSonarData(passes, { side, playerId, includeOverall });
     const orderMap = new Map(zoneOrder.map((zone, index) => [zone, index]));
     return built.slice().sort((a, b) => (orderMap.get(a.zone) ?? 999) - (orderMap.get(b.zone) ?? 999));
-  }, [passes, side, playerId, zoneOrder]);
+  }, [passes, side, playerId, zoneOrder, includeOverall]);
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
       {!isFullscreen && (

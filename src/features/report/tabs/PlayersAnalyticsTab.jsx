@@ -767,6 +767,17 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
   const chartsResetKey = `${playerBucket}|${teamMode}|${activeChartPlayerId}|${base.length}`;
+  const matchesActiveChartPlayer = (selection) => {
+    if (!activeChartPlayer) return false;
+    const candidate = resolveLeaderboardPlayer(selection);
+    if (!candidate) return false;
+    if (candidate.team_side !== activeChartPlayer.team_side) return false;
+    if (candidate.id != null && activeChartPlayer.id != null && String(candidate.id) === String(activeChartPlayer.id)) return true;
+    if (candidate.number != null && activeChartPlayer.number != null && String(candidate.number) === String(activeChartPlayer.number)) return true;
+    const candidateName = String(candidate.name || '').trim().toLowerCase();
+    const activeName = String(activeChartPlayer.name || '').trim().toLowerCase();
+    return Boolean(candidateName && activeName && candidateName === activeName);
+  };
 
   const focusStats = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
@@ -794,28 +805,28 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
         extra?.throw_in?.lost_by,
         extra?.throw_in?.broken_by,
       ];
-      return candidates.some((candidate) => activeChartPlayerKey && resolveLeaderboardKey(candidate) === activeChartPlayerKey);
+      return candidates.some((candidate) => matchesActiveChartPlayer(candidate));
     });
-  }, [activeChartPlayerId, activeChartPlayerKey, base, teamMode]);
+  }, [activeChartPlayerId, activeChartPlayer, base, teamMode]);
 
   const focusPlayerPasses = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
     return calcBase.filter((stat) => {
       if (stat?.stat_type !== 'pass') return false;
       const extra = safeParseJSON(stat.extra_data || '{}', {});
-      return activeChartPlayerKey && resolveLeaderboardKey(extra?.pass?.passer) === activeChartPlayerKey;
+      return matchesActiveChartPlayer(extra?.pass?.passer);
     });
-  }, [activeChartPlayerId, activeChartPlayerKey, calcBase]);
+  }, [activeChartPlayerId, activeChartPlayer, calcBase]);
 
   const focusPlayerSonar = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
-    return buildPassSonarData(focusPlayerPasses);
+    return buildPassSonarData(focusPlayerPasses, { includeOverall: true });
   }, [focusPlayerPasses, activeChartPlayerId]);
 
   const focusPlayerDefensiveActionStats = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
     return defensiveActions.playerActions
-      .filter((action) => activeChartPlayerKey && resolveLeaderboardKey(action?.player) === activeChartPlayerKey)
+      .filter((action) => matchesActiveChartPlayer(action?.player))
       .map((action) => ({
         id: `player-da-${action.key}`,
         stat_type: 'defensive_action',
@@ -833,11 +844,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           },
         }),
       }));
-  }, [activeChartPlayerId, activeChartPlayerKey, defensiveActions.playerActions]);
+  }, [activeChartPlayerId, activeChartPlayer, defensiveActions.playerActions]);
   const focusTouchEvents = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
-    return touchEvents.filter((event) => activeChartPlayerKey && resolveLeaderboardKey(event?.player) === activeChartPlayerKey);
-  }, [activeChartPlayerId, activeChartPlayerKey, touchEvents]);
+    return touchEvents.filter((event) => matchesActiveChartPlayer(event?.player));
+  }, [activeChartPlayerId, activeChartPlayer, touchEvents]);
 
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
@@ -925,6 +936,17 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 <div className="space-y-4">
                   <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
                     <div className="space-y-4">
+                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
+                        <TouchMap
+                          touchEvents={focusTouchEvents}
+                          playerId={null}
+                          title="Touch Map"
+                          homeColor={homeTeam?.color}
+                          awayColor={awayTeam?.color}
+                          mirrorAwayWhenBoth={false}
+                          fullscreenEnabled={false}
+                        />
+                      </ChartsErrorBoundary>
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|events`} label="Player Events">
                         <Card>
                           <CardContent className="p-4 space-y-3">
@@ -944,17 +966,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                             )}
                           </CardContent>
                         </Card>
-                      </ChartsErrorBoundary>
-                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
-                        <TouchMap
-                          touchEvents={focusTouchEvents}
-                          playerId={null}
-                          title="Touch Map"
-                          homeColor={homeTeam?.color}
-                          awayColor={awayTeam?.color}
-                          mirrorAwayWhenBoth={false}
-                          fullscreenEnabled={false}
-                        />
                       </ChartsErrorBoundary>
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|da`} label="Defensive Action Map">
                         <Card>
@@ -983,7 +994,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         title="Player Pass Sonar"
                         subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
                         fullscreenEnabled={false}
-                        zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
+                        includeOverall
+                        zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall']}
                         stacked
                       />
                     </ChartsErrorBoundary>
