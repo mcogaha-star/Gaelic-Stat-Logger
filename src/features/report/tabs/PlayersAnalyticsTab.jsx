@@ -76,7 +76,7 @@ class ChartsErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('Players Charts render failure', { error, errorInfo });
+    console.error('Players Charts render failure', { panel: this.props.label || 'charts', error, errorInfo });
   }
 
   componentDidUpdate(prevProps) {
@@ -90,7 +90,7 @@ class ChartsErrorBoundary extends React.Component {
       return (
         <Card>
           <CardContent className="p-4 text-sm text-slate-600">
-            Charts could not be rendered for this player. Try another player or clear the selection.
+            {(this.props.label || 'Charts')} could not be rendered for this player. Try another player or clear the selection.
           </CardContent>
         </Card>
       );
@@ -922,10 +922,10 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                   </Select>
                 </div>
               {activeChartPlayer ? (
-                <ChartsErrorBoundary resetKey={chartsResetKey}>
-                  <div className="space-y-4">
-                    <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
-                      <div className="space-y-4">
+                <div className="space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
+                    <div className="space-y-4">
+                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|events`} label="Player Events">
                         <Card>
                           <CardContent className="p-4 space-y-3">
                             <div className="font-semibold text-slate-900">Player Events</div>
@@ -944,6 +944,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                             )}
                           </CardContent>
                         </Card>
+                      </ChartsErrorBoundary>
+                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
                         <TouchMap
                           touchEvents={focusTouchEvents}
                           playerId={null}
@@ -953,6 +955,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                           mirrorAwayWhenBoth={false}
                           fullscreenEnabled={false}
                         />
+                      </ChartsErrorBoundary>
+                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|da`} label="Defensive Action Map">
                         <Card>
                           <CardContent className="p-4 space-y-3">
                             <div className="font-semibold text-slate-900">Defensive Action Map</div>
@@ -971,7 +975,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                             )}
                           </CardContent>
                         </Card>
-                      </div>
+                      </ChartsErrorBoundary>
+                    </div>
+                    <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
                       <PassSonar
                         passes={focusPlayerPasses}
                         title="Player Pass Sonar"
@@ -980,9 +986,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
                         stacked
                       />
-                    </div>
+                    </ChartsErrorBoundary>
                   </div>
-                </ChartsErrorBoundary>
+                </div>
               ) : (
                 <div className="text-sm text-slate-600">Select a player here to show their charts and maps.</div>
               )}
