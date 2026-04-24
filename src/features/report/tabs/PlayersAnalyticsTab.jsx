@@ -711,15 +711,22 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       .filter((p) => teamMode === 'both' || p.team_side === teamMode),
     [playerOptions, teamMode],
   );
+  const chartPlayerOptions = useMemo(
+    () => availableChartPlayers.map((p) => ({
+      ...p,
+      value: `${String(p.team_side || '')}|${String(p.id)}`,
+    })),
+    [availableChartPlayers],
+  );
   React.useEffect(() => {
     if (chartPlayerId === 'all') return;
-    if (!availableChartPlayers.some((p) => p.id === chartPlayerId)) setChartPlayerId('all');
-  }, [availableChartPlayers, chartPlayerId]);
+    if (!chartPlayerOptions.some((p) => p.value === chartPlayerId)) setChartPlayerId('all');
+  }, [chartPlayerOptions, chartPlayerId]);
 
   const activeChartPlayerId = chartPlayerId;
   const activeChartPlayer = useMemo(
-    () => (playerOptions || []).find((p) => String(p?.id) === String(activeChartPlayerId)) || null,
-    [playerOptions, activeChartPlayerId],
+    () => chartPlayerOptions.find((p) => p.value === activeChartPlayerId) || null,
+    [chartPlayerOptions, activeChartPlayerId],
   );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
 
@@ -867,9 +874,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Select Player</SelectItem>
-                      {availableChartPlayers
+                      {chartPlayerOptions
                         .map((p) => (
-                          <SelectItem key={String(p.id)} value={String(p.id)}>
+                          <SelectItem key={p.value} value={p.value}>
                             {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
                           </SelectItem>
                         ))}

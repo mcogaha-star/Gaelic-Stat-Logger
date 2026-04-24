@@ -319,7 +319,7 @@ function DefenseTab({
                   awayColor={awayTeam?.color}
                   colorBy="team"
                   showColorControls={false}
-                  mirrorAwayWhenBoth
+                  mirrorAwayWhenBoth={false}
                   directionLabel="Home ->"
                   pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}

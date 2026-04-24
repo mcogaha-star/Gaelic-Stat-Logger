@@ -195,18 +195,24 @@ export default function Video() {
       const rec = await db.entities.Match.get(matchId);
       if (cancelled) return;
       const cfg = safeParseJSON(rec?.video_config || '{}', {});
-      if (cfg?.sourceType === 'youtube' || cfg?.sourceType === 'local') setSourceType(cfg.sourceType);
       if (typeof cfg?.youtubeUrl === 'string') setYoutubeUrl(cfg.youtubeUrl);
+      // A local file cannot be restored across sessions/popouts, so always fall back
+      // to a usable YouTube/default state instead of reopening the video page blank.
+      if (cfg?.sourceType === 'youtube' && typeof cfg?.youtubeUrl === 'string' && cfg.youtubeUrl.trim()) {
+        setSourceType('youtube');
+      } else {
+        setSourceType('youtube');
+      }
     })();
     return () => { cancelled = true; };
   }, [matchId]);
 
   useEffect(() => {
     if (!matchId) return;
-    // Persist only YouTube URL + source type (local file can't be restored without reselect).
-    const payload = { sourceType, youtubeUrl: sourceType === 'youtube' ? youtubeUrl : '' };
+    // Persist only YouTube URL. Local-file mode is session-only and should not reopen blank.
+    const payload = { sourceType: 'youtube', youtubeUrl };
     db.entities.Match.update(matchId, { video_config: JSON.stringify(payload) }).catch(() => {});
-  }, [matchId, sourceType, youtubeUrl]);
+  }, [matchId, youtubeUrl]);
 
   // Open a BroadcastChannel for communicating with the match window.
   useEffect(() => {

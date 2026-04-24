@@ -1100,7 +1100,7 @@ function buildDefensiveActions(stats) {
 
 function DirectionBadge({ className = '', label = 'Attacking ->' }) {
   return (
-    <div className={`absolute left-2 top-2 z-10 rounded-full bg-white/92 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm ${className}`}>
+    <div className={`absolute left-2 top-2 z-10 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm ${className}`}>
       {label}
     </div>
   );
