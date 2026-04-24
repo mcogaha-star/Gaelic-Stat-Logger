@@ -324,9 +324,10 @@ export const POSSESSION_ZONE_LABELS = ['Defensive Third', 'Middle Third', 'Attac
 export function getPossessionZoneForX(x, teamSide) {
   const raw = Number(x);
   if (!Number.isFinite(raw)) return 'Unknown';
-  const attackingX = teamSide === 'away' ? PITCH_W - raw : raw;
-  if (attackingX < 45) return 'Defensive Third';
-  if (attackingX < PITCH_W - 45) return 'Middle Third';
+  // Normalized coordinates are already stored in an attacking left-to-right frame
+  // for the acting/possession team, so no extra away-team flip belongs here.
+  if (raw < 45) return 'Defensive Third';
+  if (raw < PITCH_W - 45) return 'Middle Third';
   return 'Attacking Third';
 }
 
@@ -345,8 +346,8 @@ function splitZoneDurationByDistance(fromX, toX, duration, teamSide) {
     return out;
   }
 
-  const ax = teamSide === 'away' ? PITCH_W - a : a;
-  const bx = teamSide === 'away' ? PITCH_W - b : b;
+  const ax = a;
+  const bx = b;
   const minX = Math.min(ax, bx);
   const maxX = Math.max(ax, bx);
   const total = Math.max(0.001, maxX - minX);
@@ -932,6 +933,8 @@ export function findScorableFreeConcededRows(stats) {
 
 export function buildDataHealthChecks(stats) {
   const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
+  const rebuiltList = rebuildPossessionRows(list);
+  const rebuiltById = new Map(rebuiltList.map((stat) => [stat?.id, stat]));
   const checks = [];
   const add = (severity, title, detail, stat = null) => {
     checks.push({
@@ -948,8 +951,9 @@ export function buildDataHealthChecks(stats) {
   for (const stat of list) {
     const type = String(stat?.stat_type || '');
     const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
-    const pid = Number(stat?.possession_id);
-    const pside = stat?.possession_team_side;
+    const rebuilt = rebuiltById.get(stat?.id) || stat;
+    const pid = Number(rebuilt?.possession_id);
+    const pside = rebuilt?.possession_team_side;
     if (Number.isFinite(pid) && pid > 0) {
       possessionIds.add(pid);
       const set = possessionTeamById.get(pid) || new Set();
@@ -959,7 +963,7 @@ export function buildDataHealthChecks(stats) {
 
     if (type === 'defensive_contact') add('error', 'Legacy Defensive Contact row', 'This row should be deleted; defensive contact is no longer a stat type.', stat);
     if (extra?.pass?.style) add('warning', 'Legacy pass style', 'Pass style should be removed and pass accuracy should be used instead.', stat);
-    if (type === 'period_end' && pid > 0 && stat?.team_side !== 'unknown') add('warning', 'Period end acting team', 'Period-end markers should not have an acting team.', stat);
+    if (type === 'period_end' && pid > 0 && rebuilt?.team_side !== 'unknown') add('warning', 'Period end acting team', 'Period-end markers should not have an acting team.', stat);
     if (type === 'substitution' && pid > 0) add('warning', 'Substitution in possession', 'Substitutions should not belong to a possession.', stat);
     if (type === 'shot' && shotRequiresResult(extra?.shot?.outcome) && !extra?.shot?.result) add('error', 'Shot missing result', 'Short/saved/blocked/post shots need a result so possession can be rebuilt.', stat);
     if (type === 'kickout') {

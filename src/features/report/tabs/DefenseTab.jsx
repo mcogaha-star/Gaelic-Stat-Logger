@@ -92,7 +92,7 @@ function DefenseTab({
     const normalizedType = normalizeFoulType(typ);
     const rec = normalizedType === 'foul'
       ? (foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || t?.forced_by?.team_side || null)
-      : (t?.recovered_by?.team_side || foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || null);
+      : (t?.recovered_by?.team_side || t?.forced_by?.team_side || foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side || null);
     const unforced = !!t?.unforced || normalizeFoulType(typ) === 'unforced';
     return { lost, rec, unforced, typ };
   };

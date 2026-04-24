@@ -954,7 +954,10 @@ function buildTouchEvents(stats, playerOptions = []) {
     }
 
     if (stat.stat_type === 'turnover' || extra?.turnover) {
-      add(extra?.turnover?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Turnover Recovery');
+      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
+      if (turnoverType !== 'foul') {
+        add(extra?.turnover?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Turnover Recovery');
+      }
       continue;
     }
 
@@ -1068,7 +1071,9 @@ function buildDefensiveActions(stats) {
         || null;
       // Turnover defensive actions are plotted at the regain/turnover endpoint.
       addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, frameTeamSide);
-      addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      if (turnoverType !== 'foul') {
+        addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      }
       addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
       if (stat.stat_type === 'carry' && String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
         addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);

@@ -612,6 +612,7 @@ export default function MatchReport() {
           (side === 'home' || side === 'away' ? side : null);
         const recoveredSide =
           turnover?.recovered_by?.team_side ||
+          turnover?.forced_by?.team_side ||
           foul?.foul_on_or_forced_by?.team_side ||
           foul?.foul_on?.team_side ||
           oppositeTeamSide(lostSide);

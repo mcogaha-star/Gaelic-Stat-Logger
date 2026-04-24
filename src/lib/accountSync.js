@@ -228,10 +228,17 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
         const awaySheet = buildImportedMatchSheet(
           Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localAwayTeam.id),
         );
-        const needsRosterBackfill =
+        const needsHomeRosterBackfill =
           parseIdList(localMatch.home_starters).length === 0
-          && parseIdList(localMatch.away_starters).length === 0
-          && (homeSheet.starters.length > 0 || awaySheet.starters.length > 0);
+          && (homeSheet.starters.length > 0 || homeSheet.subs.length > 0 || homeSheet.on_field.length > 0);
+        const needsAwayRosterBackfill =
+          parseIdList(localMatch.away_starters).length === 0
+          && (awaySheet.starters.length > 0 || awaySheet.subs.length > 0 || awaySheet.on_field.length > 0);
+        const needsRosterBackfill =
+          needsHomeRosterBackfill
+          || needsAwayRosterBackfill
+          || localMatch.home_team_id !== localHomeTeam.id
+          || localMatch.away_team_id !== localAwayTeam.id;
         if (needsRosterBackfill) {
           const rosterPatch = {
             home_team_id: localHomeTeam.id,
