@@ -49,7 +49,6 @@ import {
   buildShotAssistCredits,
   buildDefensiveActions,
   buildTouchEvents,
-  buildTouchesMap,
   buildPassSonarData,
   getPossessionStartZone,
   selectionKey,
@@ -130,10 +129,10 @@ function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
   );
 }
 
-function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, focusPlayerId, setFocusPlayerId }) {
+function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
   const [playerBucket, setPlayerBucket] = useState('scoring');
-  const [chartPlayerId, setChartPlayerId] = useState(() => focusPlayerId && focusPlayerId !== 'all' ? focusPlayerId : 'all');
+  const [chartPlayerId, setChartPlayerId] = useState('all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
@@ -205,7 +204,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
   };
 
   const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
-  const touchMap = useMemo(() => buildTouchesMap(calcBase, playerOptions), [calcBase, playerOptions]);
   const touchEvents = useMemo(() => buildTouchEvents(calcBase, playerOptions), [calcBase, playerOptions]);
   const defensiveActions = useMemo(() => buildDefensiveActions(calcBase), [calcBase]);
 
@@ -292,7 +290,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     for (const action of defensiveActions.playerActions) ensure(action?.player);
     const touchPossessionsByPlayer = new Map();
     for (const touch of touchEvents) {
-      const playerKey = resolveLeaderboardKey(touch?.player);
+      const row = ensure(touch?.player);
+      const playerKey = row?.key || null;
       const teamSide = touch?.stat?.possession_team_side;
       const possessionId = Number(touch?.stat?.possession_id);
       if (!playerKey || (teamSide !== 'home' && teamSide !== 'away') || !Number.isFinite(possessionId)) continue;
@@ -300,6 +299,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       const set = touchPossessionsByPlayer.get(playerKey) || new Set();
       set.add(possessionKey);
       touchPossessionsByPlayer.set(playerKey, set);
+      row.touches += 1;
     }
 
     for (const s of calcBase) {
@@ -404,8 +404,19 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           : ensure(t?.recovered_by);
         const forced = ensure(t?.forced_by);
         const lost = ensure(t?.lost_by);
-        if (rec) rec.turnoversRecovered += 1;
-        if (forced) forced.turnoversForced += 1;
+        const defensivePlayers = new Set();
+        if (rec) {
+          rec.turnoversRecovered += 1;
+          defensivePlayers.add(rec.key);
+        }
+        if (forced) {
+          forced.turnoversForced += 1;
+          defensivePlayers.add(forced.key);
+        }
+        for (const playerKey of defensivePlayers) {
+          const row = rows.get(playerKey);
+          if (row) row.defActions += 1;
+        }
         if (lost) lost.turnoversLost += 1;
       }
       const f = extractFoulFromStat(s);
@@ -501,20 +512,9 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       }
     }
 
-    const resolvedTouchCounts = new Map();
-    for (const touch of touchEvents) {
-      const key = resolveLeaderboardKey(touch?.player);
-      if (!key) continue;
-      resolvedTouchCounts.set(key, (resolvedTouchCounts.get(key) || 0) + 1);
-    }
-
-    for (const [key, count] of resolvedTouchCounts.entries()) {
-      const row = rows.get(key);
-      if (row) row.touches = count;
-    }
-
     for (const action of defensiveActions.playerActions) {
-      const row = rows.get(resolveLeaderboardKey(action.player));
+      if (String(action?.reason || '') === 'Turnover Recovered' || String(action?.reason || '') === 'Turnover Forced') continue;
+      const row = ensure(action.player);
       if (row) row.defActions += 1;
     }
 
@@ -591,6 +591,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'progMeters', label: 'Prog Meters', numeric: true, render: (r) => Number.isFinite(r.progMeters) ? r.progMeters.toFixed(1) : '0.0' },
       { key: 'scoringZoneEntriesCreated', label: 'Scoring Zone Entries', numeric: true },
       { key: 'passesIntoScoringZone', label: 'Passes Into Scoring Zone', numeric: true },
+      { key: 'shotAssists', label: 'Shot Assists', numeric: true },
     ],
     retention: [
       { key: 'player', label: 'Player' },
@@ -611,14 +612,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'shootRate', label: 'Shoot Rate', numeric: true, sortValue: (r) => r.shootRate, render: (r) => formatPct(r.shootRate) },
       { key: 'noCarryPassRate', label: 'No-Carry Pass Rate', numeric: true, sortValue: (r) => r.noCarryPassRate, render: (r) => formatPct(r.noCarryPassRate) },
       { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
-    ],
-    creation: [
-      { key: 'player', label: 'Player' },
-      { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
-      { key: 'shotAssists', label: 'Shot Assists', numeric: true },
-      { key: 'shotsCreated', label: 'Shots Created', numeric: true },
-      { key: 'attacksInvolved', label: 'Attacks Involved', numeric: true },
-      { key: 'scoringPossessionsInvolved', label: 'Scoring Possessions', numeric: true },
     ],
     defense: [
       { key: 'player', label: 'Player' },
@@ -666,7 +659,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       progression: () => true,
       retention: () => true,
       tendencies: () => true,
-      creation: () => true,
       defense: () => true,
       sonar: () => true,
       restarts: () => true,
@@ -692,7 +684,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     };
     list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
     return list;
-  }, [leaderboard, lbSort, teamMode, focusPlayerId, playerBucket, bucketColumns]);
+  }, [leaderboard, lbSort, teamMode, playerBucket, bucketColumns]);
 
   React.useEffect(() => {
     const defaults = {
@@ -700,7 +692,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       progression: 'progMeters',
       retention: 'touches',
       tendencies: 'passRate',
-      creation: 'shotsCreated',
       defense: 'defActions',
       sonar: 'passes',
       touches: 'touches',
@@ -714,7 +705,16 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     }
   }, [playerBucket, bucketColumns, lbSort.key]);
 
-  const activeChartPlayerId = chartPlayerId === 'all' ? (focusPlayerId || 'all') : chartPlayerId;
+  const availableChartPlayers = useMemo(
+    () => (playerOptions || []).filter((p) => teamMode === 'both' || p.team_side === teamMode),
+    [playerOptions, teamMode],
+  );
+  React.useEffect(() => {
+    if (chartPlayerId === 'all') return;
+    if (!availableChartPlayers.some((p) => p.id === chartPlayerId)) setChartPlayerId('all');
+  }, [availableChartPlayers, chartPlayerId]);
+
+  const activeChartPlayerId = chartPlayerId;
   const activeChartPlayer = useMemo(() => (playerOptions || []).find((p) => p.id === activeChartPlayerId) || null, [playerOptions, activeChartPlayerId]);
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
 
@@ -748,10 +748,19 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     });
   }, [activeChartPlayerId, activeChartPlayerKey, base, teamMode]);
 
+  const focusPlayerPasses = useMemo(() => {
+    if (activeChartPlayerId === 'all') return [];
+    return calcBase.filter((stat) => {
+      if (stat?.stat_type !== 'pass') return false;
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      return activeChartPlayerKey && resolveLeaderboardKey(extra?.pass?.passer) === activeChartPlayerKey;
+    });
+  }, [activeChartPlayerId, activeChartPlayerKey, calcBase]);
+
   const focusPlayerSonar = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
-    return buildPassSonarData(calcBase.filter((stat) => stat?.stat_type === 'pass'), { playerId: activeChartPlayerId });
-  }, [calcBase, activeChartPlayerId]);
+    return buildPassSonarData(focusPlayerPasses);
+  }, [focusPlayerPasses, activeChartPlayerId]);
 
   const focusPlayerDefensiveActionStats = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
@@ -779,12 +788,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     if (activeChartPlayerId === 'all') return [];
     return touchEvents.filter((event) => activeChartPlayerKey && resolveLeaderboardKey(event?.player) === activeChartPlayerKey);
   }, [activeChartPlayerId, activeChartPlayerKey, touchEvents]);
-
-  React.useEffect(() => {
-    if (focusPlayerId && focusPlayerId !== 'all') {
-      setChartPlayerId(focusPlayerId);
-    }
-  }, [focusPlayerId]);
 
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
@@ -833,7 +836,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 ['progression', 'Progression'],
                 ['retention', 'Retention'],
                 ['tendencies', 'Tendencies'],
-                ['creation', 'Creation'],
                 ['defense', 'Defense'],
                 ['sonar', 'Charts'],
                 ['touches', 'Touches'],
@@ -856,15 +858,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
               <div className="space-y-4">
                 <div className="max-w-sm space-y-1">
                   <Label className="text-xs text-slate-600">Player</Label>
-                  <Select value={activeChartPlayerId || 'all'} onValueChange={(value) => {
-                    setChartPlayerId(value);
-                    setFocusPlayerId?.(value);
-                  }}>
+                  <Select value={activeChartPlayerId || 'all'} onValueChange={setChartPlayerId}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Select Player</SelectItem>
-                      {(playerOptions || [])
-                        .filter((p) => teamMode === 'both' || p.team_side === teamMode)
+                      {availableChartPlayers
                         .map((p) => (
                           <SelectItem key={p.id} value={p.id}>
                             {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
@@ -914,8 +912,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                       </Card>
                     </div>
                     <PassSonar
-                      passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
-                      playerId={activeChartPlayerId}
+                      passes={focusPlayerPasses}
                       title="Player Pass Sonar"
                       subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
                       fullscreenEnabled={false}

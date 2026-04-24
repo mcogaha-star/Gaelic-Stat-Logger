@@ -912,6 +912,14 @@ function getPassMethodColor(kickShare) {
   return blendHexColors('#8b5cf6', '#2563eb', (share - 0.5) / 0.5);
 }
 
+function getNormalizedSonarPoint(stat, point = 'start') {
+  const useEnd = point === 'end';
+  const x = Number(useEnd ? stat?.end_x_position : stat?.x_position);
+  const y = Number(useEnd ? stat?.end_y_position : stat?.y_position);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
 function buildTouchEvents(stats, playerOptions = []) {
   const out = [];
   const add = (sel, stat, x, y, reason) => {
@@ -935,7 +943,7 @@ function buildTouchEvents(stats, playerOptions = []) {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
 
     if (stat.stat_type === 'pass') {
-      add(extra?.pass?.won_by, stat, stat?.end_x_position, stat?.end_y_position, 'Pass Won');
+      add(getCompletedReceiptSelection(stat, extra), stat, stat?.end_x_position, stat?.end_y_position, 'Pass Won');
       if (normalizeOutcomeAlias(extra?.pass?.outcome) === 'broken_retained') {
         add(extra?.pass?.recovered_by, stat, stat?.end_x_position, stat?.end_y_position, 'Broken Retained');
       }
@@ -1912,18 +1920,17 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
     if (!passer) continue;
     if (side && passer.team_side !== side) continue;
     if (playerId && passer.id !== playerId) continue;
-    const start = transformDisplayPoint(stat?.x_position, stat?.y_position, passer.team_side, true);
-    const end = transformDisplayPoint(stat?.end_x_position, stat?.end_y_position, passer.team_side, true);
+    const start = getNormalizedSonarPoint(stat, 'start');
+    const end = getNormalizedSonarPoint(stat, 'end');
     if (!start || !end) continue;
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
-    const angle = Math.atan2(dy, dx);
-    const normalizedAngle = angle < 0 ? angle + (Math.PI * 2) : angle;
-    const plotAngle = (normalizedAngle + (Math.PI / 2)) % (Math.PI * 2);
-    const bin = Math.min(bins - 1, Math.floor((plotAngle / (Math.PI * 2)) * bins));
-    const attackingX = start.x;
-    const zone = attackingX < 45 ? 'Defensive Third' : attackingX < (PITCH_W - 45) ? 'Middle Third' : 'Attacking Third';
+    const sonarAngle = Math.atan2(dy, dx);
+    const normalizedAngle = sonarAngle < 0 ? sonarAngle + (Math.PI * 2) : sonarAngle;
+    const bin = Math.min(bins - 1, Math.floor((normalizedAngle / (Math.PI * 2)) * bins));
+    const startX = start.x;
+    const zone = startX < 45 ? 'Defensive Third' : startX < (PITCH_W - 45) ? 'Middle Third' : 'Attacking Third';
     if (!zoneBuckets[zone]) continue;
     const method = String(extra?.pass?.method || '').toLowerCase();
     const isKick = method === 'left' || method === 'right';
