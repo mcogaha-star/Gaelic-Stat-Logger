@@ -50,6 +50,7 @@ import {
   buildDefensiveActions,
   buildTouchEvents,
   buildTouchesMap,
+  buildPassSonarData,
   getPossessionStartZone,
   selectionKey,
   normalizePlayerRef,
@@ -245,6 +246,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     const awayKeeper = getKeeperCandidate(playerOptions, 'away');
     ensure(homeKeeper);
     ensure(awayKeeper);
+    for (const touch of touchEvents) ensure(touch?.player);
+    for (const action of defensiveActions.playerActions) ensure(action?.player);
     const touchPossessionsByPlayer = new Map();
     for (const touch of touchEvents) {
       const playerKey = selectionKey(touch?.player);
@@ -616,6 +619,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       tendencies: () => true,
       creation: () => true,
       defense: () => true,
+      sonar: () => true,
       restarts: () => true,
       goalkeepers: (r) => isGoalkeeperPlayer(r),
     };
@@ -650,6 +654,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       tendencies: 'passRate',
       creation: 'shotsCreated',
       defense: 'defActions',
+      sonar: 'passes',
       touches: 'touches',
       restarts: 'kickoutWins',
       goalkeepers: 'kickoutsTaken',
@@ -670,6 +675,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       return ids.has(focusPlayerId);
     });
   }, [base, focusPlayerId, teamMode]);
+
+  const focusPlayerSonar = useMemo(() => {
+    if (focusPlayerId === 'all') return [];
+    return buildPassSonarData(calcBase.filter((stat) => stat?.stat_type === 'pass'), { playerId: focusPlayerId });
+  }, [calcBase, focusPlayerId]);
 
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
@@ -730,29 +740,11 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           ) : (
             <Card className="lg:col-span-2">
               <CardContent className="p-4 text-sm text-slate-600">
-                Select a player in the filters to view their event map, touch map, and pass sonar.
+                Select a player in the filters to view their event and touch maps.
               </CardContent>
             </Card>
           )}
         </div>
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            {focusPlayerId !== 'all' ? (
-              <PassSonar
-                passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
-                playerId={focusPlayerId}
-                title="Player Pass Sonar"
-                subtitle="Direction and accuracy by start zone"
-                fullscreenEnabled={false}
-              />
-            ) : (
-              <>
-                <div className="font-semibold text-slate-900">Player Pass Sonar</div>
-                <div className="text-sm text-slate-600">Select a player in the filters to show their sonar.</div>
-              </>
-            )}
-          </CardContent>
-        </Card>
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-wrap gap-2">
@@ -763,6 +755,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 ['tendencies', 'Tendencies'],
                 ['creation', 'Creation'],
                 ['defense', 'Defense'],
+                ['sonar', 'Pass Sonar'],
                 ['touches', 'Touches'],
                 ['restarts', 'Restarts'],
                 ['goalkeepers', 'Goalkeepers'],
@@ -779,32 +772,47 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 </Button>
               ))}
             </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {currentColumns.map((col) => (
-                    <SortableTableHead
-                      key={col.key}
-                      column={{ key: col.key, label: col.label }}
-                      sortState={lbSort}
-                      onToggle={toggleSort}
-                      className={col.numeric ? 'text-right' : undefined}
-                    />
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedLeaderboard.slice(0, 250).map((r) => (
-                  <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+            {playerBucket === 'sonar' ? (
+              focusPlayerId !== 'all' ? (
+                <PassSonar
+                  passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
+                  playerId={focusPlayerId}
+                  title="Player Pass Sonar"
+                  subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and accuracy by start zone' : 'No passes available for the selected player under current filters'}
+                  fullscreenEnabled={false}
+                  zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
+                />
+              ) : (
+                <div className="text-sm text-slate-600">Select a player in the filters to show their pass sonar.</div>
+              )
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
                     {currentColumns.map((col) => (
-                      <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
-                        {col.render ? col.render(r) : r[col.key]}
-                      </TableCell>
+                      <SortableTableHead
+                        key={col.key}
+                        column={{ key: col.key, label: col.label }}
+                        sortState={lbSort}
+                        onToggle={toggleSort}
+                        className={col.numeric ? 'text-right' : undefined}
+                      />
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {sortedLeaderboard.slice(0, 250).map((r) => (
+                    <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+                      {currentColumns.map((col) => (
+                        <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
+                          {col.render ? col.render(r) : r[col.key]}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 

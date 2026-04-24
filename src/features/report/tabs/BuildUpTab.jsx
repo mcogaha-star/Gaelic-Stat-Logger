@@ -57,7 +57,7 @@ import {
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
-  PassSonar,
+  buildPassSonarData,
   ShotMap,
   FullscreenMapShell,
   shotSideFromY,
@@ -174,6 +174,92 @@ function PassHeatmapCard({ title, stats, side, teamColor }) {
     <FullscreenMapShell title={title} enabled>
       {(isFullscreen) => renderContent(isFullscreen)}
     </FullscreenMapShell>
+  );
+}
+
+function describeSectorVertical(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const toPoint = (radius, angle) => ({
+    x: cx + (radius * Math.sin(angle)),
+    y: cy - (radius * Math.cos(angle)),
+  });
+  const startOuter = toPoint(outerR, startAngle);
+  const endOuter = toPoint(outerR, endAngle);
+  const startInner = toPoint(innerR, endAngle);
+  const endInner = toPoint(innerR, startAngle);
+  const span = ((endAngle - startAngle) + (Math.PI * 2)) % (Math.PI * 2);
+  const largeArc = span > Math.PI ? 1 : 0;
+  return [
+    `M ${startOuter.x} ${startOuter.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArc} 1 ${endOuter.x} ${endOuter.y}`,
+    `L ${startInner.x} ${startInner.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${endInner.x} ${endInner.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function SonarZoneCard({ zone, title }) {
+  const size = 210;
+  const cx = size / 2;
+  const cy = size / 2;
+  const maxCount = Math.max(1, ...(zone?.buckets || []).map((bucket) => bucket.count));
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-2">
+        <div className="font-medium text-slate-900">{title}</div>
+        <div className="text-xs text-slate-500">{zone?.total || 0} passes</div>
+      </div>
+      <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[240px] mx-auto">
+        {[0.25, 0.5, 0.75, 1].map((ratio) => (
+          <circle
+            key={ratio}
+            cx={cx}
+            cy={cy}
+            r={80 * ratio}
+            fill="none"
+            stroke="rgba(148,163,184,0.35)"
+            strokeWidth="1"
+          />
+        ))}
+        {(zone?.buckets || []).map((bucket) => {
+          const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+          const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+          const outerR = 18 + ((bucket.count / maxCount) * 62);
+          const path = describeSectorVertical(cx, cy, 10, outerR, startAngle, endAngle);
+          const accuracyLabel = Number.isFinite(bucket.averageAccuracy) ? bucket.averageAccuracy.toFixed(2) : 'NA';
+          return (
+            <path key={bucket.index} d={path} fill={bucket.color} opacity={bucket.count ? 0.92 : 0.15} stroke="rgba(15,23,42,0.35)" strokeWidth="1">
+              <title>{`Direction ${bucket.index + 1}\nPasses: ${bucket.count}\nAvg Accuracy Score: ${accuracyLabel}`}</title>
+            </path>
+          );
+        })}
+        <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
+        <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
+        <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
+        <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
+      </svg>
+    </div>
+  );
+}
+
+function PassSonarComparisonCard({ homeTeam, awayTeam, homeZones, awayZones }) {
+  const zoneOrder = ['Attacking Third', 'Middle Third', 'Defensive Third'];
+  const homeByZone = new Map((homeZones || []).map((zone) => [zone.zone, zone]));
+  const awayByZone = new Map((awayZones || []).map((zone) => [zone.zone, zone]));
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="font-semibold text-slate-900">Pass Sonars</div>
+        <div className="grid gap-4">
+          {zoneOrder.map((zoneName) => (
+            <div key={zoneName} className="grid gap-4 lg:grid-cols-2">
+              <SonarZoneCard zone={homeByZone.get(zoneName)} title={`${homeTeam?.name || 'Home'} ${zoneName}`} />
+              <SonarZoneCard zone={awayByZone.get(zoneName)} title={`${awayTeam?.name || 'Away'} ${zoneName}`} />
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -448,29 +534,58 @@ function BuildUpTab({
   })), [kpis]);
   const sortedStartZoneRows = useMemo(() => sortRows(startZoneRows, startZoneSort, startZoneColumns, 'key'), [startZoneRows, startZoneSort, startZoneColumns]);
   const toggleStartZoneSort = (key) => setStartZoneSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'zone' ? 'asc' : 'desc' });
+  const homeSonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: 'home' }), [calcFiltered]);
+  const awaySonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: 'away' }), [calcFiltered]);
+  const singleTeamSonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: teamMode === 'both' ? null : teamMode }), [calcFiltered, teamMode]);
 
   return (
     <div className="space-y-4">
-        <ComparisonMetricsCard
-          title="Build-Up Metrics"
-          homeTeam={homeTeam}
-          awayTeam={awayTeam}
-          teamMode={teamMode}
-          rows={[
-            { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
-            { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
-            { label: 'Successful Progressive Passes', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
-            { label: 'Successful Progressive Carries', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
-            { label: 'Switches', home: kpis.home.switches, away: kpis.away.switches },
-            { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
-            { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
-            { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
-            { label: 'Avg Pass Length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
-            { label: 'Handpass : Kickpass', home: formatHandKickRatio(kpis.home.handPassCount, kpis.home.kickPassCount), away: formatHandKickRatio(kpis.away.handPassCount, kpis.away.kickPassCount) },
-            { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
-            { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
-          ]}
-        />
+        <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-5 items-start">
+          <ComparisonMetricsCard
+            title="Build-Up Metrics"
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            teamMode={teamMode}
+            cardClassName="w-full"
+            rows={[
+              { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
+              { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
+              { label: 'Successful Progressive Passes', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
+              { label: 'Successful Progressive Carries', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
+              { label: 'Switches', home: kpis.home.switches, away: kpis.away.switches },
+              { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
+              { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
+              { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
+              { label: 'Avg Pass Length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
+              { label: 'Handpass : Kickpass', home: formatHandKickRatio(kpis.home.handPassCount, kpis.home.kickPassCount), away: formatHandKickRatio(kpis.away.handPassCount, kpis.away.kickPassCount) },
+              { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
+              { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
+            ]}
+          />
+          {teamMode === 'both' ? (
+            <PassSonarComparisonCard
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              homeZones={homeSonarZones}
+              awayZones={awaySonarZones}
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">
+                  {teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar
+                </div>
+                <div className="text-xs text-slate-500">Direction and accuracy by start zone</div>
+                <div className="grid gap-4">
+                  {['Attacking Third', 'Middle Third', 'Defensive Third'].map((zoneName) => {
+                    const zone = singleTeamSonarZones.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
+                    return <SonarZoneCard key={zoneName} zone={zone} title={zoneName} />;
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
         {filtered.length === 0 ? (
           <Card>
@@ -526,30 +641,6 @@ function BuildUpTab({
                 stats={filtered}
                 side={teamMode === 'away' ? 'away' : 'home'}
                 teamColor={teamMode === 'away' ? (awayTeam?.color || '#ef4444') : (homeTeam?.color || '#2563eb')}
-              />
-            )}
-
-            {teamMode === 'both' ? (
-              <div className="grid lg:grid-cols-2 gap-4">
-                <PassSonar
-                  passes={calcFiltered.filter((stat) => stat?.team_side === 'home')}
-                  side="home"
-                  title={`${homeTeam?.name || 'Home'} Pass Sonar`}
-                  subtitle="Direction and accuracy by start zone"
-                />
-                <PassSonar
-                  passes={calcFiltered.filter((stat) => stat?.team_side === 'away')}
-                  side="away"
-                  title={`${awayTeam?.name || 'Away'} Pass Sonar`}
-                  subtitle="Direction and accuracy by start zone"
-                />
-              </div>
-            ) : (
-              <PassSonar
-                passes={calcFiltered.filter((stat) => stat?.team_side === teamMode)}
-                side={teamMode}
-                title={`${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar`}
-                subtitle="Direction and accuracy by start zone"
               />
             )}
 

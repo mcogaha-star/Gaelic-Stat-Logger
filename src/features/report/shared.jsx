@@ -1936,8 +1936,12 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
   });
 }
 
-function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true }) {
-  const zones = useMemo(() => buildPassSonarData(passes, { side, playerId }), [passes, side, playerId]);
+function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar', subtitle = '', fullscreenEnabled = true, zoneOrder = ['Defensive Third', 'Middle Third', 'Attacking Third'] }) {
+  const zones = useMemo(() => {
+    const built = buildPassSonarData(passes, { side, playerId });
+    const orderMap = new Map(zoneOrder.map((zone, index) => [zone, index]));
+    return built.slice().sort((a, b) => (orderMap.get(a.zone) ?? 999) - (orderMap.get(b.zone) ?? 999));
+  }, [passes, side, playerId, zoneOrder]);
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
       {!isFullscreen && (
@@ -1971,8 +1975,8 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                   />
                 ))}
                 {zone.buckets.map((bucket) => {
-                  const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
-                  const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length);
+                  const startAngle = ((bucket.index / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length) - (Math.PI / 2);
+                  const endAngle = (((bucket.index + 1) / zone.buckets.length) * Math.PI * 2) - (Math.PI / zone.buckets.length) - (Math.PI / 2);
                   const outerR = 18 + ((bucket.count / maxCount) * 62);
                   const path = describeSector(cx, cy, 10, outerR, startAngle, endAngle);
                   const accuracyLabel = Number.isFinite(bucket.averageAccuracy) ? bucket.averageAccuracy.toFixed(2) : 'NA';
@@ -1982,10 +1986,10 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
                     </path>
                   );
                 })}
-                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Left</text>
-                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Toward Goal</text>
-                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Back</text>
-                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Right</text>
+                <text x={cx} y={14} textAnchor="middle" fontSize="10" fill="#475569">Toward Goal</text>
+                <text x={size - 8} y={cy + 3} textAnchor="end" fontSize="10" fill="#475569">Right</text>
+                <text x={8} y={cy + 3} fontSize="10" fill="#475569">Left</text>
+                <text x={cx} y={size - 6} textAnchor="middle" fontSize="10" fill="#475569">Back</text>
               </svg>
             </div>
           );
@@ -2548,6 +2552,7 @@ export {
   buildDefensiveActions,
   buildTouchEvents,
   buildTouchesMap,
+  buildPassSonarData,
   DirectionBadge,
   transformDisplayPoint,
   PitchViz,
