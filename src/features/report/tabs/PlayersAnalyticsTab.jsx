@@ -1014,7 +1014,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 </div>
               {activeChartPlayer ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] items-start">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] items-start">
                     <div className="min-w-0 space-y-4">
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
                         <TouchMap
