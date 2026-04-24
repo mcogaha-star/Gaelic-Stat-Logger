@@ -1060,6 +1060,7 @@ function buildDefensiveActions(stats) {
         || (turnoverType === 'foul'
           ? normalizePlayerRef(extractFoulFromStat(stat)?.foul_on || extractFoulFromStat(stat)?.foul_on_or_forced_by)?.team_side
           : null);
+      // Turnover defensive actions are plotted at the regain/turnover endpoint.
       addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
       addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
       addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
@@ -1073,6 +1074,7 @@ function buildDefensiveActions(stats) {
       const carrierSide = extra?.carry?.carrier?.team_side || stat?.team_side;
       if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
         const defendingSide = oppositeTeamSide(carrierSide);
+        // Pressure defensive actions stay at the event point.
         addTeamAction(defendingSide, 'High Pressure Carry', stat?.x_position, stat?.y_position);
         addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
       }

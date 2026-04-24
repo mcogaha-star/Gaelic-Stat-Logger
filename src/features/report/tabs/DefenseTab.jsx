@@ -319,6 +319,7 @@ function DefenseTab({
                   awayColor={awayTeam?.color}
                   colorBy="team"
                   showColorControls={false}
+                  // Shared comparison pitch: away actions are mirrored once onto the home-attacking frame.
                   mirrorAwayWhenBoth
                   directionLabel="Home ->"
                   pitchScale="100%"

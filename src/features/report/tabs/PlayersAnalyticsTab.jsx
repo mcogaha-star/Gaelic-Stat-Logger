@@ -65,6 +65,40 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
+class ChartsErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error?.message || 'Unknown charts error' };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Players Charts render failure', { error, errorInfo });
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, message: '' });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card>
+          <CardContent className="p-4 text-sm text-slate-600">
+            Charts could not be rendered for this player. Try another player or clear the selection.
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function normalizePlayerShotType(value) {
   const v = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
   if (v === '1_point' || v === 'one_point') return 'point';
@@ -732,6 +766,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     [chartPlayerOptions, activeChartPlayerId],
   );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
+  const chartsResetKey = `${playerBucket}|${teamMode}|${activeChartPlayerId}|${base.length}`;
 
   const focusStats = useMemo(() => {
     if (activeChartPlayerId === 'all') return [];
@@ -887,65 +922,67 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                   </Select>
                 </div>
               {activeChartPlayer ? (
-                <div className="space-y-4">
-                  <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
-                    <div className="space-y-4">
-                      <Card>
-                        <CardContent className="p-4 space-y-3">
-                          <div className="font-semibold text-slate-900">Player Events</div>
-                          {focusStats.length ? (
-                            <PitchViz
-                              stats={focusStats}
-                              homeColor={homeTeam?.color}
-                              awayColor={awayTeam?.color}
-                              colorBy="action"
-                              showColorControls={false}
-                              mirrorAwayWhenBoth={false}
-                              fullscreenEnabled={false}
-                            />
-                          ) : (
-                            <div className="text-sm text-slate-500">No player events under the current filters.</div>
-                          )}
-                        </CardContent>
-                      </Card>
-                      <TouchMap
-                        touchEvents={focusTouchEvents}
-                        playerId={null}
-                        title="Touch Map"
-                        homeColor={homeTeam?.color}
-                        awayColor={awayTeam?.color}
-                        mirrorAwayWhenBoth={false}
+                <ChartsErrorBoundary resetKey={chartsResetKey}>
+                  <div className="space-y-4">
+                    <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
+                      <div className="space-y-4">
+                        <Card>
+                          <CardContent className="p-4 space-y-3">
+                            <div className="font-semibold text-slate-900">Player Events</div>
+                            {focusStats.length ? (
+                              <PitchViz
+                                stats={focusStats}
+                                homeColor={homeTeam?.color}
+                                awayColor={awayTeam?.color}
+                                colorBy="action"
+                                showColorControls={false}
+                                mirrorAwayWhenBoth={false}
+                                fullscreenEnabled={false}
+                              />
+                            ) : (
+                              <div className="text-sm text-slate-500">No player events under the current filters.</div>
+                            )}
+                          </CardContent>
+                        </Card>
+                        <TouchMap
+                          touchEvents={focusTouchEvents}
+                          playerId={null}
+                          title="Touch Map"
+                          homeColor={homeTeam?.color}
+                          awayColor={awayTeam?.color}
+                          mirrorAwayWhenBoth={false}
+                          fullscreenEnabled={false}
+                        />
+                        <Card>
+                          <CardContent className="p-4 space-y-3">
+                            <div className="font-semibold text-slate-900">Defensive Action Map</div>
+                            {focusPlayerDefensiveActionStats.length ? (
+                              <PitchViz
+                                stats={focusPlayerDefensiveActionStats}
+                                homeColor={homeTeam?.color}
+                                awayColor={awayTeam?.color}
+                                colorBy="team"
+                                showColorControls={false}
+                                mirrorAwayWhenBoth={false}
+                                fullscreenEnabled={false}
+                              />
+                            ) : (
+                              <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </div>
+                      <PassSonar
+                        passes={focusPlayerPasses}
+                        title="Player Pass Sonar"
+                        subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
                         fullscreenEnabled={false}
+                        zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
+                        stacked
                       />
-                      <Card>
-                        <CardContent className="p-4 space-y-3">
-                          <div className="font-semibold text-slate-900">Defensive Action Map</div>
-                          {focusPlayerDefensiveActionStats.length ? (
-                            <PitchViz
-                              stats={focusPlayerDefensiveActionStats}
-                              homeColor={homeTeam?.color}
-                              awayColor={awayTeam?.color}
-                              colorBy="team"
-                              showColorControls={false}
-                              mirrorAwayWhenBoth={false}
-                              fullscreenEnabled={false}
-                            />
-                          ) : (
-                            <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
-                          )}
-                        </CardContent>
-                      </Card>
                     </div>
-                    <PassSonar
-                      passes={focusPlayerPasses}
-                      title="Player Pass Sonar"
-                      subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
-                      fullscreenEnabled={false}
-                      zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
-                      stacked
-                    />
                   </div>
-                </div>
+                </ChartsErrorBoundary>
               ) : (
                 <div className="text-sm text-slate-600">Select a player here to show their charts and maps.</div>
               )}
