@@ -1035,7 +1035,7 @@ function buildDefensiveActions(stats) {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const actionsForRow = new Set();
 
-    const addTeamAction = (teamSide, reason, x, y) => {
+    const addTeamAction = (teamSide, reason, x, y, frameTeamSide = null) => {
       if (teamSide !== 'home' && teamSide !== 'away') return;
       const key = `${stat?.id || 'stat'}:${teamSide}`;
       if (actionsForRow.has(key)) return;
@@ -1044,6 +1044,8 @@ function buildDefensiveActions(stats) {
         key,
         stat,
         teamSide,
+        colorTeamSide: teamSide,
+        frameTeamSide: frameTeamSide === 'home' || frameTeamSide === 'away' ? frameTeamSide : null,
         reason,
         x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
         y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
@@ -1060,8 +1062,12 @@ function buildDefensiveActions(stats) {
         || (turnoverType === 'foul'
           ? normalizePlayerRef(extractFoulFromStat(stat)?.foul_on || extractFoulFromStat(stat)?.foul_on_or_forced_by)?.team_side
           : null);
+      const frameTeamSide =
+        normalizePlayerRef(extra?.turnover?.lost_by)?.team_side
+        || stat?.team_side
+        || null;
       // Turnover defensive actions are plotted at the regain/turnover endpoint.
-      addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, frameTeamSide);
       addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
       addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
       if (stat.stat_type === 'carry' && String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
@@ -1075,7 +1081,7 @@ function buildDefensiveActions(stats) {
       if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
         const defendingSide = oppositeTeamSide(carrierSide);
         // Pressure defensive actions stay at the event point.
-        addTeamAction(defendingSide, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+        addTeamAction(defendingSide, 'High Pressure Carry', stat?.x_position, stat?.y_position, carrierSide);
         addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
       }
       continue;
@@ -1084,7 +1090,7 @@ function buildDefensiveActions(stats) {
     if (stat.stat_type === 'pass') {
       const passerSide = extra?.pass?.passer?.team_side || stat?.team_side;
       if (String(extra?.pass?.pressure_on_passer || '').toLowerCase() === 'high') {
-        addTeamAction(oppositeTeamSide(passerSide), 'High Pressure Pass', stat?.x_position, stat?.y_position);
+        addTeamAction(oppositeTeamSide(passerSide), 'High Pressure Pass', stat?.x_position, stat?.y_position, passerSide);
       }
       continue;
     }
@@ -1092,7 +1098,7 @@ function buildDefensiveActions(stats) {
     if (stat.stat_type === 'shot') {
       const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
       if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') {
-        addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure Shot', stat?.x_position, stat?.y_position);
+        addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure Shot', stat?.x_position, stat?.y_position, shooterSide);
       }
     }
   }
@@ -2056,7 +2062,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
   );
 }
 
-function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null, mirrorAwayWhenBoth = true, directionLabel = 'Attacking ->' }) {
+function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null, mirrorAwayWhenBoth = true, directionLabel = 'Attacking ->', cardless = false }) {
   const filtered = useMemo(() => {
     return (Array.isArray(touchEvents) ? touchEvents : []).filter((event) => !playerId || event?.player?.id === playerId);
   }, [touchEvents, playerId]);
@@ -2079,26 +2085,36 @@ function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayC
     }),
   })), [filtered]);
 
+  const content = (
+    <>
+      <div className="font-semibold text-slate-900">{title}</div>
+      {stats.length ? (
+        <PitchViz
+          stats={stats}
+          homeColor={homeColor}
+          awayColor={awayColor}
+          colorBy="team"
+          showColorControls={false}
+          mirrorAwayWhenBoth={mirrorAwayWhenBoth}
+          directionLabel={directionLabel}
+          fullscreenEnabled={fullscreenEnabled}
+          fullscreenTitle={title}
+          onOpenVideoAt={onOpenVideoAt}
+        />
+      ) : (
+        <div className="text-sm text-slate-500">Select a player to view their touches.</div>
+      )}
+    </>
+  );
+
+  if (cardless) {
+    return <div className="space-y-3">{content}</div>;
+  }
+
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
-        {stats.length ? (
-          <PitchViz
-            stats={stats}
-            homeColor={homeColor}
-            awayColor={awayColor}
-            colorBy="team"
-            showColorControls={false}
-            mirrorAwayWhenBoth={mirrorAwayWhenBoth}
-            directionLabel={directionLabel}
-            fullscreenEnabled={fullscreenEnabled}
-            fullscreenTitle={title}
-            onOpenVideoAt={onOpenVideoAt}
-          />
-        ) : (
-          <div className="text-sm text-slate-500">Select a player to view their touches.</div>
-        )}
+        {content}
       </CardContent>
     </Card>
   );

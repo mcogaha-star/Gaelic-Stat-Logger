@@ -179,30 +179,36 @@ function DefenseTab({
     return { home: calc('home'), away: calc('away') };
   }, [calcTurnovers, calcBase, defensiveActions, fouls, scorableFreeRows]);
   const defActionMapStats = useMemo(() => defensiveActions.teamActions
-    .filter((action) => teamMode === 'both' || action.teamSide === teamMode)
+    .filter((action) => teamMode === 'both' || (action.colorTeamSide || action.teamSide) === teamMode)
     .map((action) => {
       const rawX = Number(action.x);
       const rawY = Number(action.y);
-      const x = action.teamSide === 'away' && Number.isFinite(rawX) ? (PITCH_W - rawX) : rawX;
-      const y = action.teamSide === 'away' && Number.isFinite(rawY) ? (PITCH_H - rawY) : rawY;
+      const frameTeamSide = action.frameTeamSide;
+      if (frameTeamSide !== 'home' && frameTeamSide !== 'away') return null;
+      if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return null;
+      const x = frameTeamSide === 'away' ? (PITCH_W - rawX) : rawX;
+      const y = frameTeamSide === 'away' ? (PITCH_H - rawY) : rawY;
       return ({
-      id: action.key,
-      stat_type: 'defensive_action',
-      team_side: action.teamSide,
-      // Stored DA coordinates are normalized/team-relative; away is flipped once here for the shared comparison pitch.
-      x_position: x,
-      y_position: y,
-      time_s: action?.stat?.time_s,
-      normalized_time_s: action?.stat?.normalized_time_s,
-      play_id: action?.stat?.play_id,
-      possession_id: action?.stat?.possession_id,
-      extra_data: JSON.stringify({
-        defensive_action: {
-          reason: action.reason,
-        },
-      }),
-    });
-    }), [defensiveActions, teamMode]);
+        id: action.key,
+        stat_type: 'defensive_action',
+        team_side: action.colorTeamSide || action.teamSide,
+        color_team_side: action.colorTeamSide || action.teamSide,
+        x_position: x,
+        y_position: y,
+        time_s: action?.stat?.time_s,
+        normalized_time_s: action?.stat?.normalized_time_s,
+        play_id: action?.stat?.play_id,
+        possession_id: action?.stat?.possession_id,
+        extra_data: JSON.stringify({
+          defensive_action: {
+            reason: action.reason,
+            frame_team_side: frameTeamSide,
+            defending_team_side: action.colorTeamSide || action.teamSide,
+          },
+        }),
+      });
+    })
+    .filter(Boolean), [defensiveActions, teamMode]);
 
   const typeRows = useMemo(() => {
     const rows = new Map();
@@ -327,7 +333,7 @@ function DefenseTab({
                   colorBy="team"
                   showColorControls={false}
                   mirrorAwayWhenBoth={false}
-                  directionLabel="Attacking ->"
+                  directionLabel="Home ->   Away <-"
                   pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}
                 />

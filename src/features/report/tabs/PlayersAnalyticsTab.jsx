@@ -105,7 +105,7 @@ function PlayerSonarZoneCard({ zone }) {
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-3 space-y-2">
         <div>
           <div className="font-semibold text-slate-900">{zone?.zone || 'Zone'}</div>
           <div className="text-xs text-slate-500">{zone?.total || 0} passes</div>
@@ -1014,7 +1014,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 </div>
               {activeChartPlayer ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] items-start">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] items-start">
                     <div className="min-w-0 space-y-4">
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
                         <TouchMap
@@ -1026,71 +1026,66 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                           mirrorAwayWhenBoth={playerChartMirrorAway}
                           directionLabel="Attacking ->"
                           fullscreenEnabled={false}
+                          cardless
                         />
                       </ChartsErrorBoundary>
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|events`} label="Player Events">
-                        <Card>
-                          <CardContent className="p-4 space-y-3">
-                            <div className="font-semibold text-slate-900">Player Events</div>
-                            {focusStats.length ? (
-                              <PitchViz
-                                stats={focusStats}
-                                homeColor={homeTeam?.color}
-                                awayColor={awayTeam?.color}
-                                colorBy="action"
-                                showColorControls={false}
-                                mirrorAwayWhenBoth={playerChartMirrorAway}
-                                directionLabel="Attacking ->"
-                                fullscreenEnabled={false}
-                              />
-                            ) : (
-                              <div className="text-sm text-slate-500">No player events under the current filters.</div>
-                            )}
-                          </CardContent>
-                        </Card>
+                        <div className="space-y-3">
+                          <div className="font-semibold text-slate-900">Player Events</div>
+                          {focusStats.length ? (
+                            <PitchViz
+                              stats={focusStats}
+                              homeColor={homeTeam?.color}
+                              awayColor={awayTeam?.color}
+                              colorBy="action"
+                              showColorControls={false}
+                              mirrorAwayWhenBoth={playerChartMirrorAway}
+                              directionLabel="Attacking ->"
+                              fullscreenEnabled={false}
+                            />
+                          ) : (
+                            <div className="text-sm text-slate-500">No player events under the current filters.</div>
+                          )}
+                        </div>
                       </ChartsErrorBoundary>
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|da`} label="Defensive Action Map">
-                        <Card>
-                          <CardContent className="p-4 space-y-3">
-                            <div className="font-semibold text-slate-900">Defensive Action Map</div>
-                            {focusPlayerDefensiveActionStats.length ? (
-                              <PitchViz
-                                stats={focusPlayerDefensiveActionStats}
-                                homeColor={homeTeam?.color}
-                                awayColor={awayTeam?.color}
-                                colorBy="team"
-                                showColorControls={false}
-                                mirrorAwayWhenBoth={playerChartMirrorAway}
-                                directionLabel="Attacking ->"
-                                fullscreenEnabled={false}
-                              />
-                            ) : (
-                              <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
-                            )}
-                          </CardContent>
-                        </Card>
+                        <div className="space-y-3">
+                          <div className="font-semibold text-slate-900">Defensive Action Map</div>
+                          {focusPlayerDefensiveActionStats.length ? (
+                            <PitchViz
+                              stats={focusPlayerDefensiveActionStats}
+                              homeColor={homeTeam?.color}
+                              awayColor={awayTeam?.color}
+                              colorBy="team"
+                              showColorControls={false}
+                              mirrorAwayWhenBoth={playerChartMirrorAway}
+                              directionLabel="Attacking ->"
+                              fullscreenEnabled={false}
+                            />
+                          ) : (
+                            <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
+                          )}
+                        </div>
                       </ChartsErrorBoundary>
                     </div>
-                    <div className="min-w-0 space-y-4">
+                    <div className="min-w-0 space-y-3">
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
-                        <Card>
-                          <CardContent className="p-4 space-y-3">
-                            <div>
-                              <div className="font-semibold text-slate-900">Player Pass Sonar</div>
-                              <div className="text-xs text-slate-500">
-                                {focusPlayerSonar.some((zone) => zone.total > 0)
-                                  ? 'Direction and pass-method mix by start zone'
-                                  : 'No passes available for the selected player under current filters'}
-                              </div>
+                        <div className="space-y-3">
+                          <div>
+                            <div className="font-semibold text-slate-900">Player Pass Sonar</div>
+                            <div className="text-xs text-slate-500">
+                              {focusPlayerSonar.some((zone) => zone.total > 0)
+                                ? 'Direction and pass-method mix by start zone'
+                                : 'No passes available for the selected player under current filters'}
                             </div>
-                            <div className="space-y-4">
-                              {['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall'].map((zoneName) => {
-                                const zone = focusPlayerSonar.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
-                                return <PlayerSonarZoneCard key={zoneName} zone={zone} />;
-                              })}
-                            </div>
-                          </CardContent>
-                        </Card>
+                          </div>
+                          <div className="space-y-3">
+                            {['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall'].map((zoneName) => {
+                              const zone = focusPlayerSonar.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
+                              return <PlayerSonarZoneCard key={zoneName} zone={zone} />;
+                            })}
+                          </div>
+                        </div>
                       </ChartsErrorBoundary>
                     </div>
                   </div>
