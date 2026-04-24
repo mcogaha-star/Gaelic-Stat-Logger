@@ -1908,6 +1908,11 @@ function describeSector(cx, cy, innerR, outerR, startAngle, endAngle) {
   ].join(' ');
 }
 
+function describeSectorVertical(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const rotation = -Math.PI / 2;
+  return describeSector(cx, cy, innerR, outerR, startAngle + rotation, endAngle + rotation);
+}
+
 function buildPassSonarData(passes, { side = null, playerId = null, bins = 12, includeOverall = false } = {}) {
   const zoneBuckets = {
     ...(includeOverall ? { Overall: [] } : {}),
@@ -2051,7 +2056,7 @@ function PassSonar({ passes, side = null, playerId = null, title = 'Pass Sonar',
   );
 }
 
-function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null, mirrorAwayWhenBoth = true }) {
+function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayColor, fullscreenEnabled = true, onOpenVideoAt = null, mirrorAwayWhenBoth = true, directionLabel = 'Attacking ->' }) {
   const filtered = useMemo(() => {
     return (Array.isArray(touchEvents) ? touchEvents : []).filter((event) => !playerId || event?.player?.id === playerId);
   }, [touchEvents, playerId]);
@@ -2086,6 +2091,7 @@ function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayC
             colorBy="team"
             showColorControls={false}
             mirrorAwayWhenBoth={mirrorAwayWhenBoth}
+            directionLabel={directionLabel}
             fullscreenEnabled={fullscreenEnabled}
             fullscreenTitle={title}
             onOpenVideoAt={onOpenVideoAt}

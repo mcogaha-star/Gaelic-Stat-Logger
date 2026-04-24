@@ -944,6 +944,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                           homeColor={homeTeam?.color}
                           awayColor={awayTeam?.color}
                           mirrorAwayWhenBoth={false}
+                          directionLabel="Attacking ->"
                           fullscreenEnabled={false}
                         />
                       </ChartsErrorBoundary>
@@ -959,6 +960,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                                 colorBy="action"
                                 showColorControls={false}
                                 mirrorAwayWhenBoth={false}
+                                directionLabel="Attacking ->"
                                 fullscreenEnabled={false}
                               />
                             ) : (
@@ -979,6 +981,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                                 colorBy="team"
                                 showColorControls={false}
                                 mirrorAwayWhenBoth={false}
+                                directionLabel="Attacking ->"
                                 fullscreenEnabled={false}
                               />
                             ) : (
