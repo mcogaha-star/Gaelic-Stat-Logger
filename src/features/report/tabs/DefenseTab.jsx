@@ -180,14 +180,18 @@ function DefenseTab({
   }, [calcTurnovers, calcBase, defensiveActions, fouls, scorableFreeRows]);
   const defActionMapStats = useMemo(() => defensiveActions.teamActions
     .filter((action) => teamMode === 'both' || action.teamSide === teamMode)
-    .map((action) => ({
+    .map((action) => {
+      const rawX = Number(action.x);
+      const rawY = Number(action.y);
+      const x = action.teamSide === 'away' && Number.isFinite(rawX) ? (PITCH_W - rawX) : rawX;
+      const y = action.teamSide === 'away' && Number.isFinite(rawY) ? (PITCH_H - rawY) : rawY;
+      return ({
       id: action.key,
       stat_type: 'defensive_action',
       team_side: action.teamSide,
-      // Stored DA coordinates are already normalized/team-relative.
-      // The shared comparison pitch mirrors away once via PitchViz.
-      x_position: Number(action.x),
-      y_position: Number(action.y),
+      // Stored DA coordinates are normalized/team-relative; away is flipped once here for the shared comparison pitch.
+      x_position: x,
+      y_position: y,
       time_s: action?.stat?.time_s,
       normalized_time_s: action?.stat?.normalized_time_s,
       play_id: action?.stat?.play_id,
@@ -197,7 +201,8 @@ function DefenseTab({
           reason: action.reason,
         },
       }),
-    })), [defensiveActions, teamMode]);
+    });
+    }), [defensiveActions, teamMode]);
 
   const typeRows = useMemo(() => {
     const rows = new Map();
@@ -321,8 +326,7 @@ function DefenseTab({
                   awayColor={awayTeam?.color}
                   colorBy="team"
                   showColorControls={false}
-                  // Shared comparison pitch: away actions are mirrored once onto the home-attacking frame.
-                  mirrorAwayWhenBoth
+                  mirrorAwayWhenBoth={false}
                   directionLabel="Attacking ->"
                   pitchScale="100%"
                   onOpenVideoAt={onOpenVideoAt}
