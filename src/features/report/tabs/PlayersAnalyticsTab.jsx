@@ -766,6 +766,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     [chartPlayerOptions, activeChartPlayerId],
   );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
+  const playerChartMirrorAway = activeChartPlayer?.team_side === 'away';
   const chartsResetKey = `${playerBucket}|${teamMode}|${activeChartPlayerId}|${base.length}`;
   const matchesActiveChartPlayer = (selection) => {
     if (!activeChartPlayer) return false;
@@ -934,8 +935,8 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                 </div>
               {activeChartPlayer ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr] items-start">
-                    <div className="space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] items-start">
+                    <div className="min-w-0 space-y-4">
                       <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
                         <TouchMap
                           touchEvents={focusTouchEvents}
@@ -943,7 +944,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                           title="Touch Map"
                           homeColor={homeTeam?.color}
                           awayColor={awayTeam?.color}
-                          mirrorAwayWhenBoth={false}
+                          mirrorAwayWhenBoth={playerChartMirrorAway}
                           directionLabel="Attacking ->"
                           fullscreenEnabled={false}
                         />
@@ -959,7 +960,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                                 awayColor={awayTeam?.color}
                                 colorBy="action"
                                 showColorControls={false}
-                                mirrorAwayWhenBoth={false}
+                                mirrorAwayWhenBoth={playerChartMirrorAway}
                                 directionLabel="Attacking ->"
                                 fullscreenEnabled={false}
                               />
@@ -980,7 +981,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                                 awayColor={awayTeam?.color}
                                 colorBy="team"
                                 showColorControls={false}
-                                mirrorAwayWhenBoth={false}
+                                mirrorAwayWhenBoth={playerChartMirrorAway}
                                 directionLabel="Attacking ->"
                                 fullscreenEnabled={false}
                               />
@@ -991,17 +992,19 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
                         </Card>
                       </ChartsErrorBoundary>
                     </div>
-                    <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
-                      <PassSonar
-                        passes={focusPlayerPasses}
-                        title="Player Pass Sonar"
-                        subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
-                        fullscreenEnabled={false}
-                        includeOverall
-                        zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall']}
-                        stacked
-                      />
-                    </ChartsErrorBoundary>
+                    <div className="min-w-0 space-y-4">
+                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
+                        <PassSonar
+                          passes={focusPlayerPasses}
+                          title="Player Pass Sonar"
+                          subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and pass-method mix by start zone' : 'No passes available for the selected player under current filters'}
+                          fullscreenEnabled={false}
+                          includeOverall
+                          zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall']}
+                          stacked
+                        />
+                      </ChartsErrorBoundary>
+                    </div>
                   </div>
                 </div>
               ) : (
