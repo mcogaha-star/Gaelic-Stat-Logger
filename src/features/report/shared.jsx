@@ -729,8 +729,9 @@ function inferPossessionStartSource(groupStats, teamSide, previousContext) {
 }
 
 function selectionKey(sel) {
-  if (!sel || sel.kind !== 'player' || !sel.id) return null;
-  return `${sel.team_side || 'unknown'}|${sel.id}`;
+  const player = normalizePlayerRef(sel);
+  if (!player?.id || (player.team_side !== 'home' && player.team_side !== 'away')) return null;
+  return `${player.team_side}|${player.id}`;
 }
 
 function normalizePlayerRef(sel) {
@@ -1486,13 +1487,23 @@ function PitchViz({
 function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows, fullscreenEnabled = true }) {
   const rowFor = (channel) => rows.find((r) => r.channel === channel) || {};
   const channels = ['Left', 'Middle', 'Right'];
+  const allPcts = channels.flatMap((channel) => {
+    const row = rowFor(channel);
+    return [Number(row?.homePct) || 0, Number(row?.awayPct) || 0];
+  });
+  const maxPct = Math.max(1, ...allPcts);
 
   const ArrowRow = ({ row, color }) => {
     const pct = row.pct;
     const count = row.count;
     const label = `${Number.isFinite(pct) ? pct.toFixed(1) : 'NA'}%`;
+    const strength = Number.isFinite(pct) ? Math.max(0.2, pct / maxPct) : 0.2;
     const x1 = 14;
-    const x2 = 60;
+    const arrowLength = 26 + (strength * 28);
+    const headLength = 7 + (strength * 5);
+    const shaftHeight = 2.3 + (strength * 3.7);
+    const x2 = Math.min(64, x1 + arrowLength);
+    const shaftEnd = x2 - headLength;
     const textX = 4;
     const y = row.channel === 'Left' ? 18 : row.channel === 'Middle' ? 42.5 : 67;
     return (
@@ -1502,7 +1513,20 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
         <text x={textX} y={y + 7.2} textAnchor="start" fontSize="2.7" fill="#64748b">
           {Number.isFinite(count) ? `${count} attacks` : 'NA'}
         </text>
-        <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth="3" strokeLinecap="round" markerEnd="url(#attack_arrow_right)" />
+        <rect
+          x={x1}
+          y={y - (shaftHeight / 2)}
+          width={Math.max(1, shaftEnd - x1)}
+          height={shaftHeight}
+          rx={shaftHeight / 2}
+          fill={color}
+          opacity="0.95"
+        />
+        <polygon
+          points={`${shaftEnd},${y - (shaftHeight * 1.55)} ${x2},${y} ${shaftEnd},${y + (shaftHeight * 1.55)}`}
+          fill={color}
+          opacity="0.95"
+        />
       </g>
     );
   };
@@ -1545,13 +1569,6 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
         {!isFullscreen && <div className="font-semibold text-slate-900">Attack Entry Channels</div>}
-        <svg width="0" height="0" className="absolute">
-          <defs>
-            <marker id="attack_arrow_right" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="context-stroke" />
-            </marker>
-          </defs>
-        </svg>
         {teamMode === 'both' ? (
           <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-2' : 'lg:grid-cols-2'}`}>
             <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} isFullscreen={isFullscreen} />
@@ -1901,7 +1918,8 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12 } 
     const normalizedAngle = angle < 0 ? angle + (Math.PI * 2) : angle;
     const bin = Math.min(bins - 1, Math.floor((normalizedAngle / (Math.PI * 2)) * bins));
     const attackingX = start.x;
-    const zone = attackingX < 45 ? 'Defensive Third' : attackingX < (PITCH_W - 45) ? 'Middle Third' : 'Attacking Third';
+    const thirdWidth = PITCH_W / 3;
+    const zone = attackingX < thirdWidth ? 'Defensive Third' : attackingX < (thirdWidth * 2) ? 'Middle Third' : 'Attacking Third';
     if (!zoneBuckets[zone]) continue;
     zoneBuckets[zone].push({
       stat,

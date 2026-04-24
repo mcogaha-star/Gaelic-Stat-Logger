@@ -681,6 +681,29 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     return buildPassSonarData(calcBase.filter((stat) => stat?.stat_type === 'pass'), { playerId: focusPlayerId });
   }, [calcBase, focusPlayerId]);
 
+  const focusPlayerDefensiveActionStats = useMemo(() => {
+    if (focusPlayerId === 'all') return [];
+    return defensiveActions.playerActions
+      .filter((action) => action?.player?.id === focusPlayerId)
+      .map((action) => ({
+        id: `player-da-${action.key}`,
+        stat_type: 'defensive_action',
+        team_side: action?.teamSide,
+        x_position: action?.x,
+        y_position: action?.y,
+        time_s: action?.stat?.time_s,
+        normalized_time_s: action?.stat?.normalized_time_s,
+        play_id: action?.stat?.play_id,
+        possession_id: action?.stat?.possession_id,
+        extra_data: JSON.stringify({
+          defensive_action: {
+            player: { kind: 'player', ...action.player },
+            reason: action.reason,
+          },
+        }),
+      }));
+  }, [defensiveActions.playerActions, focusPlayerId]);
+
   const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
 
   const formatBreakdownCell = (won, taken) => {
@@ -720,31 +743,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
   return (
     <div className="space-y-4">
-        <div className="grid gap-4 lg:grid-cols-2">
-          {focusPlayerId !== 'all' && focusStats.length > 0 ? (
-            <>
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Player Events</div>
-                  <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} />
-                </CardContent>
-              </Card>
-              <TouchMap
-                touchEvents={touchEvents}
-                playerId={focusPlayerId}
-                title="Touch Map"
-                homeColor={homeTeam?.color}
-                awayColor={awayTeam?.color}
-              />
-            </>
-          ) : (
-            <Card className="lg:col-span-2">
-              <CardContent className="p-4 text-sm text-slate-600">
-                Select a player in the filters to view their event and touch maps.
-              </CardContent>
-            </Card>
-          )}
-        </div>
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-wrap gap-2">
@@ -774,16 +772,55 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
             </div>
             {playerBucket === 'sonar' ? (
               focusPlayerId !== 'all' ? (
-                <PassSonar
-                  passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
-                  playerId={focusPlayerId}
-                  title="Player Pass Sonar"
-                  subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and accuracy by start zone' : 'No passes available for the selected player under current filters'}
-                  fullscreenEnabled={false}
-                  zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
-                />
+                <div className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                    <Card>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="font-semibold text-slate-900">Player Events</div>
+                        {focusStats.length ? (
+                          <PitchViz stats={focusStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="action" showColorControls={false} fullscreenEnabled={false} />
+                        ) : (
+                          <div className="text-sm text-slate-500">No player events under the current filters.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+                    <TouchMap
+                      touchEvents={touchEvents}
+                      playerId={focusPlayerId}
+                      title="Touch Map"
+                      homeColor={homeTeam?.color}
+                      awayColor={awayTeam?.color}
+                      fullscreenEnabled={false}
+                    />
+                    <Card>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="font-semibold text-slate-900">Defensive Action Map</div>
+                        {focusPlayerDefensiveActionStats.length ? (
+                          <PitchViz
+                            stats={focusPlayerDefensiveActionStats}
+                            homeColor={homeTeam?.color}
+                            awayColor={awayTeam?.color}
+                            colorBy="team"
+                            showColorControls={false}
+                            fullscreenEnabled={false}
+                          />
+                        ) : (
+                          <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                  <PassSonar
+                    passes={calcBase.filter((stat) => stat?.stat_type === 'pass')}
+                    playerId={focusPlayerId}
+                    title="Player Pass Sonar"
+                    subtitle={focusPlayerSonar.some((zone) => zone.total > 0) ? 'Direction and accuracy by start zone' : 'No passes available for the selected player under current filters'}
+                    fullscreenEnabled={false}
+                    zoneOrder={['Attacking Third', 'Middle Third', 'Defensive Third']}
+                  />
+                </div>
               ) : (
-                <div className="text-sm text-slate-600">Select a player in the filters to show their pass sonar.</div>
+                <div className="text-sm text-slate-600">Select a player in the filters to show their pass sonar, event map, touch map, and defensive action map.</div>
               )
             ) : (
               <Table>
