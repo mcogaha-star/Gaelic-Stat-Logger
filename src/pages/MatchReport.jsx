@@ -204,6 +204,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [gameShareCode, setGameShareCode] = useState('');
   const [statViewShareCode, setStatViewShareCode] = useState('');
   const [shareBusy, setShareBusy] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
   const [playerProfileOpen, setPlayerProfileOpen] = useState(false);
   const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
 
@@ -601,6 +602,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     showTopFiltersButton,
     resetAllFilters,
   } = reportState;
+
+  useEffect(() => {
+    if (activeTab === 'data') setActiveTab('video');
+  }, [activeTab, setActiveTab]);
 
   const { overviewStats, filteredForReport } = useFilteredReportStats({
     stats,
@@ -1049,11 +1054,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               </div>
             </div>
           </div>
-          {!readOnly && (
-            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
-              <Share2 className="w-4 h-4" /> Share
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setDataOpen(true)}>
+              <BarChart3 className="w-4 h-4" /> Data
             </Button>
-          )}
+            {!readOnly && (
+              <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
+                <Share2 className="w-4 h-4" /> Share
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1069,7 +1079,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               <TabsTrigger value="defense">Defense</TabsTrigger>
               <TabsTrigger value="players_ana">Players</TabsTrigger>
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
-              <TabsTrigger value="data">Data</TabsTrigger>
+              <TabsTrigger value="video">Video</TabsTrigger>
             </TabsList>
             {showTopFiltersButton && activeTab !== 'visualiser' && (
               <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
@@ -1385,7 +1395,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="data">
+          <TabsContent value="video">
             <DataTab
               matchId={matchId}
               match={match}
@@ -1395,10 +1405,32 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               homePlayers={effectiveHomePlayers}
               awayPlayers={effectiveAwayPlayers}
               readOnly={readOnly}
+              mode="video"
             />
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={dataOpen} onOpenChange={setDataOpen}>
+        <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-0">
+            <DialogTitle>Data</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
+            <DataTab
+              matchId={matchId}
+              match={match}
+              stats={stats}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              homePlayers={effectiveHomePlayers}
+              awayPlayers={effectiveAwayPlayers}
+              readOnly={readOnly}
+              mode="data"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">

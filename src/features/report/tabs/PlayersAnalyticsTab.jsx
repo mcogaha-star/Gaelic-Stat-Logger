@@ -252,6 +252,7 @@ function PlayersAnalyticsTab({
   onPlayerSelect = null,
   lockPlayerValue = null,
   lockPlayerBucket = null,
+  singlePlayerOnly = false,
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
   const [playerBucket, setPlayerBucket] = useState(lockPlayerBucket || 'scoring');
@@ -796,7 +797,7 @@ function PlayersAnalyticsTab({
       { key: 'longKickoutWinPct', label: 'Long Win %', numeric: true, sortValue: (r) => r.longKickoutWinPct, render: (r) => r.longKickoutsTaken ? `${r.longKickoutsWon}/${r.longKickoutsTaken} (${formatPct(r.longKickoutWinPct)})` : 'NA' },
       { key: 'goalShotSavePct', label: 'Goal Shot Saves', numeric: true, sortValue: (r) => r.goalShotSavePct, render: (r) => (r.goalShotsSaved + r.goalShotsAgainst) ? `${r.goalShotsSaved}/${r.goalShotsSaved + r.goalShotsAgainst} (${formatPct(r.goalShotSavePct)})` : 'NA' },
     ],
-  }), [homeTeam, awayTeam, playerLinkFactory]);
+  }), [homeTeam, awayTeam, playerLinkFactory, onPlayerSelect]);
 
   const sortedLeaderboard = useMemo(() => {
     const bucketFilters = {
@@ -811,6 +812,7 @@ function PlayersAnalyticsTab({
     };
     const list = (Array.isArray(leaderboard) ? leaderboard : [])
       .filter((r) => teamMode === 'both' || r.team === teamMode)
+      .filter((r) => !singlePlayerOnly || !lockPlayerValue || r.key === lockPlayerValue)
       .filter(bucketFilters[playerBucket] || (() => true))
       .slice();
     const dir = lbSort?.dir === 'asc' ? 1 : -1;
@@ -829,7 +831,7 @@ function PlayersAnalyticsTab({
     };
     list.sort((a, b) => (get(a) - get(b)) * dir || String(a?.player || '').localeCompare(String(b?.player || '')));
     return list;
-  }, [leaderboard, lbSort, teamMode, playerBucket, bucketColumns]);
+  }, [leaderboard, lbSort, teamMode, playerBucket, bucketColumns, singlePlayerOnly, lockPlayerValue]);
 
   React.useEffect(() => {
     const defaults = {

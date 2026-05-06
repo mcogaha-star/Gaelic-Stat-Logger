@@ -159,8 +159,10 @@ function resequenceOrderedStats(ordered) {
   return ordered.map((stat, index) => ({ ...stat, play_id: index + 1 }));
 }
 
-function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers, readOnly = false }) {
+function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers, readOnly = false, mode = 'data' }) {
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
+  const isVideoMode = mode === 'video';
+  const allowEditing = !readOnly && !isVideoMode;
   const queryClient = useQueryClient();
   const [team, setTeam] = useState('both');
   const [actions, setActions] = useState([]);
@@ -850,6 +852,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 
   return (
     <div className="space-y-4">
+      {!isVideoMode && (
       <Card>
         <CardContent className="p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -898,6 +901,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           )}
         </CardContent>
       </Card>
+      )}
       <Card>
         <CardContent className="p-4">
           <div className="font-semibold text-slate-900 mb-3">Filters</div>
@@ -1271,7 +1275,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       />
                     </div>
                   </details>
-                  {!readOnly ? (
+                  {allowEditing ? (
                     <div className="flex items-center justify-between gap-3">
                       <Button
                         type="button"
@@ -1321,7 +1325,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       <TableHead>Entry</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                       <TableHead className="text-right">Shot Pts</TableHead>
-                      {!readOnly ? <TableHead className="text-right">Edit</TableHead> : null}
+                      {allowEditing ? <TableHead className="text-right">Edit</TableHead> : null}
                     </>
                   ) : (
                     <>
@@ -1368,7 +1372,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <TableCell>{r.attack_entry_channel || 'NA'}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.count}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
-                          {!readOnly ? (
+                          {allowEditing ? (
                             <TableCell className="text-right">
                               <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit</Button>
                             </TableCell>
@@ -1449,7 +1453,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-slate-900">Details</div>
                                 <div className="flex items-center gap-2">
-                                  {!readOnly ? <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button> : null}
+                                  {allowEditing ? <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button> : null}
                                 </div>
                               </div>
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
@@ -1470,6 +1474,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                       ];
                                       const extraItems = flattenExtra(extra)
                                         .filter((r) => r.key !== 'counter_attack')
+                                        .filter((r) => !/(^|\.)(pitch_w|pitch_h|pitch_width|pitch_height|pitch_length)$/i.test(String(r.key || '')))
                                         .filter((r) => !/(^|\\b)pitch([._-]?(w|h|width|height|length))\\b/i.test(String(r.key || '')))
                                         .map((r) => ({ label: presentablePathLabel(r.key), value: formatExtraValue(r.value, r.key) }));
                                       const items = [...baseItems, ...extraItems].filter((it, idx, arr) => it.label && arr.findIndex((other) => other.label === it.label) === idx);
@@ -1519,6 +1524,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         </Card>
       )}
 
+      {!isVideoMode && (
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1541,6 +1547,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
           </div>
         </CardContent>
       </Card>
+      )}
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

@@ -107,6 +107,7 @@ export default function PlayerProfilePanel({
         playerOptions={[selectedPlayer]}
         reportFilters={{ team: 'both', halves: [], playerIds: [], actionTypes: [], outcomes: [] }}
         lockPlayerValue={lockPlayerValue}
+        singlePlayerOnly
       />
     </div>
   );
