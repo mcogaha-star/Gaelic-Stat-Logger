@@ -249,6 +249,7 @@ function PlayersAnalyticsTab({
   playerOptions,
   reportFilters,
   playerLinkFactory = null,
+  onPlayerSelect = null,
   lockPlayerValue = null,
   lockPlayerBucket = null,
 }) {
@@ -692,6 +693,17 @@ function PlayersAnalyticsTab({
   };
 
   const renderPlayerCell = (row) => {
+    if (typeof onPlayerSelect === 'function') {
+      return (
+        <button
+          type="button"
+          className="text-left text-green-700 underline underline-offset-2 hover:text-green-800"
+          onClick={() => onPlayerSelect(row)}
+        >
+          {row.player}
+        </button>
+      );
+    }
     if (typeof playerLinkFactory !== 'function') return row.player;
     const href = playerLinkFactory(row);
     if (!href) return row.player;

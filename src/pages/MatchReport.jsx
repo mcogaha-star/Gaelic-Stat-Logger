@@ -59,6 +59,7 @@ import OverviewTab from '@/features/report/tabs/OverviewTab';
 import PlayersAnalyticsTab from '@/features/report/tabs/PlayersAnalyticsTab';
 import DataTab from '@/features/report/tabs/DataTab';
 import VisualiserTab from '@/features/report/tabs/VisualiserTab';
+import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
 import useFilteredReportStats from '@/features/report/hooks/useFilteredReportStats';
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
 import useReportFilterState from '@/features/report/hooks/useReportFilterState';
@@ -203,6 +204,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [gameShareCode, setGameShareCode] = useState('');
   const [statViewShareCode, setStatViewShareCode] = useState('');
   const [shareBusy, setShareBusy] = useState(false);
+  const [playerProfileOpen, setPlayerProfileOpen] = useState(false);
+  const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
@@ -247,6 +250,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     setGameShareCode(match?.latest_game_share_code || match?.latest_share_code || '');
     setStatViewShareCode(match?.latest_stat_share_code || '');
   }, [match?.latest_game_share_code, match?.latest_share_code, match?.latest_stat_share_code]);
+
+  const effectiveHomePlayers = isSharedView ? (sharedData.homePlayers || []) : homePlayers;
+  const effectiveAwayPlayers = isSharedView ? (sharedData.awayPlayers || []) : awayPlayers;
 
   const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
   const readDefenceSetMigrationDone = (key) => {
@@ -442,8 +448,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
   const playerOptions = useMemo(() => {
     const all = [
-      ...(homePlayers || []).map((p) => ({ ...p, team_side: 'home' })),
-      ...(awayPlayers || []).map((p) => ({ ...p, team_side: 'away' })),
+      ...(effectiveHomePlayers || []).map((p) => ({ ...p, team_side: 'home' })),
+      ...(effectiveAwayPlayers || []).map((p) => ({ ...p, team_side: 'away' })),
     ];
     const label = (p) => `#${p.number || ''} ${p.name || ''}`.trim();
     return all
@@ -457,14 +463,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         number: p.number ?? null,
         position: p.position || '',
       }));
-  }, [homePlayers, awayPlayers]);
-  const allPlayersForShare = useMemo(() => [...(homePlayers || []), ...(awayPlayers || [])], [homePlayers, awayPlayers]);
-  const playerProfileUrlForRow = (row) => {
-    if (!row?.id || !row?.team) return null;
-    if (isSharedView) {
-      return createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}&playerId=${encodeURIComponent(row.id)}&teamSide=${encodeURIComponent(row.team)}`);
-    }
-    return createPageUrl(`PlayerProfile?matchId=${matchId}&playerId=${encodeURIComponent(row.id)}&teamSide=${encodeURIComponent(row.team)}`);
+  }, [effectiveHomePlayers, effectiveAwayPlayers]);
+  const allPlayersForShare = useMemo(() => [...(effectiveHomePlayers || []), ...(effectiveAwayPlayers || [])], [effectiveHomePlayers, effectiveAwayPlayers]);
+  const rawStatsForPlayerProfile = isSharedView ? (sharedData.rawStats || []) : rawStats;
+  const selectedPlayerProfileOption = useMemo(() => {
+    if (!selectedPlayerProfile?.id || !selectedPlayerProfile?.team) return null;
+    return playerOptions.find((player) => (
+      String(player.id) === String(selectedPlayerProfile.id)
+      && String(player.team_side) === String(selectedPlayerProfile.team)
+    )) || null;
+  }, [playerOptions, selectedPlayerProfile]);
+  const openPlayerProfile = (row) => {
+    if (!row?.id || !row?.team) return;
+    setSelectedPlayerProfile(row);
+    setPlayerProfileOpen(true);
   };
   const handleCreateShareCode = async (shareType) => {
     if (!isAuthenticated) {
@@ -1367,7 +1379,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
-              playerLinkFactory={playerProfileUrlForRow}
+              onPlayerSelect={openPlayerProfile}
               focusPlayerId={playersFocusPlayerId}
               setFocusPlayerId={setPlayersFocusPlayerId}
             />
@@ -1380,13 +1392,33 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               stats={stats}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
-              homePlayers={homePlayers}
-              awayPlayers={awayPlayers}
+              homePlayers={effectiveHomePlayers}
+              awayPlayers={effectiveAwayPlayers}
               readOnly={readOnly}
             />
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen}>
+        <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-0">
+            <DialogTitle>Player Match Profile</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
+            <PlayerProfilePanel
+              match={match}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              homePlayers={effectiveHomePlayers}
+              awayPlayers={effectiveAwayPlayers}
+              rawStats={rawStatsForPlayerProfile}
+              selectedPlayer={selectedPlayerProfileOption}
+              readOnly={readOnly}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="max-w-md">

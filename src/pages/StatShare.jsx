@@ -6,7 +6,6 @@ import { Activity, ArrowLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import MatchReport from '@/pages/MatchReport';
-import PlayerProfile from '@/pages/PlayerProfile';
 import { fetchSharedMatchSnapshotByCode } from '@/lib/sharedMatchCopies';
 import { createPageUrl } from '@/utils';
 
@@ -25,8 +24,6 @@ export default function StatShare() {
   const location = useLocation();
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
-  const playerId = params.get('playerId') || '';
-  const teamSide = params.get('teamSide') || '';
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stat-share', code],
@@ -82,10 +79,6 @@ export default function StatShare() {
         </Card>
       </div>
     );
-  }
-
-  if (playerId && teamSide) {
-    return <PlayerProfile sharedPayload={payload} statShareCode={code} readOnly />;
   }
 
   return <MatchReport sharedPayload={payload} statShareCode={code} readOnly />;

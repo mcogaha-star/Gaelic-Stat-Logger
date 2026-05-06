@@ -7,7 +7,7 @@ const db = globalThis.__B44_DB__ || {
 import React, { useMemo, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, ArrowLeft, Trash2, Pencil, Users, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 import { softDeletePrivatePlayer, upsertPrivatePlayerFromLocal } from '@/lib/serverSync';
+import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
 
 const POSITIONS = [
     'Goalkeeper',
@@ -35,11 +36,12 @@ const POSITIONS = [
 ];
 
 export default function Players() {
-    const navigate = useNavigate();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingPlayer, setEditingPlayer] = useState(null);
+    const [profileChooserOpen, setProfileChooserOpen] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
     const [profilePlayer, setProfilePlayer] = useState(null);
+    const [profileMatch, setProfileMatch] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
         number: '',
@@ -56,6 +58,37 @@ export default function Players() {
     const { data: matches = [] } = useQuery({
         queryKey: ['matches'],
         queryFn: () => db.entities.Match.list('-created_date')
+    });
+    const { data: profileHomeTeam = null } = useQuery({
+        queryKey: ['player-profile-home-team', profileMatch?.home_team_id],
+        queryFn: async () => {
+            const rows = await db.entities.Team.filter({ id: profileMatch?.home_team_id });
+            return rows?.[0] || null;
+        },
+        enabled: !!profileMatch?.home_team_id,
+    });
+    const { data: profileAwayTeam = null } = useQuery({
+        queryKey: ['player-profile-away-team', profileMatch?.away_team_id],
+        queryFn: async () => {
+            const rows = await db.entities.Team.filter({ id: profileMatch?.away_team_id });
+            return rows?.[0] || null;
+        },
+        enabled: !!profileMatch?.away_team_id,
+    });
+    const { data: profileHomePlayers = [] } = useQuery({
+        queryKey: ['player-profile-home-players', profileMatch?.home_team_id],
+        queryFn: () => db.entities.Player.filter({ team_id: profileMatch?.home_team_id }),
+        enabled: !!profileMatch?.home_team_id,
+    });
+    const { data: profileAwayPlayers = [] } = useQuery({
+        queryKey: ['player-profile-away-players', profileMatch?.away_team_id],
+        queryFn: () => db.entities.Player.filter({ team_id: profileMatch?.away_team_id }),
+        enabled: !!profileMatch?.away_team_id,
+    });
+    const { data: profileRawStats = [] } = useQuery({
+        queryKey: ['player-profile-match-stats', profileMatch?.id],
+        queryFn: () => db.entities.StatEntry.filter({ match_id: profileMatch?.id }),
+        enabled: !!profileMatch?.id,
     });
 
     const createMutation = useMutation({
@@ -123,21 +156,36 @@ export default function Players() {
         if (!profilePlayer?.team_id) return [];
         return (matches || []).filter((match) => match?.home_team_id === profilePlayer.team_id || match?.away_team_id === profilePlayer.team_id);
     }, [matches, profilePlayer]);
+    const selectedProfilePlayer = useMemo(() => {
+        if (!profilePlayer || !profileMatch) return null;
+        const teamSide = profileMatch.home_team_id === profilePlayer.team_id ? 'home' : 'away';
+        const teamPlayers = teamSide === 'home' ? profileHomePlayers : profileAwayPlayers;
+        const resolved = (teamPlayers || []).find((player) => String(player.id) === String(profilePlayer.id)) || profilePlayer;
+        return {
+            ...resolved,
+            team_side: teamSide,
+            label: `#${resolved.number || ''} ${resolved.name || ''}`.trim(),
+            name: resolved.name || '',
+            number: resolved.number ?? null,
+            position: resolved.position || '',
+        };
+    }, [profilePlayer, profileMatch, profileHomePlayers, profileAwayPlayers]);
 
     const openProfileChooser = (player) => {
         if (!player?.team_id) {
             toast.error('This player is not linked to a team yet, so there is no match profile to open.');
             return;
         }
+        setProfileMatch(null);
         setProfilePlayer(player);
-        setProfileDialogOpen(true);
+        setProfileChooserOpen(true);
     };
 
     const openMatchProfile = (match) => {
         if (!profilePlayer?.id || !match?.id) return;
-        const teamSide = match.home_team_id === profilePlayer.team_id ? 'home' : 'away';
-        setProfileDialogOpen(false);
-        navigate(createPageUrl(`PlayerProfile?matchId=${match.id}&playerId=${profilePlayer.id}&teamSide=${teamSide}`));
+        setProfileMatch(match);
+        setProfileChooserOpen(false);
+        setProfileDialogOpen(true);
     };
 
     const handleSubmit = () => {
@@ -340,7 +388,7 @@ export default function Players() {
                 )}
             </main>
 
-            <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+            <Dialog open={profileChooserOpen} onOpenChange={setProfileChooserOpen}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Open Match Player Profile</DialogTitle>
@@ -372,6 +420,26 @@ export default function Players() {
                                 ))}
                             </div>
                         )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+                <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-6 pb-0">
+                        <DialogTitle>Player Match Profile</DialogTitle>
+                    </DialogHeader>
+                    <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
+                        <PlayerProfilePanel
+                            match={profileMatch}
+                            homeTeam={profileHomeTeam}
+                            awayTeam={profileAwayTeam}
+                            homePlayers={profileHomePlayers}
+                            awayPlayers={profileAwayPlayers}
+                            rawStats={profileRawStats}
+                            selectedPlayer={selectedProfilePlayer}
+                            readOnly={false}
+                        />
                     </div>
                 </DialogContent>
             </Dialog>

@@ -6,9 +6,7 @@ import { ArrowLeft, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { createPageUrl } from '@/utils';
-import { buildDefensiveActions, buildTouchEvents, safeParseJSON } from '@/features/report/shared';
-import PlayersAnalyticsTab from '@/features/report/tabs/PlayersAnalyticsTab';
-import { normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, shouldExcludeFromTotals, shotPointsForOutcome } from '@/lib/reportAnalytics';
+import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -35,31 +33,6 @@ function buildPlayerOptions(homePlayers = [], awayPlayers = []) {
       number: player.number ?? null,
       position: player.position || '',
     }));
-}
-
-function matchesSelection(selection, player) {
-  if (!selection || !player || typeof selection !== 'object') return false;
-  if (selection.kind !== 'player') return false;
-  if (selection.team_side && player.team_side && selection.team_side !== player.team_side) return false;
-  if (selection.id && player.id && String(selection.id) === String(player.id)) return true;
-  if (selection.number != null && player.number != null && String(selection.number) === String(player.number)) return true;
-  return String(selection.name || '').trim().toLowerCase() !== ''
-    && String(selection.name || '').trim().toLowerCase() === String(player.name || '').trim().toLowerCase();
-}
-
-function buildSummary(stats, player) {
-  let shots = 0;
-  let points = 0;
-  for (const stat of stats) {
-    if (stat?.stat_type !== 'shot' || shouldExcludeFromTotals(stat)) continue;
-    const shot = safeParseJSON(stat.extra_data || '{}', {})?.shot || {};
-    if (!matchesSelection(shot?.player, player)) continue;
-    shots += 1;
-    points += shotPointsForOutcome(String(shot?.outcome || ''));
-  }
-  const touches = buildTouchEvents(stats, [player]).filter((touch) => matchesSelection(touch?.player, player)).length;
-  const defActions = buildDefensiveActions(stats).playerActions.filter((action) => matchesSelection(action?.player, player)).length;
-  return { shots, points, touches, defActions };
 }
 
 function getSharedPayloadData(sharedPayload) {
@@ -124,16 +97,11 @@ export default function PlayerProfile({ sharedPayload = null, statShareCode = ''
   const effectiveHomePlayers = isSharedView ? (sharedData.homePlayers || []) : homePlayers;
   const effectiveAwayPlayers = isSharedView ? (sharedData.awayPlayers || []) : awayPlayers;
 
-  const stats = useMemo(
-    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((effectiveRawStats || []).filter((row) => row?.stat_type !== 'defensive_contact')))),
-    [effectiveRawStats],
-  );
   const playerOptions = useMemo(() => buildPlayerOptions(effectiveHomePlayers, effectiveAwayPlayers), [effectiveHomePlayers, effectiveAwayPlayers]);
   const selectedPlayer = useMemo(
     () => playerOptions.find((player) => String(player.id) === String(playerId) && String(player.team_side) === String(teamSide)) || null,
     [playerOptions, playerId, teamSide],
   );
-  const summary = useMemo(() => (selectedPlayer ? buildSummary(stats, selectedPlayer) : null), [stats, selectedPlayer]);
 
   const reportBackUrl = isSharedView
     ? createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`)
@@ -176,9 +144,6 @@ export default function PlayerProfile({ sharedPayload = null, statShareCode = ''
     );
   }
 
-  const lockPlayerValue = `${selectedPlayer.team_side}|${selectedPlayer.id}`;
-  const teamName = selectedPlayer.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="bg-white border-b">
@@ -202,21 +167,15 @@ export default function PlayerProfile({ sharedPayload = null, statShareCode = ''
       </div>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
-          <Card><CardContent className="p-4"><div className="text-xs uppercase text-slate-500">Shots</div><div className="text-2xl font-semibold text-slate-900">{summary?.shots ?? 0}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs uppercase text-slate-500">Points</div><div className="text-2xl font-semibold text-slate-900">{summary?.points ?? 0}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs uppercase text-slate-500">Touches</div><div className="text-2xl font-semibold text-slate-900">{summary?.touches ?? 0}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs uppercase text-slate-500">Def. Actions</div><div className="text-2xl font-semibold text-slate-900">{summary?.defActions ?? 0}</div></CardContent></Card>
-        </div>
-
-        <PlayersAnalyticsTab
-          stats={stats}
+        <PlayerProfilePanel
+          match={match}
           homeTeam={homeTeam}
           awayTeam={awayTeam}
-          playerOptions={[selectedPlayer]}
-          reportFilters={{ team: 'both', halves: [], playerIds: [], actionTypes: [], outcomes: [] }}
-          lockPlayerValue={lockPlayerValue}
-          lockPlayerBucket="scoring"
+          homePlayers={effectiveHomePlayers}
+          awayPlayers={effectiveAwayPlayers}
+          rawStats={effectiveRawStats}
+          selectedPlayer={selectedPlayer}
+          readOnly={readOnly}
         />
       </main>
     </div>
