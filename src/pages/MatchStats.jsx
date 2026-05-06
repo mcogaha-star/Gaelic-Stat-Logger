@@ -20,7 +20,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, isBroughtBackAdvantageStat, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
