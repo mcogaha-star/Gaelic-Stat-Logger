@@ -31,7 +31,7 @@ import {
     upsertPrivateTeamFromLocal,
 } from '@/lib/serverSync';
 import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
-import { deriveMatchLengthMinutes, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
+import { deriveMatchLengthMinutes, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
@@ -434,7 +434,7 @@ export default function Home() {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
             if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
-            if (isBroughtBackAdvantageStat(s)) continue;
+            if (shouldExcludeFromTotals(s)) continue;
             let extra = {};
             try { extra = s.extra_data ? JSON.parse(s.extra_data) : {}; } catch {}
             const o = extra?.shot?.outcome || '';
@@ -559,7 +559,7 @@ export default function Home() {
     const importSharedMatchMutation = useMutation({
         mutationFn: async (shareCode) => {
             if (!isAuthenticated) throw new Error('Sign in to import a shared match');
-            const fetched = await fetchSharedMatchSnapshotByCode(shareCode);
+            const fetched = await fetchSharedMatchSnapshotByCode(shareCode, { requireAuth: true, allowedTypes: ['game_copy'] });
             if (!fetched?.ok || !fetched?.snapshot) throw new Error(fetched?.reason || 'Shared match not found');
             return importSharedMatchSnapshot({ db, snapshotRow: fetched.snapshot });
         },
@@ -640,7 +640,7 @@ export default function Home() {
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-2xl font-bold text-slate-900">
-                                <span>Gael</span><span className="text-red-600">IQ</span>
+                                <span>Gael</span><span className="text-red-600">iQ</span>
                             </h1>
                             <p className="text-slate-500 mt-1">Match analysis & performance tracking</p>
                         </div>
@@ -824,7 +824,7 @@ export default function Home() {
                                 <Sparkles className="w-4 h-4" /> Demo
                             </Button>
                             <Button type="button" variant="outline" className="gap-2" onClick={() => setImportShareOpen(true)}>
-                                <Copy className="w-4 h-4" /> Import Share
+                                <Copy className="w-4 h-4" /> Import Game Share
                             </Button>
                             <Link to={createPageUrl('Teams')}>
                                 <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
@@ -874,7 +874,7 @@ export default function Home() {
                                 className="mt-3 gap-2"
                                 onClick={() => setImportShareOpen(true)}
                             >
-                                <Copy className="w-4 h-4" /> Import Shared Match
+                                <Copy className="w-4 h-4" /> Import Game Share
                             </Button>
                         </CardContent>
                     </Card>
@@ -992,11 +992,11 @@ export default function Home() {
             <Dialog open={importShareOpen} onOpenChange={setImportShareOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Import Shared Match</DialogTitle>
+                        <DialogTitle>Import Game Share</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <p className="text-sm text-slate-600">
-                            Enter a share code from another signed-in user to import a full private copy of their match. Your imported copy is separate and can be reshared later with its own code.
+                            Enter a game share code from another signed-in user to import a full private copy of their match. Your imported copy is separate and can be reshared later with its own code.
                         </p>
                         <div className="space-y-2">
                             <Label htmlFor="share-code-empty">Share Code</Label>
@@ -1013,7 +1013,7 @@ export default function Home() {
                             disabled={importSharedMatchMutation.isPending}
                             onClick={handleImportSharedMatch}
                         >
-                            {importSharedMatchMutation.isPending ? 'Importing...' : 'Import Shared Match'}
+                            {importSharedMatchMutation.isPending ? 'Importing...' : 'Import Game Share'}
                         </Button>
                     </div>
                 </DialogContent>

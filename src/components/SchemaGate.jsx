@@ -31,7 +31,7 @@ async function upsertSettings(patch) {
 export default function SchemaGate({ children }) {
   const location = useLocation();
   const path = location?.pathname || '/';
-  const allowWithoutGate = path === '/Login' || path === '/Privacy';
+  const allowWithoutGate = path === '/Login' || path === '/Privacy' || path === '/StatShare';
 
   const [settings, setSettings] = useState(null);
 

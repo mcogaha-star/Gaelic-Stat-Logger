@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { createPageUrl } from '@/utils';
 
 export default function Login() {
+  const navigate = useNavigate();
   const { signInWithMagicLink, signInWithGoogle, isSupabaseConfigured } = useAuth();
   const [email, setEmail] = useState('');
+  const [statShareCode, setStatShareCode] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isSendingGoogle, setIsSendingGoogle] = useState(false);
 
@@ -47,42 +51,75 @@ export default function Login() {
     }
   };
 
+  const openSharedStats = () => {
+    const code = String(statShareCode || '').trim().toUpperCase();
+    if (!code) {
+      toast.error('Enter a stat share code');
+      return;
+    }
+    navigate(createPageUrl(`StatShare?code=${encodeURIComponent(code)}`));
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Sign In</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button
-            className="w-full bg-slate-900 hover:bg-slate-800"
-            onClick={continueWithGoogle}
-            disabled={isSendingGoogle || isSending}
-          >
-            Continue with Google
-          </Button>
-          <div className="flex items-center gap-3 py-1">
-            <div className="h-px flex-1 bg-slate-200" />
-            <div className="text-xs text-slate-500">or</div>
-            <div className="h-px flex-1 bg-slate-200" />
-          </div>
-          <p className="text-sm text-slate-600">
-            Enter your email and we will send you a magic link to sign in.
-          </p>
-          <Input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') sendLink();
-            }}
-          />
-          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={sendLink} disabled={isSending}>
-            Send sign-in link
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="w-full max-w-5xl grid gap-6 lg:grid-cols-2">
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>Sign In</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              className="w-full bg-slate-900 hover:bg-slate-800"
+              onClick={continueWithGoogle}
+              disabled={isSendingGoogle || isSending}
+            >
+              Continue with Google
+            </Button>
+            <div className="flex items-center gap-3 py-1">
+              <div className="h-px flex-1 bg-slate-200" />
+              <div className="text-xs text-slate-500">or</div>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+            <p className="text-sm text-slate-600">
+              Enter your email and we will send you a magic link to sign in.
+            </p>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') sendLink();
+              }}
+            />
+            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={sendLink} disabled={isSending}>
+              Send sign-in link
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>Open Shared Stats</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Enter a stat share code to open a read-only report without signing in.
+            </p>
+            <Input
+              placeholder="Enter stat share code"
+              value={statShareCode}
+              onChange={(e) => setStatShareCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') openSharedStats();
+              }}
+            />
+            <Button className="w-full bg-slate-900 hover:bg-slate-800" onClick={openSharedStats}>
+              Open Shared Stats
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

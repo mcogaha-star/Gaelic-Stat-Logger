@@ -24,6 +24,7 @@ const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
   const location = useLocation();
   const path = location?.pathname || '/';
+  const isPublicRoute = path === '/Login' || path === '/Privacy' || path === '/StatShare';
 
   // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
@@ -37,10 +38,15 @@ const AuthenticatedApp = () => {
   // Handle authentication errors
   if (authError) {
     if (authError.type === 'user_not_registered') {
+      if (isPublicRoute) {
+        // Allow public stat-share and privacy/login routes to render even when the
+        // current auth session is not registered in the app user table.
+      } else {
       return <UserNotRegisteredError />;
+      }
     } else if (authError.type === 'auth_required') {
       // Allow non-auth pages.
-      if (path !== '/Login' && path !== '/Privacy') {
+      if (!isPublicRoute) {
         navigateToLogin();
         return null;
       }

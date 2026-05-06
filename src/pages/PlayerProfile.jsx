@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Activity, Shield, Target, Hand } from 'lucide-react';
+import { ArrowLeft, Activity } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -62,59 +62,82 @@ function buildSummary(stats, player) {
   return { shots, points, touches, defActions };
 }
 
-export default function PlayerProfile() {
+function getSharedPayloadData(sharedPayload) {
+  const payload = sharedPayload || {};
+  const match = payload?.match || null;
+  const teams = Array.isArray(payload?.teams) ? payload.teams : [];
+  const players = Array.isArray(payload?.players) ? payload.players : [];
+  const rawStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const homeTeam = teams.find((team) => team?.id === match?.home_team_id) || teams[0] || null;
+  const awayTeam = teams.find((team) => team?.id === match?.away_team_id) || teams[1] || null;
+  const homePlayers = players.filter((player) => player?.team_id === homeTeam?.id);
+  const awayPlayers = players.filter((player) => player?.team_id === awayTeam?.id);
+  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats };
+}
+
+export default function PlayerProfile({ sharedPayload = null, statShareCode = '', readOnly = false }) {
   const location = useLocation();
   const params = new URLSearchParams(location?.search || '');
-  const matchId = params.get('matchId') || '';
+  const isSharedView = !!sharedPayload;
+  const sharedData = useMemo(() => getSharedPayloadData(sharedPayload), [sharedPayload]);
+  const matchId = isSharedView ? (sharedData?.match?.id || `shared:${statShareCode || 'snapshot'}`) : (params.get('matchId') || '');
   const playerId = params.get('playerId') || '';
   const teamSide = params.get('teamSide') || '';
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['player-profile-match', matchId],
     queryFn: () => db.entities.Match.filter({ id: matchId }),
-    enabled: !!matchId,
+    enabled: !!matchId && !isSharedView,
   });
-  const match = matchArr?.[0] || null;
+  const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
 
   const { data: homeTeamArr = [] } = useQuery({
     queryKey: ['player-profile-home-team', match?.home_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.home_team_id }),
-    enabled: !!match?.home_team_id,
+    enabled: !!match?.home_team_id && !isSharedView,
   });
   const { data: awayTeamArr = [] } = useQuery({
     queryKey: ['player-profile-away-team', match?.away_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.away_team_id }),
-    enabled: !!match?.away_team_id,
+    enabled: !!match?.away_team_id && !isSharedView,
   });
-  const homeTeam = homeTeamArr?.[0] || null;
-  const awayTeam = awayTeamArr?.[0] || null;
+  const homeTeam = isSharedView ? sharedData.homeTeam : (homeTeamArr?.[0] || null);
+  const awayTeam = isSharedView ? sharedData.awayTeam : (awayTeamArr?.[0] || null);
 
   const { data: homePlayers = [] } = useQuery({
     queryKey: ['player-profile-home-players', match?.home_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.home_team_id }),
-    enabled: !!match?.home_team_id,
+    enabled: !!match?.home_team_id && !isSharedView,
   });
   const { data: awayPlayers = [] } = useQuery({
     queryKey: ['player-profile-away-players', match?.away_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.away_team_id }),
-    enabled: !!match?.away_team_id,
+    enabled: !!match?.away_team_id && !isSharedView,
   });
   const { data: rawStats = [] } = useQuery({
     queryKey: ['player-profile-stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
-    enabled: !!matchId,
+    enabled: !!matchId && !isSharedView,
   });
 
+  const effectiveRawStats = isSharedView ? (sharedData.rawStats || []) : rawStats;
+  const effectiveHomePlayers = isSharedView ? (sharedData.homePlayers || []) : homePlayers;
+  const effectiveAwayPlayers = isSharedView ? (sharedData.awayPlayers || []) : awayPlayers;
+
   const stats = useMemo(
-    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((rawStats || []).filter((row) => row?.stat_type !== 'defensive_contact')))),
-    [rawStats],
+    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((effectiveRawStats || []).filter((row) => row?.stat_type !== 'defensive_contact')))),
+    [effectiveRawStats],
   );
-  const playerOptions = useMemo(() => buildPlayerOptions(homePlayers, awayPlayers), [homePlayers, awayPlayers]);
+  const playerOptions = useMemo(() => buildPlayerOptions(effectiveHomePlayers, effectiveAwayPlayers), [effectiveHomePlayers, effectiveAwayPlayers]);
   const selectedPlayer = useMemo(
     () => playerOptions.find((player) => String(player.id) === String(playerId) && String(player.team_side) === String(teamSide)) || null,
     [playerOptions, playerId, teamSide],
   );
   const summary = useMemo(() => (selectedPlayer ? buildSummary(stats, selectedPlayer) : null), [stats, selectedPlayer]);
+
+  const reportBackUrl = isSharedView
+    ? createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`)
+    : createPageUrl(`MatchReport?id=${matchId}`);
 
   if (!matchId || !playerId || !teamSide || !match) {
     return (
@@ -138,7 +161,7 @@ export default function PlayerProfile() {
     return (
       <div className="min-h-screen bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-          <Link to={createPageUrl(`MatchReport?id=${matchId}`)}>
+          <Link to={reportBackUrl}>
             <Button variant="ghost" size="sm" className="gap-2">
               <ArrowLeft className="w-4 h-4" /> Back to Match Report
             </Button>
@@ -161,7 +184,7 @@ export default function PlayerProfile() {
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Link to={createPageUrl(`MatchReport?id=${matchId}`)}>
+            <Link to={reportBackUrl}>
               <Button variant="ghost" size="sm" className="gap-2">
                 <ArrowLeft className="w-4 h-4" /> Back
               </Button>

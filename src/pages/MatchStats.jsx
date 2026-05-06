@@ -957,7 +957,7 @@ export default function MatchStats() {
             const side = s?.team_side === 'home' || s?.team_side === 'away' ? s.team_side : null;
             if (!side) continue;
             if (String(s.stat_type || '').toLowerCase() !== 'shot') continue;
-            if (isBroughtBackAdvantageStat(s)) continue;
+            if (shouldExcludeFromTotals(s)) continue;
             const extra = s.extra_data ? safeParse(s.extra_data) : {};
             const o = extra?.shot?.outcome || '';
             if (o === 'goal') score[side].goals += 1;

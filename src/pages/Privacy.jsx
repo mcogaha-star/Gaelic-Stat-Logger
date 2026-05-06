@@ -16,7 +16,7 @@ export default function Privacy() {
 
         <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
           <p className="text-sm">
-            GaelIQ syncs match data to your account so your matches can appear on your own devices. Team
+            GaeliQ syncs match data to your account so your matches can appear on your own devices. Team
             and player names are stored separately from stat rows in account-private identity tables.
           </p>
           <ul className="text-sm list-disc pl-5 space-y-1">
@@ -30,15 +30,27 @@ export default function Privacy() {
         </div>
 
         <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
-          <p className="text-sm font-semibold text-slate-900">Shared Match Copies</p>
+          <p className="text-sm font-semibold text-slate-900">Game Share</p>
           <p className="text-sm">
-            Match sharing is separate from private sync. When you intentionally create a share code, the shared snapshot includes the match data, team names, and player names so another signed-in user can import a full private copy.
+            Game sharing is separate from private sync. When you intentionally create a game share code, the shared snapshot includes the match data, team names, and player names so another signed-in user can import a full private copy.
           </p>
           <ul className="text-sm list-disc pl-5 space-y-1">
             <li>The recipient imports a separate copy. Their edits do not change your original match.</li>
             <li>Imported copies create new private teams, players, match rows, and stat rows for the recipient account.</li>
             <li>Shared copies are snapshots, not live mirrors.</li>
-            <li>Imported copies can be reshared later using their own new share code.</li>
+            <li>Imported copies can be reshared later using their own new game share code.</li>
+          </ul>
+        </div>
+
+        <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
+          <p className="text-sm font-semibold text-slate-900">Stat Share</p>
+          <p className="text-sm">
+            Stat share is a separate code-based view. It includes team and player names and is intended to let someone open the stats experience without signing in, but it does not create a local private copy.
+          </p>
+          <ul className="text-sm list-disc pl-5 space-y-1">
+            <li>Stat share opens the report in read-only mode.</li>
+            <li>It includes the stat tabs, player profiles, and the Data tab without edit controls.</li>
+            <li>It does not give access to Home, Settings, logging, sync, or editing tools.</li>
           </ul>
         </div>
       </div>

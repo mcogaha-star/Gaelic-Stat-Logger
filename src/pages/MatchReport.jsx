@@ -33,6 +33,7 @@ import {
   normalizeDefenceSetRows,
   normalizeStatModelRows,
   rebuildPossessionRows,
+  shouldExcludeFromTotals,
   POSSESSION_REBUILD_VERSION,
   DEFENCE_SET_MIGRATION_VERSION,
   STAT_MODEL_MIGRATION_VERSION,
@@ -177,58 +178,75 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
     },
   };
 }
-export default function MatchReport() {
+function getSharedPayloadData(sharedPayload) {
+  const payload = sharedPayload || {};
+  const match = payload?.match || null;
+  const teams = Array.isArray(payload?.teams) ? payload.teams : [];
+  const players = Array.isArray(payload?.players) ? payload.players : [];
+  const rawStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const homeTeam = teams.find((team) => team?.id === match?.home_team_id) || teams[0] || null;
+  const awayTeam = teams.find((team) => team?.id === match?.away_team_id) || teams[1] || null;
+  const homePlayers = players.filter((player) => player?.team_id === homeTeam?.id);
+  const awayPlayers = players.filter((player) => player?.team_id === awayTeam?.id);
+  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats };
+}
+
+export default function MatchReport({ sharedPayload = null, statShareCode = '', readOnly = false }) {
   const queryClient = useQueryClient();
   const location = useLocation();
   const { isAuthenticated } = useAuth();
   const urlParams = new URLSearchParams(location?.search || '');
-  const matchId = urlParams.get('id');
+  const isSharedView = !!sharedPayload;
+  const sharedData = useMemo(() => getSharedPayloadData(sharedPayload), [sharedPayload]);
+  const matchId = isSharedView ? (sharedData?.match?.id || `shared:${statShareCode || 'snapshot'}`) : urlParams.get('id');
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareCode, setShareCode] = useState('');
+  const [gameShareCode, setGameShareCode] = useState('');
+  const [statViewShareCode, setStatViewShareCode] = useState('');
   const [shareBusy, setShareBusy] = useState(false);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
     queryFn: () => db.entities.Match.filter({ id: matchId }),
-    enabled: !!matchId,
+    enabled: !!matchId && !isSharedView,
   });
 
-  const match = matchArr?.[0] || null;
+  const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
   const { data: homeTeamArr = [] } = useQuery({
     queryKey: ['team', match?.home_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.home_team_id }),
-    enabled: !!match?.home_team_id,
+    enabled: !!match?.home_team_id && !isSharedView,
   });
 
   const { data: awayTeamArr = [] } = useQuery({
     queryKey: ['team', match?.away_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.away_team_id }),
-    enabled: !!match?.away_team_id,
+    enabled: !!match?.away_team_id && !isSharedView,
   });
 
-  const homeTeam = homeTeamArr?.[0] || null;
-  const awayTeam = awayTeamArr?.[0] || null;
+  const homeTeam = isSharedView ? sharedData.homeTeam : (homeTeamArr?.[0] || null);
+  const awayTeam = isSharedView ? sharedData.awayTeam : (awayTeamArr?.[0] || null);
 
   const { data: homePlayers = [] } = useQuery({
     queryKey: ['players', 'home', match?.home_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.home_team_id }),
-    enabled: !!match?.home_team_id,
+    enabled: !!match?.home_team_id && !isSharedView,
   });
 
   const { data: awayPlayers = [] } = useQuery({
     queryKey: ['players', 'away', match?.away_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.away_team_id }),
-    enabled: !!match?.away_team_id,
+    enabled: !!match?.away_team_id && !isSharedView,
   });
 
   const { data: rawStats = [] } = useQuery({
     queryKey: ['stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
-    enabled: !!matchId,
+    enabled: !!matchId && !isSharedView,
   });
   useEffect(() => {
-    setShareCode(match?.latest_share_code || '');
-  }, [match?.latest_share_code]);
+    setGameShareCode(match?.latest_game_share_code || match?.latest_share_code || '');
+    setStatViewShareCode(match?.latest_stat_share_code || '');
+  }, [match?.latest_game_share_code, match?.latest_share_code, match?.latest_stat_share_code]);
 
   const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
   const readDefenceSetMigrationDone = (key) => {
@@ -250,14 +268,14 @@ export default function MatchReport() {
   const [statModelMigrationDone, setStatModelMigrationDone] = useState(() => readStatModelMigrationDone(statModelMigrationKey));
 
   useEffect(() => {
-    if (!match?.id) return;
+    if (isSharedView || !match?.id) return;
     const stored = Number(match.match_length_minutes);
     if (Number.isFinite(stored) && stored > 0) return;
     const expected = deriveMatchLengthMinutes(match);
     db.entities.Match.update(match.id, { match_length_minutes: expected })
       .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
       .catch(() => {});
-  }, [match?.id, match?.code, match?.level, match?.match_length_minutes, matchId, queryClient]);
+  }, [isSharedView, match?.id, match?.code, match?.level, match?.match_length_minutes, matchId, queryClient]);
 
   useEffect(() => {
     setDefenceSetMigrationDone(readDefenceSetMigrationDone(defenceSetMigrationKey));
@@ -267,9 +285,10 @@ export default function MatchReport() {
     setStatModelMigrationDone(readStatModelMigrationDone(statModelMigrationKey));
   }, [statModelMigrationKey]);
 
+  const effectiveRawStats = isSharedView ? sharedData.rawStats : rawStats;
   const stats = useMemo(
-    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((rawStats || []).filter((s) => s?.stat_type !== 'defensive_contact'), defenceSetMigrationDone), statModelMigrationDone)),
-    [rawStats, defenceSetMigrationDone, statModelMigrationDone]
+    () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((effectiveRawStats || []).filter((s) => s?.stat_type !== 'defensive_contact'), defenceSetMigrationDone), statModelMigrationDone)),
+    [effectiveRawStats, defenceSetMigrationDone, statModelMigrationDone]
   );
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
@@ -278,7 +297,7 @@ export default function MatchReport() {
   const [deletingLegacyDefContact, setDeletingLegacyDefContact] = useState(false);
 
   useEffect(() => {
-    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || deletingLegacyDefContact) return;
+    if (isSharedView || !matchId || !Array.isArray(rawStats) || !rawStats.length || deletingLegacyDefContact) return;
     const deletes = buildLegacyDefensiveContactDeletes(rawStats).filter((row) => row?.id);
     if (!deletes.length) return;
     let cancelled = false;
@@ -301,10 +320,10 @@ export default function MatchReport() {
       }
     })();
     return () => { cancelled = true; };
-  }, [matchId, rawStats, deletingLegacyDefContact, queryClient]);
+  }, [isSharedView, matchId, rawStats, deletingLegacyDefContact, queryClient]);
 
   useEffect(() => {
-    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
+    if (isSharedView || !matchId || !Array.isArray(rawStats) || !rawStats.length || migratingStatModel) return;
     if (!statModelMigrationKey) return;
     const repairs = buildStatModelRepairs(rawStats);
     if (!repairs.length) {
@@ -335,10 +354,10 @@ export default function MatchReport() {
       }
     })();
     return () => { cancelled = true; };
-  }, [matchId, rawStats, migratingStatModel, queryClient, statModelMigrationKey]);
+  }, [isSharedView, matchId, rawStats, migratingStatModel, queryClient, statModelMigrationKey]);
 
   useEffect(() => {
-    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
+    if (isSharedView || !matchId || !Array.isArray(rawStats) || !rawStats.length || migratingDefenceSet) return;
     if (!defenceSetMigrationKey) return;
     const repairs = buildLegacyDefenceSetRepairs(rawStats);
     if (!repairs.length) {
@@ -369,10 +388,10 @@ export default function MatchReport() {
       }
     })();
     return () => { cancelled = true; };
-  }, [matchId, rawStats, migratingDefenceSet, queryClient, defenceSetMigrationKey]);
+  }, [isSharedView, matchId, rawStats, migratingDefenceSet, queryClient, defenceSetMigrationKey]);
 
   useEffect(() => {
-    if (!matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
+    if (isSharedView || !matchId || !Array.isArray(rawStats) || !rawStats.length || repairingLegacyPossessions) return;
     const rebuildKey = `gstl-possession-rebuild:${POSSESSION_REBUILD_VERSION}:${matchId}`;
     const repairs = buildLegacyPossessionRepairs(rawStats);
     if (!repairs.length) {
@@ -403,7 +422,7 @@ export default function MatchReport() {
     })();
 
     return () => { cancelled = true; };
-  }, [matchId, rawStats, repairingLegacyPossessions, queryClient]);
+  }, [isSharedView, matchId, rawStats, repairingLegacyPossessions, queryClient]);
 
   const imputedTimeById = useMemo(() => computeImputedNormalizedTimes(stats), [stats]);
   const nextStatById = useMemo(() => {
@@ -442,9 +461,12 @@ export default function MatchReport() {
   const allPlayersForShare = useMemo(() => [...(homePlayers || []), ...(awayPlayers || [])], [homePlayers, awayPlayers]);
   const playerProfileUrlForRow = (row) => {
     if (!row?.id || !row?.team) return null;
+    if (isSharedView) {
+      return createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}&playerId=${encodeURIComponent(row.id)}&teamSide=${encodeURIComponent(row.team)}`);
+    }
     return createPageUrl(`PlayerProfile?matchId=${matchId}&playerId=${encodeURIComponent(row.id)}&teamSide=${encodeURIComponent(row.team)}`);
   };
-  const handleCreateShareCode = async () => {
+  const handleCreateShareCode = async (shareType) => {
     if (!isAuthenticated) {
       toast.error('Sign in to create a share code');
       return;
@@ -461,24 +483,31 @@ export default function MatchReport() {
         awayTeam,
         players: allPlayersForShare,
         stats,
+        shareType,
       });
       if (!result?.ok) throw new Error(result?.reason || 'Failed to create share code');
-      setShareCode(result.shareCode || '');
+      if (shareType === 'stat_view') setStatViewShareCode(result.shareCode || '');
+      else setGameShareCode(result.shareCode || '');
       await db.entities.Match.update(match.id, {
-        latest_share_code: result.shareCode || '',
-        latest_shared_snapshot_id: result.snapshotId || null,
+        ...(shareType === 'stat_view'
+          ? { latest_stat_share_code: result.shareCode || '', latest_stat_shared_snapshot_id: result.snapshotId || null }
+          : {
+              latest_game_share_code: result.shareCode || '',
+              latest_shared_snapshot_id: result.snapshotId || null,
+              latest_share_code: result.shareCode || '',
+            }),
       });
-      toast.success('Share code created');
+      toast.success(shareType === 'stat_view' ? 'Stat share code created' : 'Game share code created');
     } catch (error) {
       toast.error(error?.message || 'Failed to create share code');
     } finally {
       setShareBusy(false);
     }
   };
-  const handleCopyShareCode = async () => {
-    if (!shareCode) return;
+  const handleCopyShareCode = async (value) => {
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(shareCode);
+      await navigator.clipboard.writeText(value);
       toast.success('Share code copied');
     } catch {
       toast.error('Could not copy share code');
@@ -490,7 +519,7 @@ export default function MatchReport() {
     for (const s of Array.isArray(stats) ? stats : []) {
       const extra = safeParseJSON(s?.extra_data || '{}', {});
       const turnover = extra?.turnover;
-      if (isBroughtBackAdvantageStat(s) || !(s?.stat_type === 'turnover' || turnover)) continue;
+      if (shouldExcludeFromTotals(s) || !(s?.stat_type === 'turnover' || turnover)) continue;
       const raw = String(turnover?.type || turnover?.turnover_type || '');
       const normalized = normalizeFoulType(raw);
       if (!normalized) continue;
@@ -623,7 +652,7 @@ export default function MatchReport() {
       const side = s.team_side === 'away' ? 'away' : 'home';
       const extra = safeParseJSON(s.extra_data || '{}', {});
 
-      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
+      if (s.stat_type === 'shot' && !shouldExcludeFromTotals(s)) {
         out[side].shots += 1;
         const o = extra?.shot?.outcome;
         if (o === 'goal') out[side].goals += 1;
@@ -659,7 +688,7 @@ export default function MatchReport() {
 
       // Turnovers: count as "lost" by the lost_by selection when present.
       const turnover = extra?.turnover;
-      if (!isBroughtBackAdvantageStat(s) && (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object'))) {
+      if (!shouldExcludeFromTotals(s) && (s.stat_type === 'turnover' || (turnover && typeof turnover === 'object'))) {
         const foul = extractFoulFromStat(s);
         const lostSide =
           turnover?.lost_by?.team_side ||
@@ -702,7 +731,7 @@ export default function MatchReport() {
 
     for (const s of list) {
       if (!s || s.stat_type !== 'shot') continue;
-      if (isBroughtBackAdvantageStat(s)) continue;
+      if (shouldExcludeFromTotals(s)) continue;
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const o = extra?.shot?.outcome;
       if (!['point', '2_point', 'goal'].includes(o)) continue;
@@ -787,7 +816,7 @@ export default function MatchReport() {
       if (teamSide !== 'home' && teamSide !== 'away') continue;
       if (!possessionHasOpp45Entry(evs, teamSide)) continue; // attack = entry to opp 45 (one per possession)
       const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
-      const shots = acting.filter((e) => e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e));
+      const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e));
       let scoreType = '';
       for (const e of shots) {
         const ex = safeParseJSON(e.extra_data || '{}', {});
@@ -898,7 +927,7 @@ export default function MatchReport() {
           statsBySide[pside].poss.add(`${pside}-${pid}`);
         }
 
-        if (stat.stat_type === 'shot' && !isBroughtBackAdvantageStat(stat)) {
+        if (stat.stat_type === 'shot' && !shouldExcludeFromTotals(stat)) {
           const ex = safeParseJSON(stat.extra_data || '{}', {});
           const o = ex?.shot?.outcome;
           const add = shotPointsForOutcome(o);
@@ -912,7 +941,7 @@ export default function MatchReport() {
           }
         }
 
-        if (!isBroughtBackAdvantageStat(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
+        if (!shouldExcludeFromTotals(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
           const lostSide = turnoverLostSide(stat);
           if (lostSide) statsBySide[lostSide].toLost += 1;
         }
@@ -1008,9 +1037,11 @@ export default function MatchReport() {
               </div>
             </div>
           </div>
-          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
-            <Share2 className="w-4 h-4" /> Share Copy
-          </Button>
+          {!readOnly && (
+            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
+              <Share2 className="w-4 h-4" /> Share
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1351,6 +1382,7 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               homePlayers={homePlayers}
               awayPlayers={awayPlayers}
+              readOnly={readOnly}
             />
           </TabsContent>
         </Tabs>
@@ -1359,24 +1391,39 @@ export default function MatchReport() {
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Share Match Copy</DialogTitle>
+            <DialogTitle>Share Match</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Create a share code so another signed-in user can import a full private copy of this match, including team and player names. Their imported match will be separate from yours.
-            </p>
-            <div className="space-y-2">
-              <Label>Share Code</Label>
+          <div className="space-y-5">
+            <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="font-medium text-slate-900">Game Share</div>
+              <p className="text-sm text-slate-600">
+                Signed-in users can import a full private copy of this match, including team and player names. Their imported copy is separate from yours.
+              </p>
               <div className="flex items-center gap-2">
-                <Input value={shareCode || ''} readOnly placeholder="Create a share code to begin" />
-                <Button type="button" variant="outline" size="icon" onClick={handleCopyShareCode} disabled={!shareCode}>
+                <Input value={gameShareCode || ''} readOnly placeholder="Create a game share code" />
+                <Button type="button" variant="outline" size="icon" onClick={() => handleCopyShareCode(gameShareCode)} disabled={!gameShareCode}>
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
+              <Button type="button" className="w-full bg-green-600 hover:bg-green-700" onClick={() => handleCreateShareCode('game_copy')} disabled={shareBusy}>
+                {shareBusy ? 'Creating...' : (gameShareCode ? 'Create New Game Share Code' : 'Create Game Share Code')}
+              </Button>
             </div>
-            <Button type="button" className="w-full bg-green-600 hover:bg-green-700" onClick={handleCreateShareCode} disabled={shareBusy}>
-              {shareBusy ? 'Creating Share Code...' : (shareCode ? 'Create New Share Code' : 'Create Share Code')}
-            </Button>
+            <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="font-medium text-slate-900">Stat Share</div>
+              <p className="text-sm text-slate-600">
+                Anyone with this code can open a read-only version of the stat pages for this match from the login screen, without importing a copy.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input value={statViewShareCode || ''} readOnly placeholder="Create a stat share code" />
+                <Button type="button" variant="outline" size="icon" onClick={() => handleCopyShareCode(statViewShareCode)} disabled={!statViewShareCode}>
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <Button type="button" className="w-full bg-slate-900 hover:bg-slate-800" onClick={() => handleCreateShareCode('stat_view')} disabled={shareBusy}>
+                {shareBusy ? 'Creating...' : (statViewShareCode ? 'Create New Stat Share Code' : 'Create Stat Share Code')}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

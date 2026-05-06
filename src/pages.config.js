@@ -57,6 +57,7 @@ import Players from './pages/Players';
 import Privacy from './pages/Privacy';
 import Settings from './pages/Settings';
 import SeasonStats from './pages/SeasonStats';
+import StatShare from './pages/StatShare';
 import Teams from './pages/Teams';
 import Video from './pages/Video';
 
@@ -71,6 +72,7 @@ export const PAGES = {
     "Privacy": Privacy,
     "Settings": Settings,
     "SeasonStats": SeasonStats,
+    "StatShare": StatShare,
     "Teams": Teams,
     "Video": Video,
 }

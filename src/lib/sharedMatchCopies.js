@@ -107,7 +107,7 @@ export function buildShareableMatchPayload({ match, homeTeam, awayTeam, players 
   };
 }
 
-export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, players = [], stats = [], sourceSnapshotId = null, sharedFromCode = null } = {}) {
+export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, players = [], stats = [], sourceSnapshotId = null, sharedFromCode = null, shareType = 'game_copy' } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!match?.id) return { ok: false, reason: 'missing_match' };
@@ -116,6 +116,7 @@ export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, pla
   const shareCode = generateShareCode();
   const insertPayload = {
     user_id: user.id,
+    share_type: shareType,
     share_code: shareCode,
     source_public_match_id: match.public_match_id || null,
     source_snapshot_id: sourceSnapshotId || null,
@@ -133,17 +134,18 @@ export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, pla
   return { ok: true, snapshotId: data?.id || null, shareCode: data?.share_code || shareCode, payload };
 }
 
-export async function fetchSharedMatchSnapshotByCode(shareCode) {
+export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = true, allowedTypes = [] } = {}) {
   const user = await requireAuthUser();
-  if (!user) return { ok: false, reason: 'not_authenticated' };
+  if (requireAuth && !user) return { ok: false, reason: 'not_authenticated' };
   if (!String(shareCode || '').trim()) return { ok: false, reason: 'missing_share_code' };
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('shared_match_snapshots')
     .select('*')
     .eq('share_code', String(shareCode).trim().toUpperCase())
-    .is('deleted_at', null)
-    .maybeSingle();
+    .is('deleted_at', null);
+  if (Array.isArray(allowedTypes) && allowedTypes.length) query = query.in('share_type', allowedTypes);
+  const { data, error } = await query.maybeSingle();
 
   if (error) return { ok: false, reason: error.message };
   if (!data?.id) return { ok: false, reason: 'not_found' };
@@ -154,6 +156,7 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!db?.entities || !snapshotRow?.payload) return { ok: false, reason: 'invalid_snapshot' };
+  if (snapshotRow?.share_type !== 'game_copy') return { ok: false, reason: 'invalid_share_type' };
 
   const payload = parseJsonMaybe(snapshotRow.payload, snapshotRow.payload);
   const sourceMatch = payload?.match || {};
@@ -311,6 +314,7 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
     stats: await db.entities.StatEntry.filter({ match_id: createdMatch.id }),
     sourceSnapshotId: snapshotRow?.id || null,
     sharedFromCode: snapshotRow?.share_code || null,
+    shareType: 'game_copy',
   });
 
   if (sharedAgain?.ok) {

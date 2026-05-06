@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { createPageUrl } from '@/utils';
-import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
+import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import {
   safeParseJSON,
@@ -159,7 +159,7 @@ function resequenceOrderedStats(ordered) {
   return ordered.map((stat, index) => ({ ...stat, play_id: index + 1 }));
 }
 
-function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers }) {
+function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers, readOnly = false }) {
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
   const queryClient = useQueryClient();
   const [team, setTeam] = useState('both');
@@ -623,7 +623,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         attack_entry_channel: '',
       };
       cur.count += 1;
-      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
+      if (s.stat_type === 'shot' && !shouldExcludeFromTotals(s)) {
         const o = extra?.shot?.outcome;
         if (o === 'goal') cur.shotPoints += 3;
         if (o === 'point') cur.shotPoints += 1;
@@ -1271,27 +1271,29 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       />
                     </div>
                   </details>
-                  <div className="flex items-center justify-between gap-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 hover:text-red-700"
-                      disabled={deleteMutation.isPending || persistMutation.isPending}
-                      onClick={() => setDeleteTarget(editStat)}
-                    >
-                      Delete Row
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="bg-emerald-600 text-white hover:bg-emerald-700"
-                      disabled={persistMutation.isPending}
-                      onClick={applyRawStatChanges}
-                    >
-                      Apply Stat Changes
-                    </Button>
-                  </div>
+                  {!readOnly ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700"
+                        disabled={deleteMutation.isPending || persistMutation.isPending}
+                        onClick={() => setDeleteTarget(editStat)}
+                      >
+                        Delete Row
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={persistMutation.isPending}
+                        onClick={applyRawStatChanges}
+                      >
+                        Apply Stat Changes
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </details>
             </div>
@@ -1319,7 +1321,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                       <TableHead>Entry</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                       <TableHead className="text-right">Shot Pts</TableHead>
-                      <TableHead className="text-right">Edit</TableHead>
+                      {!readOnly ? <TableHead className="text-right">Edit</TableHead> : null}
                     </>
                   ) : (
                     <>
@@ -1366,9 +1368,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <TableCell>{r.attack_entry_channel || 'NA'}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.count}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.shotPoints}</TableCell>
-                          <TableCell className="text-right">
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit</Button>
-                          </TableCell>
+                          {!readOnly ? (
+                            <TableCell className="text-right">
+                              <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!firstStat} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (firstStat) openEditDialogForStat(firstStat); }}>Edit</Button>
+                            </TableCell>
+                          ) : null}
                         </>
                       );
                     })() : (
@@ -1445,7 +1449,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-slate-900">Details</div>
                                 <div className="flex items-center gap-2">
-                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button>
+                                  {!readOnly ? <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialogForStat(s)}>Edit</Button> : null}
                                 </div>
                               </div>
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
