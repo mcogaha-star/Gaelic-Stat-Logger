@@ -28,6 +28,19 @@ export default function Privacy() {
             <li>You can revoke consent in Settings, which stops any further uploads.</li>
           </ul>
         </div>
+
+        <div className="bg-white border rounded-xl p-6 space-y-4 text-slate-700">
+          <p className="text-sm font-semibold text-slate-900">Shared Match Copies</p>
+          <p className="text-sm">
+            Match sharing is separate from private sync. When you intentionally create a share code, the shared snapshot includes the match data, team names, and player names so another signed-in user can import a full private copy.
+          </p>
+          <ul className="text-sm list-disc pl-5 space-y-1">
+            <li>The recipient imports a separate copy. Their edits do not change your original match.</li>
+            <li>Imported copies create new private teams, players, match rows, and stat rows for the recipient account.</li>
+            <li>Shared copies are snapshots, not live mirrors.</li>
+            <li>Imported copies can be reshared later using their own new share code.</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

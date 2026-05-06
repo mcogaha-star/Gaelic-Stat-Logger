@@ -4,10 +4,10 @@ const db = globalThis.__B44_DB__ || {
   integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
 };
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, ArrowLeft, Trash2, Pencil, Users } from 'lucide-react';
+import { Plus, ArrowLeft, Trash2, Pencil, Users, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 import { softDeletePrivatePlayer, upsertPrivatePlayerFromLocal } from '@/lib/serverSync';
 
@@ -35,8 +35,11 @@ const POSITIONS = [
 ];
 
 export default function Players() {
+    const navigate = useNavigate();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingPlayer, setEditingPlayer] = useState(null);
+    const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    const [profilePlayer, setProfilePlayer] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
         number: '',
@@ -49,6 +52,10 @@ export default function Players() {
     const { data: players = [], isLoading } = useQuery({
         queryKey: ['players'],
         queryFn: () => db.entities.Player.list('number')
+    });
+    const { data: matches = [] } = useQuery({
+        queryKey: ['matches'],
+        queryFn: () => db.entities.Match.list('-created_date')
     });
 
     const createMutation = useMutation({
@@ -110,6 +117,27 @@ export default function Players() {
             team_type: player.team_type || 'my_team'
         });
         setDialogOpen(true);
+    };
+
+    const relevantMatches = useMemo(() => {
+        if (!profilePlayer?.team_id) return [];
+        return (matches || []).filter((match) => match?.home_team_id === profilePlayer.team_id || match?.away_team_id === profilePlayer.team_id);
+    }, [matches, profilePlayer]);
+
+    const openProfileChooser = (player) => {
+        if (!player?.team_id) {
+            toast.error('This player is not linked to a team yet, so there is no match profile to open.');
+            return;
+        }
+        setProfilePlayer(player);
+        setProfileDialogOpen(true);
+    };
+
+    const openMatchProfile = (match) => {
+        if (!profilePlayer?.id || !match?.id) return;
+        const teamSide = match.home_team_id === profilePlayer.team_id ? 'home' : 'away';
+        setProfileDialogOpen(false);
+        navigate(createPageUrl(`PlayerProfile?matchId=${match.id}&playerId=${profilePlayer.id}&teamSide=${teamSide}`));
     };
 
     const handleSubmit = () => {
@@ -258,7 +286,7 @@ export default function Players() {
                                     <TableHead>Name</TableHead>
                                     <TableHead>Position</TableHead>
                                     <TableHead>Team</TableHead>
-                                    <TableHead className="w-24"></TableHead>
+                                    <TableHead className="w-32"></TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -283,6 +311,14 @@ export default function Players() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
+                                                    onClick={() => openProfileChooser(player)}
+                                                    title="Open player match profile"
+                                                >
+                                                    <BarChart3 className="w-4 h-4 text-slate-600" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
                                                     onClick={() => handleEditPlayer(player)}
                                                 >
                                                     <Pencil className="w-4 h-4" />
@@ -303,6 +339,42 @@ export default function Players() {
                     </Card>
                 )}
             </main>
+
+            <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Open Match Player Profile</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <p className="text-sm text-slate-600">
+                            Choose a match for {profilePlayer ? `#${profilePlayer.number || ''} ${profilePlayer.name || ''}`.trim() : 'this player'}.
+                        </p>
+                        {!profilePlayer?.team_id ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                                This player is not linked to a specific team, so there is no match-scoped profile available yet.
+                            </div>
+                        ) : relevantMatches.length === 0 ? (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                                No matches were found for this player's team yet.
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                                {relevantMatches.map((match) => (
+                                    <button
+                                        key={match.id}
+                                        type="button"
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-green-300 hover:bg-green-50"
+                                        onClick={() => openMatchProfile(match)}
+                                    >
+                                        <div className="font-medium text-slate-900">{match.date || 'Match'}</div>
+                                        <div className="text-sm text-slate-500">{match.competition || match.venue || 'Open match profile'}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

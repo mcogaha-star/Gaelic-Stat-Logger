@@ -22,7 +22,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
-  isBroughtBackAdvantageStat,
+  shouldExcludeFromTotals,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -103,7 +103,7 @@ function KickoutPressTable({ card, homeTeam, awayTeam }) {
 function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
-  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
+  const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
 
   const kickouts = useMemo(() => base.filter((s) => s?.stat_type === 'kickout'), [base]);
@@ -168,9 +168,9 @@ function RestartsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters, 
 
       const restartPoss = Array.from(restartPossKeys).map((k) => byPoss.get(k) || []);
       const restartWins = restartPoss.length;
-      const restartToShot = restartPoss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e))).length;
+      const restartToShot = restartPoss.filter((evs) => evs.some((e) => e.team_side === teamSide && e.stat_type === 'shot' && !shouldExcludeFromTotals(e))).length;
       const restartToScore = restartPoss.filter((evs) => evs.some((e) => {
-        if (e.team_side !== teamSide || e.stat_type !== 'shot' || isBroughtBackAdvantageStat(e)) return false;
+        if (e.team_side !== teamSide || e.stat_type !== 'shot' || shouldExcludeFromTotals(e)) return false;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;

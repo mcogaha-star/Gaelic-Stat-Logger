@@ -26,6 +26,7 @@ import {
   formatMatchClock as formatMatchClockFromAnalytics,
   getProgressiveMeters,
   isBroughtBackAdvantageStat,
+  shouldExcludeFromTotals,
   normalizeFoulType,
   normalizeOutcomeAlias,
   shotOutcomeGroup,
@@ -860,11 +861,11 @@ function buildShotAssistCredits(stats) {
     for (let i = 0; i < acting.length; i += 1) {
       const shot = acting[i];
       if (shot?.stat_type !== 'shot') continue;
-      if (isBroughtBackAdvantageStat(shot)) continue;
+      if (shouldExcludeFromTotals(shot)) continue;
       for (let j = i - 1; j >= 0; j -= 1) {
         const prev = acting[j];
         if (prev?.stat_type !== 'pass') continue;
-        if (isBroughtBackAdvantageStat(prev)) continue;
+        if (shouldExcludeFromTotals(prev)) continue;
         const extra = safeParseJSON(prev.extra_data || '{}', {});
         if (deriveOutcome(prev, extra) !== 'completed') continue;
         const passer = extra?.pass?.passer;
@@ -939,7 +940,7 @@ function buildTouchEvents(stats, playerOptions = []) {
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat) continue;
-    if (isBroughtBackAdvantageStat(stat)) continue;
+    if (shouldExcludeFromTotals(stat)) continue;
     const extra = safeParseJSON(stat.extra_data || '{}', {});
 
     if (stat.stat_type === 'pass') {
@@ -1034,7 +1035,7 @@ function buildDefensiveActions(stats) {
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat) continue;
-    if (isBroughtBackAdvantageStat(stat)) continue;
+    if (shouldExcludeFromTotals(stat)) continue;
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const actionsForRow = new Set();
 
@@ -1933,7 +1934,7 @@ function buildPassSonarData(passes, { side = null, playerId = null, bins = 12, i
   };
   for (const stat of Array.isArray(passes) ? passes : []) {
     if (!stat || stat.stat_type !== 'pass') continue;
-    if (isBroughtBackAdvantageStat(stat)) continue;
+    if (shouldExcludeFromTotals(stat)) continue;
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const passer = normalizePlayerRef(extra?.pass?.passer);
     if (!passer) continue;

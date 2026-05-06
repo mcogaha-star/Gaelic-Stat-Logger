@@ -25,7 +25,7 @@ import {
   getDerivedPossessionDurationSeconds,
   isDeadBallGapStart,
   isAttackPossession,
-  isBroughtBackAdvantageStat,
+  shouldExcludeFromTotals,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -287,7 +287,7 @@ function BuildUpTab({
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
-  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
+  const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
   const events = useMemo(() => base.filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry')), [base]);
 
@@ -301,7 +301,7 @@ function BuildUpTab({
     if (progressiveOnly && !isProgressiveShared(s)) return false;
     return true;
   }), [events, eventTypes, pressure, outcome, progressiveOnly]);
-  const calcFiltered = useMemo(() => filtered.filter((s) => !isBroughtBackAdvantageStat(s)), [filtered]);
+  const calcFiltered = useMemo(() => filtered.filter((s) => !shouldExcludeFromTotals(s)), [filtered]);
 
   const kpis = useMemo(() => {
     const eventLength = (stat) => {

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -23,7 +23,7 @@ import {
   getScoringZoneEntry,
   inferRestartWinnerSide,
   isAttackPossession,
-  isBroughtBackAdvantageStat,
+  shouldExcludeFromTotals,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -242,13 +242,22 @@ function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
   );
 }
 
-function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportFilters }) {
+function PlayersAnalyticsTab({
+  stats,
+  homeTeam,
+  awayTeam,
+  playerOptions,
+  reportFilters,
+  playerLinkFactory = null,
+  lockPlayerValue = null,
+  lockPlayerBucket = null,
+}) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
-  const [playerBucket, setPlayerBucket] = useState('scoring');
-  const [chartPlayerId, setChartPlayerId] = useState('all');
+  const [playerBucket, setPlayerBucket] = useState(lockPlayerBucket || 'scoring');
+  const [chartPlayerId, setChartPlayerId] = useState(lockPlayerValue || 'all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
-  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
+  const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
   const nextStatById = useMemo(() => {
     const ordered = (Array.isArray(stats) ? stats : []).slice().sort((a, b) => {
@@ -417,7 +426,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
     for (const s of calcBase) {
       const ex = safeParseJSON(s.extra_data || '{}', {});
-      if (s.stat_type === 'shot' && !isBroughtBackAdvantageStat(s)) {
+      if (s.stat_type === 'shot' && !shouldExcludeFromTotals(s)) {
         const p = ex?.shot?.player || getPrimaryActorSelection(s, ex) || (
           (s?.team_side === 'home' || s?.team_side === 'away') && (s?.player_number || s?.player_name)
             ? {
@@ -508,7 +517,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
           if (getScoringZoneEntry(s)) r.scoringZoneEntriesCreated += 1;
         }
       }
-      if (!isBroughtBackAdvantageStat(s) && (s.stat_type === 'turnover' || ex?.turnover)) {
+      if (!shouldExcludeFromTotals(s) && (s.stat_type === 'turnover' || ex?.turnover)) {
         const t = ex?.turnover || {};
         const turnoverType = normalizeFoulType(t?.turnover_type || t?.type || '');
         const foul = turnoverType === 'foul' ? extractFoulFromStat(s) : null;
@@ -682,9 +691,20 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     return `${madeN}/${attemptsN} (${formatPct((madeN / attemptsN) * 100)})`;
   };
 
+  const renderPlayerCell = (row) => {
+    if (typeof playerLinkFactory !== 'function') return row.player;
+    const href = playerLinkFactory(row);
+    if (!href) return row.player;
+    return (
+      <a href={`#${href}`} className="text-green-700 underline underline-offset-2 hover:text-green-800">
+        {row.player}
+      </a>
+    );
+  };
+
   const bucketColumns = useMemo(() => ({
     scoring: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'shots', label: 'Shots', numeric: true },
       { key: 'scores', label: 'Scores', numeric: true },
@@ -696,7 +716,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'goalFraction', label: 'Goal', numeric: true, sortValue: (r) => r.goalMade, render: (r) => renderScoringFraction(r.goalMade, r.goalAtt) },
     ],
     progression: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'progPassFraction', label: 'Prog Passes', numeric: true, sortValue: (r) => r.progPassComp, render: (r) => renderScoringFraction(r.progPassComp, r.progPassAtt) },
       { key: 'progPassRecv', label: 'Prog Pass Rec', numeric: true },
@@ -707,7 +727,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'shotAssists', label: 'Shot Assists', numeric: true },
     ],
     retention: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'passFraction', label: 'Passes', numeric: true, sortValue: (r) => r.passComp, render: (r) => renderScoringFraction(r.passComp, r.passes) },
       { key: 'carryFraction', label: 'Carries', numeric: true, sortValue: (r) => r.carryComp, render: (r) => renderScoringFraction(r.carryComp, r.carries) },
@@ -717,7 +737,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'touches', label: 'Touches', numeric: true },
     ],
     tendencies: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'touches', label: 'Touches', numeric: true },
       { key: 'carryRate', label: 'Carry Rate', numeric: true, sortValue: (r) => r.carryRate, render: (r) => formatPct(r.carryRate) },
@@ -727,7 +747,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
     ],
     defense: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'turnoversForced', label: 'TO Forced', numeric: true },
       { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true },
@@ -736,7 +756,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'foulsConceded', label: 'Fouls Conceded', numeric: true },
     ],
     touches: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'touches', label: 'Touches', numeric: true },
       { key: 'passRate', label: 'Pass Rate', numeric: true, sortValue: (r) => r.passRate, render: (r) => formatPct(r.passRate) },
@@ -745,7 +765,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'turnoversLostPer10Poss', label: 'TO Lost / 10 Poss', numeric: true, sortValue: (r) => r.turnoversLostPer10Poss, render: (r) => Number.isFinite(r.turnoversLostPer10Poss) ? r.turnoversLostPer10Poss.toFixed(2) : 'NA' },
     ],
     restarts: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'kickoutTargets', label: 'KO Targets', numeric: true },
       { key: 'kickoutWins', label: 'KO Wins', numeric: true },
@@ -753,7 +773,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'marks', label: 'Marks', numeric: true },
     ],
     goalkeepers: [
-      { key: 'player', label: 'Player' },
+      { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'kickoutsTaken', label: 'KOs Taken', numeric: true },
       { key: 'ownKickoutWinPct', label: 'Own KO Win %', numeric: true, sortValue: (r) => r.ownKickoutWinPct, render: (r) => r.kickoutsTaken ? `${r.ownKickoutsWon}/${r.kickoutsTaken} (${formatPct(r.ownKickoutWinPct)})` : 'NA' },
@@ -764,7 +784,7 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
       { key: 'longKickoutWinPct', label: 'Long Win %', numeric: true, sortValue: (r) => r.longKickoutWinPct, render: (r) => r.longKickoutsTaken ? `${r.longKickoutsWon}/${r.longKickoutsTaken} (${formatPct(r.longKickoutWinPct)})` : 'NA' },
       { key: 'goalShotSavePct', label: 'Goal Shot Saves', numeric: true, sortValue: (r) => r.goalShotSavePct, render: (r) => (r.goalShotsSaved + r.goalShotsAgainst) ? `${r.goalShotsSaved}/${r.goalShotsSaved + r.goalShotsAgainst} (${formatPct(r.goalShotSavePct)})` : 'NA' },
     ],
-  }), [homeTeam, awayTeam]);
+  }), [homeTeam, awayTeam, playerLinkFactory]);
 
   const sortedLeaderboard = useMemo(() => {
     const bucketFilters = {
@@ -835,9 +855,15 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
     if (chartPlayerId === 'all') return 'all';
     return chartPlayerOptions.some((p) => p.value === chartPlayerId) ? chartPlayerId : 'all';
   }, [chartPlayerId, chartPlayerOptions]);
-  React.useEffect(() => {
+  useEffect(() => {
     if (safeChartPlayerValue !== chartPlayerId) setChartPlayerId(safeChartPlayerValue);
   }, [safeChartPlayerValue, chartPlayerId]);
+  useEffect(() => {
+    if (lockPlayerBucket && playerBucket !== lockPlayerBucket) setPlayerBucket(lockPlayerBucket);
+  }, [lockPlayerBucket, playerBucket]);
+  useEffect(() => {
+    if (lockPlayerValue && chartPlayerId !== lockPlayerValue) setChartPlayerId(lockPlayerValue);
+  }, [lockPlayerValue, chartPlayerId]);
 
   const activeChartPlayerId = safeChartPlayerValue;
   const activeChartPlayer = useMemo(
@@ -1143,4 +1169,6 @@ function PlayersAnalyticsTab({ stats, homeTeam, awayTeam, playerOptions, reportF
 
 
 export default PlayersAnalyticsTab;
+
+
 

@@ -236,6 +236,10 @@ export function isBroughtBackAdvantageStat(stat) {
   );
 }
 
+export function shouldExcludeFromTotals(stat) {
+  return isBroughtBackAdvantageStat(stat);
+}
+
 export function getMatchSectionOffsets(match) {
   const second = getSecondHalfStartS(match);
   const secondHalfDuration = second;
@@ -948,13 +952,22 @@ export function buildDataHealthChecks(stats) {
 
   const possessionTeamById = new Map();
   const possessionIds = new Set();
+  const visitSelections = (value, callback) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => visitSelections(item, callback));
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    if (value.kind === 'player' || value.kind === 'team' || value.kind === 'none') callback(value);
+    for (const child of Object.values(value)) visitSelections(child, callback);
+  };
   for (const stat of list) {
     const type = String(stat?.stat_type || '');
     const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
     const rebuilt = rebuiltById.get(stat?.id) || stat;
     const pid = Number(rebuilt?.possession_id);
     const pside = rebuilt?.possession_team_side;
-    if (Number.isFinite(pid) && pid > 0) {
+    if (Number.isFinite(pid) && pid > 0 && !ADMIN_STAT_TYPES.includes(type)) {
       possessionIds.add(pid);
       const set = possessionTeamById.get(pid) || new Set();
       if (validTeamSide(pside)) set.add(pside);
@@ -986,9 +999,17 @@ export function buildDataHealthChecks(stats) {
       const defenderSide = extra?.carry?.defender?.team_side;
       if (validTeamSide(carrierSide) && defenderSide === carrierSide) add('warning', 'Same-team carry defender', 'High-pressure carry defender should be on the opposite team.', stat);
     }
+    if (!ADMIN_STAT_TYPES.includes(type) && !validTeamSide(pside)) {
+      add('warning', 'Missing possession team', 'Live/action rows should have a rebuilt possession team.', stat);
+    }
     if (!validTeamSide(stat?.team_side) && !ADMIN_STAT_TYPES.includes(type)) {
       add('warning', 'Unknown acting team', 'Live/action rows should have a clear acting team.', stat);
     }
+    visitSelections(extra, (selection) => {
+      if (selection?.kind === 'player' && !validTeamSide(selection?.team_side)) {
+        add('warning', 'Player selection missing side', 'Player selections inside row data should carry a home/away team side.', stat);
+      }
+    });
     if (normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover') !== String(extra?.turnover?.turnover_type || '') && extra?.turnover?.turnover_type) {
       add('info', 'Legacy turnover enum', 'This row uses a legacy turnover enum alias and should be normalized.', stat);
     }

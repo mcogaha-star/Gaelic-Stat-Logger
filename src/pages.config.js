@@ -52,6 +52,7 @@ import About from './pages/About';
 import Login from './pages/Login';
 import MatchReport from './pages/MatchReport';
 import MatchStats from './pages/MatchStats';
+import PlayerProfile from './pages/PlayerProfile';
 import Players from './pages/Players';
 import Privacy from './pages/Privacy';
 import Settings from './pages/Settings';
@@ -65,6 +66,7 @@ export const PAGES = {
     "Login": Login,
     "MatchReport": MatchReport,
     "MatchStats": MatchStats,
+    "PlayerProfile": PlayerProfile,
     "Players": Players,
     "Privacy": Privacy,
     "Settings": Settings,

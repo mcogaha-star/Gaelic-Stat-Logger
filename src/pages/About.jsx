@@ -32,6 +32,7 @@ const DEFINITIONS = [
   ['PPDA', 'Opponent completed passes divided by team defensive actions.'],
   ['Turnover Forced / Recovered', 'Player defense tables now split turnover involvement into turnovers a player forced and turnovers a player recovered, rather than one combined `TO Won` figure.'],
   ['Private Sync', 'Team and player names sync through account-private identity tables. Stat rows use private IDs and jersey-number fallbacks rather than duplicating names. This is pseudonymisation, not encryption.'],
+  ['Shared Match Copy', 'A share code creates a snapshot that another signed-in user can import as a full private copy, including team and player names. The imported copy is separate from the original and gets its own share code.'],
   ['Dispossessed - Retained', 'A carry where the ball carrier is disrupted or dispossessed but the in-possession team recovers the ball. It is not a turnover and does not end the possession.'],
   ['Broken - Retained', 'A pass that is broken up or disrupted, but the passer’s team still recovers it. It is treated as an incomplete pass, not a turnover.'],
   ['Brought Back Advantage In Calculations', 'Rows marked `Brought Back - Adv.` are excluded from stat calculations and player stats. Maps can still display them where relevant as visual context.'],
@@ -150,7 +151,10 @@ export default function About() {
                     This app is designed to help log match events quickly on a pitch map and export the data for analysis.
                   </p>
                   <p>
-                    For privacy information, see the Privacy page.
+                    Private sync is for your own account across devices. Shared match copies are separate and intentionally include team and player names when you generate a share code for someone else.
+                  </p>
+                  <p>
+                    For privacy and sharing information, see the Privacy page.
                   </p>
                 </div>
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, BarChart3, Copy, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createPageUrl } from '@/utils';
+import { toast } from 'sonner';
 import {
   formatHalfClock,
   getNormalizedTimeS,
@@ -61,6 +62,8 @@ import useFilteredReportStats from '@/features/report/hooks/useFilteredReportSta
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
 import useReportFilterState from '@/features/report/hooks/useReportFilterState';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+import { createSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
+import { useAuth } from '@/lib/AuthContext';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -177,8 +180,12 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
 export default function MatchReport() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
   const urlParams = new URLSearchParams(location?.search || '');
   const matchId = urlParams.get('id');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareCode, setShareCode] = useState('');
+  const [shareBusy, setShareBusy] = useState(false);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
@@ -219,6 +226,9 @@ export default function MatchReport() {
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
     enabled: !!matchId,
   });
+  useEffect(() => {
+    setShareCode(match?.latest_share_code || '');
+  }, [match?.latest_share_code]);
 
   const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
   const readDefenceSetMigrationDone = (key) => {
@@ -429,6 +439,51 @@ export default function MatchReport() {
         position: p.position || '',
       }));
   }, [homePlayers, awayPlayers]);
+  const allPlayersForShare = useMemo(() => [...(homePlayers || []), ...(awayPlayers || [])], [homePlayers, awayPlayers]);
+  const playerProfileUrlForRow = (row) => {
+    if (!row?.id || !row?.team) return null;
+    return createPageUrl(`PlayerProfile?matchId=${matchId}&playerId=${encodeURIComponent(row.id)}&teamSide=${encodeURIComponent(row.team)}`);
+  };
+  const handleCreateShareCode = async () => {
+    if (!isAuthenticated) {
+      toast.error('Sign in to create a share code');
+      return;
+    }
+    if (!match || !homeTeam || !awayTeam) {
+      toast.error('Match data is not ready yet');
+      return;
+    }
+    try {
+      setShareBusy(true);
+      const result = await createSharedMatchSnapshot({
+        match,
+        homeTeam,
+        awayTeam,
+        players: allPlayersForShare,
+        stats,
+      });
+      if (!result?.ok) throw new Error(result?.reason || 'Failed to create share code');
+      setShareCode(result.shareCode || '');
+      await db.entities.Match.update(match.id, {
+        latest_share_code: result.shareCode || '',
+        latest_shared_snapshot_id: result.snapshotId || null,
+      });
+      toast.success('Share code created');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to create share code');
+    } finally {
+      setShareBusy(false);
+    }
+  };
+  const handleCopyShareCode = async () => {
+    if (!shareCode) return;
+    try {
+      await navigator.clipboard.writeText(shareCode);
+      toast.success('Share code copied');
+    } catch {
+      toast.error('Could not copy share code');
+    }
+  };
 
   const defenseTurnoverTypeOptions = useMemo(() => {
     const values = new Set();
@@ -953,6 +1008,9 @@ export default function MatchReport() {
               </div>
             </div>
           </div>
+          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
+            <Share2 className="w-4 h-4" /> Share Copy
+          </Button>
         </div>
       </div>
 
@@ -1278,6 +1336,7 @@ export default function MatchReport() {
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              playerLinkFactory={playerProfileUrlForRow}
               focusPlayerId={playersFocusPlayerId}
               setFocusPlayerId={setPlayersFocusPlayerId}
             />
@@ -1296,6 +1355,31 @@ export default function MatchReport() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Match Copy</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Create a share code so another signed-in user can import a full private copy of this match, including team and player names. Their imported match will be separate from yours.
+            </p>
+            <div className="space-y-2">
+              <Label>Share Code</Label>
+              <div className="flex items-center gap-2">
+                <Input value={shareCode || ''} readOnly placeholder="Create a share code to begin" />
+                <Button type="button" variant="outline" size="icon" onClick={handleCopyShareCode} disabled={!shareCode}>
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            <Button type="button" className="w-full bg-green-600 hover:bg-green-700" onClick={handleCreateShareCode} disabled={shareBusy}>
+              {shareBusy ? 'Creating Share Code...' : (shareCode ? 'Create New Share Code' : 'Create Share Code')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen}>
         <DialogContent className="sm:max-w-4xl p-4">

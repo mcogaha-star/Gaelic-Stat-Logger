@@ -30,6 +30,7 @@ import {
     upsertPrivatePlayerFromLocal,
     upsertPrivateTeamFromLocal,
 } from '@/lib/serverSync';
+import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { deriveMatchLengthMinutes, isBroughtBackAdvantageStat } from '@/lib/reportAnalytics';
 import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -353,6 +354,8 @@ export default function Home() {
     const navigate = useNavigate();
     const { isAuthenticated } = useAuth();
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [importShareOpen, setImportShareOpen] = useState(false);
+    const [importShareCode, setImportShareCode] = useState('');
     const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
     const [newMatch, setNewMatch] = useState({
         home_team_id: '',
@@ -553,10 +556,40 @@ export default function Home() {
         },
     });
 
+    const importSharedMatchMutation = useMutation({
+        mutationFn: async (shareCode) => {
+            if (!isAuthenticated) throw new Error('Sign in to import a shared match');
+            const fetched = await fetchSharedMatchSnapshotByCode(shareCode);
+            if (!fetched?.ok || !fetched?.snapshot) throw new Error(fetched?.reason || 'Shared match not found');
+            return importSharedMatchSnapshot({ db, snapshotRow: fetched.snapshot });
+        },
+        onSuccess: (result) => {
+            queryClient.invalidateQueries({ queryKey: ['matches'] });
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['players'] });
+            queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+            setImportShareOpen(false);
+            setImportShareCode('');
+            toast.success('Shared match imported as a private copy');
+            if (result?.matchId) navigate(createPageUrl(`MatchReport?id=${result.matchId}`));
+        },
+        onError: (error) => {
+            toast.error(error?.message || 'Failed to import shared match');
+        },
+    });
+
     const handleCreateMatch = () => {
         if (!newMatch.date) { toast.error('Please fill in date'); return; }
         if (!newMatch.home_team_id || !newMatch.away_team_id) { toast.error('Please select both teams'); return; }
         createMatchMutation.mutate(newMatch);
+    };
+    const handleImportSharedMatch = () => {
+        const code = String(importShareCode || '').trim().toUpperCase();
+        if (!code) {
+            toast.error('Enter a share code');
+            return;
+        }
+        importSharedMatchMutation.mutate(code);
     };
 
     const getMatchTitle = (match) => {
@@ -790,6 +823,9 @@ export default function Home() {
                             >
                                 <Sparkles className="w-4 h-4" /> Demo
                             </Button>
+                            <Button type="button" variant="outline" className="gap-2" onClick={() => setImportShareOpen(true)}>
+                                <Copy className="w-4 h-4" /> Import Share
+                            </Button>
                             <Link to={createPageUrl('Teams')}>
                                 <Button variant="outline" className="gap-2"><Users className="w-4 h-4" /> Teams</Button>
                             </Link>
@@ -832,6 +868,14 @@ export default function Home() {
                             >
                                 <Sparkles className="w-4 h-4" /> Open Demo Match
                             </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="mt-3 gap-2"
+                                onClick={() => setImportShareOpen(true)}
+                            >
+                                <Copy className="w-4 h-4" /> Import Shared Match
+                            </Button>
                         </CardContent>
                     </Card>
                 ) : (
@@ -853,6 +897,11 @@ export default function Home() {
                                                 {match.is_synced_import && (
                                                     <div className="mt-1 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
                                                         Synced
+                                                    </div>
+                                                )}
+                                                {match.is_shared_copy && (
+                                                    <div className="mt-1 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                                        Shared Copy
                                                     </div>
                                                 )}
                                                 {match.competition && (
@@ -939,6 +988,36 @@ export default function Home() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <Dialog open={importShareOpen} onOpenChange={setImportShareOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Import Shared Match</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <p className="text-sm text-slate-600">
+                            Enter a share code from another signed-in user to import a full private copy of their match. Your imported copy is separate and can be reshared later with its own code.
+                        </p>
+                        <div className="space-y-2">
+                            <Label htmlFor="share-code-empty">Share Code</Label>
+                            <Input
+                                id="share-code-empty"
+                                value={importShareCode}
+                                onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
+                                placeholder="Enter share code"
+                            />
+                        </div>
+                        <Button
+                            type="button"
+                            className="w-full bg-green-600 hover:bg-green-700"
+                            disabled={importSharedMatchMutation.isPending}
+                            onClick={handleImportSharedMatch}
+                        >
+                            {importSharedMatchMutation.isPending ? 'Importing...' : 'Import Shared Match'}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -24,7 +24,7 @@ import {
   getProgressiveMeters,
   getScoringZoneEntry,
   isAttackPossession,
-  isBroughtBackAdvantageStat,
+  shouldExcludeFromTotals,
   isProgressive as isProgressiveShared,
   shotOutcomeGroup,
   shotPointsForOutcome,
@@ -279,7 +279,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     playerIds: [],
   }), [scopedReportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, possessionLevelFilters), [stats, possessionLevelFilters]);
-  const calcBase = useMemo(() => base.filter((s) => !isBroughtBackAdvantageStat(s)), [base]);
+  const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both'); // both|home|away
 
   const possessions = useMemo(() => {
@@ -343,14 +343,14 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
 
       const points = acting.reduce((a, e) => {
         if (e.stat_type !== 'shot') return a;
-        if (isBroughtBackAdvantageStat(e)) return a;
+        if (shouldExcludeFromTotals(e)) return a;
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return a + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0);
 
       const isAttack = isAttackPossession(evs, teamSide);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
-      const shots = acting.filter((e) => e.stat_type === 'shot' && !isBroughtBackAdvantageStat(e)).length;
+      const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e)).length;
       const counterState = deriveCounterAttackState(acting);
       const attackEntryChannel = isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '';
       const startZone = getPossessionStartZone(acting);
