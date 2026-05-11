@@ -28,6 +28,18 @@ async function requireAuthUser() {
   return data?.user ?? null;
 }
 
+async function retireOtherSnapshots({ userId, shareType, sourceMatchKey, keepId }) {
+  if (!userId || !shareType || !sourceMatchKey || !keepId) return;
+  await supabase
+    .from('shared_match_snapshots')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('share_type', shareType)
+    .eq('source_public_match_id', sourceMatchKey)
+    .is('deleted_at', null)
+    .neq('id', keepId);
+}
+
 export function generateShareCode(len = 10) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const chars = [];
@@ -94,6 +106,13 @@ function pickMatchPayload(match = {}) {
   return payload;
 }
 
+function getShareMatchKey(match = {}) {
+  const publicMatchId = String(match?.public_match_id || '').trim();
+  if (publicMatchId) return publicMatchId;
+  const localId = String(match?.id || '').trim();
+  return localId ? `local:${localId}` : null;
+}
+
 export function buildShareableMatchPayload({ match, homeTeam, awayTeam, players = [], stats = [] }) {
   const normalizedStats = rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((stats || []).filter((row) => row?.stat_type !== 'defensive_contact'))));
   return {
@@ -111,14 +130,56 @@ export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, pla
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!match?.id) return { ok: false, reason: 'missing_match' };
+  const sourceMatchKey = getShareMatchKey(match);
+  if (!sourceMatchKey) return { ok: false, reason: 'missing_match_key' };
 
   const payload = buildShareableMatchPayload({ match, homeTeam, awayTeam, players, stats });
+  const { data: existing, error: existingError } = await supabase
+    .from('shared_match_snapshots')
+    .select('id,share_code')
+    .eq('user_id', user.id)
+    .eq('share_type', shareType)
+    .eq('source_public_match_id', sourceMatchKey)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) return { ok: false, reason: existingError.message };
+
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from('shared_match_snapshots')
+      .update({
+        payload,
+        source_snapshot_id: sourceSnapshotId || existing.id,
+        shared_from_code: sharedFromCode || null,
+      })
+      .eq('id', existing.id)
+      .select('id,share_code')
+      .maybeSingle();
+    if (error) return { ok: false, reason: error.message };
+    await retireOtherSnapshots({
+      userId: user.id,
+      shareType,
+      sourceMatchKey,
+      keepId: data?.id || existing.id,
+    });
+    return {
+      ok: true,
+      snapshotId: data?.id || existing.id,
+      shareCode: data?.share_code || existing.share_code,
+      payload,
+      reused: true,
+    };
+  }
+
   const shareCode = generateShareCode();
   const insertPayload = {
     user_id: user.id,
     share_type: shareType,
     share_code: shareCode,
-    source_public_match_id: match.public_match_id || null,
+    source_public_match_id: sourceMatchKey,
     source_snapshot_id: sourceSnapshotId || null,
     shared_from_code: sharedFromCode || null,
     payload,
@@ -131,7 +192,13 @@ export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, pla
     .maybeSingle();
 
   if (error) return { ok: false, reason: error.message };
-  return { ok: true, snapshotId: data?.id || null, shareCode: data?.share_code || shareCode, payload };
+  await retireOtherSnapshots({
+    userId: user.id,
+    shareType,
+    sourceMatchKey,
+    keepId: data?.id || null,
+  });
+  return { ok: true, snapshotId: data?.id || null, shareCode: data?.share_code || shareCode, payload, reused: false };
 }
 
 export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = true, allowedTypes = [] } = {}) {

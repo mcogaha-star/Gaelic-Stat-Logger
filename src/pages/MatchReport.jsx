@@ -510,7 +510,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               latest_share_code: result.shareCode || '',
             }),
       });
-      toast.success(shareType === 'stat_view' ? 'Stat share code created' : 'Game share code created');
+      toast.success(
+        shareType === 'stat_view'
+          ? (result?.reused ? 'Stat share refreshed' : 'Stat share code created')
+          : (result?.reused ? 'Game share refreshed' : 'Game share code created'),
+      );
     } catch (error) {
       toast.error(error?.message || 'Failed to create share code');
     } finally {
@@ -1464,14 +1468,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 Signed-in users can import a full private copy of this match, including team and player names. Their imported copy is separate from yours.
               </p>
               <div className="flex items-center gap-2">
-                <Input value={gameShareCode || ''} readOnly placeholder="Create a game share code" />
+                <Input value={gameShareCode || ''} readOnly placeholder="Generate a game share code" />
                 <Button type="button" variant="outline" size="icon" onClick={() => handleCopyShareCode(gameShareCode)} disabled={!gameShareCode}>
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
-              <Button type="button" className="w-full bg-green-600 hover:bg-green-700" onClick={() => handleCreateShareCode('game_copy')} disabled={shareBusy}>
-                {shareBusy ? 'Creating...' : (gameShareCode ? 'Create New Game Share Code' : 'Create Game Share Code')}
-              </Button>
+                <Button type="button" className="w-full bg-green-600 hover:bg-green-700" onClick={() => handleCreateShareCode('game_copy')} disabled={shareBusy}>
+                  {shareBusy ? 'Saving...' : (gameShareCode ? 'Refresh Game Share' : 'Generate Game Share Code')}
+                </Button>
             </div>
             <div className="space-y-3 rounded-xl border border-slate-200 p-4">
               <div className="font-medium text-slate-900">Stat Share</div>
@@ -1479,14 +1483,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 Anyone with this code can open a read-only version of the stat pages for this match from the login screen, without importing a copy.
               </p>
               <div className="flex items-center gap-2">
-                <Input value={statViewShareCode || ''} readOnly placeholder="Create a stat share code" />
+                <Input value={statViewShareCode || ''} readOnly placeholder="Generate a stat share code" />
                 <Button type="button" variant="outline" size="icon" onClick={() => handleCopyShareCode(statViewShareCode)} disabled={!statViewShareCode}>
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
-              <Button type="button" className="w-full bg-slate-900 hover:bg-slate-800" onClick={() => handleCreateShareCode('stat_view')} disabled={shareBusy}>
-                {shareBusy ? 'Creating...' : (statViewShareCode ? 'Create New Stat Share Code' : 'Create Stat Share Code')}
-              </Button>
+                <Button type="button" className="w-full bg-slate-900 hover:bg-slate-800" onClick={() => handleCreateShareCode('stat_view')} disabled={shareBusy}>
+                  {shareBusy ? 'Saving...' : (statViewShareCode ? 'Refresh Stat Share' : 'Generate Stat Share Code')}
+                </Button>
             </div>
           </div>
         </DialogContent>
