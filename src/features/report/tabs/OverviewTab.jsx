@@ -1,6 +1,8 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPct } from '../shared';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
@@ -12,6 +14,8 @@ export default function OverviewTab({
   summary,
   overviewMomentum,
   overviewPossessionOutcome,
+  overviewHalf,
+  setOverviewHalf,
 }) {
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
@@ -19,6 +23,9 @@ export default function OverviewTab({
     { k: 'Turnover', c: '#f97316' },
     { k: 'Half End', c: '#64748b' },
   ];
+  const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover']);
+  const [breakdownOpen, setBreakdownOpen] = React.useState(false);
+  const [breakdownCategory, setBreakdownCategory] = React.useState('');
   const momentumRows = React.useMemo(
     () => (Array.isArray(overviewMomentum?.rows) ? overviewMomentum.rows.map((row) => ({
       ...row,
@@ -29,6 +36,29 @@ export default function OverviewTab({
     [overviewMomentum]
   );
   const showMomentum = overviewMomentum.mode !== 'none' && momentumRows.length > 0;
+  const possessionOutcomeRows = Array.isArray(overviewPossessionOutcome?.rows) ? overviewPossessionOutcome.rows : [];
+  const openBreakdown = React.useCallback((key) => {
+    if (!clickableOutcomeKeys.has(key)) return;
+    setBreakdownCategory(key);
+    setBreakdownOpen(true);
+  }, []);
+  const breakdownRows = React.useMemo(
+    () => (breakdownCategory ? (overviewPossessionOutcome?.breakdownRows?.[breakdownCategory] || []) : []),
+    [overviewPossessionOutcome, breakdownCategory]
+  );
+  const breakdownSeries = React.useMemo(() => {
+    if (!breakdownRows.length) return [];
+    const keys = Array.from(new Set(breakdownRows.flatMap((row) => Object.keys(row || {}))))
+      .filter((key) => !['team', 'side'].includes(key));
+    const palette = ['#047857', '#0ea5e9', '#6366f1', '#f59e0b', '#dc2626', '#7c3aed', '#334155'];
+    return keys.map((key, index) => ({ key, color: palette[index % palette.length] }));
+  }, [breakdownRows]);
+  const formatSigned = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 'NA';
+    if (n > 0) return `+${n}`;
+    return `${n}`;
+  };
   const renderPossessionOutcomeTooltip = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload;
@@ -56,9 +86,23 @@ export default function OverviewTab({
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            <Card className="h-full">
+            <Card className="h-full border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
-                <div className="font-semibold text-slate-900">Score Timeline</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold text-slate-900">Score Timeline</div>
+                  <div className="w-[150px]">
+                    <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+                      <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs">
+                        <SelectValue placeholder="All Halves" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Halves</SelectItem>
+                        <SelectItem value="first">1st Half</SelectItem>
+                        <SelectItem value="second">2nd Half</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 {scoreTimeline.points.length <= 1 ? (
                   <div className="text-xs text-slate-500">No scoring events in the selected window.</div>
                 ) : (
@@ -106,7 +150,9 @@ export default function OverviewTab({
                             }}
                             labelFormatter={(_, payload) => {
                               const row = payload?.[0]?.payload;
-                              return scoreTimeline.mode === 'time' ? `Time: ${row?.label || ''}` : `Play: ${String(row?.x ?? '')}`;
+                              const heading = scoreTimeline.mode === 'time' ? `Time: ${row?.label || ''}` : `Play: ${String(row?.x ?? '')}`;
+                              const event = row?.eventLabel ? ` • ${row.eventLabel}` : '';
+                              return `${heading}${event}`;
                             }}
                           />
                         }
@@ -122,9 +168,9 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full">
+            <Card className="h-full border-slate-200 bg-gradient-to-br from-slate-50 via-white to-white shadow-sm">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
-                <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-xs text-slate-600">
+                <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs text-slate-600 shadow-sm">
                   <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
                     <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
                     <span className="truncate">{homeTeam?.name || 'Home'}</span>
@@ -151,9 +197,9 @@ export default function OverviewTab({
                       },
                       { label: 'Shots', home: summary.home.shots, away: summary.away.shots },
                       {
-                        label: 'Shot Conversion %',
-                        home: summary.home.shots ? formatPct((homeScores / summary.home.shots) * 100) : 'NA',
-                        away: summary.away.shots ? formatPct((awayScores / summary.away.shots) * 100) : 'NA',
+                        label: 'Points Per Shot',
+                        home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
+                        away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : 'NA',
                       },
                       {
                         label: 'Own Kickout Win %',
@@ -171,24 +217,19 @@ export default function OverviewTab({
                         })(),
                       },
                       {
-                        label: 'Turnover Differential',
-                        home: summary.home.turnoversWon - summary.home.turnovers,
-                        away: summary.away.turnoversWon - summary.away.turnovers,
+                        label: 'Turnovers Lost',
+                        home: `${summary.home.turnovers} (${formatSigned(summary.home.turnoversWon - summary.home.turnovers)})`,
+                        away: `${summary.away.turnovers} (${formatSigned(summary.away.turnoversWon - summary.away.turnovers)})`,
                       },
                       {
                         label: 'Points Per Possession',
                         home: summary.home.possessions ? (summary.home.totalPoints / summary.home.possessions).toFixed(2) : 'NA',
                         away: summary.away.possessions ? (summary.away.totalPoints / summary.away.possessions).toFixed(2) : 'NA',
                       },
-                      {
-                        label: 'Points Per Shot',
-                        home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
-                        away: summary.away.shots ? (summary.away.totalPoints / summary.away.shots).toFixed(2) : 'NA',
-                      },
                     ];
 
                     return metrics.map((m) => (
-                      <div key={m.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <div key={m.label} className="rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 px-3 py-2 shadow-sm">
                         <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
                           <div className={`text-left tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>{m.home}</div>
                           <div className="text-center text-xs font-medium text-slate-600">{m.label}</div>
@@ -203,7 +244,7 @@ export default function OverviewTab({
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            <Card className="h-full">
+            <Card className="h-full border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm">
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
                 <div className="font-semibold text-slate-900">Momentum</div>
                 {!showMomentum ? (
@@ -251,6 +292,24 @@ export default function OverviewTab({
                                 <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
                                 <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.away || 50))}%</span>
                               </div>
+                              <div className="border-t border-slate-200 pt-1 mt-1 space-y-1">
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">Possession Time</span>
+                                  <span className="font-mono text-foreground">{(Number(row?.home_poss_time || 0) / 60).toFixed(1)}m / {(Number(row?.away_poss_time || 0) / 60).toFixed(1)}m</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">Shots</span>
+                                  <span className="font-mono text-foreground">{Number(row?.home_shots || 0)} / {Number(row?.away_shots || 0)}</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">TO Won</span>
+                                  <span className="font-mono text-foreground">{Number(row?.home_to_won || 0)} / {Number(row?.away_to_won || 0)}</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">KO Won</span>
+                                  <span className="font-mono text-foreground">{Number(row?.home_ko_won || 0)} / {Number(row?.away_ko_won || 0)}</span>
+                                </div>
+                              </div>
                             </div>
                           );
                         }}
@@ -266,22 +325,44 @@ export default function OverviewTab({
                   </ChartContainer>
                 </div>
                 )}
-                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Above the centre line favours home; below favours away.</div>
+                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Weighted by kickouts won, turnovers won, shots, possession time, and scores. Above the centre line favours home; below favours away.</div>
               </CardContent>
             </Card>
 
-            <Card className="h-full">
+            <Card className="h-full border-slate-200 bg-gradient-to-br from-slate-50 via-white to-white shadow-sm">
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
-                <div className="font-semibold text-slate-900">Possession Outcomes</div>
+                <div className="space-y-2">
+                  <div className="font-semibold text-slate-900">Possession Outcomes</div>
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    {outcomeSeries.map((series) => (
+                      <button
+                        key={series.k}
+                        type="button"
+                        onClick={() => openBreakdown(series.k)}
+                        disabled={!clickableOutcomeKeys.has(series.k)}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${clickableOutcomeKeys.has(series.k) ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'border-slate-100 bg-slate-50 text-slate-400 cursor-default'}`}
+                      >
+                        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: series.c }} />
+                        <span>{series.k}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <ChartContainer id="possession-outcomes-overview" className="h-[240px] w-full flex-1" config={{}}>
-                  <BarChart data={overviewPossessionOutcome} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                  <BarChart data={possessionOutcomeRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                     <CartesianGrid vertical={false} />
                     <XAxis dataKey="team" className="text-xs" />
                     <YAxis allowDecimals={false} className="text-xs" />
                     <Tooltip content={renderPossessionOutcomeTooltip} />
-                    <Legend />
                     {outcomeSeries.map((o) => (
-                      <Bar key={o.k} dataKey={o.k} stackId="a" fill={o.c} />
+                      <Bar
+                        key={o.k}
+                        dataKey={o.k}
+                        stackId="a"
+                        fill={o.c}
+                        onClick={() => openBreakdown(o.k)}
+                        cursor={clickableOutcomeKeys.has(o.k) ? 'pointer' : 'default'}
+                      />
                     ))}
                   </BarChart>
                 </ChartContainer>
@@ -290,6 +371,31 @@ export default function OverviewTab({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={breakdownOpen} onOpenChange={setBreakdownOpen}>
+        <DialogContent className="max-w-4xl w-[94vw]">
+          <DialogHeader>
+            <DialogTitle>{breakdownCategory} Breakdown</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-slate-600">
+              Breakdown of the selected possession outcome by team.
+            </div>
+            <ChartContainer id="overview-outcome-breakdown" className="h-[320px] w-full" config={{}}>
+              <BarChart data={breakdownRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="team" className="text-xs" />
+                <YAxis allowDecimals={false} className="text-xs" />
+                <Tooltip />
+                <Legend />
+                {breakdownSeries.map((series) => (
+                  <Bar key={series.key} dataKey={series.key} stackId="a" fill={series.color} />
+                ))}
+              </BarChart>
+            </ChartContainer>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

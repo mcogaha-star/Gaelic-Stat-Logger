@@ -30,6 +30,7 @@ import {
   deriveMatchLengthMinutes,
   inferRestartWinnerSide,
   isBroughtBackAdvantageStat,
+  isDeadBallGapStart,
   normalizeDefenceSetRows,
   normalizeStatModelRows,
   rebuildPossessionRows,
@@ -93,11 +94,18 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
     const times = rows
       .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
       .filter(Number.isFinite);
+    const periodEndTimes = rows
+      .filter((stat) => stat?.stat_type === 'period_end')
+      .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
+      .filter(Number.isFinite);
+    const lastLiveOrLoggedTime = times.length ? Math.max(...times) : 0;
+    const boundaryTime = periodEndTimes.length ? Math.max(...periodEndTimes) : lastLiveOrLoggedTime;
     return {
       half,
       rows,
       hasData: times.length > 0,
-      extent: times.length ? Math.max(...times) : 0,
+      extent: lastLiveOrLoggedTime,
+      boundaryTime,
     };
   }).filter((section) => section.hasData);
 
@@ -117,17 +125,17 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       ...section,
       offset: runningOffset,
     };
-    runningOffset += section.extent;
+    runningOffset += section.boundaryTime;
     return next;
   });
 
-  const axisMax = Math.max(5 * 60, sections[sections.length - 1].offset + sections[sections.length - 1].extent);
+  const axisMax = Math.max(5 * 60, sections[sections.length - 1].offset + sections[sections.length - 1].boundaryTime);
   const ticks = Array.from(new Set(sections.flatMap((section) => {
     const values = [section.offset];
-    for (let local = 10 * 60; local < section.extent; local += 10 * 60) {
+    for (let local = 10 * 60; local < section.boundaryTime; local += 10 * 60) {
       values.push(section.offset + local);
     }
-    values.push(section.offset + section.extent);
+    values.push(section.offset + section.boundaryTime);
     return values;
   })))
     .filter((value) => Number.isFinite(value) && value >= 0 && value <= axisMax)
@@ -138,11 +146,11 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       const label = getSectionBoundaryLabel(section.half);
       if (!label) return null;
       const hasNextSection = index < sections.length - 1;
-      if (!hasNextSection && section.extent <= 0) return null;
+      if (!hasNextSection && section.boundaryTime <= 0) return null;
       return {
         key: `${section.half}-boundary`,
         label,
-        x: section.offset + section.extent,
+        x: section.offset + section.boundaryTime,
       };
     })
     .filter(Boolean);
@@ -151,7 +159,7 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
     const value = Math.max(0, Number(displayTimeS) || 0);
     for (const section of sections) {
       const start = section.offset;
-      const end = section.offset + section.extent;
+      const end = section.offset + section.boundaryTime;
       if (value >= start && value <= end) return section;
     }
     return sections[sections.length - 1];
@@ -812,6 +820,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         home_points: homePts,
         away_points: awayPts,
         label: mode === 'time' ? displayLayout.formatTick(x) : String(x),
+        eventLabel: (() => {
+          const player = e.extra?.shot?.player;
+          const number = String(player?.number || '').trim();
+          const name = String(player?.name || '').trim();
+          const playerLabel = [number ? `#${number}` : '', name].filter(Boolean).join(' ');
+          const outcomeLabel = e.outcome === 'goal' ? 'Goal' : e.outcome === '2_point' ? '2 Point' : 'Point';
+          return [playerLabel, outcomeLabel].filter(Boolean).join(' • ');
+        })(),
       });
     }
 
@@ -825,43 +841,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     };
   }, [overviewStats, match, imputedTimeById]);
 
-  const overviewAttackOutcome = useMemo(() => {
-    const groups = groupByPossession(overviewStats);
-    const outcomes = {
-      home: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0 },
-      away: { Goal: 0, '2 Point': 0, '1 Point': 0, Miss: 0, Turnover: 0 },
-    };
-
-    for (const [key, evs] of groups.entries()) {
-      const [teamSide] = String(key).split('-');
-      if (teamSide !== 'home' && teamSide !== 'away') continue;
-      if (!possessionHasOpp45Entry(evs, teamSide)) continue; // attack = entry to opp 45 (one per possession)
-      const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
-      const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e));
-      let scoreType = '';
-      for (const e of shots) {
-        const ex = safeParseJSON(e.extra_data || '{}', {});
-        const o = String(ex?.shot?.outcome || '');
-        if (o === 'goal') { scoreType = 'Goal'; break; }
-        if (o === '2_point') scoreType = scoreType || '2 Point';
-        if (o === 'point') scoreType = scoreType || '1 Point';
-      }
-      if (scoreType) outcomes[teamSide][scoreType] += 1;
-      else if (shots.length) outcomes[teamSide].Miss += 1;
-      else outcomes[teamSide].Turnover += 1;
-    }
-
-    const data = [
-      { team: homeTeam?.name || 'Home', side: 'home', ...outcomes.home },
-      { team: awayTeam?.name || 'Away', side: 'away', ...outcomes.away },
-    ];
-    return { outcomes, data };
-  }, [overviewStats, homeTeam, awayTeam]);
-
   const overviewPossessionOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
     const init = () => ({ Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 });
     const outcomes = { home: init(), away: init() };
+    const breakdownInit = () => ({
+      Score: { Goal: 0, '2 Point': 0, '1 Point': 0 },
+      'Missed Shot': { Wide: 0, Short: 0, Blocked: 0, Saved: 0, Post: 0 },
+      Turnover: {},
+      'Half End': { 'Half End': 0 },
+    });
+    const breakdowns = { home: breakdownInit(), away: breakdownInit() };
 
     for (const [key, evs] of groups.entries()) {
       const [teamSide] = String(key).split('-');
@@ -874,12 +864,75 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
       if (outcomes[teamSide][outcome] == null) outcomes[teamSide][outcome] = 0;
       outcomes[teamSide][outcome] += 1;
+
+      if (outcome === 'Score') {
+        let scoreType = '1 Point';
+        for (const shot of acting.filter((e) => e?.stat_type === 'shot' && !shouldExcludeFromTotals(e))) {
+          const ex = safeParseJSON(shot?.extra_data || '{}', {});
+          const shotOutcome = String(ex?.shot?.outcome || '');
+          if (shotOutcome === 'goal') { scoreType = 'Goal'; break; }
+          if (shotOutcome === '2_point') scoreType = '2 Point';
+        }
+        breakdowns[teamSide].Score[scoreType] = Number(breakdowns[teamSide].Score[scoreType] || 0) + 1;
+      } else if (outcome === 'Missed Shot') {
+        const labelMap = { Wide: 'Wide', Short: 'Short', Blocked: 'Blocked', Saved: 'Saved', Post: 'Post' };
+        const keyLabel = labelMap[rawOutcome] || 'Wide';
+        breakdowns[teamSide]['Missed Shot'][keyLabel] = Number(breakdowns[teamSide]['Missed Shot'][keyLabel] || 0) + 1;
+      } else if (outcome === 'Turnover') {
+        const ordered = acting.slice().sort((a, b) => {
+          const pa = Number(a?.play_id);
+          const pb = Number(b?.play_id);
+          if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+          const ta = Number(a?.normalized_time_s);
+          const tb = Number(b?.normalized_time_s);
+          if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+          return String(a?.id || '').localeCompare(String(b?.id || ''));
+        });
+        let turnoverLabel = 'Other';
+        for (let idx = ordered.length - 1; idx >= 0; idx -= 1) {
+          const stat = ordered[idx];
+          const ex = safeParseJSON(stat?.extra_data || '{}', {});
+          const passOutcome = String(ex?.pass?.outcome || '');
+          const carryOutcome = String(ex?.carry?.outcome || '');
+          const turnoverType = String(ex?.turnover?.turnover_type || ex?.turnover?.type || '');
+          if (stat?.stat_type === 'turnover' || turnoverType || passOutcome === 'turnover' || carryOutcome === 'turnover') {
+            turnoverLabel = toTitleCase(turnoverType || 'turnover');
+            break;
+          }
+          if (['sideline_against', '45_against', 'goal_kick_against'].includes(passOutcome) || ['sideline_against', '45_against', 'goal_kick_against'].includes(carryOutcome)) {
+            turnoverLabel = toTitleCase(passOutcome || carryOutcome);
+            break;
+          }
+          if (passOutcome === 'foul' || carryOutcome === 'foul') {
+            const foul = extractFoulFromStat(stat);
+            turnoverLabel = toTitleCase(foul?.foul_type || 'foul');
+            break;
+          }
+        }
+        breakdowns[teamSide].Turnover[turnoverLabel] = Number(breakdowns[teamSide].Turnover[turnoverLabel] || 0) + 1;
+      } else if (outcome === 'Half End') {
+        breakdowns[teamSide]['Half End']['Half End'] = Number(breakdowns[teamSide]['Half End']['Half End'] || 0) + 1;
+      }
     }
 
-    return [
+    const rows = [
       { team: homeTeam?.name || 'Home', side: 'home', ...outcomes.home },
       { team: awayTeam?.name || 'Away', side: 'away', ...outcomes.away },
     ];
+    const breakdownRows = Object.fromEntries(
+      ['Score', 'Missed Shot', 'Turnover', 'Half End'].map((category) => {
+        const keys = Array.from(new Set([
+          ...Object.keys(breakdowns.home[category] || {}),
+          ...Object.keys(breakdowns.away[category] || {}),
+        ]));
+        return [category, [
+          { team: homeTeam?.name || 'Home', side: 'home', ...Object.fromEntries(keys.map((key) => [key, Number(breakdowns.home[category]?.[key] || 0)])) },
+          { team: awayTeam?.name || 'Away', side: 'away', ...Object.fromEntries(keys.map((key) => [key, Number(breakdowns.away[category]?.[key] || 0)])) },
+        ]];
+      })
+    );
+
+    return { rows, breakdownRows };
   }, [overviewStats, homeTeam, awayTeam]);
 
   const overviewMomentum = useMemo(() => {
@@ -907,26 +960,30 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       if (lost === 'home' || lost === 'away') return lost;
       return null;
     };
-
-    const possessionStarts = [];
-    const groups = groupByPossession(withTime.map((entry) => entry.stat));
-    for (const [key, events] of groups.entries()) {
-      const times = events
-        .map((event) => ({
-          half: event?.half,
-          localTime: getNormalizedTimeS(event, imputedTimeById),
-          displayTime: displayLayout.getDisplayTimeForStat(event),
-        }))
-        .filter((entry) => Number.isFinite(entry.localTime) && Number.isFinite(entry.displayTime))
-        .sort((a, b) => a.displayTime - b.displayTime);
-      if (!times.length) continue;
-      possessionStarts.push({
-        key,
-        side: String(key).startsWith('away-') ? 'away' : 'home',
-        half: times[0].half,
-        localTime: times[0].localTime,
-        displayTime: times[0].displayTime,
-      });
+    const turnoverWonSide = (s) => {
+      const ex = safeParseJSON(s?.extra_data || '{}', {});
+      const recovered = ex?.turnover?.recovered_by?.team_side;
+      const forced = ex?.turnover?.forced_by?.team_side;
+      if (recovered === 'home' || recovered === 'away') return recovered;
+      if (forced === 'home' || forced === 'away') return forced;
+      const foul = extractFoulFromStat(s);
+      const foulOn = foul?.foul_on_or_forced_by?.team_side || foul?.foul_on?.team_side;
+      if (foulOn === 'home' || foulOn === 'away') return foulOn;
+      const lost = turnoverLostSide(s);
+      return oppositeTeamSide(lost);
+    };
+    const liveIntervals = [];
+    for (let idx = 0; idx < withTime.length - 1; idx += 1) {
+      const current = withTime[idx];
+      const next = withTime[idx + 1];
+      if (!current?.stat || !next?.stat) continue;
+      const start = Number(current.displayTime);
+      const end = Number(next.displayTime);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+      if (isDeadBallGapStart(current.stat)) continue;
+      const side = current.stat?.possession_team_side;
+      if (side !== 'home' && side !== 'away') continue;
+      liveIntervals.push({ side, start, end });
     }
 
     const axisMax = Math.max(5 * 60, displayLayout.axisMax);
@@ -937,17 +994,18 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       const windowStart = Math.max(displayLayout.getSectionStartForDisplayTime(minuteMark), minuteMark - 5 * 60);
       const windowStats = withTime.filter((entry) => entry.displayTime > windowStart && entry.displayTime <= minuteMark);
       const statsBySide = {
-        home: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
-        away: { pts: 0, shots: 0, poss: new Set(), toLost: 0, possWins: 0 },
+        home: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
+        away: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
       };
 
-      for (const { stat } of windowStats) {
-        const pid = Number(stat?.possession_id);
-        const pside = stat?.possession_team_side;
-        if (Number.isFinite(pid) && (pside === 'home' || pside === 'away')) {
-          statsBySide[pside].poss.add(`${pside}-${pid}`);
+      for (const interval of liveIntervals) {
+        const overlap = Math.max(0, Math.min(interval.end, minuteMark) - Math.max(interval.start, windowStart));
+        if (overlap > 0 && (interval.side === 'home' || interval.side === 'away')) {
+          statsBySide[interval.side].possSeconds += overlap;
         }
+      }
 
+      for (const { stat } of windowStats) {
         if (stat.stat_type === 'shot' && !shouldExcludeFromTotals(stat)) {
           const ex = safeParseJSON(stat.extra_data || '{}', {});
           const o = ex?.shot?.outcome;
@@ -963,36 +1021,29 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         }
 
         if (!shouldExcludeFromTotals(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
-          const lostSide = turnoverLostSide(stat);
-          if (lostSide) statsBySide[lostSide].toLost += 1;
+          const wonSide = turnoverWonSide(stat);
+          if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].toWon += 1;
+        }
+
+        if (stat.stat_type === 'kickout') {
+          const wonSide = inferRestartWinnerSide(stat, nextStatById.get(stat?.id));
+          if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].kickoutsWon += 1;
         }
       }
 
-      for (const pos of possessionStarts) {
-        if (pos.displayTime > windowStart && pos.displayTime <= minuteMark) {
-          statsBySide[pos.side].possWins += 1;
-        }
-      }
-
-      const homePoss = statsBySide.home.poss.size;
-      const awayPoss = statsBySide.away.poss.size;
-
-      const homeProd = homePoss ? statsBySide.home.pts / homePoss : 0;
-      const awayProd = awayPoss ? statsBySide.away.pts / awayPoss : 0;
-
-      const homeTC = homePoss ? (1 - statsBySide.home.toLost / homePoss) : 0;
-      const awayTC = awayPoss ? (1 - statsBySide.away.toLost / awayPoss) : 0;
-
-      const homeEff = statsBySide.home.shots ? (statsBySide.home.pts / statsBySide.home.shots) : 0;
-      const awayEff = statsBySide.away.shots ? (statsBySide.away.pts / statsBySide.away.shots) : 0;
-
+      const kickoutShareHome = share(statsBySide.home.kickoutsWon, statsBySide.away.kickoutsWon);
+      const turnoverShareHome = share(statsBySide.home.toWon, statsBySide.away.toWon);
+      const shotShareHome = share(statsBySide.home.shots, statsBySide.away.shots);
+      const possessionTimeShareHome = share(statsBySide.home.possSeconds, statsBySide.away.possSeconds);
       const pointShareHome = share(statsBySide.home.pts, statsBySide.away.pts);
-      const prodShareHome = share(homeProd, awayProd);
-      const tcShareHome = share(homeTC, awayTC);
-      const pwShareHome = share(statsBySide.home.possWins, statsBySide.away.possWins);
-      const effShareHome = share(homeEff, awayEff);
 
-      const mHome = 100 * (0.35 * pointShareHome + 0.25 * prodShareHome + 0.20 * tcShareHome + 0.10 * pwShareHome + 0.10 * effShareHome);
+      const mHome = 100 * (
+        0.25 * kickoutShareHome
+        + 0.20 * turnoverShareHome
+        + 0.10 * shotShareHome
+        + 0.25 * possessionTimeShareHome
+        + 0.20 * pointShareHome
+      );
       const mAway = 100 - mHome;
 
       return {
@@ -1003,10 +1054,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         away: Number.isFinite(mAway) ? mAway : 50,
         home_pts: statsBySide.home.pts,
         away_pts: statsBySide.away.pts,
-        home_poss: homePoss,
-        away_poss: awayPoss,
-        home_to: statsBySide.home.toLost,
-        away_to: statsBySide.away.toLost,
+        home_poss_time: statsBySide.home.possSeconds,
+        away_poss_time: statsBySide.away.possSeconds,
+        home_to_won: statsBySide.home.toWon,
+        away_to_won: statsBySide.away.toWon,
+        home_ko_won: statsBySide.home.kickoutsWon,
+        away_ko_won: statsBySide.away.kickoutsWon,
+        home_shots: statsBySide.home.shots,
+        away_shots: statsBySide.away.shots,
       };
     });
 
@@ -1085,7 +1140,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="video">Video</TabsTrigger>
             </TabsList>
-            {showTopFiltersButton && activeTab !== 'visualiser' && (
+            {showTopFiltersButton && activeTab !== 'visualiser' && activeTab !== 'summary' && (
               <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="ml-auto gap-2">
@@ -1261,6 +1316,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               summary={summary}
               overviewMomentum={overviewMomentum}
               overviewPossessionOutcome={overviewPossessionOutcome}
+              overviewHalf={overviewHalf}
+              setOverviewHalf={setOverviewHalf}
             />
           </TabsContent>
 
