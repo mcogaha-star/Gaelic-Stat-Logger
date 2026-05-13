@@ -83,26 +83,26 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <div className="w-[150px]">
+          <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+            <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs shadow-sm">
+              <SelectValue placeholder="All Halves" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Halves</SelectItem>
+              <SelectItem value="first">1st Half</SelectItem>
+              <SelectItem value="second">2nd Half</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             <Card className="h-full border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold text-slate-900">Score Timeline</div>
-                  <div className="w-[150px]">
-                    <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                      <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs">
-                        <SelectValue placeholder="All Halves" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Halves</SelectItem>
-                        <SelectItem value="first">1st Half</SelectItem>
-                        <SelectItem value="second">2nd Half</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <div className="font-semibold text-slate-900">Score Timeline</div>
                 {scoreTimeline.points.length <= 1 ? (
                   <div className="text-xs text-slate-500">No scoring events in the selected window.</div>
                 ) : (
@@ -217,9 +217,9 @@ export default function OverviewTab({
                         })(),
                       },
                       {
-                        label: 'Turnovers Lost',
-                        home: `${summary.home.turnovers} (${formatSigned(summary.home.turnoversWon - summary.home.turnovers)})`,
-                        away: `${summary.away.turnovers} (${formatSigned(summary.away.turnoversWon - summary.away.turnovers)})`,
+                        label: 'Turnovers Won',
+                        home: `${summary.home.turnoversWon} (${formatSigned(summary.home.turnoversWon - summary.home.turnovers)})`,
+                        away: `${summary.away.turnoversWon} (${formatSigned(summary.away.turnoversWon - summary.away.turnovers)})`,
                       },
                       {
                         label: 'Points Per Possession',
@@ -325,7 +325,6 @@ export default function OverviewTab({
                   </ChartContainer>
                 </div>
                 )}
-                <div className="text-[11px] text-slate-500">Composite share using a rolling 5-minute window. Weighted by kickouts won, turnovers won, shots, possession time, and scores. Above the centre line favours home; below favours away.</div>
               </CardContent>
             </Card>
 
