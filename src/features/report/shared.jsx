@@ -2126,7 +2126,7 @@ function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayC
   );
 }
 
-function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam }) {
+function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam, showPlayer = true, showAction = true }) {
   const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
     ? reportFilters.allowedActionTypes
     : null;
@@ -2186,21 +2186,25 @@ function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam 
         options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
       />
 
-      <MultiSelect
-        label="Player"
-        placeholder="Any"
-        values={reportFilters.playerIds}
-        onChange={reportFilters.setPlayerIds}
-        options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
-      />
+      {showPlayer ? (
+        <MultiSelect
+          label="Player"
+          placeholder="Any"
+          values={reportFilters.playerIds}
+          onChange={reportFilters.setPlayerIds}
+          options={(playerOptions || []).map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
+        />
+      ) : null}
 
-      <MultiSelect
-        label="Action"
-        placeholder="All"
-        values={effectiveActionValues}
-        onChange={reportFilters.setActionTypes}
-        options={actionOptions}
-      />
+      {showAction ? (
+        <MultiSelect
+          label="Action"
+          placeholder="All"
+          values={effectiveActionValues}
+          onChange={reportFilters.setActionTypes}
+          options={actionOptions}
+        />
+      ) : null}
 
       <MultiSelect
         label="Outcome"

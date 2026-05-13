@@ -580,10 +580,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     setScoringSituation,
     scoringPressure,
     setScoringPressure,
-    scoringOutcome,
-    setScoringOutcome,
-    scoringZone,
-    setScoringZone,
+    scoringMethod,
+    setScoringMethod,
     possessionsCounterFilter,
     setPossessionsCounterFilter,
     buildEventTypes,
@@ -1167,12 +1165,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     {activeTab === 'scoring' && (
                       <>
                         <div className="font-semibold text-slate-900">Scoring Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showPlayer={false} showAction={false} />
                         <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-                        <MultiSelect label="Situation" placeholder="All" values={scoringSituation} onChange={setScoringSituation} options={['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <MultiSelect label="Situation" placeholder="All" values={scoringSituation} onChange={setScoringSituation} options={[{ value: 'play', label: 'Play' }, { value: 'deadball', label: 'Deadball' }]} />
                         <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Outcome" placeholder="All" values={scoringOutcome} onChange={setScoringOutcome} options={['goal', 'point', '2_point', 'wide', 'short', 'post', 'saved', 'blocked'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Shot Zone" placeholder="All" values={scoringZone} onChange={setScoringZone} options={[{ value: 'inside_21', label: 'Inside 21' }, { value: '21_45', label: '21-45' }, { value: '45_65', label: '45-65' }, { value: '65_plus', label: '65+' }]} />
+                        <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                       </>
                     )}
                     {activeTab === 'possessions' && (
@@ -1355,10 +1352,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               setSituation={setScoringSituation}
               pressure={scoringPressure}
               setPressure={setScoringPressure}
-              outcome={scoringOutcome}
-              setOutcome={setScoringOutcome}
-              zone={scoringZone}
-              setZone={setScoringZone}
+              method={scoringMethod}
+              setMethod={setScoringMethod}
               onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>

@@ -266,18 +266,18 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
           id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
           className="h-[240px] w-full"
           config={{
-            home_scored_pct: { label: 'Home Scored %', color: homeFill },
-            home_missed_pct: { label: 'Home No Score %', color: faded(homeFill, 0.28) },
-            away_scored_pct: { label: 'Away Scored %', color: awayFill },
-            away_missed_pct: { label: 'Away No Score %', color: faded(awayFill, 0.28) },
-            scored_pct: { label: 'Scored %', color: teamMode === 'away' ? awayFill : homeFill },
-            missed_pct: { label: 'No Score %', color: faded(teamMode === 'away' ? awayFill : homeFill, 0.28) },
+            home_scored: { label: 'Home Scored', color: homeFill },
+            home_missed: { label: 'Home No Score', color: faded(homeFill, 0.28) },
+            away_scored: { label: 'Away Scored', color: awayFill },
+            away_missed: { label: 'Away No Score', color: faded(awayFill, 0.28) },
+            scored: { label: 'Scored', color: teamMode === 'away' ? awayFill : homeFill },
+            missed: { label: 'No Score', color: faded(teamMode === 'away' ? awayFill : homeFill, 0.28) },
           }}
         >
           <BarChart data={data} margin={{ top: 42, right: 12, left: 0, bottom: 6 }} barGap={10} barCategoryGap="28%">
             <CartesianGrid vertical={false} />
             <XAxis dataKey="pressure" className="text-xs" />
-            <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} className="text-xs" />
+            <YAxis allowDecimals={false} className="text-xs" />
             <Tooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -313,24 +313,23 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
             />
             {teamMode === 'both' ? (
               <>
-                <Bar dataKey="home_scored_pct" stackId="home" name="Home Scored %" fill="var(--color-home_scored_pct)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="home_missed_pct" stackId="home" name="Home No Score %" fill="var(--color-home_missed_pct)" radius={[0, 0, 4, 4]}>
+                <Bar dataKey="home_scored" stackId="home" name="Home Scored" fill="var(--color-home_scored)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="home_missed" stackId="home" name="Home No Score" fill="var(--color-home_missed)" radius={[0, 0, 4, 4]}>
                   <LabelList dataKey="home_attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
-                <Bar dataKey="away_scored_pct" stackId="away" name="Away Scored %" fill="var(--color-away_scored_pct)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="away_missed_pct" stackId="away" name="Away No Score %" fill="var(--color-away_missed_pct)" radius={[0, 0, 4, 4]}>
+                <Bar dataKey="away_scored" stackId="away" name="Away Scored" fill="var(--color-away_scored)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="away_missed" stackId="away" name="Away No Score" fill="var(--color-away_missed)" radius={[0, 0, 4, 4]}>
                   <LabelList dataKey="away_attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
               </>
             ) : (
               <>
-                <Bar dataKey="scored_pct" stackId="single" name="Scored %" fill="var(--color-scored_pct)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="missed_pct" stackId="single" name="No Score %" fill="var(--color-missed_pct)" radius={[0, 0, 4, 4]}>
+                <Bar dataKey="scored" stackId="single" name="Scored" fill="var(--color-scored)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="missed" stackId="single" name="No Score" fill="var(--color-missed)" radius={[0, 0, 4, 4]}>
                   <LabelList dataKey="attempts" position="top" className="fill-slate-700 text-[11px]" />
                 </Bar>
               </>
             )}
-            <Legend />
           </BarChart>
         </ChartContainer>
       </CardContent>
@@ -338,7 +337,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   );
 }
 
-function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, outcome, setOutcome, zone, setZone, onOpenVideoAt }) {
+function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [shotMapMode, setShotMapMode] = useState('all');
@@ -419,6 +418,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         y,
         shotType: stNorm || 'point',
         situation: sit,
+        situationGroup: sit === 'play' ? 'play' : 'deadball',
         method: String(sh.method || ''),
         pressure: pr,
         outcome: o,
@@ -443,24 +443,22 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     return shots.filter((s) => {
       if (s.broughtBackAdv) return false;
       if (shotType.length && !shotType.includes(s.shotType)) return false;
-      if (situation.length && !situation.includes(s.situation)) return false;
+      if (situation.length && !situation.includes(s.situationGroup)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
-      if (outcome.length && !outcome.includes(s.outcome)) return false;
-      if (zone.length && !zone.includes(s.zone)) return false;
+      if (method.length && !method.includes(s.method)) return false;
       return true;
     });
-  }, [shots, shotType, situation, pressure, outcome, zone]);
+  }, [shots, shotType, situation, pressure, method]);
 
   const mapShots = useMemo(() => {
     return shots.filter((s) => {
       if (shotType.length && !shotType.includes(s.shotType)) return false;
-      if (situation.length && !situation.includes(s.situation)) return false;
+      if (situation.length && !situation.includes(s.situationGroup)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
-      if (!s.broughtBackAdv && outcome.length && !outcome.includes(s.outcome)) return false;
-      if (zone.length && !zone.includes(s.zone)) return false;
+      if (method.length && !method.includes(s.method)) return false;
       return true;
     });
-  }, [shots, shotType, situation, pressure, outcome, zone]);
+  }, [shots, shotType, situation, pressure, method]);
 
   const kpis = useMemo(() => {
     const calc = (side) => {
@@ -556,8 +554,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
           attempts,
           scores,
           conv: attempts ? (scores / attempts) * 100 : NaN,
-          scored_pct: attempts ? (scores / attempts) * 100 : 0,
-          missed_pct: attempts ? ((attempts - scores) / attempts) * 100 : 0,
+          scored: scores,
+          missed: Math.max(0, attempts - scores),
           pps: attempts ? points / attempts : NaN,
         };
       });
@@ -569,14 +567,14 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       home_attempts: home[idx]?.attempts || 0,
       home_scores: home[idx]?.scores || 0,
       home_conv: home[idx]?.conv,
-      home_scored_pct: home[idx]?.scored_pct || 0,
-      home_missed_pct: home[idx]?.missed_pct || 0,
+      home_scored: home[idx]?.scored || 0,
+      home_missed: home[idx]?.missed || 0,
       home_pps: home[idx]?.pps,
       away_attempts: away[idx]?.attempts || 0,
       away_scores: away[idx]?.scores || 0,
       away_conv: away[idx]?.conv,
-      away_scored_pct: away[idx]?.scored_pct || 0,
-      away_missed_pct: away[idx]?.missed_pct || 0,
+      away_scored: away[idx]?.scored || 0,
+      away_missed: away[idx]?.missed || 0,
       away_pps: away[idx]?.pps,
       home_label: homeTeam?.name || 'Home',
       away_label: awayTeam?.name || 'Away',
@@ -587,14 +585,14 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
   const situationSummary = useMemo(() => {
     const build = (teamSide = null) => {
       const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
-      const cats = ['play', 'free_ground', 'free_hands', '45', 'penalty', 'mark'];
+      const cats = ['play', 'deadball'];
       return cats.map((c) => {
-        const list = source.filter((s) => String(s.situation) === c);
+        const list = source.filter((s) => String(s.situationGroup) === c);
         const attempts = list.length;
         const scores = list.filter((s) => s.isScore).length;
         const points = list.reduce((a, s) => a + (s.points || 0), 0);
         return {
-          situation: toTitleCase(c),
+          situation: c === 'play' ? 'Play' : 'Deadball',
           attempts,
           conv: attempts ? (scores / attempts) * 100 : NaN,
           pps: attempts ? points / attempts : NaN,
@@ -616,11 +614,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
 
   const situationCategories = useMemo(() => ([
     { key: 'Play', label: 'Play', homeFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN } },
-    { key: 'Free Ground', label: 'Free Ground', homeFallback: { situation: 'Free Ground', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Free Ground', attempts: 0, conv: NaN, pps: NaN } },
-    { key: 'Free Hands', label: 'Free Hands', homeFallback: { situation: 'Free Hands', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Free Hands', attempts: 0, conv: NaN, pps: NaN } },
-    { key: '45', label: '45', homeFallback: { situation: '45', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: '45', attempts: 0, conv: NaN, pps: NaN } },
-    { key: 'Penalty', label: 'Penalty', homeFallback: { situation: 'Penalty', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Penalty', attempts: 0, conv: NaN, pps: NaN } },
-    { key: 'Mark', label: 'Mark', homeFallback: { situation: 'Mark', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Mark', attempts: 0, conv: NaN, pps: NaN } },
+    { key: 'Deadball', label: 'Deadball', homeFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN } },
   ]), []);
 
   const playerSummary = useMemo(() => {
@@ -633,7 +627,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         player: s.playerLabel || 'NA',
         team: s.team_side,
         shots: 0,
-        scores: 0,
         points: 0,
         distSum: 0,
         distN: 0,
@@ -643,11 +636,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         twoAtt: 0,
         goalMade: 0,
         goalAtt: 0,
-        playShots: 0,
-        placedShots: 0,
       };
       cur.shots += 1;
-      if (s.isScore) cur.scores += 1;
       cur.points += s.points || 0;
       if (Number.isFinite(s.distance)) { cur.distSum += s.distance; cur.distN += 1; }
       if (s.shotType === 'point') cur.pointAtt += 1;
@@ -656,13 +646,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       if (s.outcome === 'point') cur.pointMade += 1;
       if (s.outcome === '2_point') cur.twoMade += 1;
       if (s.outcome === 'goal') cur.goalMade += 1;
-      if (s.isFromPlay) cur.playShots += 1;
-      if (s.isPlacedBall) cur.placedShots += 1;
       rows.set(key, cur);
     }
     const out = Array.from(rows.values()).map((r) => ({
       ...r,
-      conv: r.shots ? (r.scores / r.shots) * 100 : NaN,
       pps: r.shots ? r.points / r.shots : NaN,
       avgDist: r.distN ? r.distSum / r.distN : NaN,
     }));
@@ -673,18 +660,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
   const playerColumns = useMemo(() => ([
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'shots', label: 'Shots', sortValue: (r) => r.shots },
-    { key: 'scores', label: 'Scores', sortValue: (r) => r.scores },
     { key: 'points', label: 'Points', sortValue: (r) => r.points },
     { key: 'pps', label: 'Pts/Shot', sortValue: (r) => r.pps },
     { key: 'avgDist', label: 'Avg Dist', sortValue: (r) => r.avgDist },
-    { key: 'pointAtt', label: '1 Att', sortValue: (r) => r.pointAtt },
-    { key: 'pointMade', label: '1 Scored', sortValue: (r) => r.pointMade },
-    { key: 'twoAtt', label: '2 Att', sortValue: (r) => r.twoAtt },
-    { key: 'twoMade', label: '2 Scored', sortValue: (r) => r.twoMade },
-    { key: 'goalAtt', label: 'Goal Att', sortValue: (r) => r.goalAtt },
-    { key: 'goalMade', label: 'Goal Scored', sortValue: (r) => r.goalMade },
-    { key: 'playShots', label: 'Play Shots', sortValue: (r) => r.playShots },
-    { key: 'placedShots', label: 'Placed Shots', sortValue: (r) => r.placedShots },
+    { key: 'pointAtt', label: '1 Point', sortValue: (r) => r.pointAtt },
+    { key: 'twoAtt', label: '2 Point', sortValue: (r) => r.twoAtt },
+    { key: 'goalAtt', label: 'Goal', sortValue: (r) => r.goalAtt },
   ]), []);
   const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
@@ -706,14 +687,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
             },
             { label: 'Points Per Shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
             { label: 'Average Shot Distance', home: Number.isFinite(kpis.home.avgDist) ? kpis.home.avgDist.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgDist) ? kpis.away.avgDist.toFixed(1) : 'NA' },
-            { label: 'Play-Shot Conversion %', home: formatPct(kpis.home.playConv), away: formatPct(kpis.away.playConv) },
-            { label: '% Shots From Play', home: formatPct(kpis.home.fromPlayPct), away: formatPct(kpis.away.fromPlayPct) },
-            { label: 'Placed-Ball Conversion %', home: formatPct(kpis.home.placedConv), away: formatPct(kpis.away.placedConv) },
             { label: 'Shots Short', home: kpis.home.shortN, away: kpis.away.shortN },
-            { label: '1 Point Scores', home: `${kpis.home.typeBreakdown.point.scored}/${kpis.home.typeBreakdown.point.attempts} (${formatPct(kpis.home.typeBreakdown.point.attempts ? (kpis.home.typeBreakdown.point.converted / kpis.home.typeBreakdown.point.attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown.point.scored}/${kpis.away.typeBreakdown.point.attempts} (${formatPct(kpis.away.typeBreakdown.point.attempts ? (kpis.away.typeBreakdown.point.converted / kpis.away.typeBreakdown.point.attempts) * 100 : NaN)})` },
-            { label: '2 Point Scores', home: `${kpis.home.typeBreakdown['2_point'].scored}/${kpis.home.typeBreakdown['2_point'].attempts} (${formatPct(kpis.home.typeBreakdown['2_point'].attempts ? (kpis.home.typeBreakdown['2_point'].converted / kpis.home.typeBreakdown['2_point'].attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown['2_point'].scored}/${kpis.away.typeBreakdown['2_point'].attempts} (${formatPct(kpis.away.typeBreakdown['2_point'].attempts ? (kpis.away.typeBreakdown['2_point'].converted / kpis.away.typeBreakdown['2_point'].attempts) * 100 : NaN)})` },
-            { label: 'Goal Scores', home: `${kpis.home.typeBreakdown.goal.scored}/${kpis.home.typeBreakdown.goal.attempts} (${formatPct(kpis.home.typeBreakdown.goal.attempts ? (kpis.home.typeBreakdown.goal.converted / kpis.home.typeBreakdown.goal.attempts) * 100 : NaN)})`, away: `${kpis.away.typeBreakdown.goal.scored}/${kpis.away.typeBreakdown.goal.attempts} (${formatPct(kpis.away.typeBreakdown.goal.attempts ? (kpis.away.typeBreakdown.goal.converted / kpis.away.typeBreakdown.goal.attempts) * 100 : NaN)})` },
-            { label: '% Low Pressure Shots', home: formatPct(kpis.home.lowPressurePct), away: formatPct(kpis.away.lowPressurePct) },
           ]}
         />
         <div className="report-companion-grid">
@@ -731,7 +705,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
                 awayRows={shotTypeSummary.away}
                 columns={[
                   { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                  { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
                   { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                   { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
                 ]}
@@ -752,7 +725,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
                 columns={[
                   { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
                   { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                  { key: 'scores', label: 'Scores', align: 'right', render: (r) => r.scores },
                   { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                   { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
                 ]}
@@ -833,18 +805,12 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
                       <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
                         <TableCell className="font-medium">{r.player}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.scores}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.points}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.pointAtt}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.pointMade}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.twoAtt}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.twoMade}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.goalAtt}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.goalMade}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.playShots}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.placedShots}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.pointMade}/{r.pointAtt}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.twoMade}/{r.twoAtt}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.goalMade}/{r.goalAtt}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
