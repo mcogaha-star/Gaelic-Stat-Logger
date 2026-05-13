@@ -2,7 +2,6 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPct } from '../shared';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
@@ -14,8 +13,6 @@ export default function OverviewTab({
   summary,
   overviewMomentum,
   overviewPossessionOutcome,
-  overviewHalf,
-  setOverviewHalf,
 }) {
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
@@ -83,20 +80,6 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <div className="w-[150px]">
-          <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-            <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs shadow-sm">
-              <SelectValue placeholder="All Halves" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Halves</SelectItem>
-              <SelectItem value="first">1st Half</SelectItem>
-              <SelectItem value="second">2nd Half</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">

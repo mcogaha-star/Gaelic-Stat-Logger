@@ -1140,6 +1140,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="video">Video</TabsTrigger>
             </TabsList>
+            {activeTab === 'summary' && (
+              <div className="w-[150px] ml-auto">
+                <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+                  <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs shadow-sm">
+                    <SelectValue placeholder="All Halves" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Halves</SelectItem>
+                    <SelectItem value="first">1st Half</SelectItem>
+                    <SelectItem value="second">2nd Half</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {showTopFiltersButton && activeTab !== 'visualiser' && activeTab !== 'summary' && (
               <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                 <PopoverTrigger asChild>
@@ -1150,22 +1164,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-[320px] max-w-[90vw] max-h-[80vh] overflow-y-auto p-4">
                   <div className="space-y-4">
-                    {activeTab === 'summary' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Overview Filters</div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Half</Label>
-                          <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Halves</SelectItem>
-                              <SelectItem value="first">1st Half</SelectItem>
-                              <SelectItem value="second">2nd Half</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
                     {activeTab === 'scoring' && (
                       <>
                         <div className="font-semibold text-slate-900">Scoring Filters</div>
