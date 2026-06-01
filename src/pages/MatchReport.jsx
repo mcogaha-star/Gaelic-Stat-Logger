@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BarChart3, Copy, Share2, SlidersHorizontal } from 'lucide-react';
@@ -67,6 +67,15 @@ import useReportFilterState from '@/features/report/hooks/useReportFilterState';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { createSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { useAuth } from '@/lib/AuthContext';
+import {
+  applyXpImportToShots,
+  buildThirdPartyShotExportRows,
+  buildThirdPartyShotRecords,
+  formatThirdPartyXpImportSummary,
+  parseThirdPartyXpCsv,
+  serializeThirdPartyRowsToCsv,
+  writeThirdPartyXpIssues,
+} from '@/lib/thirdPartyXp';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -86,6 +95,11 @@ function getSectionBoundaryLabel(half) {
   if (half === 'second') return 'FT';
   if (half === 'et_first') return 'ET HT';
   return '';
+}
+
+function safeShotArcFilePart(value, fallback = 'team') {
+  const text = String(value || fallback).trim().toLowerCase();
+  return (text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || fallback).slice(0, 80);
 }
 
 function buildSectionDisplayLayout(stats, match, imputedTimeById) {
@@ -175,6 +189,9 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
     },
     formatTick: (displayTimeS) => {
       const section = findSectionForDisplayTime(displayTimeS);
+      const exactBoundary = sections.find((entry) => Math.abs(Number(displayTimeS) - (entry.offset + entry.boundaryTime)) < 0.5);
+      const boundaryLabel = getSectionBoundaryLabel(exactBoundary?.half);
+      if (boundaryLabel) return boundaryLabel;
       const localTime = Math.max(0, Number(displayTimeS) - Number(section?.offset || 0));
       return formatHalfClock(localTime, section?.half, match);
     },
@@ -215,6 +232,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [dataOpen, setDataOpen] = useState(false);
   const [playerProfileOpen, setPlayerProfileOpen] = useState(false);
   const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
+  const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
+  const shotArcImportInputRef = useRef(null);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
@@ -474,6 +493,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       }));
   }, [effectiveHomePlayers, effectiveAwayPlayers]);
   const allPlayersForShare = useMemo(() => [...(effectiveHomePlayers || []), ...(effectiveAwayPlayers || [])], [effectiveHomePlayers, effectiveAwayPlayers]);
+  const thirdPartyShotTeams = useMemo(() => ({ homeTeam, awayTeam }), [homeTeam, awayTeam]);
   const rawStatsForPlayerProfile = isSharedView ? (sharedData.rawStats || []) : rawStats;
   const selectedPlayerProfileOption = useMemo(() => {
     if (!selectedPlayerProfile?.id || !selectedPlayerProfile?.team) return null;
@@ -482,6 +502,81 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       && String(player.team_side) === String(selectedPlayerProfile.team)
     )) || null;
   }, [playerOptions, selectedPlayerProfile]);
+  const handleShotArcExport = () => {
+    if (!match) {
+      toast.error('Match data is not ready yet');
+      return;
+    }
+    const rows = buildThirdPartyShotExportRows(stats, match, thirdPartyShotTeams, playerOptions, imputedTimeById);
+    if (!rows.length) {
+      toast.error('No shot rows available to export');
+      return;
+    }
+
+    const csv = serializeThirdPartyRowsToCsv(rows);
+    const firstLine = String(csv || '').split(/\r?\n/, 1)[0] || '';
+    if (!firstLine.startsWith('"Team"')) {
+      toast.error('ShotArc export header validation failed');
+      return;
+    }
+    const homePart = safeShotArcFilePart(homeTeam?.name, 'home');
+    const awayPart = safeShotArcFilePart(awayTeam?.name, 'away');
+    const fileName = `${homePart}_${awayPart}_gaeliq.csv`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`ShotArc export ready (${rows.length} shot${rows.length === 1 ? '' : 's'})`);
+  };
+
+  const handleShotArcImportClick = () => {
+    if (readOnly || isSharedView) {
+      toast.error('xP import is only available on your editable private match copy');
+      return;
+    }
+    shotArcImportInputRef.current?.click();
+  };
+
+  const toggleShotArcInfo = () => {
+    setShotArcInfoOpen((current) => !current);
+  };
+
+  const handleShotArcImportChange = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    try {
+      if (!match) throw new Error('Match data is not ready yet');
+      const text = await file.text();
+      const parsed = parseThirdPartyXpCsv(text);
+      if (!parsed.rows.length) throw new Error('No xP rows found in the selected CSV');
+
+      const shotRecords = buildThirdPartyShotRecords(stats, match, thirdPartyShotTeams, playerOptions, imputedTimeById)
+        .filter((record) => !record.broughtBackAdv);
+      if (!shotRecords.length) throw new Error('No shot rows available to match against');
+
+      const rawStatsById = new Map((Array.isArray(rawStats) ? rawStats : []).map((stat) => [stat?.id, stat]));
+      const summary = await applyXpImportToShots(parsed.rows, shotRecords, rawStatsById, {
+        uploadedAt: new Date().toISOString(),
+        updateLocalShot: (id, patch) => db.entities.StatEntry.update(id, patch),
+        updateServerShot: (serverStatId, patch) => updateServerStat(serverStatId, patch),
+      });
+
+      writeThirdPartyXpIssues(matchId, summary.issues);
+      await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
+      toast.success(`xP import complete: ${formatThirdPartyXpImportSummary(summary)}`);
+    } catch (error) {
+      toast.error(error?.message || 'Failed to import xP CSV');
+    } finally {
+      if (event?.target) event.target.value = '';
+    }
+  };
   const openPlayerProfile = (row) => {
     if (!row?.id || !row?.team) return;
     setSelectedPlayerProfile(row);
@@ -621,6 +716,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     stats,
     overviewHalf,
     reportFilters,
+    match,
+    imputedTimeById,
+  });
+
+  const { filteredForReport: filteredForScoring } = useFilteredReportStats({
+    stats,
+    overviewHalf,
+    reportFilters: { ...reportFilters, playerIds: [] },
     match,
     imputedTimeById,
   });
@@ -1112,6 +1215,45 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  ShotArc
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-2">
+                <div className="flex flex-col gap-1">
+                  <Button type="button" variant="ghost" className="justify-start" onClick={handleShotArcExport}>Export</Button>
+                  <Button type="button" variant="ghost" className="justify-start" onClick={handleShotArcImportClick}>Import</Button>
+                  <Button type="button" variant="ghost" className="justify-start" onClick={toggleShotArcInfo}>Game Info</Button>
+                </div>
+                {shotArcInfoOpen && (
+                  <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                      <div className="font-semibold text-slate-700">Code</div>
+                      <div className="text-slate-900">{match?.code || 'NA'}</div>
+                      <div className="font-semibold text-slate-700">Venue</div>
+                      <div className="text-slate-900">{match?.venue || 'NA'}</div>
+                      <div className="font-semibold text-slate-700">Teams</div>
+                      <div className="text-slate-900">{homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}</div>
+                      <div className="font-semibold text-slate-700">Date</div>
+                      <div className="text-slate-900">{match?.date || 'NA'}</div>
+                      <div className="font-semibold text-slate-700">Wind Dir</div>
+                      <div className="text-slate-900">{match?.wind_direction || 'NA'}</div>
+                      <div className="font-semibold text-slate-700">Wind Speed</div>
+                      <div className="text-slate-900">{match?.wind_speed || 'NA'}</div>
+                    </div>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+            <input
+              ref={shotArcImportInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleShotArcImportChange}
+            />
             <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setDataOpen(true)}>
               <BarChart3 className="w-4 h-4" /> Data
             </Button>
@@ -1129,7 +1271,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <TabsList>
               <TabsTrigger value="summary">Overview</TabsTrigger>
-              <TabsTrigger value="scoring">Scoring</TabsTrigger>
+              <TabsTrigger value="scoring">Shooting</TabsTrigger>
               <TabsTrigger value="possessions">Possessions</TabsTrigger>
               <TabsTrigger value="build_up">Build-Up</TabsTrigger>
               <TabsTrigger value="kickouts">Restarts</TabsTrigger>
@@ -1141,7 +1283,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             {activeTab === 'summary' && (
               <div className="w-[150px] ml-auto">
                 <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                  <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs shadow-sm">
+                  <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs font-semibold text-slate-900 shadow-sm">
                     <SelectValue placeholder="All Halves" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1164,12 +1306,31 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <div className="space-y-4">
                     {activeTab === 'scoring' && (
                       <>
-                        <div className="font-semibold text-slate-900">Scoring Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showPlayer={false} showAction={false} />
-                        <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-                        <MultiSelect label="Situation" placeholder="All" values={scoringSituation} onChange={setScoringSituation} options={[{ value: 'play', label: 'Play' }, { value: 'deadball', label: 'Deadball' }]} />
-                        <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showAction={false} />
+                        <details className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                          <summary className="cursor-pointer list-none text-xs font-semibold text-slate-700">
+                            Advanced Filters
+                          </summary>
+                          <div className="mt-3 space-y-3">
+                            <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+                            <MultiSelect
+                              label="Situation"
+                              placeholder="All"
+                              values={scoringSituation}
+                              onChange={setScoringSituation}
+                              options={[
+                                { value: 'play', label: 'Play' },
+                                { value: 'free_ground', label: 'Free From Ground' },
+                                { value: 'free_hands', label: 'Free From Hands' },
+                                { value: '45', label: '45' },
+                                { value: 'penalty', label: 'Penalty' },
+                                { value: 'mark', label: 'Mark' },
+                              ]}
+                            />
+                            <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                            <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                          </div>
+                        </details>
                       </>
                     )}
                     {activeTab === 'possessions' && (
@@ -1341,7 +1502,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
           <TabsContent value="scoring">
             <ScoringTab
-              stats={filteredForReport}
+              stats={filteredForScoring}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               playerOptions={playerOptions}

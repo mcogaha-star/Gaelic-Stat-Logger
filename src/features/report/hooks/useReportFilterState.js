@@ -163,7 +163,7 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
       if (vizPlayerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const ids = collectPlayerIds(extra);
-        const any = vizPlayerIds.some((id) => ids.has(id));
+        const any = vizPlayerIds.some((id) => ids.has(String(id)));
         if (!any) return false;
       }
       return true;

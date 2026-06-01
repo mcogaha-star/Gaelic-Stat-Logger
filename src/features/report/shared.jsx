@@ -227,34 +227,43 @@ function teamRowTint(teamSide, homeColor, awayColor, alpha = 0.08) {
   return { backgroundColor: hexToRgba(color, alpha) };
 }
 
+function metricBandStyle(color, side) {
+  return {
+    [side]: 0,
+    background: `linear-gradient(180deg, ${color || '#94a3b8'} 0%, ${color || '#94a3b8'} 100%)`,
+  };
+}
+
 function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [], cardClassName = 'w-full lg:w-[48%] lg:max-w-[48%] mr-auto', metricColWidth = '180px' }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
   const metricCol = metricColWidth;
 
   return (
-    <Card className={cardClassName}>
+    <Card className={`border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md ${cardClassName}`.trim()}>
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
-        <div className="grid items-center gap-3 text-xs text-slate-600" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
-          <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
-            <span className="truncate">{homeTeam?.name || 'Home'}</span>
-          </div>
-          <div className="text-center text-[1.05rem] font-bold text-slate-700">Metric</div>
-          <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
-            <span className="truncate">{awayTeam?.name || 'Away'}</span>
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
+        <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
+          <div className="absolute inset-y-0 left-0 w-2" style={metricBandStyle(homeTeam?.color || '#22c55e', 'left')} />
+          <div className="absolute inset-y-0 right-0 w-2" style={metricBandStyle(awayTeam?.color || '#ef4444', 'right')} />
+          <div className="grid items-center gap-3 text-slate-600" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
+            <div className="min-w-0 justify-self-start pr-2 text-base font-semibold text-slate-900">
+              <span className="truncate">{homeTeam?.name || 'Home'}</span>
+            </div>
+            <div className="text-center text-[1rem] font-bold text-slate-700">Metric</div>
+            <div className="min-w-0 justify-self-end pl-2 text-right text-base font-semibold text-slate-900">
+              <span className="truncate">{awayTeam?.name || 'Away'}</span>
+            </div>
           </div>
         </div>
         <div className="grid gap-2">
           {rows.map((row) => (
-            <div key={row.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div key={row.label} className="rounded-lg border border-slate-300 bg-white px-3 py-2 shadow-sm">
               <div className="grid items-center gap-3" style={{ gridTemplateColumns: `minmax(0,1fr) ${metricCol} minmax(0,1fr)` }}>
                 <div className={`text-left tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                   {showHome ? row.home : ''}
                 </div>
-                <div className="text-center text-xs font-medium text-slate-600">{row.label}</div>
+                <div className="text-center text-sm font-semibold text-slate-700">{row.label}</div>
                 <div className={`text-right tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                   {showAway ? row.away : ''}
                 </div>
@@ -597,7 +606,7 @@ function collectPlayerIds(extra) {
   const ids = new Set();
   const walk = (v) => {
     if (!v || typeof v !== 'object') return;
-    if (v.kind === 'player' && typeof v.id === 'string') ids.add(v.id);
+    if (v.kind === 'player' && (typeof v.id === 'string' || typeof v.id === 'number')) ids.add(String(v.id));
     for (const k of Object.keys(v)) walk(v[k]);
   };
   walk(extra);
@@ -608,8 +617,8 @@ function collectPlayerSelectionKeys(extra) {
   const keys = new Set();
   const walk = (v) => {
     if (!v || typeof v !== 'object') return;
-    if (v.kind === 'player' && typeof v.id === 'string' && (v.team_side === 'home' || v.team_side === 'away')) {
-      keys.add(`${v.team_side}|${v.id}`);
+    if (v.kind === 'player' && (typeof v.id === 'string' || typeof v.id === 'number') && (v.team_side === 'home' || v.team_side === 'away')) {
+      keys.add(`${v.team_side}|${String(v.id)}`);
     }
     for (const key of Object.keys(v)) walk(v[key]);
   };
@@ -2285,6 +2294,88 @@ function shotZoneFromDistance(d) {
   return '65_plus';
 }
 
+function ShotMapLegend({ teamMode, homeColor, awayColor }) {
+  const outlineColor = teamMode === 'both' ? '#111827' : '#cbd5e1';
+  const iconClass = 'flex h-5 w-5 items-center justify-center shrink-0 text-slate-700';
+  const rowClass = 'flex items-center gap-2.5 text-xs text-slate-700';
+
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-3 shadow-sm">
+      <div className="space-y-0.5">
+        <div className="text-sm font-semibold text-slate-900">Key</div>
+        <div className="grid gap-0.5 text-[11px] text-slate-500">
+          <div>Shape = attempt type</div>
+          <div>Fill = outcome</div>
+          <div>Outline = team</div>
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-slate-200 pt-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Attempt Type</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className={rowClass}>
+            <span className={iconClass}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="4" fill="#16a34a" stroke={outlineColor} strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span>1 point</span>
+          </div>
+          <div className={rowClass}>
+            <span className={iconClass}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="4" y="4" width="8" height="8" transform="rotate(45 8 8)" fill="#16a34a" stroke={outlineColor} strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span>2 point</span>
+          </div>
+          <div className={rowClass}>
+            <span className={iconClass}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="4" y="4" width="8" height="8" fill="#16a34a" stroke={outlineColor} strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span>goal</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-slate-200 pt-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Outcome</div>
+        <div className="space-y-1.5">
+          <div className={rowClass}>
+            <span className={iconClass}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="4" fill="#16a34a" stroke={outlineColor} strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span>green fill = score</span>
+          </div>
+          <div className={rowClass}>
+            <span className={iconClass}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="4" fill="#dc2626" stroke={outlineColor} strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span>red fill = miss / saved / blocked / post / short</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-slate-200 pt-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Team</div>
+        <div className={rowClass}>
+          <span className={iconClass}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="4" fill="#f8fafc" stroke={teamMode === 'both' ? (homeColor || '#2563eb') : outlineColor} strokeWidth="1.8" />
+            </svg>
+          </span>
+          <span>ring / outline colour = team identifier</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor, onOpenVideoAt = null, fullscreenEnabled = true }) {
   const list = Array.isArray(shots) ? shots : [];
@@ -2336,210 +2427,212 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
         </div>
         )}
 
-        <div
-          data-fullscreen-trigger="true"
-          className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'mx-auto rounded-xl border border-slate-200'}`}
-          style={{
-            ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * REPORT_PITCH_VERTICAL_SCALE)) : { width: REPORT_PITCH_SCALE }),
-            aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
-            backgroundImage: `url(${pitchImg})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-          <DirectionBadge label="Home ->" />
-          <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
-            {visible.map((s) => {
-              const point = transformDisplayPoint(s.x, s.y, s.team_side, true);
-              if (!point) return null;
-              const x = point.x;
-              const y = point.y;
-              const g = shotOutcomeGroup(s.outcome);
-              const outcomeColor = colors[g] || colors.other;
-              const isAdv = !!s.broughtBackAdv;
-              const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
-              const fillColor = isAdv ? teamColor : outcomeColor;
-              const strokeColor = isAdv ? teamColor : (teamMode === 'both' ? teamColor : '#ffffff');
-              const shape = ['point', '2_point', 'goal'].includes(String(s.outcome || ''))
-                ? String(s.outcome)
-                : s.shotType; // point|2_point|goal
-              const size = 1.87;
-              const advInnerSize = size * 0.48;
-              const blackStrokeWidth = isAdv ? 0.45 : (teamMode === 'both' ? 1 : 0.425);
-              const teamStrokeWidth = isAdv ? 0.95 : (teamMode === 'both' ? 0.95 : 0.6);
-              const tip = [
-                `Player: ${s.playerLabel || 'NA'}`,
-                `Time: ${s.timeLabel || 'NA'}`,
-                `Shot Type: ${toTitleCase(s.shotType)}`,
-                `Situation: ${toTitleCase(s.situation)}`,
-                `Pressure: ${toTitleCase(s.pressure)}`,
-                `Outcome: ${toTitleCase(s.outcome)}`,
-                isAdv ? 'Brought Back Advantage: excluded from scoring stats' : null,
-                Number.isFinite(s.distance) ? `Distance: ${s.distance.toFixed(1)}` : null,
-                s.possessionLabel ? `Possession: ${s.possessionLabel}` : null,
-              ].filter(Boolean).join('\n');
+        <div className={isFullscreen ? '' : 'grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start'}>
+          <div
+            data-fullscreen-trigger="true"
+            className={`relative overflow-hidden ${isFullscreen ? 'w-full mx-auto' : 'rounded-xl border border-slate-200'}`}
+            style={{
+              ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / (PITCH_H * REPORT_PITCH_VERTICAL_SCALE)) : { width: '100%' }),
+              aspectRatio: `${PITCH_W} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
+              backgroundImage: `url(${pitchImg})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          >
+            <DirectionBadge label="Home ->" />
+            <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
+              {visible.map((s) => {
+                const point = transformDisplayPoint(s.x, s.y, s.team_side, true);
+                if (!point) return null;
+                const x = point.x;
+                const y = point.y;
+                const g = shotOutcomeGroup(s.outcome);
+                const outcomeColor = colors[g] || colors.other;
+                const isAdv = !!s.broughtBackAdv;
+                const teamColor = s.team_side === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb');
+                const fillColor = isAdv ? teamColor : outcomeColor;
+                const strokeColor = isAdv ? teamColor : (teamMode === 'both' ? teamColor : '#ffffff');
+                const shape = ['point', '2_point', 'goal'].includes(String(s.outcome || ''))
+                  ? String(s.outcome)
+                  : s.shotType;
+                const size = 1.87;
+                const advInnerSize = size * 0.48;
+                const blackStrokeWidth = isAdv ? 0.45 : (teamMode === 'both' ? 1 : 0.425);
+                const teamStrokeWidth = isAdv ? 0.95 : (teamMode === 'both' ? 0.95 : 0.6);
+                const tip = [
+                  `Player: ${s.playerLabel || 'NA'}`,
+                  `Time: ${s.timeLabel || 'NA'}`,
+                  `Shot Type: ${toTitleCase(s.shotType)}`,
+                  `Situation: ${toTitleCase(s.situation)}`,
+                  `Pressure: ${toTitleCase(s.pressure)}`,
+                  `Outcome: ${toTitleCase(s.outcome)}`,
+                  `xP: ${Number.isFinite(s.xp) ? s.xp.toFixed(2) : 'N/A'}`,
+                  Number.isFinite(s.distance) ? `Distance: ${s.distance.toFixed(1)}` : null,
+                  s.possessionLabel ? `Possession: ${s.possessionLabel}` : null,
+                ].filter(Boolean).join('\n');
 
-              if (shape === 'goal') {
-                return (
-                  <g
-                    key={s.id}
-                    onClick={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                    }}
-                  >
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill="none"
-                      stroke="#111827"
-                      strokeWidth={blackStrokeWidth}
-                    />
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill={fillColor}
-                      opacity="0.9"
+                if (shape === 'goal') {
+                  return (
+                    <g
+                      key={s.id}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                        if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                      }}
                     >
-                      <title>{tip}</title>
-                    </rect>
-                    {isAdv && (
                       <rect
-                        x={x - advInnerSize}
-                        y={y - advInnerSize}
-                        width={advInnerSize * 2}
-                        height={advInnerSize * 2}
-                        fill="#ffffff"
-                        opacity="0.98"
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill="none"
+                        stroke="#111827"
+                        strokeWidth={blackStrokeWidth}
                       />
-                    )}
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill="none"
-                      stroke={strokeColor}
-                      strokeWidth={teamStrokeWidth}
-                    />
-                  </g>
-                );
-              }
-              if (shape === '2_point') {
-                return (
-                  <g
-                    key={s.id}
-                    onClick={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                    }}
-                  >
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill="none"
-                      transform={`rotate(45 ${x} ${y})`}
-                      stroke="#111827"
-                      strokeWidth={blackStrokeWidth}
-                    />
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill={fillColor}
-                      opacity="0.9"
-                      transform={`rotate(45 ${x} ${y})`}
-                    >
-                      <title>{tip}</title>
-                    </rect>
-                    {isAdv && (
                       <rect
-                        x={x - advInnerSize}
-                        y={y - advInnerSize}
-                        width={advInnerSize * 2}
-                        height={advInnerSize * 2}
-                        fill="#ffffff"
-                        opacity="0.98"
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill={fillColor}
+                        opacity="0.9"
+                      >
+                        <title>{tip}</title>
+                      </rect>
+                      {isAdv && (
+                        <rect
+                          x={x - advInnerSize}
+                          y={y - advInnerSize}
+                          width={advInnerSize * 2}
+                          height={advInnerSize * 2}
+                          fill="#ffffff"
+                          opacity="0.98"
+                        />
+                      )}
+                      <rect
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={teamStrokeWidth}
+                      />
+                    </g>
+                  );
+                }
+                if (shape === '2_point') {
+                  return (
+                    <g
+                      key={s.id}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                        if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                      }}
+                    >
+                      <rect
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill="none"
                         transform={`rotate(45 ${x} ${y})`}
+                        stroke="#111827"
+                        strokeWidth={blackStrokeWidth}
                       />
-                    )}
-                    <rect
-                      x={x - size}
-                      y={y - size}
-                      width={size * 2}
-                      height={size * 2}
-                      fill="none"
-                      transform={`rotate(45 ${x} ${y})`}
-                      stroke={strokeColor}
-                      strokeWidth={teamStrokeWidth}
-                    />
-                  </g>
-                );
-              }
-              return (
-                <g
-                  key={s.id}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                  }}
-                >
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={size}
-                    fill="none"
-                    stroke="#111827"
-                    strokeWidth={blackStrokeWidth}
-                  />
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={size}
-                    fill={fillColor}
-                    opacity="0.9"
+                      <rect
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill={fillColor}
+                        opacity="0.9"
+                        transform={`rotate(45 ${x} ${y})`}
+                      >
+                        <title>{tip}</title>
+                      </rect>
+                      {isAdv && (
+                        <rect
+                          x={x - advInnerSize}
+                          y={y - advInnerSize}
+                          width={advInnerSize * 2}
+                          height={advInnerSize * 2}
+                          fill="#ffffff"
+                          opacity="0.98"
+                          transform={`rotate(45 ${x} ${y})`}
+                        />
+                      )}
+                      <rect
+                        x={x - size}
+                        y={y - size}
+                        width={size * 2}
+                        height={size * 2}
+                        fill="none"
+                        transform={`rotate(45 ${x} ${y})`}
+                        stroke={strokeColor}
+                        strokeWidth={teamStrokeWidth}
+                      />
+                    </g>
+                  );
+                }
+                return (
+                  <g
+                    key={s.id}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                    }}
                   >
-                    <title>{tip}</title>
-                  </circle>
-                  {isAdv && (
                     <circle
                       cx={x}
                       cy={y}
-                      r={advInnerSize}
-                      fill="#ffffff"
-                      opacity="0.98"
+                      r={size}
+                      fill="none"
+                      stroke="#111827"
+                      strokeWidth={blackStrokeWidth}
                     />
-                  )}
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={size}
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth={teamStrokeWidth}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={size}
+                      fill={fillColor}
+                      opacity="0.9"
+                    >
+                      <title>{tip}</title>
+                    </circle>
+                    {isAdv && (
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={advInnerSize}
+                        fill="#ffffff"
+                        opacity="0.98"
+                      />
+                    )}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={size}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth={teamStrokeWidth}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
 
-        {!isFullscreen && <div className="text-[11px] text-slate-500">
-          Shape: circle = 1 point, diamond = 2 point, square = goal. {teamMode === 'both' ? 'Fill = score / miss, outline = team.' : 'Colour = score / miss.'}
-        </div>}
+          {!isFullscreen ? (
+            <ShotMapLegend teamMode={teamMode} homeColor={homeColor} awayColor={awayColor} />
+          ) : null}
+        </div>
     </div>
   );
 
@@ -2575,7 +2668,7 @@ function applyNonTeamReportFilters(stats, reportFilters) {
     if (playerIds.length) {
       const extra = safeParseJSON(s.extra_data || '{}', {});
       const ids = collectPlayerIds(extra);
-      const any = playerIds.some((id) => ids.has(id));
+      const any = playerIds.some((id) => ids.has(String(id)));
       if (!any) return false;
     }
     if (minS != null || maxS != null) {

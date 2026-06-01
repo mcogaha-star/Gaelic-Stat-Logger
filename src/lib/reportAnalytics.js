@@ -1027,6 +1027,24 @@ export function buildDataHealthChecks(stats) {
       break;
     }
   }
+
+  const matchId = String(list[0]?.match_id || '').trim();
+  if (matchId && typeof window !== 'undefined' && window?.localStorage) {
+    try {
+      const rawIssues = window.localStorage.getItem(`gaeliq-xp-import-issues:${matchId}`);
+      const parsedIssues = rawIssues ? JSON.parse(rawIssues) : [];
+      if (Array.isArray(parsedIssues)) {
+        parsedIssues.forEach((issue) => {
+          const signature = String(issue?.signature || '').trim() || 'Unknown import row';
+          if (issue?.type === 'ambiguous') {
+            add('warning', 'xP import ambiguous row', `Could not safely assign imported xP for ${signature}.`, null);
+          } else if (issue?.type === 'unmatched') {
+            add('warning', 'xP import unmatched row', `No local shot matched imported xP row ${signature}.`, null);
+          }
+        });
+      }
+    } catch {}
+  }
   return checks;
 }
 

@@ -5,6 +5,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { formatPct } from '../shared';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
+function teamBandStyle(color, side) {
+  return {
+    [side]: 0,
+    background: `linear-gradient(180deg, ${color || '#94a3b8'} 0%, ${color || '#94a3b8'} 100%)`,
+  };
+}
+
+const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+
 export default function OverviewTab({
   homeTeam,
   awayTeam,
@@ -83,7 +92,7 @@ export default function OverviewTab({
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            <Card className="h-full border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm">
+            <Card className={`h-full ${paneClassName}`}>
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
                 <div className="font-semibold text-slate-900">Score Timeline</div>
                 {scoreTimeline.points.length <= 1 ? (
@@ -151,17 +160,19 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full border-slate-200 bg-gradient-to-br from-slate-50 via-white to-white shadow-sm">
+            <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
-                <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs text-slate-600 shadow-sm">
-                  <div className="inline-flex items-center gap-2 min-w-0 justify-self-start">
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: homeTeam?.color || '#22c55e' }} />
-                    <span className="truncate">{homeTeam?.name || 'Home'}</span>
-                  </div>
-                  <div className="font-semibold text-[0.9rem] text-slate-800 text-center">Metric</div>
-                  <div className="inline-flex items-center gap-2 min-w-0 justify-end justify-self-end">
-                    <span className="truncate">{awayTeam?.name || 'Away'}</span>
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: awayTeam?.color || '#ef4444' }} />
+                <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
+                  <div className="absolute inset-y-0 left-0 w-2" style={teamBandStyle(homeTeam?.color || '#22c55e', 'left')} />
+                  <div className="absolute inset-y-0 right-0 w-2" style={teamBandStyle(awayTeam?.color || '#ef4444', 'right')} />
+                  <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-slate-600">
+                    <div className="min-w-0 justify-self-start pr-2 text-base font-semibold text-slate-900">
+                      <span className="truncate">{homeTeam?.name || 'Home'}</span>
+                    </div>
+                    <div className="font-semibold text-[1rem] text-slate-800 text-center">Metric</div>
+                    <div className="min-w-0 justify-self-end pl-2 text-right text-base font-semibold text-slate-900">
+                      <span className="truncate">{awayTeam?.name || 'Away'}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -178,7 +189,11 @@ export default function OverviewTab({
                         away: `${summary.away.goals}:${awayPts} (${summary.away.totalPoints})`,
                         strong: true,
                       },
-                      { label: 'Shots', home: summary.home.shots, away: summary.away.shots },
+                      {
+                        label: 'Shot Scoring',
+                        home: `${homeScores}/${summary.home.shots} (${formatPct(summary.home.shots ? (homeScores / summary.home.shots) * 100 : NaN)})`,
+                        away: `${awayScores}/${summary.away.shots} (${formatPct(summary.away.shots ? (awayScores / summary.away.shots) * 100 : NaN)})`,
+                      },
                       {
                         label: 'Points Per Shot',
                         home: summary.home.shots ? (summary.home.totalPoints / summary.home.shots).toFixed(2) : 'NA',
@@ -212,10 +227,10 @@ export default function OverviewTab({
                     ];
 
                     return metrics.map((m) => (
-                      <div key={m.label} className="rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 px-3 py-2 shadow-sm">
+                      <div key={m.label} className="rounded-xl border border-slate-300 bg-gradient-to-r from-white to-slate-50 px-3 py-2 shadow-sm">
                         <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
                           <div className={`text-left tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>{m.home}</div>
-                          <div className="text-center text-xs font-medium text-slate-600">{m.label}</div>
+                          <div className="text-center text-sm font-semibold text-slate-700">{m.label}</div>
                           <div className={`text-right tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>{m.away}</div>
                         </div>
                       </div>
@@ -227,7 +242,7 @@ export default function OverviewTab({
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            <Card className="h-full border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm">
+            <Card className={`h-full ${paneClassName}`}>
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
                 <div className="font-semibold text-slate-900">Momentum</div>
                 {!showMomentum ? (
@@ -275,24 +290,6 @@ export default function OverviewTab({
                                 <span className="text-muted-foreground">{awayTeam?.name || 'Away'}</span>
                                 <span className="font-mono font-medium tabular-nums text-foreground">{Math.round(Number(row?.away || 50))}%</span>
                               </div>
-                              <div className="border-t border-slate-200 pt-1 mt-1 space-y-1">
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">Possession Time</span>
-                                  <span className="font-mono text-foreground">{(Number(row?.home_poss_time || 0) / 60).toFixed(1)}m / {(Number(row?.away_poss_time || 0) / 60).toFixed(1)}m</span>
-                                </div>
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">Shots</span>
-                                  <span className="font-mono text-foreground">{Number(row?.home_shots || 0)} / {Number(row?.away_shots || 0)}</span>
-                                </div>
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">TO Won</span>
-                                  <span className="font-mono text-foreground">{Number(row?.home_to_won || 0)} / {Number(row?.away_to_won || 0)}</span>
-                                </div>
-                                <div className="flex justify-between gap-4">
-                                  <span className="text-muted-foreground">KO Won</span>
-                                  <span className="font-mono text-foreground">{Number(row?.home_ko_won || 0)} / {Number(row?.away_ko_won || 0)}</span>
-                                </div>
-                              </div>
                             </div>
                           );
                         }}
@@ -311,7 +308,7 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full border-slate-200 bg-gradient-to-br from-slate-50 via-white to-white shadow-sm">
+            <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
                 <div className="space-y-2">
                   <div className="font-semibold text-slate-900">Possession Outcomes</div>

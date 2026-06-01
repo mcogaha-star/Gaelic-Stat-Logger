@@ -26,6 +26,7 @@ import {
   shotPointsForOutcome,
   normalizeFoulType,
 } from '@/lib/reportAnalytics';
+import { simulateFullMatchFromShots } from '@/lib/winProbability';
 import {
   safeParseJSON,
   toTitleCase,
@@ -57,14 +58,40 @@ import {
   applyNonTeamReportFilters,
 } from '../shared';
 
-function SideBreakdownTable({ title, rows, columns }) {
+const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+
+function ptsXpCellStyle(value) {
+  if (!Number.isFinite(value)) return undefined;
+  const clamped = Math.min(Math.abs(value) / 2.5, 1);
+  if (value > 0) {
+    return {
+      color: clamped > 0.45 ? '#14532d' : '#166534',
+      fontWeight: 600,
+    };
+  }
+  if (value < 0) {
+    return {
+      color: clamped > 0.45 ? '#7f1d1d' : '#991b1b',
+      fontWeight: 600,
+    };
+  }
+  return {
+      color: '#475569',
+    fontWeight: 600,
+  };
+}
+
+function SideBreakdownTable({ title, rows, columns, headerAction = null }) {
   const [sortState, setSortState] = useState({ key: columns?.[0]?.key || '', dir: 'asc' });
   const sortedRows = useMemo(() => sortRows(rows, sortState, columns, 'key'), [rows, sortState, columns]);
   const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   return (
-    <Card>
+    <Card className={paneClassName}>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-slate-900">{title}</div>
+          {headerAction}
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -102,7 +129,7 @@ function SideBreakdownTable({ title, rows, columns }) {
   );
 }
 
-function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows, columns }) {
+function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows, columns, headerAction = null }) {
   const [sortState, setSortState] = useState({ key: columns?.[0]?.key || '', dir: 'asc' });
   const toggleSort = (key) => setSortState((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   const sortedHomeRows = useMemo(() => sortRows(homeRows, sortState, columns, 'key'), [homeRows, sortState, columns]);
@@ -133,9 +160,12 @@ function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows
   );
 
   return (
-    <Card>
+    <Card className={paneClassName}>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-slate-900">{title}</div>
+          {headerAction}
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -160,7 +190,7 @@ function TwoTeamBreakdownTable({ title, homeLabel, awayLabel, homeRows, awayRows
   );
 }
 
-function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel, homeLabel, awayLabel, homeRows, awayRows, columns, sortable = true }) {
+function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel, homeLabel, awayLabel, homeRows, awayRows, columns, sortable = true, headerAction = null }) {
   const homeByKey = new Map((homeRows || []).map((row) => [row[categoryKey], row]));
   const awayByKey = new Map((awayRows || []).map((row) => [row[categoryKey], row]));
   const sortColumns = useMemo(() => ([
@@ -181,9 +211,12 @@ function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel
   const sortedCategories = useMemo(() => (sortable ? sortRows(categoryRows, sortState, sortColumns, 'key') : categoryRows), [categoryRows, sortState, sortColumns, sortable]);
 
   return (
-    <Card>
+    <Card className={paneClassName}>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-slate-900">{title}</div>
+          {headerAction}
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -259,12 +292,12 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   };
 
   return (
-    <Card>
+    <Card className={paneClassName}>
       <CardContent className="p-4 space-y-3">
         <div className="font-semibold text-slate-900">{title}</div>
         <ChartContainer
           id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
-          className="h-[240px] w-full"
+          className="h-[360px] w-full"
           config={{
             home_scored: { label: 'Home Scored', color: homeFill },
             home_missed: { label: 'Home No Score', color: faded(homeFill, 0.28) },
@@ -287,16 +320,18 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
                   <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-sm">
                     <div className="mb-2 font-semibold text-slate-900">{label || row.pressure || 'Pressure'}</div>
                     {teamMode === 'both' ? (
-                      <div className="space-y-2">
-                        <div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
                           <div>{row.home_label || 'Home'}: <span className="font-mono">{row.home_scores}/{row.home_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.home_conv)}</span></div>
                           <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.home_pps) ? row.home_pps.toFixed(2) : 'NA'}</span></div>
+                          <div>xP/Shot: <span className="font-mono">{Number.isFinite(row.home_xps) ? row.home_xps.toFixed(2) : 'NA'}</span></div>
                         </div>
-                        <div>
+                        <div className="space-y-1">
                           <div>{row.away_label || 'Away'}: <span className="font-mono">{row.away_scores}/{row.away_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.away_conv)}</span></div>
                           <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.away_pps) ? row.away_pps.toFixed(2) : 'NA'}</span></div>
+                          <div>xP/Shot: <span className="font-mono">{Number.isFinite(row.away_xps) ? row.away_xps.toFixed(2) : 'NA'}</span></div>
                         </div>
                       </div>
                     ) : (
@@ -305,6 +340,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
                         <div>Scores: <span className="font-mono">{row.scores}</span></div>
                         <div>Conversion: <span className="font-mono">{formatPct(row.conv)}</span></div>
                         <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.pps) ? row.pps.toFixed(2) : 'NA'}</span></div>
+                        <div>xP/Shot: <span className="font-mono">{Number.isFinite(row.xps) ? row.xps.toFixed(2) : 'NA'}</span></div>
                       </div>
                     )}
                   </div>
@@ -337,10 +373,77 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   );
 }
 
+function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColor }) {
+  const homeFill = homeColor || '#f97316';
+  const awayFill = awayColor || '#7f1d3a';
+  const homeLabel = homeTeam?.name || 'Home';
+  const awayLabel = awayTeam?.name || 'Away';
+  const chartData = sim ? [{
+    label: 'Win Probability',
+    home: sim.homeWinProb * 100,
+    draw: sim.drawProb * 100,
+    away: sim.awayWinProb * 100,
+  }] : [];
+
+  return (
+    <Card className={paneClassName}>
+      <CardContent className="p-4 space-y-1">
+        <div className="font-semibold text-slate-900">{title}</div>
+        {sim ? (
+          <div className="space-y-0">
+            <div className="flex items-center justify-between gap-3 pb-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span className="truncate">{homeLabel}</span>
+              <span className="truncate text-right">{awayLabel}</span>
+            </div>
+            <ChartContainer
+              id="expected-point-post-game-win-probability"
+              className="h-[70px] w-full"
+              config={{
+                home: { label: `${homeLabel} Win`, color: homeFill },
+                draw: { label: 'Draw', color: '#cbd5e1' },
+                away: { label: `${awayLabel} Win`, color: awayFill },
+              }}
+            >
+              <BarChart
+                data={chartData}
+                layout="vertical"
+                margin={{ top: -13, right: 0, left: 0, bottom: -8 }}
+                barSize={34}
+              >
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="label" hide />
+                <Tooltip
+                  cursor={false}
+                  formatter={(value, name) => [`${Number(value).toFixed(1)}%`, name]}
+                  contentStyle={{ borderRadius: 8, borderColor: '#cbd5e1' }}
+                />
+                <Bar dataKey="home" stackId="wp" fill="var(--color-home)" radius={[8, 0, 0, 8]}>
+                  <LabelList dataKey="home" position="insideLeft" offset={14} className="fill-white text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
+                </Bar>
+                <Bar dataKey="draw" stackId="wp" fill="var(--color-draw)">
+                  <LabelList dataKey="draw" position="inside" className="fill-slate-700 text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
+                </Bar>
+                <Bar dataKey="away" stackId="wp" fill="var(--color-away)" radius={[0, 8, 8, 0]}>
+                  <LabelList dataKey="away" position="insideRight" offset={14} className="fill-white text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-600">
+            No valid xP-tagged shots available for simulation under the current filters.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const [shotMapMode, setShotMapMode] = useState('all');
+  const [detailedSituationOpen, setDetailedSituationOpen] = useState(false);
   const playerLookup = useMemo(() => {
     const byId = new Map();
     const bySideNumber = new Map();
@@ -370,6 +473,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       const stNorm = st === '2 point' ? '2_point' : st;
       const sit = String(sh.situation || '');
       const pr = String(sh.pressure || '');
+      const xpRaw = sh?.xp?.value ?? sh.expected_points ?? sh.expectedPoints ?? sh.xp ?? sh.xP ?? null;
+      const xp = Number(xpRaw);
 
       const dist = calcDistanceToGoal(x, y);
       const z = shotZoneFromDistance(dist);
@@ -418,7 +523,6 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         y,
         shotType: stNorm || 'point',
         situation: sit,
-        situationGroup: sit === 'play' ? 'play' : 'deadball',
         method: String(sh.method || ''),
         pressure: pr,
         outcome: o,
@@ -429,36 +533,82 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         side: shotSideFromY(y),
         isScore: shotOutcomeGroup(o) === 'score',
         points: shotPointsForOutcome(o),
+        xp: Number.isFinite(xp) ? xp : NaN,
         isFromPlay: sit === 'play',
         isPlacedBall: sit && sit !== 'play',
         playerLabel,
         playerId: playerSel?.id || rosterPlayer?.id || null,
+        playerKey: `${s.team_side === 'away' ? 'away' : 'home'}|${String(playerSel?.id || rosterPlayer?.id || playerLabel || 'NA')}`,
+        playerMatchKeys: [
+          `${s.team_side === 'away' ? 'away' : 'home'}|${String(playerSel?.id || rosterPlayer?.id || playerLabel || 'NA')}`,
+          `${s.team_side === 'away' ? 'away' : 'home'}|${String(playerLabel || 'NA')}`,
+        ],
         timeLabel,
       });
     }
     return out;
   }, [stats, playerLookup, scopedReportFilters]);
 
+  const situationLabelMap = useMemo(() => ({
+    play: 'Play',
+    free_ground: 'Free From Ground',
+    free_hands: 'Free From Hands',
+    '45': '45',
+    penalty: 'Penalty',
+    mark: 'Mark',
+  }), []);
+
+  const situationOrder = useMemo(() => ([
+    'play',
+    'free_ground',
+    'free_hands',
+    '45',
+    'penalty',
+    'mark',
+  ]), []);
+
+  const selectedPlayerKeys = useMemo(() => {
+    const selectedIds = Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds.map((id) => String(id)) : [];
+    if (!selectedIds.length) return [];
+    const keys = new Set();
+    for (const player of Array.isArray(playerOptions) ? playerOptions : []) {
+      if (!selectedIds.includes(String(player?.id))) continue;
+      const side = player?.team_side === 'away' ? 'away' : 'home';
+      keys.add(`${side}|${String(player.id)}`);
+      keys.add(`${side}|${String(player.label || 'NA')}`);
+    }
+    return Array.from(keys);
+  }, [reportFilters?.playerIds, playerOptions]);
+
+  const matchesSelectedPlayer = (shot) => {
+    if (!selectedPlayerKeys.length) return true;
+    const keys = Array.isArray(shot?.playerMatchKeys) ? shot.playerMatchKeys : [];
+    return keys.some((key) => selectedPlayerKeys.includes(String(key)));
+  };
+
   const filteredShots = useMemo(() => {
     return shots.filter((s) => {
       if (s.broughtBackAdv) return false;
+      if (!matchesSelectedPlayer(s)) return false;
       if (shotType.length && !shotType.includes(s.shotType)) return false;
-      if (situation.length && !situation.includes(s.situationGroup)) return false;
+      if (situation.length && !situation.includes(s.situation)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
       if (method.length && !method.includes(s.method)) return false;
       return true;
     });
-  }, [shots, shotType, situation, pressure, method]);
+  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method]);
 
   const mapShots = useMemo(() => {
     return shots.filter((s) => {
+      if (s.broughtBackAdv) return false;
+      if (!matchesSelectedPlayer(s)) return false;
       if (shotType.length && !shotType.includes(s.shotType)) return false;
-      if (situation.length && !situation.includes(s.situationGroup)) return false;
+      if (situation.length && !situation.includes(s.situation)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
       if (method.length && !method.includes(s.method)) return false;
       return true;
     });
-  }, [shots, shotType, situation, pressure, method]);
+  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method]);
 
   const kpis = useMemo(() => {
     const calc = (side) => {
@@ -466,6 +616,11 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       const shotsN = sh.length;
       const scoresN = sh.filter((s) => s.isScore).length;
       const totalPts = sh.reduce((a, s) => a + (s.points || 0), 0);
+      const totalXp = sh.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+      const xpCount = sh.filter((s) => Number.isFinite(s.xp)).length;
+      const goals = sh.filter((s) => s.outcome === 'goal').length;
+      const points1 = sh.filter((s) => s.outcome === 'point').length;
+      const points2 = sh.filter((s) => s.outcome === '2_point').length;
       const conv = shotsN ? (scoresN / shotsN) * 100 : NaN;
       const pps = shotsN ? totalPts / shotsN : NaN;
       const dists = sh.map((s) => s.distance).filter(Number.isFinite);
@@ -489,13 +644,20 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       return {
         shotsN,
         scoresN,
+        goals,
+        points1,
+        points2,
+        totalPts,
+        totalXp,
+        xpCount,
+        xpShot: xpCount ? totalXp / xpCount : NaN,
         conv,
         pps,
         avgDist,
         playConv,
         fromPlayPct,
         placedConv,
-        lowPressurePct: shotsN ? (lowPressure / shotsN) * 100 : NaN,
+        lowPressureShots: lowPressure,
         shortN,
         typeBreakdown,
       };
@@ -503,23 +665,60 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     return { home: calc('home'), away: calc('away') };
   }, [filteredShots]);
 
+  const shotOutcomeRows = useMemo(() => {
+    const order = ['point', '2_point', 'goal', 'wide', 'short', 'saved', 'blocked', 'post', 'other'];
+    const labels = {
+      point: '1 Point',
+      '2_point': '2 Point',
+      goal: 'Goal',
+      wide: 'Wide',
+      short: 'Short',
+      saved: 'Saved',
+      blocked: 'Blocked',
+      post: 'Post',
+      other: 'Total',
+    };
+    const buildCounts = (side) => {
+      const counts = Object.fromEntries(order.map((key) => [key, 0]));
+      const teamShots = filteredShots.filter((shot) => shot.team_side === side);
+      teamShots.forEach((shot) => {
+        const key = order.includes(String(shot.outcome || '')) ? String(shot.outcome) : 'other';
+        if (key !== 'other') counts[key] += 1;
+      });
+      counts.other = teamShots.length;
+      return counts;
+    };
+    const homeCounts = buildCounts('home');
+    const awayCounts = buildCounts('away');
+    return order.map((key) => ({
+      key,
+      label: labels[key] || toTitleCase(key),
+      home: homeCounts[key] || 0,
+      away: awayCounts[key] || 0,
+    }));
+  }, [filteredShots]);
+
   const shotTypeSummary = useMemo(() => {
     const build = (teamSide = null) => {
       const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
       const order = ['point', '2_point', 'goal'];
       const label = { point: '1 Point', '2_point': '2 Point', goal: 'Goal' };
-      const m = new Map(order.map((type) => [type, { type, attempts: 0, scores: 0, converted: 0, points: 0 }]));
+      const m = new Map(order.map((type) => [type, { type, attempts: 0, scores: 0, converted: 0, points: 0, xpTotal: 0, xpCount: 0 }]));
       for (const s of source) {
         const t = String(s.shotType || 'point');
-        const attemptRow = m.get(t) || { type: t, attempts: 0, scores: 0, converted: 0, points: 0 };
+        const attemptRow = m.get(t) || { type: t, attempts: 0, scores: 0, converted: 0, points: 0, xpTotal: 0, xpCount: 0 };
         attemptRow.attempts += 1;
         attemptRow.points += s.points || 0;
+        if (Number.isFinite(s.xp)) {
+          attemptRow.xpTotal += s.xp;
+          attemptRow.xpCount += 1;
+        }
         if (s.outcome === t) attemptRow.converted += 1;
         m.set(t, attemptRow);
 
         const outcomeType = order.includes(String(s.outcome || '')) ? String(s.outcome) : null;
         if (outcomeType) {
-          const outcomeRow = m.get(outcomeType) || { type: outcomeType, attempts: 0, scores: 0, converted: 0, points: 0 };
+          const outcomeRow = m.get(outcomeType) || { type: outcomeType, attempts: 0, scores: 0, converted: 0, points: 0, xpTotal: 0, xpCount: 0 };
           outcomeRow.scores += 1;
           m.set(outcomeType, outcomeRow);
         }
@@ -529,6 +728,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         label: label[r.type] || toTitleCase(r.type),
         conv: r.attempts ? (r.converted / r.attempts) * 100 : NaN,
         pps: r.attempts ? r.points / r.attempts : NaN,
+        xps: r.xpCount ? r.xpTotal / r.xpCount : NaN,
       }));
       rows.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
       return rows;
@@ -549,6 +749,8 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         const attempts = list.length;
         const scores = list.filter((s) => s.isScore).length;
         const points = list.reduce((a, s) => a + (s.points || 0), 0);
+        const totalXp = list.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+        const xpCount = list.filter((s) => Number.isFinite(s.xp)).length;
         return {
           pressure: toTitleCase(p),
           attempts,
@@ -557,6 +759,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
           scored: scores,
           missed: Math.max(0, attempts - scores),
           pps: attempts ? points / attempts : NaN,
+          xps: xpCount ? totalXp / xpCount : NaN,
         };
       });
     };
@@ -570,12 +773,14 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       home_scored: home[idx]?.scored || 0,
       home_missed: home[idx]?.missed || 0,
       home_pps: home[idx]?.pps,
+      home_xps: home[idx]?.xps,
       away_attempts: away[idx]?.attempts || 0,
       away_scores: away[idx]?.scores || 0,
       away_conv: away[idx]?.conv,
       away_scored: away[idx]?.scored || 0,
       away_missed: away[idx]?.missed || 0,
       away_pps: away[idx]?.pps,
+      away_xps: away[idx]?.xps,
       home_label: homeTeam?.name || 'Home',
       away_label: awayTeam?.name || 'Away',
     }));
@@ -586,16 +791,22 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     const build = (teamSide = null) => {
       const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
       const cats = ['play', 'deadball'];
-      return cats.map((c) => {
-        const list = source.filter((s) => String(s.situationGroup) === c);
+      return cats.map((key) => {
+        const list = source.filter((s) => {
+          const situationKey = String(s.situation || '');
+          return key === 'play' ? situationKey === 'play' : situationKey && situationKey !== 'play';
+        });
         const attempts = list.length;
         const scores = list.filter((s) => s.isScore).length;
         const points = list.reduce((a, s) => a + (s.points || 0), 0);
+        const totalXp = list.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+        const xpCount = list.filter((s) => Number.isFinite(s.xp)).length;
         return {
-          situation: c === 'play' ? 'Play' : 'Deadball',
+          situation: key === 'play' ? 'Play' : 'Deadball',
           attempts,
           conv: attempts ? (scores / attempts) * 100 : NaN,
           pps: attempts ? points / attempts : NaN,
+          xps: xpCount ? totalXp / xpCount : NaN,
         };
       });
     };
@@ -607,27 +818,67 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
   }, [filteredShots]);
 
   const shotTypeCategories = useMemo(() => ([
-    { key: 'point', label: '1 Point', homeFallback: { type: 'point', label: '1 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN }, awayFallback: { type: 'point', label: '1 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN } },
-    { key: '2_point', label: '2 Point', homeFallback: { type: '2_point', label: '2 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN }, awayFallback: { type: '2_point', label: '2 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN } },
-    { key: 'goal', label: 'Goal', homeFallback: { type: 'goal', label: 'Goal', attempts: 0, scores: 0, conv: NaN, pps: NaN }, awayFallback: { type: 'goal', label: 'Goal', attempts: 0, scores: 0, conv: NaN, pps: NaN } },
+    { key: 'point', label: '1 Point', homeFallback: { type: 'point', label: '1 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN }, awayFallback: { type: 'point', label: '1 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN } },
+    { key: '2_point', label: '2 Point', homeFallback: { type: '2_point', label: '2 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN }, awayFallback: { type: '2_point', label: '2 Point', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN } },
+    { key: 'goal', label: 'Goal', homeFallback: { type: 'goal', label: 'Goal', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN }, awayFallback: { type: 'goal', label: 'Goal', attempts: 0, scores: 0, conv: NaN, pps: NaN, xps: NaN } },
   ]), []);
 
   const situationCategories = useMemo(() => ([
-    { key: 'Play', label: 'Play', homeFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN } },
-    { key: 'Deadball', label: 'Deadball', homeFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN }, awayFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN } },
+    { key: 'Play', label: 'Play', homeFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN, xps: NaN }, awayFallback: { situation: 'Play', attempts: 0, conv: NaN, pps: NaN, xps: NaN } },
+    { key: 'Deadball', label: 'Deadball', homeFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN, xps: NaN }, awayFallback: { situation: 'Deadball', attempts: 0, conv: NaN, pps: NaN, xps: NaN } },
   ]), []);
+
+  const detailedSituationSummary = useMemo(() => {
+    const build = (teamSide = null) => {
+      const source = teamSide ? filteredShots.filter((s) => s.team_side === teamSide) : filteredShots;
+      return situationOrder.map((key) => {
+        const list = source.filter((s) => String(s.situation || '') === key);
+        const attempts = list.length;
+        const scores = list.filter((s) => s.isScore).length;
+        const points = list.reduce((a, s) => a + (s.points || 0), 0);
+        const totalXp = list.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+        const xpCount = list.filter((s) => Number.isFinite(s.xp)).length;
+        return {
+          situation: situationLabelMap[key] || toTitleCase(key),
+          attempts,
+          conv: attempts ? (scores / attempts) * 100 : NaN,
+          pps: attempts ? points / attempts : NaN,
+          xps: xpCount ? totalXp / xpCount : NaN,
+        };
+      });
+    };
+    return {
+      both: build(null),
+      home: build('home'),
+      away: build('away'),
+    };
+  }, [filteredShots, situationLabelMap, situationOrder]);
+
+  const detailedSituationCategories = useMemo(() => (
+    situationOrder.map((key) => {
+      const label = situationLabelMap[key] || toTitleCase(key);
+      return {
+        key: label,
+        label,
+        homeFallback: { situation: label, attempts: 0, conv: NaN, pps: NaN, xps: NaN },
+        awayFallback: { situation: label, attempts: 0, conv: NaN, pps: NaN, xps: NaN },
+      };
+    })
+  ), [situationLabelMap, situationOrder]);
 
   const playerSummary = useMemo(() => {
     const rows = new Map();
     for (const s of filteredShots) {
       if (teamMode !== 'both' && s.team_side !== teamMode) continue;
-      const key = s.playerId || s.playerLabel || 'NA';
+      const key = s.playerKey || `${s.team_side}|${s.playerLabel || 'NA'}`;
       const cur = rows.get(key) || {
         key,
         player: s.playerLabel || 'NA',
         team: s.team_side,
         shots: 0,
         points: 0,
+        xpTotal: 0,
+        xpCount: 0,
         distSum: 0,
         distN: 0,
         pointMade: 0,
@@ -639,6 +890,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       };
       cur.shots += 1;
       cur.points += s.points || 0;
+      if (Number.isFinite(s.xp)) {
+        cur.xpTotal += s.xp;
+        cur.xpCount += 1;
+      }
       if (Number.isFinite(s.distance)) { cur.distSum += s.distance; cur.distN += 1; }
       if (s.shotType === 'point') cur.pointAtt += 1;
       if (s.shotType === '2_point') cur.twoAtt += 1;
@@ -651,6 +906,9 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     const out = Array.from(rows.values()).map((r) => ({
       ...r,
       pps: r.shots ? r.points / r.shots : NaN,
+      xp: r.xpCount ? r.xpTotal : NaN,
+      xpPts: r.xpCount ? (r.points - r.xpTotal) : NaN,
+      xps: r.xpCount ? r.xpTotal / r.xpCount : NaN,
       avgDist: r.distN ? r.distSum / r.distN : NaN,
     }));
     out.sort((a, b) => b.points - a.points);
@@ -661,7 +919,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'shots', label: 'Shots', sortValue: (r) => r.shots },
     { key: 'points', label: 'Points', sortValue: (r) => r.points },
+    { key: 'xp', label: 'xP', sortValue: (r) => r.xp },
+    { key: 'xpPts', label: 'Pts-XP', sortValue: (r) => r.xpPts },
     { key: 'pps', label: 'Pts/Shot', sortValue: (r) => r.pps },
+    { key: 'xps', label: 'xP/Shot', sortValue: (r) => r.xps },
     { key: 'avgDist', label: 'Avg Dist', sortValue: (r) => r.avgDist },
     { key: 'pointAtt', label: '1 Point', sortValue: (r) => r.pointAtt },
     { key: 'twoAtt', label: '2 Point', sortValue: (r) => r.twoAtt },
@@ -669,89 +930,113 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
   ]), []);
   const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  const winProbabilitySim = useMemo(() => {
+    return simulateFullMatchFromShots(
+      filteredShots
+        .filter((shot) => Number.isFinite(shot?.xp))
+        .map((shot) => ({
+          team_side: shot.team_side,
+          shotType: shot.shotType,
+          xp: shot.xp,
+        })),
+      10000,
+    );
+  }, [filteredShots]);
 
   return (
     <div className="space-y-4">
       <div className="report-metric-split">
         <ComparisonMetricsCard
-          title="Scoring Metrics"
+          title=""
           cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamMode={teamMode}
           rows={[
             {
-              label: 'Shot Scoring',
+              label: 'Score',
+              home: `${kpis.home.goals}:${kpis.home.points1 + (kpis.home.points2 * 2)} (${kpis.home.totalPts})`,
+              away: `${kpis.away.goals}:${kpis.away.points1 + (kpis.away.points2 * 2)} (${kpis.away.totalPts})`,
+              strong: true,
+            },
+            { label: 'Expected Points', home: kpis.home.xpCount ? kpis.home.totalXp.toFixed(2) : 'N/A', away: kpis.away.xpCount ? kpis.away.totalXp.toFixed(2) : 'N/A' },
+            {
+              label: 'Shots',
               home: `${kpis.home.scoresN}/${kpis.home.shotsN} (${formatPct(kpis.home.conv)})`,
               away: `${kpis.away.scoresN}/${kpis.away.shotsN} (${formatPct(kpis.away.conv)})`,
             },
             { label: 'Points Per Shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
+            { label: 'XP / Shot', home: Number.isFinite(kpis.home.xpShot) ? kpis.home.xpShot.toFixed(2) : 'N/A', away: Number.isFinite(kpis.away.xpShot) ? kpis.away.xpShot.toFixed(2) : 'N/A' },
             { label: 'Average Shot Distance', home: Number.isFinite(kpis.home.avgDist) ? kpis.home.avgDist.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgDist) ? kpis.away.avgDist.toFixed(1) : 'NA' },
+            { label: 'Low Pressure Shots', home: kpis.home.lowPressureShots, away: kpis.away.lowPressureShots },
             { label: 'Shots Short', home: kpis.home.shortN, away: kpis.away.shortN },
           ]}
         />
         <div className="report-companion-grid">
-          {teamMode === 'both' ? (
-            <>
-              <CategoryComparisonTable
-                title="Shot Type Breakdown"
-                sortable={false}
-                categories={shotTypeCategories}
-                categoryKey="type"
-                categoryLabel="Type"
-                homeLabel={homeTeam?.name || 'Home'}
-                awayLabel={awayTeam?.name || 'Away'}
-                homeRows={shotTypeSummary.home}
-                awayRows={shotTypeSummary.away}
-                columns={[
-                  { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                  { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                  { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                ]}
-              />
-              <PressureConversionChart
-                title="Pressure vs Conversion"
-                data={pressureSummary.both}
-                homeColor={homeTeam?.color}
-                awayColor={awayTeam?.color}
-                teamMode={teamMode}
-              />
-            </>
-          ) : (
-            <>
-              <SideBreakdownTable
-                title="Shot Type Breakdown"
-                rows={shotTypeSummary.both}
-                columns={[
-                  { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
-                  { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
-                  { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
-                  { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                ]}
-              />
-              <PressureConversionChart
-                title="Pressure vs Conversion"
-                data={teamMode === 'away' ? pressureSummary.away : pressureSummary.home}
-                homeColor={homeTeam?.color}
-                awayColor={awayTeam?.color}
-                teamMode={teamMode}
-              />
-            </>
-          )}
+          <WinProbabilityBar
+            title="Expected point post game win probability"
+            sim={winProbabilitySim}
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            homeColor={homeTeam?.color}
+            awayColor={awayTeam?.color}
+          />
+          <PressureConversionChart
+            title="Pressure vs Conversion"
+            data={teamMode === 'both' ? pressureSummary.both : (teamMode === 'away' ? pressureSummary.away : pressureSummary.home)}
+            homeColor={homeTeam?.color}
+            awayColor={awayTeam?.color}
+            teamMode={teamMode}
+          />
         </div>
       </div>
 
         {mapShots.length === 0 ? (
-          <Card>
+          <Card className={paneClassName}>
             <CardContent className="p-6 text-sm text-slate-600 text-center">
               No shots available for current filters.
             </CardContent>
           </Card>
         ) : (
           <>
-            <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
+            <Card className={paneClassName}>
+              <CardContent className="p-4">
+                <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
+              </CardContent>
+            </Card>
 
             <div className="grid lg:grid-cols-2 gap-4">
+              {teamMode === 'both' ? (
+                <CategoryComparisonTable
+                  title="Shot Type Breakdown"
+                  sortable={false}
+                  categories={shotTypeCategories}
+                  categoryKey="type"
+                  categoryLabel="Type"
+                  homeLabel={homeTeam?.name || 'Home'}
+                  awayLabel={awayTeam?.name || 'Away'}
+                  homeRows={shotTypeSummary.home}
+                  awayRows={shotTypeSummary.away}
+                  columns={[
+                    { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                    { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                    { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                  ]}
+                />
+              ) : (
+                <SideBreakdownTable
+                  title="Shot Type Breakdown"
+                  rows={shotTypeSummary.both}
+                  columns={[
+                    { key: 'label', label: 'Type', primary: true, render: (r) => r.label },
+                    { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                    { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                    { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                  ]}
+                />
+              )}
               {teamMode === 'both' ? (
                 <CategoryComparisonTable
                   title="Shot Situation Breakdown"
@@ -763,27 +1048,104 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
                   awayLabel={awayTeam?.name || 'Away'}
                   homeRows={situationSummary.home}
                   awayRows={situationSummary.away}
+                  headerAction={<Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDetailedSituationOpen(true)}>Expand</Button>}
                   columns={[
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
                   ]}
                 />
               ) : (
                 <SideBreakdownTable
                   title="Shot Situation Breakdown"
                   rows={situationSummary.both}
+                  headerAction={<Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDetailedSituationOpen(true)}>Expand</Button>}
                   columns={[
                     { key: 'situation', label: 'Situation', primary: true, render: (r) => r.situation },
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
                   ]}
                 />
               )}
             </div>
 
-            <Card>
+            <Card className={paneClassName}>
+              <CardContent className="p-4 space-y-3">
+                <div className="font-semibold text-slate-900">Shot Outcomes</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Team</TableHead>
+                      {shotOutcomeRows.map((row) => (
+                        <TableHead key={row.key} className="text-right">{row.label}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(teamMode === 'both' || teamMode === 'home') && (
+                      <TableRow>
+                        <TableCell className="font-medium">{homeTeam?.name || 'Home'}</TableCell>
+                        {shotOutcomeRows.map((row) => (
+                          <TableCell key={`home-${row.key}`} className="text-right tabular-nums">{row.home}</TableCell>
+                        ))}
+                      </TableRow>
+                    )}
+                    {(teamMode === 'both' || teamMode === 'away') && (
+                      <TableRow>
+                        <TableCell className="font-medium">{awayTeam?.name || 'Away'}</TableCell>
+                        {shotOutcomeRows.map((row) => (
+                          <TableCell key={`away-${row.key}`} className="text-right tabular-nums">{row.away}</TableCell>
+                        ))}
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Dialog open={detailedSituationOpen} onOpenChange={setDetailedSituationOpen}>
+              <DialogContent className="max-w-[95rem]">
+                <DialogHeader>
+                  <DialogTitle>Detailed Shot Situation Breakdown</DialogTitle>
+                </DialogHeader>
+                {teamMode === 'both' ? (
+                  <CategoryComparisonTable
+                    title=""
+                    sortable={false}
+                    categories={detailedSituationCategories}
+                    categoryKey="situation"
+                    categoryLabel="Situation"
+                    homeLabel={homeTeam?.name || 'Home'}
+                    awayLabel={awayTeam?.name || 'Away'}
+                    homeRows={detailedSituationSummary.home}
+                    awayRows={detailedSituationSummary.away}
+                    columns={[
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                      { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                ) : (
+                  <SideBreakdownTable
+                    title=""
+                    rows={detailedSituationSummary.both}
+                    columns={[
+                      { key: 'situation', label: 'Situation', primary: true, render: (r) => r.situation },
+                      { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
+                      { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
+                      { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
+                      { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ]}
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
+
+            <Card className={paneClassName}>
               <CardContent className="p-4 space-y-3">
                 <div className="font-semibold text-slate-900">Player Shooting</div>
                 <Table>
@@ -806,7 +1168,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
                         <TableCell className="font-medium">{r.player}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.points}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.xp) ? r.xp.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="text-right tabular-nums" style={ptsXpCellStyle(r.xpPts)}>{Number.isFinite(r.xpPts) ? r.xpPts.toFixed(2) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.pointMade}/{r.pointAtt}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.twoMade}/{r.twoAtt}</TableCell>

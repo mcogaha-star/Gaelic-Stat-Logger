@@ -443,7 +443,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       if (playerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const ids = collectPlayerIds(extra);
-        const any = playerIds.some((id) => ids.has(id));
+        const any = playerIds.some((id) => ids.has(String(id)));
         if (!any) return false;
       }
       if (minS != null || maxS != null) {

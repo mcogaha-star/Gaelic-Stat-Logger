@@ -30,7 +30,7 @@ export function useFilteredReportStats({ stats, overviewHalf, reportFilters, mat
       if (reportFilters.playerIds.length) {
         const extra = safeParseJSON(s.extra_data || '{}', {});
         const ids = collectPlayerIds(extra);
-        const any = reportFilters.playerIds.some((id) => ids.has(id));
+        const any = reportFilters.playerIds.some((id) => ids.has(String(id)));
         if (!any) return false;
       }
       if (minS != null || maxS != null) {
