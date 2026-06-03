@@ -349,6 +349,8 @@ function PlayersAnalyticsTab({
         shots: 0,
         scores: 0,
         points: 0,
+        xpTotal: 0,
+        xpCount: 0,
         passes: 0,
         passComp: 0,
         carries: 0,
@@ -446,6 +448,12 @@ function PlayersAnalyticsTab({
           const o = ex?.shot?.outcome;
           if (shotOutcomeGroup(o) === 'score') r.scores += 1;
           r.points += shotPointsForOutcome(o);
+          const xpRaw = ex?.shot?.xp?.value ?? ex?.shot?.expected_points ?? ex?.shot?.expectedPoints ?? ex?.shot?.xp ?? ex?.shot?.xP ?? null;
+          const xp = Number(xpRaw);
+          if (Number.isFinite(xp)) {
+            r.xpTotal += xp;
+            r.xpCount += 1;
+          }
           const shotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '');
           if (shotType === 'point') {
             r.pointAtt += 1;
@@ -720,9 +728,11 @@ function PlayersAnalyticsTab({
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
       { key: 'shots', label: 'Shots', numeric: true },
-      { key: 'scores', label: 'Scores', numeric: true },
       { key: 'points', label: 'Points', numeric: true },
+      { key: 'xp', label: 'xP', numeric: true, sortValue: (r) => (r.xpCount ? r.xpTotal : -1), render: (r) => r.xpCount ? r.xpTotal.toFixed(2) : 'NA' },
+      { key: 'xpPts', label: 'Pts-XP', numeric: true, sortValue: (r) => (r.xpCount ? (r.points - r.xpTotal) : -Infinity), render: (r) => r.xpCount ? (r.points - r.xpTotal).toFixed(2) : 'NA' },
       { key: 'pointsPerShot', label: 'Pts/Shot', numeric: true, sortValue: (r) => (r.shots ? r.points / r.shots : -1), render: (r) => r.shots ? (r.points / r.shots).toFixed(2) : 'NA' },
+      { key: 'xpPerShot', label: 'xP/Shot', numeric: true, sortValue: (r) => (r.xpCount ? (r.xpTotal / r.xpCount) : -1), render: (r) => r.xpCount ? (r.xpTotal / r.xpCount).toFixed(2) : 'NA' },
       { key: 'avgShotDist', label: 'Avg Dist', numeric: true, sortValue: (r) => r.avgShotDist, render: (r) => Number.isFinite(r.avgShotDist) ? r.avgShotDist.toFixed(1) : 'NA' },
       { key: 'pointFraction', label: '1 Point', numeric: true, sortValue: (r) => r.pointMade, render: (r) => renderScoringFraction(r.pointMade, r.pointAtt) },
       { key: 'twoFraction', label: '2 Point', numeric: true, sortValue: (r) => r.twoMade, render: (r) => renderScoringFraction(r.twoMade, r.twoAtt) },
@@ -1031,7 +1041,7 @@ function PlayersAnalyticsTab({
                   className="h-7 px-2 text-xs"
                   onClick={() => setPlayerBucket(value)}
                 >
-                  {label}
+                  {value === 'scoring' ? 'Shooting' : label}
                 </Button>
               ))}
             </div>

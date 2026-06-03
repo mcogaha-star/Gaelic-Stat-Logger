@@ -20,7 +20,7 @@ import RecentStats from '@/components/match/RecentStats';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, getSetDefenceValue, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
@@ -733,7 +733,7 @@ export default function MatchStats() {
             : Number(currentPossessionId || 0);
         const targetPossessionTeamSide = pendingNextPossessionTeamSide || currentPossessionTeamSide;
 
-        if (!targetPossessionId || !['home', 'away'].includes(targetPossessionTeamSide)) return true;
+        if (!targetPossessionId || !['home', 'away'].includes(targetPossessionTeamSide)) return false;
 
         if (
             Number(lastDefenceSetByPossession?.possessionId) === targetPossessionId
@@ -750,7 +750,7 @@ export default function MatchStats() {
                 && s?.stat_type !== 'kickout'
                 && s?.stat_type !== 'period_end'
                 && s?.stat_type !== 'substitution'
-                && typeof s?.counter_attack === 'boolean'
+                && getSetDefenceValue(s, null) != null
             )
             .sort((a, b) => {
                 const playDiff = Number(b?.play_id || 0) - Number(a?.play_id || 0);
@@ -758,8 +758,8 @@ export default function MatchStats() {
                 return String(b?.timestamp || '').localeCompare(String(a?.timestamp || ''));
             });
 
-        if (!targetPossessionStats.length) return true;
-        return !!targetPossessionStats[0].counter_attack;
+        if (!targetPossessionStats.length) return false;
+        return !!getSetDefenceValue(targetPossessionStats[0], false);
     }, [stats, currentPossessionId, currentPossessionTeamSide, pendingNextPossessionTeamSide, lastDefenceSetByPossession]);
 
     const handleStatSubmit = (payload) => {

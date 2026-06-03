@@ -5,7 +5,6 @@ import { ArrowLeft, BarChart3, Copy, Share2, SlidersHorizontal } from 'lucide-re
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,7 +18,6 @@ import {
   getNormalizedTimeS,
   getMatchTimeS,
   getNextBallActionStat,
-  normalizeFoulType,
   shotPointsForOutcome,
   extractFoulFromStat,
   oppositeTeamSide,
@@ -29,7 +27,6 @@ import {
   buildStatModelRepairs,
   deriveMatchLengthMinutes,
   inferRestartWinnerSide,
-  isBroughtBackAdvantageStat,
   isDeadBallGapStart,
   normalizeDefenceSetRows,
   normalizeStatModelRows,
@@ -47,9 +44,12 @@ import {
   possessionHasOpp45Entry,
   derivePossessionOutcome,
   ReportFiltersFields,
+  MatchTimeRangeSlider,
   PitchViz,
   MultiSelect,
   toTitleCase,
+  formatExtraValue,
+  normalizePlayerRef,
 } from '@/features/report/shared';
 import ScoringTab from '@/features/report/tabs/ScoringTab';
 import PossessionsTab from '@/features/report/tabs/PossessionsTab';
@@ -59,7 +59,6 @@ import DefenseTab from '@/features/report/tabs/DefenseTab';
 import OverviewTab from '@/features/report/tabs/OverviewTab';
 import PlayersAnalyticsTab from '@/features/report/tabs/PlayersAnalyticsTab';
 import DataTab from '@/features/report/tabs/DataTab';
-import VisualiserTab from '@/features/report/tabs/VisualiserTab';
 import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
 import useFilteredReportStats from '@/features/report/hooks/useFilteredReportStats';
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
@@ -215,6 +214,31 @@ function getSharedPayloadData(sharedPayload) {
   const homePlayers = players.filter((player) => player?.team_id === homeTeam?.id);
   const awayPlayers = players.filter((player) => player?.team_id === awayTeam?.id);
   return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats };
+}
+
+function formatRestartFilterPlayerLabel(player) {
+  const normalized = normalizePlayerRef(player);
+  if (!normalized) return 'Unknown';
+  const prefix = normalized.team_side === 'away' ? 'Away' : 'Home';
+  const bits = [];
+  if (normalized.number != null && String(normalized.number) !== '') bits.push(`#${normalized.number}`);
+  if (normalized.name) bits.push(normalized.name);
+  return `${prefix}: ${bits.join(' ').trim() || 'Player'}`;
+}
+
+function sortRestartFilterOptions(options) {
+  const sideOrder = { home: 0, away: 1 };
+  return (Array.isArray(options) ? options.slice() : []).sort((a, b) => {
+    const sideCmp = (sideOrder[a.team_side] ?? 99) - (sideOrder[b.team_side] ?? 99);
+    if (sideCmp !== 0) return sideCmp;
+    const aNum = Number(a.number);
+    const bNum = Number(b.number);
+    const aHas = Number.isFinite(aNum);
+    const bHas = Number.isFinite(bNum);
+    if (aHas && bHas && aNum !== bNum) return aNum - bNum;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return String(a.label || '').localeCompare(String(b.label || ''), undefined, { numeric: true, sensitivity: 'base' });
+  });
 }
 
 export default function MatchReport({ sharedPayload = null, statShareCode = '', readOnly = false }) {
@@ -634,20 +658,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
   };
 
-  const defenseTurnoverTypeOptions = useMemo(() => {
-    const values = new Set();
-    for (const s of Array.isArray(stats) ? stats : []) {
-      const extra = safeParseJSON(s?.extra_data || '{}', {});
-      const turnover = extra?.turnover;
-      if (shouldExcludeFromTotals(s) || !(s?.stat_type === 'turnover' || turnover)) continue;
-      const raw = String(turnover?.type || turnover?.turnover_type || '');
-      const normalized = normalizeFoulType(raw);
-      if (!normalized) continue;
-      values.add(JSON.stringify({ value: normalized, label: raw ? toTitleCase(raw) : toTitleCase(normalized) }));
-    }
-    return Array.from(values).map((raw) => JSON.parse(raw)).sort((a, b) => a.label.localeCompare(b.label));
-  }, [stats]);
-
   const reportState = useReportFilterState({ stats, match, imputedTimeById });
   const {
     activeTab,
@@ -657,18 +667,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     overviewHalf,
     setOverviewHalf,
     reportFilters,
-    vizTeam,
-    setVizTeam,
-    vizActions,
-    setVizActions,
-    vizHalves,
-    setVizHalves,
-    vizCounters,
-    setVizCounters,
-    vizPlayerIds,
-    setVizPlayerIds,
-    vizColorBy,
-    setVizColorBy,
     scoringShotType,
     setScoringShotType,
     scoringSituation,
@@ -677,8 +675,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     setScoringPressure,
     scoringMethod,
     setScoringMethod,
-    possessionsCounterFilter,
-    setPossessionsCounterFilter,
+    scoringAttackType,
+    setScoringAttackType,
+    possessionsAttackTypeFilter,
+    setPossessionsAttackTypeFilter,
+    possessionsOutcomeFilter,
+    setPossessionsOutcomeFilter,
+    possessionsOriginFilter,
+    setPossessionsOriginFilter,
+    possessionsStartZoneFilter,
+    setPossessionsStartZoneFilter,
     buildEventTypes,
     setBuildEventTypes,
     buildPressure,
@@ -703,13 +709,18 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     setDefenseDefTypes,
     playersFocusPlayerId,
     setPlayersFocusPlayerId,
-    filteredForViz,
     showTopFiltersButton,
     resetAllFilters,
   } = reportState;
 
+  const [restartTargetFilter, setRestartTargetFilter] = useState([]);
+  const [restartWonByFilter, setRestartWonByFilter] = useState([]);
+  const [restartLengthFilter, setRestartLengthFilter] = useState([]);
+  const [restartSideFilter, setRestartSideFilter] = useState([]);
+
   useEffect(() => {
     if (activeTab === 'data') setActiveTab('video');
+    if (activeTab === 'visualiser') setActiveTab('video');
   }, [activeTab, setActiveTab]);
 
   const { overviewStats, filteredForReport } = useFilteredReportStats({
@@ -727,6 +738,65 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     match,
     imputedTimeById,
   });
+
+  const { filteredForReport: filteredForScoringWp } = useFilteredReportStats({
+    stats,
+    overviewHalf,
+    reportFilters: { ...reportFilters, team: 'both', playerIds: [] },
+    match,
+    imputedTimeById,
+  });
+
+  const restartTargetOptions = useMemo(() => {
+    const rows = new Map();
+    (Array.isArray(stats) ? stats : []).forEach((stat) => {
+      if (stat?.stat_type !== 'kickout') return;
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      const target = extra?.kickout?.intended_recipient;
+      const normalized = normalizePlayerRef(target);
+      const key = normalized?.id ? String(normalized.id) : String(target?.kind || 'unknown');
+      if (!key || rows.has(key)) return;
+      if (normalized?.id) {
+        rows.set(key, {
+          value: key,
+          label: formatRestartFilterPlayerLabel(normalized),
+          team_side: normalized.team_side,
+          number: normalized.number,
+        });
+      } else {
+        rows.set(key, {
+          value: key,
+          label: formatExtraValue(target) || 'Unknown',
+          team_side: 'zz_other',
+          number: null,
+        });
+      }
+    });
+    return sortRestartFilterOptions(Array.from(rows.values()));
+  }, [stats]);
+
+  const restartWonByOptions = useMemo(() => {
+    const rows = new Map();
+    (Array.isArray(stats) ? stats : []).forEach((stat) => {
+      if (stat?.stat_type !== 'kickout') return;
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      const wonBy = normalizePlayerRef(extra?.kickout?.won_by);
+      if (!wonBy?.id) return;
+      const key = String(wonBy.id);
+      if (rows.has(key)) return;
+      rows.set(key, {
+        value: key,
+        label: formatRestartFilterPlayerLabel(wonBy),
+        team_side: wonBy.team_side,
+        number: wonBy.number,
+      });
+    });
+    return [
+      { value: 'team:home', label: homeTeam?.name || 'Home', team_side: 'home', number: -2 },
+      { value: 'team:away', label: awayTeam?.name || 'Away', team_side: 'away', number: -1 },
+      ...sortRestartFilterOptions(Array.from(rows.values())),
+    ];
+  }, [stats, homeTeam, awayTeam]);
 
   const {
     sharedVizOpen,
@@ -1277,7 +1347,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               <TabsTrigger value="kickouts">Restarts</TabsTrigger>
               <TabsTrigger value="defense">Defense</TabsTrigger>
               <TabsTrigger value="players_ana">Players</TabsTrigger>
-              <TabsTrigger value="visualiser">Visualiser</TabsTrigger>
               <TabsTrigger value="video">Video</TabsTrigger>
             </TabsList>
             {activeTab === 'summary' && (
@@ -1294,7 +1363,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 </Select>
               </div>
             )}
-            {showTopFiltersButton && activeTab !== 'visualiser' && activeTab !== 'summary' && (
+            {showTopFiltersButton && activeTab !== 'summary' && activeTab !== 'video' && (
               <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="ml-auto gap-2">
@@ -1329,6 +1398,18 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                             />
                             <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                             <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-600">Attack Type</Label>
+                              <Select value={scoringAttackType} onValueChange={setScoringAttackType}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="any">Any</SelectItem>
+                                  <SelectItem value="attack_type_set">Set</SelectItem>
+                                  <SelectItem value="attack_type_transition">Transition</SelectItem>
+                                  <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                         </details>
                       </>
@@ -1336,15 +1417,85 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     {activeTab === 'possessions' && (
                       <>
                         <div className="font-semibold text-slate-900">Possessions Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
                         <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Set Defence</Label>
-                          <Select value={possessionsCounterFilter} onValueChange={setPossessionsCounterFilter}>
+                          <Label className="text-xs text-slate-600">Team</Label>
+                          <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="both">Both</SelectItem>
+                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <MultiSelect
+                          label="Half"
+                          placeholder="All"
+                          values={reportFilters.halves}
+                          onChange={reportFilters.setHalves}
+                          options={[
+                            { value: 'first', label: 'First' },
+                            { value: 'second', label: 'Second' },
+                            { value: 'et_first', label: 'ET1' },
+                            { value: 'et_second', label: 'ET2' },
+                          ]}
+                        />
+                        <MatchTimeRangeSlider
+                          timeMin={reportFilters.timeMin}
+                          timeMax={reportFilters.timeMax}
+                          match={reportFilters.match}
+                          stats={reportFilters.allStats}
+                          imputedTimeById={reportFilters.imputedTimeById}
+                          onChange={({ timeMin, timeMax }) => {
+                            reportFilters.setTimeMin(timeMin);
+                            reportFilters.setTimeMax(timeMax);
+                          }}
+                        />
+                        <MultiSelect
+                          label="Outcome"
+                          placeholder="All"
+                          values={possessionsOutcomeFilter}
+                          onChange={setPossessionsOutcomeFilter}
+                          options={[
+                            { value: 'Score', label: 'Score' },
+                            { value: 'Missed Shot', label: 'Missed Shot' },
+                            { value: 'Turnover', label: 'Turnover' },
+                            { value: 'Half End', label: 'Half End' },
+                          ]}
+                        />
+                        <MultiSelect
+                          label="Origin"
+                          placeholder="All"
+                          values={possessionsOriginFilter}
+                          onChange={setPossessionsOriginFilter}
+                          options={[
+                            { value: 'Turnover Won', label: 'Turnover Won' },
+                            { value: 'Own KO Won', label: 'Own KO Won' },
+                            { value: 'Opp KO Won', label: 'Opp KO Won' },
+                            { value: 'Throw In Won', label: 'Throw In Won' },
+                            { value: 'Shot Missed (Live Ball)', label: 'Shot Missed (Live Ball)' },
+                          ]}
+                        />
+                        <MultiSelect
+                          label="Start Zone"
+                          placeholder="All"
+                          values={possessionsStartZoneFilter}
+                          onChange={setPossessionsStartZoneFilter}
+                          options={[
+                            { value: 'Defensive Third', label: 'Defensive Third' },
+                            { value: 'Middle Third', label: 'Middle Third' },
+                            { value: 'Attacking Third', label: 'Attacking Third' },
+                          ]}
+                        />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Attack Type</Label>
+                          <Select value={possessionsAttackTypeFilter} onValueChange={setPossessionsAttackTypeFilter}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="any">Any</SelectItem>
-                              <SelectItem value="defence_set_yes">Yes</SelectItem>
-                              <SelectItem value="defence_set_no">No</SelectItem>
+                              <SelectItem value="attack_type_set">Set</SelectItem>
+                              <SelectItem value="attack_type_transition">Transition</SelectItem>
+                              <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1353,53 +1504,72 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     {activeTab === 'build_up' && (
                       <>
                         <div className="font-semibold text-slate-900">Build-Up Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-                        <MultiSelect label="Event Type" placeholder="Both" values={buildEventTypes} onChange={setBuildEventTypes} options={[{ value: 'pass', label: 'Pass' }, { value: 'carry', label: 'Carry' }]} />
-                        <MultiSelect label="Pressure" placeholder="Any" values={buildPressure} onChange={setBuildPressure} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} />
-                        <MultiSelect label="Outcome" placeholder="Any" values={buildOutcome} onChange={setBuildOutcome} options={[{ value: 'completed', label: 'Completed' }, { value: 'turnover', label: 'Turnover' }, { value: 'foul', label: 'Foul' }, { value: 'sideline_for', label: 'Sideline For' }, { value: 'sideline_against', label: 'Sideline Against' }, { value: '45_for', label: '45 For' }, { value: 'goal_kick_for', label: 'Goal Kick For' }, { value: 'goal_kick_against', label: 'Goal Kick Against' }]} />
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs text-slate-600">Progressive Only</div>
-                          <Checkbox checked={buildProgressiveOnly} onCheckedChange={(v) => setBuildProgressiveOnly(!!v)} />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Network Team</Label>
-                          <Select value={buildPnSide} onValueChange={setBuildPnSide}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
-                          <Input className="h-8 text-xs" inputMode="numeric" value={String(buildPnMin)} onChange={(e) => setBuildPnMin(Math.max(1, Number(e.target.value) || 1))} />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Network Half</Label>
-                          <Select value={buildPnHalf} onValueChange={setBuildPnHalf}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All</SelectItem>
-                              <SelectItem value="first">First</SelectItem>
-                              <SelectItem value="second">Second</SelectItem>
-                              <SelectItem value="et_first">ET1</SelectItem>
-                              <SelectItem value="et_second">ET2</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <ReportFiltersFields
+                          reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }}
+                          playerOptions={playerOptions}
+                          homeTeam={homeTeam}
+                          awayTeam={awayTeam}
+                          showPlayer={false}
+                          showOutcome={false}
+                          actionLabel="Pass / Carry"
+                          timeBeforeAction
+                        />
                       </>
                     )}
                     {activeTab === 'kickouts' && (
                       <>
                         <div className="font-semibold text-slate-900">Restarts Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <ReportFiltersFields
+                          reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }}
+                          playerOptions={playerOptions}
+                          homeTeam={homeTeam}
+                          awayTeam={awayTeam}
+                          showPlayer={false}
+                          showAction={false}
+                          showOutcome={false}
+                          timeBeforeAction
+                        />
+                        <MultiSelect
+                          label="Target"
+                          placeholder="All"
+                          values={restartTargetFilter}
+                          onChange={setRestartTargetFilter}
+                          options={restartTargetOptions}
+                        />
+                        <MultiSelect
+                          label="Won By"
+                          placeholder="All"
+                          values={restartWonByFilter}
+                          onChange={setRestartWonByFilter}
+                          options={restartWonByOptions}
+                        />
+                        <MultiSelect
+                          label="Distance"
+                          placeholder="All"
+                          values={restartLengthFilter}
+                          onChange={setRestartLengthFilter}
+                          options={[
+                            { value: 'short', label: 'Short' },
+                            { value: 'long', label: 'Long' },
+                          ]}
+                        />
+                        <MultiSelect
+                          label="Direction"
+                          placeholder="All"
+                          values={restartSideFilter}
+                          onChange={setRestartSideFilter}
+                          options={[
+                            { value: 'left', label: 'Left' },
+                            { value: 'centre', label: 'Centre' },
+                            { value: 'right', label: 'Right' },
+                          ]}
+                        />
                       </>
                     )}
                     {activeTab === 'defense' && (
                       <>
                         <div className="font-semibold text-slate-900">Defense Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['turnover', 'def_pressure', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showOutcome={false} timeBeforeAction />
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Turnover Result</Label>
                           <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
@@ -1411,45 +1581,12 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                             </SelectContent>
                           </Select>
                         </div>
-                        <MultiSelect label="Turnover Type" placeholder="Any" values={defenseTurnoverTypes} onChange={setDefenseTurnoverTypes} options={defenseTurnoverTypeOptions} />
                       </>
                     )}
                     {activeTab === 'players_ana' && (
                       <>
                         <div className="font-semibold text-slate-900">Players Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} />
-                      </>
-                    )}
-                    {activeTab === 'visualiser' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Visualiser Filters</div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Team</Label>
-                          <Select value={vizTeam} onValueChange={setVizTeam}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="both">Both</SelectItem>
-                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <MultiSelect label="Set Defence" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />
-                        <MultiSelect label="Player" values={vizPlayerIds} onChange={setVizPlayerIds} options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))} />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Color By</Label>
-                          <Select value={vizColorBy} onValueChange={setVizColorBy}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="team">Team</SelectItem>
-                              <SelectItem value="action">Action</SelectItem>
-                              <SelectItem value="outcome">Outcome</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="text-xs text-slate-500">Showing {filteredForViz.length} events.</div>
+                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showPlayer={false} showAction={false} showOutcome={false} timeBeforeAction />
                       </>
                     )}
                     <div className="border-t pt-3">
@@ -1477,32 +1614,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="visualiser">
-            <VisualiserTab
-              filteredForViz={filteredForViz}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              vizColorBy={vizColorBy}
-              setVizColorBy={setVizColorBy}
-              vizTeam={vizTeam}
-              setVizTeam={setVizTeam}
-              vizActions={vizActions}
-              setVizActions={setVizActions}
-              vizHalves={vizHalves}
-              setVizHalves={setVizHalves}
-              vizCounters={vizCounters}
-              setVizCounters={setVizCounters}
-              vizPlayerIds={vizPlayerIds}
-              setVizPlayerIds={setVizPlayerIds}
-              playerOptions={playerOptions}
-              onOpenVideoAt={openSharedVideoAt}
-              resetAllFilters={resetAllFilters}
-            />
-          </TabsContent>
-
           <TabsContent value="scoring">
             <ScoringTab
               stats={filteredForScoring}
+              simStats={filteredForScoringWp}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               playerOptions={playerOptions}
@@ -1515,6 +1630,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               setPressure={setScoringPressure}
               method={scoringMethod}
               setMethod={setScoringMethod}
+              attackType={scoringAttackType}
               onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>
@@ -1526,8 +1642,12 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
-	              counterFilter={possessionsCounterFilter}
-	              setCounterFilter={setPossessionsCounterFilter}
+              onOpenVideoAt={openSharedVideoAt}
+              outcomeFilter={possessionsOutcomeFilter}
+              originFilter={possessionsOriginFilter}
+              startZoneFilter={possessionsStartZoneFilter}
+	              attackTypeFilter={possessionsAttackTypeFilter}
+	              setAttackTypeFilter={setPossessionsAttackTypeFilter}
 	              onVisualisePossession={(p) => {
 	                const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
 	                const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => {
@@ -1575,6 +1695,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              restartTargetFilter={restartTargetFilter}
+              restartWonByFilter={restartWonByFilter}
+              restartLengthFilter={restartLengthFilter}
+              restartSideFilter={restartSideFilter}
               onOpenVideoAt={openSharedVideoAt}
             />
           </TabsContent>

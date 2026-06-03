@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { shotRequiresResult } from '@/lib/reportAnalytics';
+import { getSetDefenceValue, shotRequiresResult } from '@/lib/reportAnalytics';
 
 const NONE = 'none';
 const TEAM_HOME = 'team:home';
@@ -625,11 +625,7 @@ export default function StatModalV4({
     return findPlayerByNumber(side, initialStat.player_number);
   })();
     setAction(initialStat.stat_type || (isDrag ? 'pass' : (previousShotNeedsKickout ? 'kickout' : 'shot')));
-    setCounterAttack(
-      typeof initialStat.set_defence === 'boolean'
-        ? !!initialStat.set_defence
-        : (typeof initialStat.counter_attack === 'boolean' ? !!initialStat.counter_attack : true)
-    );
+    setCounterAttack(!!getSetDefenceValue(initialStat, false));
 
     // Reset common fields before re-seeding.
     setPrimaryPlayer(NONE);

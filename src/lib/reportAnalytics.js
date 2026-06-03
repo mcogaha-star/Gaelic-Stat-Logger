@@ -32,29 +32,45 @@ export function deriveMatchHalfMinutes(matchOrCode, maybeLevel) {
 
 function shouldMigrateDefenceSetRow(stat) {
   if (!stat || typeof stat?.counter_attack !== 'boolean') return false;
+  if (typeof stat?.set_defence === 'boolean') return false;
   if (stat?.defence_set_migration_version === DEFENCE_SET_MIGRATION_VERSION) return false;
   return !['kickout', 'period_end', 'substitution'].includes(String(stat?.stat_type || ''));
+}
+
+export function getSetDefenceValue(stat, fallback = null) {
+  if (!stat) return fallback;
+  if (typeof stat?.set_defence === 'boolean') return !!stat.set_defence;
+  if (typeof stat?.counter_attack === 'boolean') return !!stat.counter_attack;
+  return fallback;
 }
 
 export function buildLegacyDefenceSetRepairs(stats) {
   return (Array.isArray(stats) ? stats : [])
     .filter(shouldMigrateDefenceSetRow)
-    .map((stat) => ({
-      id: stat.id,
-      // The legacy inversion has already been applied in live data. Freeze the
-      // current boolean as Set Defence and mark it so another browser cannot flip it.
-      data: {
-        counter_attack: !!stat.counter_attack,
-        set_defence: !!stat.counter_attack,
-        defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
-      },
-    }));
+    .map((stat) => {
+      const setDefence = getSetDefenceValue(stat, false);
+      return {
+        id: stat.id,
+        // Freeze the current boolean as Set Defence and mark it so later reads
+        // can trust the explicit field without re-inferring semantics.
+        data: {
+          counter_attack: !!setDefence,
+          set_defence: !!setDefence,
+          defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
+        },
+      };
+    });
 }
 
 export function normalizeDefenceSetRows(stats, migrated = false) {
   return (Array.isArray(stats) ? stats : []).map((stat) => {
     if (!stat || typeof stat.counter_attack !== 'boolean') return stat;
-    return stat.set_defence == null ? { ...stat, set_defence: !!stat.counter_attack } : stat;
+    const setDefence = getSetDefenceValue(stat, false);
+    return {
+      ...stat,
+      counter_attack: !!setDefence,
+      set_defence: !!setDefence,
+    };
   });
 }
 

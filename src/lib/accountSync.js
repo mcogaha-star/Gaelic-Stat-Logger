@@ -6,7 +6,7 @@ import {
   generatePublicMatchId,
   restoreExtraDataFromPrivateRefs,
 } from '@/lib/serverSync';
-import { deriveMatchLengthMinutes } from '@/lib/reportAnalytics';
+import { deriveMatchLengthMinutes, getSetDefenceValue } from '@/lib/reportAnalytics';
 
 function stringifyServerExtra(extraData) {
   if (!extraData) return '{}';
@@ -43,7 +43,7 @@ function parseIdList(value) {
 }
 
 function localStatFromServer(row, localMatchId, playerByServerId = new Map()) {
-  const setDefence = typeof row?.set_defence === 'boolean' ? row.set_defence : !!row?.counter_attack;
+  const setDefence = getSetDefenceValue(row, false);
   const player = row?.player_ref ? playerByServerId.get(row.player_ref) : null;
   const recipient = row?.recipient_ref ? playerByServerId.get(row.recipient_ref) : null;
   const restoredExtra = restoreExtraDataFromPrivateRefs(row?.extra_data, playerByServerId);

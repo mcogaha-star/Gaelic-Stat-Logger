@@ -1,4 +1,4 @@
-const db = globalThis.__B44_DB__ || {
+﻿const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, { get: () => ({ filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
 };
 
@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { createPageUrl } from '@/utils';
-import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, isAttackPossession, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
+import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, getSetDefenceValue, isAttackPossession, isProgressive as isProgressiveShared, oppositeTeamSide, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import {
   safeParseJSON,
@@ -28,13 +28,253 @@ import {
   collectPlayerIds,
   PitchViz,
   MultiSelect,
+  MatchTimeRangeSlider,
+  RangeSliderField,
+  statMatchesDisplayTimeRange,
   computeImputedNormalizedTimes,
   deriveOutcome,
   derivePossessionOutcome,
   inferPossessionStartSource,
   statMatchesActionType,
   teamRowTint,
+  applyNonTeamReportFilters,
+  groupByPossession,
+  getPossessionStartZone,
+  deriveAttackTypeState,
+  SortableTableHead,
+  sortRows,
 } from '../shared';
+
+const VIDEO_PLAY_ACTION_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'shot', label: 'Shot' },
+  { value: 'pass', label: 'Pass' },
+  { value: 'carry', label: 'Carry' },
+  { value: 'kickout', label: 'Kickout' },
+  { value: 'turnover', label: 'Turnover' },
+  { value: 'foul', label: 'Foul' },
+  { value: 'def_pressure', label: 'Def Pressure' },
+  { value: 'substitution', label: 'Substitution' },
+];
+
+const VIDEO_PREVIEW_COUNT = 5;
+const POSSESSION_OUTCOME_GROUPS = ['Score', 'Missed Shot', 'Turnover', 'Half End'];
+const POSSESSION_ORIGIN_GROUPS = ['Own KO Won', 'Opp KO Won', 'Turnover Won', 'Shot Missed (Live Ball)', 'Throw In Won'];
+const POSSESSION_START_ZONES = ['Defensive Third', 'Middle Third', 'Attacking Third'];
+const VIDEO_FIELD_STACK_CLASS = 'flex min-h-[84px] flex-col justify-start gap-1.5';
+const VIDEO_FIELD_LABEL_CLASS = 'flex min-h-[20px] items-center text-xs text-slate-600';
+const VIDEO_CONTROL_CLASS = 'h-10 border-slate-200 bg-white text-xs shadow-sm';
+
+function formatSelectionLabel(selection) {
+  if (!selection || typeof selection !== 'object') return '';
+  if (selection.kind === 'player') {
+    const number = Number(selection?.number);
+    const name = String(selection?.name || '').trim();
+    return `${Number.isFinite(number) ? `#${number} ` : ''}${name}`.trim();
+  }
+  if (selection.kind === 'team') return selection.team_side === 'away' ? 'Away Team' : 'Home Team';
+  return '';
+}
+
+function normalizeShotType(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === '2 point' || raw === '2-point' || raw === '2point') return '2_point';
+  return raw.replace(/\s+/g, '_');
+}
+
+function normalizeShotSituation(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'play') return 'play';
+  if (raw === 'free from ground' || raw === 'free_ground') return 'free_ground';
+  if (raw === 'free from hands' || raw === 'free_hands') return 'free_hands';
+  if (raw === '45' || raw === '45m') return '45';
+  if (raw === 'mark') return 'mark';
+  if (raw === 'penalty') return 'penalty';
+  return raw.replace(/\s+/g, '_');
+}
+
+function formatPossessionOriginLabel(possession, { grouped = true } = {}) {
+  const startSource = String(possession?.startSource || '');
+  if (['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved'].includes(startSource)) {
+    return grouped ? 'Shot Missed (Live Ball)' : startSource;
+  }
+  if (startSource !== 'Kickout Won') return startSource;
+  const firstStat = Array.isArray(possession?.stats) ? possession.stats[0] : null;
+  const kickoutStat = firstStat?.stat_type === 'kickout'
+    ? firstStat
+    : (possession?.previousStat?.stat_type === 'kickout' ? possession.previousStat : null);
+  const kickoutTeamSide = kickoutStat?.team_side;
+  if (kickoutTeamSide === 'home' || kickoutTeamSide === 'away') {
+    return kickoutTeamSide === possession?.teamSide ? 'Own KO Won' : 'Opp KO Won';
+  }
+  return 'Own KO Won';
+}
+
+function getPitchThirdLabel(x) {
+  const value = Number(x);
+  if (!Number.isFinite(value)) return 'Unknown';
+  if (value < 48) return 'Defensive Third';
+  if (value < 96) return 'Middle Third';
+  return 'Attacking Third';
+}
+
+function getKickoutSideLabel(stat) {
+  const y = Number(stat?.end_y_position ?? stat?.y_position);
+  if (!Number.isFinite(y)) return 'Unknown';
+  if (y < 48 / 3) return 'Left';
+  if (y < (48 * 2) / 3) return 'Middle';
+  return 'Right';
+}
+
+function getKickoutLengthLabel(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const value = String(extra?.kickout?.distance || extra?.kickout?.length || '').trim().toLowerCase();
+  if (value === 'short' || value === 'long') return toTitleCase(value);
+  const startX = Number(stat?.x_position);
+  const startY = Number(stat?.y_position);
+  const endX = Number(stat?.end_x_position);
+  const endY = Number(stat?.end_y_position);
+  if ([startX, startY, endX, endY].every(Number.isFinite)) {
+    const distance = Math.hypot(endX - startX, endY - startY);
+    return distance >= 45 ? 'Long' : 'Short';
+  }
+  return 'Unknown';
+}
+
+function getKickoutOutcomeLabel(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const outcome = String(extra?.kickout?.outcome || '').trim().toLowerCase();
+  return outcome ? formatDisplayOutcome(outcome) : 'Unknown';
+}
+
+function getKickoutPressLabel(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const value = String(extra?.kickout?.press || '').trim().toLowerCase();
+  if (!value) return 'Unknown';
+  if (value === 'm2m') return 'M2M';
+  return toTitleCase(value);
+}
+
+function getKickoutTargetLabel(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const target = extra?.kickout?.intended_recipient;
+  if (target?.kind === 'player') {
+    const n = Number(target?.number);
+    return `${Number.isFinite(n) ? `#${n} ` : ''}${String(target?.name || '').trim()}`.trim() || 'Player';
+  }
+  if (target?.kind === 'team') return target.team_side === 'away' ? 'Away Team' : 'Home Team';
+  return 'Unknown';
+}
+
+function getSelectionLabel(selection) {
+  if (!selection || typeof selection !== 'object') return '';
+  if (selection.kind === 'team') return selection.team_side === 'away' ? 'Away Team' : 'Home Team';
+  if (selection.kind === 'player') {
+    const number = Number(selection?.number);
+    const name = String(selection?.name || '').trim();
+    return `${Number.isFinite(number) ? `#${number} ` : ''}${name}`.trim() || 'Player';
+  }
+  return '';
+}
+
+function getTurnoverClassification(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const turnover = extra?.turnover || {};
+  const lost = turnover?.lost_by?.team_side || null;
+  const recovered = turnover?.recovered_by?.team_side || turnover?.forced_by?.team_side || null;
+  const type = String(turnover?.type || turnover?.turnover_type || extra?.turnover_type || '').trim();
+  return {
+    result: recovered ? 'won' : lost ? 'lost' : '',
+    type: type || 'unknown',
+  };
+}
+
+function formatDisplayOutcome(value) {
+  const text = String(value || '').trim();
+  if (!text) return 'NA';
+  return toTitleCase(text.replaceAll('_', ' '));
+}
+
+function getSecondaryPlayerForEvent(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const turnoverWinner = extra?.turnover?.recovered_by || extra?.turnover?.forced_by;
+
+  const action = String(stat?.stat_type || '');
+  if (action === 'pass') {
+    return formatSelectionLabel(extra?.pass?.won_by) || formatSelectionLabel(extra?.pass?.intended_recipient);
+  }
+  if (action === 'carry') {
+    return formatSelectionLabel(extra?.carry?.won_by) || formatSelectionLabel(extra?.carry?.carrier);
+  }
+  if (action === 'kickout') {
+    return formatSelectionLabel(extra?.kickout?.lost_by) || formatSelectionLabel(extra?.kickout?.intended_recipient);
+  }
+  if (action === 'turnover') {
+    return formatSelectionLabel(turnoverWinner);
+  }
+  if (action === 'foul') {
+    return formatSelectionLabel(extra?.foul?.foul_on_or_forced_by) || formatSelectionLabel(extra?.foul?.foul_on) || formatSelectionLabel(extra?.foul?.foul_by);
+  }
+  if (action === 'throw_in') {
+    return formatSelectionLabel(extra?.throw_in?.won_by);
+  }
+  return '';
+}
+
+function getPrimaryPlayerForEvent(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const action = String(stat?.stat_type || '');
+  const defaultLabel = `${stat?.player_number ? `#${stat.player_number} ` : ''}${String(stat?.player_name || '').trim()}`.trim();
+  if (action === 'kickout') {
+    return formatSelectionLabel(extra?.kickout?.won_by) || formatSelectionLabel(extra?.kickout?.intended_recipient) || defaultLabel;
+  }
+  if (action === 'turnover') {
+    return formatSelectionLabel(extra?.turnover?.lost_by) || defaultLabel || formatSelectionLabel(extra?.turnover?.recovered_by) || formatSelectionLabel(extra?.turnover?.forced_by);
+  }
+  return defaultLabel;
+}
+
+function getDefPressureContext(stat) {
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const statType = String(stat?.stat_type || '').trim().toLowerCase();
+  const carryDefender = extra?.carry?.defender;
+  const foulBy = extra?.foul?.foul_by;
+  const embeddedDefender = extra?.def_pressure?.defender;
+  const turnoverForcedBy = extra?.turnover?.forced_by;
+  const passRecipient = extra?.pass?.won_by || extra?.pass?.intended_recipient || null;
+  const pressureLevel = String(
+    extra?.def_pressure?.pressure
+      || extra?.pass?.pressure_on_passer
+      || extra?.carry?.pressure_on_carrier
+      || ''
+  ).trim().toLowerCase();
+  const attackingAction = String(extra?.def_pressure?.action || stat?.stat_type || '').trim().toLowerCase();
+  const attacker = formatSelectionLabel(extra?.def_pressure?.attacker)
+    || formatSelectionLabel(extra?.carry?.carrier)
+    || formatSelectionLabel(passRecipient)
+    || formatSelectionLabel(extra?.foul?.foul_on)
+    || `${stat?.player_number ? `#${stat.player_number} ` : ''}${String(stat?.player_name || '').trim()}`.trim();
+  const attackerId = String(extra?.def_pressure?.attacker?.id || extra?.carry?.carrier?.id || passRecipient?.id || extra?.foul?.foul_on?.id || stat?.player_id || '');
+  const defenderSelection = embeddedDefender || carryDefender || foulBy || turnoverForcedBy || null;
+  const defender = formatSelectionLabel(defenderSelection);
+  const defenderId = String(defenderSelection?.id || '');
+  const defendingSide = defenderSelection?.team_side || oppositeTeamSide(stat?.team_side);
+  const isHighPressure = pressureLevel === 'high' || String(extra?.def_pressure?.pressure || '').trim().toLowerCase() === 'high';
+  return {
+    hasPressure: statType !== 'shot' && (isHighPressure || statType === 'def_pressure'),
+    pressureLevel,
+    attackingAction,
+    attacker,
+    attackerId,
+    defender,
+    defenderId,
+    defendingSide,
+    outcome: String(deriveOutcome(stat, extra) || '').trim(),
+    zone: getPitchThirdLabel(stat?.x_position),
+  };
+}
 
 function sortStatsForEditing(list, match, imputedTimeById) {
   const timeKey = (s) => {
@@ -171,6 +411,55 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [timeMin, setTimeMin] = useState('');
   const [timeMax, setTimeMax] = useState('');
   const [rowLimit, setRowLimit] = useState('200');
+  const [videoBrowseMode, setVideoBrowseMode] = useState('play');
+  const [videoViewMode, setVideoViewMode] = useState('table');
+  const [videoPlayAction, setVideoPlayAction] = useState('all');
+  const [videoPlayExpanded, setVideoPlayExpanded] = useState(false);
+  const [videoPossessionExpanded, setVideoPossessionExpanded] = useState(false);
+  const [selectedVideoPlayId, setSelectedVideoPlayId] = useState(null);
+  const [selectedVideoPossessionKey, setSelectedVideoPossessionKey] = useState(null);
+  const [videoPlaySort, setVideoPlaySort] = useState({ key: 'play', dir: 'asc' });
+  const [videoPossessionSort, setVideoPossessionSort] = useState({ key: 'startTime', dir: 'asc' });
+  const [videoShotTypes, setVideoShotTypes] = useState([]);
+  const [videoShotSituations, setVideoShotSituations] = useState([]);
+  const [videoShotPressure, setVideoShotPressure] = useState([]);
+  const [videoShotMethods, setVideoShotMethods] = useState([]);
+  const [videoShotOutcomes, setVideoShotOutcomes] = useState([]);
+  const [videoBuildOutcomes, setVideoBuildOutcomes] = useState([]);
+  const [videoBuildOriginZones, setVideoBuildOriginZones] = useState([]);
+  const [videoBuildEndZones, setVideoBuildEndZones] = useState([]);
+  const [videoBuildPressure, setVideoBuildPressure] = useState([]);
+  const [videoBuildAccuracy, setVideoBuildAccuracy] = useState([]);
+  const [videoBuildProgressive, setVideoBuildProgressive] = useState([]);
+  const [videoBuildRecipientIds, setVideoBuildRecipientIds] = useState([]);
+  const [videoBuildDistanceMin, setVideoBuildDistanceMin] = useState('');
+  const [videoBuildDistanceMax, setVideoBuildDistanceMax] = useState('');
+  const [videoCarryTakeOns, setVideoCarryTakeOns] = useState([]);
+  const [videoKickoutTargets, setVideoKickoutTargets] = useState([]);
+  const [videoKickoutOutcomes, setVideoKickoutOutcomes] = useState([]);
+  const [videoKickoutWonBy, setVideoKickoutWonBy] = useState([]);
+  const [videoKickoutLostBy, setVideoKickoutLostBy] = useState([]);
+  const [videoKickoutPress, setVideoKickoutPress] = useState([]);
+  const [videoKickoutLengths, setVideoKickoutLengths] = useState([]);
+  const [videoKickoutSides, setVideoKickoutSides] = useState([]);
+  const [videoTurnoverTypes, setVideoTurnoverTypes] = useState([]);
+  const [videoTurnoverWonBy, setVideoTurnoverWonBy] = useState([]);
+  const [videoTurnoverLostBy, setVideoTurnoverLostBy] = useState([]);
+  const [videoTurnoverRecoveredBy, setVideoTurnoverRecoveredBy] = useState([]);
+  const [videoFoulTypes, setVideoFoulTypes] = useState([]);
+  const [videoFoulOn, setVideoFoulOn] = useState([]);
+  const [videoFoulBy, setVideoFoulBy] = useState([]);
+  const [videoDefPressureOutcomes, setVideoDefPressureOutcomes] = useState([]);
+  const [videoDefPressureActions, setVideoDefPressureActions] = useState([]);
+  const [videoDefPressureZones, setVideoDefPressureZones] = useState([]);
+  const [videoDefPressureAttackers, setVideoDefPressureAttackers] = useState([]);
+  const [videoPossessionTeam, setVideoPossessionTeam] = useState('both');
+  const [videoPossessionHalves, setVideoPossessionHalves] = useState([]);
+  const [videoPossessionTimeMin, setVideoPossessionTimeMin] = useState('');
+  const [videoPossessionTimeMax, setVideoPossessionTimeMax] = useState('');
+  const [videoPossessionOutcomeFilter, setVideoPossessionOutcomeFilter] = useState([]);
+  const [videoPossessionOriginFilter, setVideoPossessionOriginFilter] = useState([]);
+  const [videoPossessionStartZoneFilter, setVideoPossessionStartZoneFilter] = useState([]);
   const groupBy = 'none';
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
@@ -192,7 +481,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [rawStatType, setRawStatType] = useState('');
   const [rawTeamSide, setRawTeamSide] = useState('home');
   const [rawHalf, setRawHalf] = useState('first');
-  const [rawSetDefence, setRawSetDefence] = useState(true);
+  const [rawSetDefence, setRawSetDefence] = useState(false);
   const [rawTimeS, setRawTimeS] = useState('');
   const [rawNormalizedTimeS, setRawNormalizedTimeS] = useState('');
   const [rawPlayerName, setRawPlayerName] = useState('');
@@ -317,6 +606,26 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     ...playerOptions.map((p) => ({ value: `player:${p.id}`, label: `${p.team_side === 'away' ? 'Away' : 'Home'}: ${p.label}` })),
   ]), [playerOptions, homeTeam, awayTeam]);
 
+  const labelledPlayerOptions = useMemo(
+    () => playerOptions.map((p) => ({ value: p.id, label: `${p.team_side === 'away' ? 'Away' : 'Home'}: ${p.label}` })),
+    [playerOptions]
+  );
+
+  const kickoutWonByOptions = useMemo(() => {
+    const baseOptions = [
+      { value: 'home_team', label: homeTeam?.name || 'Home' },
+      { value: 'away_team', label: awayTeam?.name || 'Away' },
+    ];
+    const playerItems = playerOptions.map((player) => ({
+      value: player.id,
+      label: `${player.team_side === 'away' ? 'Away' : 'Home'}: ${player.label}`,
+      teamSort: player.team_side === 'home' ? 0 : 1,
+      numberSort: Number(player.number) || 999,
+    }));
+    playerItems.sort((a, b) => (a.teamSort - b.teamSort) || (a.numberSort - b.numberSort) || a.label.localeCompare(b.label));
+    return [...baseOptions, ...playerItems.map(({ value, label }) => ({ value, label }))];
+  }, [playerOptions, homeTeam, awayTeam]);
+
   const selectionToEditValue = (sel) => {
     if (!sel || typeof sel !== 'object') return 'none';
     if (sel.kind === 'team') return `team:${sel.team_side || 'home'}`;
@@ -431,10 +740,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 
   const filtered = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
-    const minM = Number(timeMin);
-    const maxM = Number(timeMax);
-    const minS = Number.isFinite(minM) && timeMin !== '' ? minM * 60 : null;
-    const maxS = Number.isFinite(maxM) && timeMax !== '' ? maxM * 60 : null;
     return list.filter((s) => {
       if (!s) return false;
       if (team !== 'both' && s.team_side !== team) return false;
@@ -446,25 +751,699 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         const any = playerIds.some((id) => ids.has(String(id)));
         if (!any) return false;
       }
-      if (minS != null || maxS != null) {
-        const t = getMatchTimeS(s, match, imputedTimeById);
-        if (!Number.isFinite(t)) return false;
-        if (minS != null && t < minS) return false;
-        if (maxS != null && t > maxS) return false;
-      }
+      if (!statMatchesDisplayTimeRange(s, {
+        timeMin,
+        timeMax,
+        match,
+        imputedTimeById,
+        stats: list,
+      })) return false;
       return true;
     });
   }, [stats, team, actions, halves, playerIds, timeMin, timeMax, imputedTimeById, match]);
 
+  const videoGenericFiltered = useMemo(() => {
+    const list = Array.isArray(stats) ? stats : [];
+    return list.filter((s) => {
+      if (!s) return false;
+      const defPressureContext = videoPlayAction === 'def_pressure' ? getDefPressureContext(s) : null;
+      if (team !== 'both') {
+        if (videoPlayAction === 'def_pressure') {
+          if (defPressureContext?.defendingSide !== team) return false;
+        } else if (s.team_side !== team) return false;
+      }
+      if (halves.length && !halves.includes(s.half)) return false;
+      if (playerIds.length) {
+        let any = false;
+        if (videoPlayAction === 'def_pressure') {
+          const defenderId = String(defPressureContext?.defenderId || '');
+          any = Boolean(defenderId) && playerIds.some((id) => String(id) === defenderId);
+        } else {
+          const extra = safeParseJSON(s.extra_data || '{}', {});
+          const ids = collectPlayerIds(extra);
+          any = playerIds.some((id) => ids.has(String(id)));
+        }
+        if (!any) return false;
+      }
+      if (!statMatchesDisplayTimeRange(s, {
+        timeMin,
+        timeMax,
+        match,
+        imputedTimeById,
+        stats: list,
+      })) return false;
+      return true;
+    });
+  }, [stats, team, halves, playerIds, timeMin, timeMax, imputedTimeById, match, videoPlayAction]);
+
+  const videoPlayRows = useMemo(() => {
+    const list = videoGenericFiltered.filter((stat) => {
+      const extra = safeParseJSON(stat?.extra_data || '{}', {});
+      const statType = String(stat?.stat_type || '').trim().toLowerCase();
+      const isSubstitution = statType === 'substitution';
+      const defPressureContext = getDefPressureContext(stat);
+      if (videoPlayAction === 'all') {
+        if (isSubstitution || statType === 'def_pressure') return false;
+      } else if (videoPlayAction === 'substitution') {
+        if (!isSubstitution) return false;
+      } else if (videoPlayAction === 'def_pressure') {
+        if (!defPressureContext.hasPressure) return false;
+      } else if (!statMatchesActionType(stat, videoPlayAction)) return false;
+      if (videoPlayAction === 'shot') {
+        const shot = extra?.shot || {};
+        const shotType = normalizeShotType(shot?.type || shot?.shot_type || shot?.shotType || '');
+        const situation = normalizeShotSituation(shot?.situation || '');
+        const pressureValue = String(shot?.pressure || '').trim();
+        const methodValue = String(shot?.method || '').trim();
+        const outcomeValue = String(deriveOutcome(stat, extra) || '').trim();
+        if (videoShotTypes.length && !videoShotTypes.includes(shotType || '')) return false;
+        if (videoShotSituations.length && !videoShotSituations.includes(situation || '')) return false;
+        if (videoShotPressure.length && !videoShotPressure.includes(pressureValue || '')) return false;
+        if (videoShotMethods.length && !videoShotMethods.includes(methodValue || '')) return false;
+        if (videoShotOutcomes.length && !videoShotOutcomes.includes(outcomeValue || '')) return false;
+      }
+      if (videoPlayAction === 'pass' || videoPlayAction === 'carry') {
+        const outcomeValue = String(deriveOutcome(stat, extra) || '').trim();
+        const pressureValue = String(videoPlayAction === 'pass' ? (extra?.pass?.pressure_on_passer || '') : (extra?.carry?.pressure_on_carrier || '')).trim();
+        const startZone = getPitchThirdLabel(stat?.x_position);
+        const endZone = getPitchThirdLabel(stat?.end_x_position);
+        const accuracy = videoPlayAction === 'pass' ? String(extra?.pass?.accuracy || '').trim() : '';
+        const recipientId = String(extra?.pass?.won_by?.id || extra?.pass?.intended_recipient?.id || '');
+        const takeOnValue = String(extra?.carry?.take_on || 'no').trim().toLowerCase();
+        const progressiveValue = isProgressiveShared(stat) ? 'yes' : 'no';
+        const startX = Number(stat?.x_position);
+        const startY = Number(stat?.y_position);
+        const endX = Number(stat?.end_x_position);
+        const endY = Number(stat?.end_y_position);
+        const distance = [startX, startY, endX, endY].every(Number.isFinite) ? Math.hypot(endX - startX, endY - startY) : NaN;
+        if (videoBuildOutcomes.length && !videoBuildOutcomes.includes(outcomeValue || '')) return false;
+        if (videoBuildOriginZones.length && !videoBuildOriginZones.includes(startZone)) return false;
+        if (videoBuildEndZones.length && !videoBuildEndZones.includes(endZone)) return false;
+        if (videoBuildPressure.length && !videoBuildPressure.includes(pressureValue || '')) return false;
+        if (videoBuildProgressive.length && !videoBuildProgressive.includes(progressiveValue)) return false;
+        if (videoPlayAction === 'pass') {
+          if (videoBuildAccuracy.length && !videoBuildAccuracy.includes(accuracy || '')) return false;
+          if (videoBuildRecipientIds.length && !videoBuildRecipientIds.includes(recipientId)) return false;
+        }
+        if (videoPlayAction === 'carry' && videoCarryTakeOns.length && !videoCarryTakeOns.includes(takeOnValue || '')) return false;
+        const minDistance = Number(videoBuildDistanceMin);
+        const maxDistance = Number(videoBuildDistanceMax);
+        if (videoBuildDistanceMin !== '' && Number.isFinite(distance) && distance < minDistance) return false;
+        if (videoBuildDistanceMax !== '' && Number.isFinite(distance) && distance > maxDistance) return false;
+      }
+      if (videoPlayAction === 'kickout') {
+        const targetLabel = getKickoutTargetLabel(stat);
+        const outcomeLabel = getKickoutOutcomeLabel(stat);
+        const pressLabel = getKickoutPressLabel(stat);
+        const lengthLabel = getKickoutLengthLabel(stat);
+        const sideLabel = getKickoutSideLabel(stat);
+        const kickout = safeParseJSON(stat?.extra_data || '{}', {})?.kickout || {};
+        const wonBy = kickout?.won_by;
+        const lostBy = kickout?.lost_by;
+        const wonById = String(wonBy?.id || '');
+        const wonByTeamValue = wonBy?.team_side === 'home' ? 'home_team' : wonBy?.team_side === 'away' ? 'away_team' : '';
+        const lostById = String(lostBy?.id || '');
+        const lostByTeamValue = lostBy?.team_side === 'home' ? 'home_team' : lostBy?.team_side === 'away' ? 'away_team' : '';
+        if (videoKickoutTargets.length && !videoKickoutTargets.includes(targetLabel)) return false;
+        if (videoKickoutOutcomes.length && !videoKickoutOutcomes.includes(outcomeLabel)) return false;
+        if (videoKickoutPress.length && !videoKickoutPress.includes(pressLabel)) return false;
+        if (videoKickoutLengths.length && !videoKickoutLengths.includes(lengthLabel)) return false;
+        if (videoKickoutSides.length && !videoKickoutSides.includes(sideLabel)) return false;
+        if (videoKickoutWonBy.length && !videoKickoutWonBy.includes(wonById) && !videoKickoutWonBy.includes(wonByTeamValue)) return false;
+        if (videoKickoutLostBy.length && !videoKickoutLostBy.includes(lostById) && !videoKickoutLostBy.includes(lostByTeamValue)) return false;
+      }
+      if (videoPlayAction === 'turnover') {
+        const turnover = getTurnoverClassification(stat);
+        if (videoTurnoverTypes.length && !videoTurnoverTypes.includes(turnover.type)) return false;
+        const turnoverData = extra?.turnover || {};
+        const wonBy = turnoverData?.recovered_by || turnoverData?.forced_by;
+        const lostBy = turnoverData?.lost_by;
+        const recoveredBy = turnoverData?.recovered_by;
+        if (videoTurnoverWonBy.length && !videoTurnoverWonBy.includes(String(wonBy?.id || ''))) return false;
+        if (videoTurnoverLostBy.length && !videoTurnoverLostBy.includes(String(lostBy?.id || ''))) return false;
+        if (videoTurnoverRecoveredBy.length && !videoTurnoverRecoveredBy.includes(String(recoveredBy?.id || ''))) return false;
+      }
+      if (videoPlayAction === 'foul') {
+        const foul = extra?.foul || extractFoulFromStat(stat) || {};
+        const foulType = String(foul?.type || foul?.foul_type || '').trim().toLowerCase();
+        const foulOnId = String(foul?.foul_on?.id || '');
+        const foulById = String(foul?.foul_by?.id || '');
+        if (videoFoulTypes.length && !videoFoulTypes.includes(foulType)) return false;
+        if (videoFoulOn.length && !videoFoulOn.includes(foulOnId)) return false;
+        if (videoFoulBy.length && !videoFoulBy.includes(foulById)) return false;
+      }
+      if (videoPlayAction === 'def_pressure') {
+        if (videoDefPressureOutcomes.length && !videoDefPressureOutcomes.includes(defPressureContext.outcome || '')) return false;
+        if (videoDefPressureActions.length && !videoDefPressureActions.includes(defPressureContext.attackingAction || '')) return false;
+        if (videoDefPressureZones.length && !videoDefPressureZones.includes(defPressureContext.zone || '')) return false;
+        if (videoDefPressureAttackers.length && !videoDefPressureAttackers.includes(defPressureContext.attackerId || '')) return false;
+      }
+      return true;
+    });
+    return sortStatsForEditing(list, match, imputedTimeById);
+  }, [
+    videoGenericFiltered,
+    videoPlayAction,
+    videoShotTypes,
+    videoShotSituations,
+    videoShotPressure,
+    videoShotMethods,
+    videoShotOutcomes,
+    videoBuildOutcomes,
+    videoBuildOriginZones,
+    videoBuildEndZones,
+    videoBuildPressure,
+    videoBuildAccuracy,
+    videoBuildProgressive,
+    videoBuildRecipientIds,
+    videoBuildDistanceMin,
+    videoBuildDistanceMax,
+    videoCarryTakeOns,
+    videoKickoutTargets,
+    videoKickoutOutcomes,
+    videoKickoutWonBy,
+    videoKickoutLostBy,
+    videoKickoutPress,
+    videoKickoutLengths,
+    videoKickoutSides,
+    videoTurnoverTypes,
+    videoTurnoverWonBy,
+    videoTurnoverLostBy,
+    videoTurnoverRecoveredBy,
+    videoFoulTypes,
+    videoFoulOn,
+    videoFoulBy,
+    videoDefPressureOutcomes,
+    videoDefPressureActions,
+    videoDefPressureZones,
+    videoDefPressureAttackers,
+    match,
+    imputedTimeById,
+  ]);
+
+  const videoPossessionBase = useMemo(() => applyNonTeamReportFilters(stats, {
+    halves: videoPossessionHalves,
+    playerIds: [],
+    actionTypes: [],
+    outcomes: [],
+    timeMin: videoPossessionTimeMin,
+    timeMax: videoPossessionTimeMax,
+    match,
+    imputedTimeById,
+    allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'],
+  }), [stats, videoPossessionHalves, videoPossessionTimeMin, videoPossessionTimeMax, match, imputedTimeById]);
+
+  const videoPossessions = useMemo(() => {
+    const calcBase = videoPossessionBase.filter((s) => !shouldExcludeFromTotals(s));
+    const groups = groupByPossession(calcBase);
+    const orderedBase = calcBase.slice().sort((a, b) => {
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = getMatchTimeS(a, match, imputedTimeById);
+      const tb = getMatchTimeS(b, match, imputedTimeById);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const previousByPossessionKey = new Map();
+    orderedBase.forEach((stat, index) => {
+      const pid = Number(stat?.possession_id);
+      const pside = stat?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
+      const key = `${pside}-${pid}`;
+      if (!previousByPossessionKey.has(key)) {
+        previousByPossessionKey.set(key, index > 0 ? orderedBase[index - 1] : null);
+      }
+    });
+
+    return Array.from(groups.entries()).flatMap(([key, evs0]) => {
+      const [teamSide, pidStr] = String(key).split('-');
+      const pid = Number(pidStr);
+      if ((teamSide !== 'home' && teamSide !== 'away') || !Number.isFinite(pid)) return [];
+      const evs = Array.isArray(evs0) ? evs0.slice() : [];
+      const acting = evs.filter((entry) => entry && entry.team_side === teamSide);
+      if (!acting.length) return [];
+      const times = evs.map((s) => getMatchTimeS(s, match, imputedTimeById)).filter(Number.isFinite);
+      const startTime = times.length ? Math.min(...times) : NaN;
+      const endTime = times.length ? Math.max(...times) : NaN;
+      const videoStartTimes = evs.map((s) => Number(s?.time_s)).filter(Number.isFinite);
+      const points = acting.reduce((sum, entry) => {
+        if (entry?.stat_type !== 'shot' || shouldExcludeFromTotals(entry)) return sum;
+        const shotOutcome = safeParseJSON(entry?.extra_data || '{}', {})?.shot?.outcome;
+        if (shotOutcome === 'goal') return sum + 3;
+        if (shotOutcome === '2_point') return sum + 2;
+        if (shotOutcome === 'point') return sum + 1;
+        return sum;
+      }, 0);
+      const passes = acting.filter((entry) => entry?.stat_type === 'pass' && deriveOutcome(entry, safeParseJSON(entry?.extra_data || '{}', {})) === 'completed').length;
+      const shots = acting.filter((entry) => entry?.stat_type === 'shot' && !shouldExcludeFromTotals(entry)).length;
+      const previousStat = previousByPossessionKey.get(key) || null;
+      const startSource = inferPossessionStartSource(evs, teamSide, previousStat || []);
+      const isAttack = isAttackPossession(evs, teamSide);
+      return [{
+        key,
+        teamSide,
+        possessionId: pid,
+        previousStat,
+        half: acting[0]?.half || '',
+        startTime,
+        endTime,
+        duration: Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN,
+        videoStartTime: videoStartTimes.length ? Math.min(...videoStartTimes) : NaN,
+        startSource,
+        originLabel: formatPossessionOriginLabel({ teamSide, startSource, stats: evs, previousStat }),
+        outcome: derivePossessionOutcome(evs, teamSide),
+        groupedOutcome: ['Wide', 'Short', 'Blocked', 'Saved', 'Post'].includes(String(derivePossessionOutcome(evs, teamSide) || '')) ? 'Missed Shot' : String(derivePossessionOutcome(evs, teamSide) || ''),
+        isAttack,
+        attackType: deriveAttackTypeState(acting),
+        attackEntryChannel: isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '',
+        startZone: getPossessionStartZone(acting),
+        passes,
+        shots,
+        points,
+        stats: evs,
+      }];
+    }).sort((a, b) => {
+      if (Number.isFinite(a.startTime) && Number.isFinite(b.startTime) && a.startTime !== b.startTime) return a.startTime - b.startTime;
+      if (a.teamSide !== b.teamSide) return String(a.teamSide).localeCompare(String(b.teamSide));
+      return Number(a.possessionId) - Number(b.possessionId);
+    });
+  }, [videoPossessionBase, match, imputedTimeById]);
+
+  const videoPossessionRows = useMemo(() => videoPossessions.filter((p) => {
+    if (videoPossessionTeam !== 'both' && p.teamSide !== videoPossessionTeam) return false;
+    if (videoPossessionOutcomeFilter.length && !videoPossessionOutcomeFilter.includes(p.groupedOutcome)) return false;
+    if (videoPossessionOriginFilter.length && !videoPossessionOriginFilter.includes(p.originLabel)) return false;
+    if (videoPossessionStartZoneFilter.length && !videoPossessionStartZoneFilter.includes(String(p.startZone || ''))) return false;
+    return true;
+  }), [videoPossessions, videoPossessionTeam, videoPossessionOutcomeFilter, videoPossessionOriginFilter, videoPossessionStartZoneFilter]);
+
+  const videoPlayTableRows = useMemo(() => videoPlayRows.map((stat) => {
+    const extra = safeParseJSON(stat?.extra_data || '{}', {});
+    const displayTime = getMatchTimeS(stat, match, imputedTimeById);
+    const defPressureContext = getDefPressureContext(stat);
+    const isDefPressureView = videoPlayAction === 'def_pressure';
+    return {
+      id: stat.id,
+      stat,
+      play: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
+      poss: Number.isFinite(Number(stat?.possession_id)) ? Number(stat.possession_id) : null,
+      half: toTitleCase(String(stat?.half || '')),
+      halfRaw: String(stat?.half || ''),
+      time: Number.isFinite(displayTime) ? formatMatchClock(displayTime, match, stat?.half) : 'NA',
+      timeSort: Number.isFinite(displayTime) ? displayTime : Number.POSITIVE_INFINITY,
+      team: isDefPressureView ? formatTeamName(defPressureContext.defendingSide, homeTeam, awayTeam) : formatTeamName(stat?.team_side, homeTeam, awayTeam),
+      teamRaw: isDefPressureView ? String(defPressureContext.defendingSide || '') : String(stat?.team_side || ''),
+      player: isDefPressureView ? (defPressureContext.defender || '—') : (getPrimaryPlayerForEvent(stat) || '—'),
+      action: isDefPressureView ? 'Def Pressure' : toTitleCase(String(stat?.stat_type || '')),
+      actionRaw: isDefPressureView ? 'def_pressure' : String(stat?.stat_type || ''),
+      outcome: formatDisplayOutcome(deriveOutcome(stat, extra)),
+      outcomeRaw: String(deriveOutcome(stat, extra) || ''),
+      secondaryPlayer: isDefPressureView ? (defPressureContext.attacker || '—') : (getSecondaryPlayerForEvent(stat) || '—'),
+    };
+  }), [videoPlayRows, match, imputedTimeById, homeTeam, awayTeam, videoPlayAction]);
+
+  const videoPlayColumns = useMemo(() => ([
+    { key: 'play', label: 'Play', width: '56px', sortValue: (row) => row.play ?? Number.POSITIVE_INFINITY },
+    { key: 'poss', label: 'Poss', width: '56px', sortValue: (row) => row.poss ?? Number.POSITIVE_INFINITY },
+    { key: 'half', label: 'Half', width: '68px', sortValue: (row) => row.halfRaw || '' },
+    { key: 'time', label: 'Time', width: '92px', sortValue: (row) => row.timeSort },
+    { key: 'team', label: 'Team', width: '116px', sortValue: (row) => row.teamRaw || '' },
+    { key: 'player', label: 'Player', width: '156px', sortValue: (row) => row.player || '' },
+    { key: 'action', label: 'Action', width: '102px', sortValue: (row) => row.actionRaw || '' },
+    { key: 'outcome', label: 'Outcome', width: '118px', sortValue: (row) => row.outcomeRaw || '' },
+    { key: 'secondaryPlayer', label: 'Secondary Player', width: '200px', sortValue: (row) => row.secondaryPlayer === '—' ? '' : row.secondaryPlayer },
+    { key: 'actions', label: 'Actions', width: '180px', sortable: false },
+  ]), []);
+
+  const sortedVideoPlayTableRows = useMemo(
+    () => sortRows(videoPlayTableRows, videoPlaySort, videoPlayColumns, 'id'),
+    [videoPlayTableRows, videoPlaySort, videoPlayColumns]
+  );
+
+  const videoPossessionColumns = useMemo(() => ([
+    { key: 'possessionId', label: 'Poss', width: '64px', sortValue: (row) => row.possessionId ?? Number.POSITIVE_INFINITY },
+    { key: 'team', label: 'Team', width: '116px', sortValue: (row) => row.teamSide || '' },
+    { key: 'half', label: 'Half', width: '70px', sortValue: (row) => row.half || '' },
+    { key: 'startTime', label: 'Start', width: '92px', sortValue: (row) => Number.isFinite(row.startTime) ? row.startTime : Number.POSITIVE_INFINITY },
+    { key: 'endTime', label: 'End', width: '92px', sortValue: (row) => Number.isFinite(row.endTime) ? row.endTime : Number.POSITIVE_INFINITY },
+    { key: 'duration', label: 'Duration', width: '86px', sortValue: (row) => Number.isFinite(row.duration) ? row.duration : Number.POSITIVE_INFINITY },
+    { key: 'originLabel', label: 'Origin', width: '180px', sortValue: (row) => row.originLabel || '' },
+    { key: 'groupedOutcome', label: 'Outcome', width: '130px', sortValue: (row) => row.groupedOutcome || '' },
+    { key: 'actions', label: 'Actions', width: '180px', sortable: false },
+  ]), []);
+  const sortedVideoPossessionRows = useMemo(
+    () => sortRows(videoPossessionRows, videoPossessionSort, videoPossessionColumns, 'key'),
+    [videoPossessionRows, videoPossessionSort, videoPossessionColumns]
+  );
+
   const filteredSorted = useMemo(() => sortStatsForEditing(filtered, match, imputedTimeById), [filtered, match, imputedTimeById]);
   const visibleRowLimit = rowLimit === 'all' ? filteredSorted.length : Math.max(50, Number(rowLimit) || 200);
   const visibleRows = useMemo(() => filteredSorted.slice(0, visibleRowLimit), [filteredSorted, visibleRowLimit]);
+  const videoVisiblePlayRows = useMemo(
+    () => (videoPlayExpanded ? sortedVideoPlayTableRows : sortedVideoPlayTableRows.slice(0, VIDEO_PREVIEW_COUNT)),
+    [videoPlayExpanded, sortedVideoPlayTableRows]
+  );
+  const videoVisiblePossessionRows = useMemo(
+    () => (videoPossessionExpanded ? sortedVideoPossessionRows : sortedVideoPossessionRows.slice(0, VIDEO_PREVIEW_COUNT)),
+    [videoPossessionExpanded, sortedVideoPossessionRows]
+  );
   const exportBaseName = useMemo(() => {
     const home = homeTeam?.name || 'home';
     const away = awayTeam?.name || 'away';
     const date = match?.date || new Date().toISOString().slice(0, 10);
     return `match-data-${safeFilePart(home)}-vs-${safeFilePart(away)}-${safeFilePart(date)}`;
   }, [homeTeam, awayTeam, match]);
+
+  const videoShotTypeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'shot') continue;
+      const shotData = safeParseJSON(stat?.extra_data || '{}', {})?.shot || {};
+      const shotType = normalizeShotType(shotData?.type || shotData?.shot_type || shotData?.shotType || '');
+      if (shotType) values.add(shotType);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+  const videoShotSituationOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'shot') continue;
+      const value = normalizeShotSituation(safeParseJSON(stat?.extra_data || '{}', {})?.shot?.situation || '');
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+  const videoShotPressureOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'shot') continue;
+      const value = String(safeParseJSON(stat?.extra_data || '{}', {})?.shot?.pressure || '').trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value) }));
+  }, [videoGenericFiltered]);
+  const videoShotMethodOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'shot') continue;
+      const value = String(safeParseJSON(stat?.extra_data || '{}', {})?.shot?.method || '').trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value) }));
+  }, [videoGenericFiltered]);
+  const videoShotOutcomeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'shot') continue;
+      const value = String(deriveOutcome(stat, safeParseJSON(stat?.extra_data || '{}', {})) || '').trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+
+  const videoBuildOutcomeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (!['pass', 'carry'].includes(String(stat?.stat_type || ''))) continue;
+      const value = String(deriveOutcome(stat, safeParseJSON(stat?.extra_data || '{}', {})) || '').trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value) }));
+  }, [videoGenericFiltered]);
+  const videoBuildOriginOptions = useMemo(
+    () => POSSESSION_START_ZONES.map((value) => ({ value, label: value })),
+    []
+  );
+  const videoBuildEndOptions = videoBuildOriginOptions;
+  const videoBuildPressureOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (!['pass', 'carry'].includes(String(stat?.stat_type || ''))) continue;
+      const extra = safeParseJSON(stat?.extra_data || '{}', {});
+      const value = String(stat?.stat_type === 'pass' ? (extra?.pass?.pressure_on_passer || '') : (extra?.carry?.pressure_on_carrier || '')).trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value) }));
+  }, [videoGenericFiltered]);
+  const videoBuildAccuracyOptions = useMemo(() => ([
+    { value: '++', label: '++' },
+    { value: '+', label: '+' },
+    { value: '-', label: '-' },
+    { value: '--', label: '--' },
+  ]), []);
+  const videoBuildProgressiveOptions = useMemo(() => ([
+    { value: 'yes', label: 'Yes' },
+    { value: 'no', label: 'No' },
+  ]), []);
+  const videoCarryTakeOnOptions = useMemo(() => ([
+    { value: 'completed', label: 'Completed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'no', label: 'No' },
+  ]), []);
+
+  const videoKickoutTargetOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'kickout') continue;
+      const target = safeParseJSON(stat?.extra_data || '{}', {})?.kickout?.intended_recipient;
+      const value = getKickoutTargetLabel(stat);
+      if (!value || value === 'Unknown') continue;
+      const teamSort = target?.kind === 'player' ? (target?.team_side === 'home' ? 0 : 1) : 2;
+      const numberSort = Number(target?.number) || 999;
+      values.set(value, { value, label: value, teamSort, numberSort });
+    }
+    return Array.from(values.values())
+      .sort((a, b) => (a.teamSort - b.teamSort) || (a.numberSort - b.numberSort) || a.label.localeCompare(b.label))
+      .map(({ value, label }) => ({ value, label }));
+  }, [videoGenericFiltered]);
+  const videoKickoutOutcomeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'kickout') continue;
+      const value = getKickoutOutcomeLabel(stat);
+      if (value && value !== 'Unknown') values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: value }));
+  }, [videoGenericFiltered]);
+  const videoKickoutPressOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (stat?.stat_type !== 'kickout') continue;
+      const value = getKickoutPressLabel(stat);
+      if (value && value !== 'Unknown') values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: value === 'M2M' ? 'M2M' : toTitleCase(value) }));
+  }, [videoGenericFiltered]);
+  const videoKickoutLengthOptions = useMemo(() => ([
+    { value: 'Short', label: 'Short' },
+    { value: 'Long', label: 'Long' },
+  ]), []);
+  const videoKickoutSideOptions = useMemo(() => ([
+    { value: 'Left', label: 'Left' },
+    { value: 'Middle', label: 'Middle' },
+    { value: 'Right', label: 'Right' },
+  ]), []);
+  const videoKickoutLostByOptions = kickoutWonByOptions;
+  const videoBuildDistanceMaxBound = useMemo(() => {
+    const distances = videoGenericFiltered
+      .filter((stat) => (videoPlayAction === 'carry' ? stat?.stat_type === 'carry' : stat?.stat_type === 'pass'))
+      .map((stat) => {
+        const startX = Number(stat?.x_position);
+        const startY = Number(stat?.y_position);
+        const endX = Number(stat?.end_x_position);
+        const endY = Number(stat?.end_y_position);
+        return [startX, startY, endX, endY].every(Number.isFinite) ? Math.hypot(endX - startX, endY - startY) : NaN;
+      })
+      .filter(Number.isFinite);
+    const maxDistance = distances.length ? Math.max(...distances) : 60;
+    return Math.max(10, Math.ceil(maxDistance / 10) * 10);
+  }, [videoGenericFiltered, videoPlayAction]);
+  const videoBuildDistanceMidpoint = Math.max(0, Math.round(videoBuildDistanceMaxBound / 2));
+
+  const videoTurnoverTypeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'turnover')) continue;
+      const turnoverType = getTurnoverClassification(stat).type;
+      if (turnoverType && turnoverType !== 'unknown') values.add(turnoverType);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+  const videoTurnoverWonByOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'turnover')) continue;
+      const turnover = safeParseJSON(stat?.extra_data || '{}', {})?.turnover || {};
+      const selection = turnover?.recovered_by || turnover?.forced_by;
+      const id = String(selection?.id || '');
+      const label = formatSelectionLabel(selection);
+      if (id && label) values.set(id, { value: id, label });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+  const videoTurnoverLostByOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'turnover')) continue;
+      const selection = safeParseJSON(stat?.extra_data || '{}', {})?.turnover?.lost_by;
+      const id = String(selection?.id || '');
+      const label = formatSelectionLabel(selection);
+      if (id && label) values.set(id, { value: id, label });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+  const videoTurnoverRecoveredByOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'turnover')) continue;
+      const selection = safeParseJSON(stat?.extra_data || '{}', {})?.turnover?.recovered_by;
+      const id = String(selection?.id || '');
+      const label = formatSelectionLabel(selection);
+      if (id && label) values.set(id, { value: id, label });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+  const videoFoulTypeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'foul')) continue;
+      const foul = safeParseJSON(stat?.extra_data || '{}', {})?.foul || extractFoulFromStat(stat) || {};
+      const value = String(foul?.type || foul?.foul_type || '').trim().toLowerCase();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+  const videoFoulOnOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'foul')) continue;
+      const selection = (safeParseJSON(stat?.extra_data || '{}', {})?.foul || extractFoulFromStat(stat) || {})?.foul_on;
+      const id = String(selection?.id || '');
+      const label = formatSelectionLabel(selection);
+      if (id && label) values.set(id, { value: id, label });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+  const videoFoulByOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      if (!statMatchesActionType(stat, 'foul')) continue;
+      const selection = (safeParseJSON(stat?.extra_data || '{}', {})?.foul || extractFoulFromStat(stat) || {})?.foul_by;
+      const id = String(selection?.id || '');
+      const label = formatSelectionLabel(selection);
+      if (id && label) values.set(id, { value: id, label });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+
+  const videoDefPressureOutcomeOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      const context = getDefPressureContext(stat);
+      if (!context.hasPressure) continue;
+      if (context.outcome) values.add(context.outcome);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: formatDisplayOutcome(value) }));
+  }, [videoGenericFiltered]);
+  const videoDefPressureActionOptions = useMemo(() => {
+    const values = new Set();
+    for (const stat of videoGenericFiltered) {
+      const context = getDefPressureContext(stat);
+      if (!context.hasPressure) continue;
+      if (context.attackingAction) values.add(context.attackingAction);
+    }
+    return Array.from(values).sort().map((value) => ({ value, label: toTitleCase(value.replaceAll('_', ' ')) }));
+  }, [videoGenericFiltered]);
+  const videoDefPressureZoneOptions = useMemo(
+    () => POSSESSION_START_ZONES.map((value) => ({ value, label: value })),
+    []
+  );
+  const videoDefPressureAttackerOptions = useMemo(() => {
+    const values = new Map();
+    for (const stat of videoGenericFiltered) {
+      const context = getDefPressureContext(stat);
+      if (!context.hasPressure || !context.attackerId || !context.attacker) continue;
+      values.set(context.attackerId, { value: context.attackerId, label: context.attacker });
+    }
+    return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [videoGenericFiltered]);
+
+  const selectedVideoPlayRow = useMemo(
+    () => sortedVideoPlayTableRows.find((row) => String(row.id) === String(selectedVideoPlayId)) || null,
+    [sortedVideoPlayTableRows, selectedVideoPlayId]
+  );
+  const selectedVideoPossessionRow = useMemo(
+    () => sortedVideoPossessionRows.find((row) => String(row.key) === String(selectedVideoPossessionKey)) || null,
+    [sortedVideoPossessionRows, selectedVideoPossessionKey]
+  );
+
+  const toggleVideoPlaySort = (key) => setVideoPlaySort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'play' || key === 'poss' || key === 'time' ? 'asc' : 'asc' });
+  const toggleVideoPossessionSort = (key) => setVideoPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'possessionId' || key === 'startTime' || key === 'endTime' || key === 'duration' ? 'asc' : 'asc' });
+
+  const resetVideoPlayFilters = () => {
+    setTeam('both');
+    setPlayerIds([]);
+    setHalves([]);
+    setTimeMin('');
+    setTimeMax('');
+    setVideoPlayAction('all');
+    setVideoShotTypes([]);
+    setVideoShotSituations([]);
+    setVideoShotPressure([]);
+    setVideoShotMethods([]);
+    setVideoShotOutcomes([]);
+    setVideoBuildOutcomes([]);
+    setVideoBuildOriginZones([]);
+    setVideoBuildEndZones([]);
+    setVideoBuildPressure([]);
+    setVideoBuildAccuracy([]);
+    setVideoBuildProgressive([]);
+    setVideoBuildRecipientIds([]);
+    setVideoBuildDistanceMin('');
+    setVideoBuildDistanceMax('');
+    setVideoCarryTakeOns([]);
+    setVideoKickoutTargets([]);
+    setVideoKickoutOutcomes([]);
+    setVideoKickoutWonBy([]);
+    setVideoKickoutLostBy([]);
+    setVideoKickoutPress([]);
+    setVideoKickoutLengths([]);
+    setVideoKickoutSides([]);
+    setVideoTurnoverTypes([]);
+    setVideoTurnoverWonBy([]);
+    setVideoTurnoverLostBy([]);
+    setVideoTurnoverRecoveredBy([]);
+    setVideoFoulTypes([]);
+    setVideoFoulOn([]);
+    setVideoFoulBy([]);
+    setVideoDefPressureOutcomes([]);
+    setVideoDefPressureActions([]);
+    setVideoDefPressureZones([]);
+    setVideoDefPressureAttackers([]);
+    setSelectedVideoPlayId(null);
+    setVideoPlayExpanded(false);
+    setVideoPlaySort({ key: 'play', dir: 'asc' });
+  };
+
+  const resetVideoPossessionFilters = () => {
+    setVideoPossessionTeam('both');
+    setVideoPossessionHalves([]);
+    setVideoPossessionTimeMin('');
+    setVideoPossessionTimeMax('');
+    setVideoPossessionStartZoneFilter([]);
+    setVideoPossessionOriginFilter([]);
+    setVideoPossessionOutcomeFilter([]);
+    setSelectedVideoPossessionKey(null);
+    setVideoPossessionExpanded(false);
+    setVideoPossessionSort({ key: 'startTime', dir: 'asc' });
+  };
+
+  const openPossessionVisualise = (possession) => {
+    setVizStats(Array.isArray(possession?.stats) ? possession.stats : []);
+    setVizTitle(`Possession #${possession?.possessionId || 'NA'} - ${possession?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
+    setVizOpen(true);
+  };
 
   const exportFilteredCsv = () => {
     if (!filteredSorted.length) {
@@ -516,7 +1495,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         stat?.possession_id ?? '',
         stat?.possession_team_side || '',
         stat?.team_side || '',
-        stat?.counter_attack ? 'Yes' : 'No',
+        getSetDefenceValue(stat, false) ? 'Yes' : 'No',
         stat?.stat_type || '',
         deriveOutcome(stat, extra) || '',
         stat?.half || '',
@@ -717,7 +1696,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     setRawStatType(stat?.stat_type || '');
     setRawTeamSide(stat?.team_side === 'away' ? 'away' : (stat?.team_side === 'unknown' ? 'unknown' : 'home'));
     setRawHalf(stat?.half || 'first');
-    setRawSetDefence(typeof stat?.set_defence === 'boolean' ? !!stat.set_defence : (typeof stat?.counter_attack === 'boolean' ? !!stat.counter_attack : true));
+    setRawSetDefence(!!getSetDefenceValue(stat, false));
     setRawTimeS(Number.isFinite(Number(stat?.time_s)) ? String(Number(stat.time_s)) : '');
     setRawNormalizedTimeS(Number.isFinite(Number(stat?.normalized_time_s)) ? String(Number(stat.normalized_time_s)) : '');
     setRawPlayerName(stat?.player_name || '');
@@ -850,6 +1829,537 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     persistMutation.mutate([update]);
   };
 
+  if (isVideoMode) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 shadow-sm">
+            <Button type="button" variant={videoBrowseMode === 'play' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('play')}>Play</Button>
+            <Button type="button" variant={videoBrowseMode === 'possession' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('possession')}>Possession</Button>
+          </div>
+        </div>
+        <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold text-slate-900">Filters</div>
+                <div className="text-xs text-slate-500">Switch between event clips and possession clips from the top-level mode toggle.</div>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => videoBrowseMode === 'play' ? resetVideoPlayFilters() : resetVideoPossessionFilters()}>
+                Reset Filters
+              </Button>
+            </div>
+
+            {videoBrowseMode === 'play' ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.55fr)] lg:items-stretch">
+                  <div className={VIDEO_FIELD_STACK_CLASS}>
+                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Team</Label>
+                    <Select value={team} onValueChange={setTeam}>
+                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <MultiSelect
+                    label="Player"
+                    placeholder="Any"
+                    values={playerIds}
+                    onChange={setPlayerIds}
+                    options={labelledPlayerOptions}
+                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                  />
+                  <MultiSelect
+                    label="Half"
+                    values={halves}
+                    onChange={setHalves}
+                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                  />
+                  <div className={VIDEO_FIELD_STACK_CLASS}>
+                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Action</Label>
+                    <Select value={videoPlayAction} onValueChange={setVideoPlayAction}>
+                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {VIDEO_PLAY_ACTION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <MatchTimeRangeSlider
+                    className="lg:col-span-1 min-h-[84px] self-stretch"
+                    timeMin={timeMin}
+                    timeMax={timeMax}
+                    match={match}
+                    stats={stats}
+                    imputedTimeById={imputedTimeById}
+                    compact
+                    onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
+                      setTimeMin(nextMin);
+                      setTimeMax(nextMax);
+                    }}
+                  />
+                </div>
+
+                {videoPlayAction !== 'all' ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Action-Specific Filters</div>
+                    {videoPlayAction === 'shot' ? (
+                      <div className="grid gap-3 lg:grid-cols-5">
+                        <MultiSelect label="Shot Type" placeholder="Any" values={videoShotTypes} onChange={setVideoShotTypes} options={videoShotTypeOptions} />
+                        <MultiSelect label="Situation" placeholder="Any" values={videoShotSituations} onChange={setVideoShotSituations} options={videoShotSituationOptions} />
+                        <MultiSelect label="Outcome" placeholder="Any" values={videoShotOutcomes} onChange={setVideoShotOutcomes} options={videoShotOutcomeOptions} />
+                        <MultiSelect label="Pressure" placeholder="Any" values={videoShotPressure} onChange={setVideoShotPressure} options={videoShotPressureOptions} />
+                        <MultiSelect label="Method" placeholder="Any" values={videoShotMethods} onChange={setVideoShotMethods} options={videoShotMethodOptions} />
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'pass' ? (
+                      <div className="space-y-3">
+                        <div className="grid gap-3 lg:grid-cols-5">
+                          <MultiSelect label="Origin" placeholder="Any" values={videoBuildOriginZones} onChange={setVideoBuildOriginZones} options={videoBuildOriginOptions} />
+                          <MultiSelect label="Endpoint" placeholder="Any" values={videoBuildEndZones} onChange={setVideoBuildEndZones} options={videoBuildEndOptions} />
+                          <MultiSelect label="Outcome" placeholder="Any" values={videoBuildOutcomes} onChange={setVideoBuildOutcomes} options={videoBuildOutcomeOptions} />
+                          <MultiSelect label="Recipient" placeholder="Any" values={videoBuildRecipientIds} onChange={setVideoBuildRecipientIds} options={labelledPlayerOptions} />
+                          <MultiSelect label="Accuracy" placeholder="Any" values={videoBuildAccuracy} onChange={setVideoBuildAccuracy} options={videoBuildAccuracyOptions} />
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.8fr)]">
+                          <MultiSelect label="Pressure" placeholder="Any" values={videoBuildPressure} onChange={setVideoBuildPressure} options={videoBuildPressureOptions} />
+                          <MultiSelect label="Progressive" placeholder="Any" values={videoBuildProgressive} onChange={setVideoBuildProgressive} options={videoBuildProgressiveOptions} />
+                          <RangeSliderField
+                            compact
+                            label="Distance"
+                            min={0}
+                            max={videoBuildDistanceMaxBound}
+                            step={1}
+                            value={[
+                              videoBuildDistanceMin === '' ? 0 : Number(videoBuildDistanceMin),
+                              videoBuildDistanceMax === '' ? videoBuildDistanceMaxBound : Number(videoBuildDistanceMax),
+                            ]}
+                            onChange={([nextMin, nextMax]) => {
+                              setVideoBuildDistanceMin(nextMin <= 0 ? '' : String(nextMin));
+                              setVideoBuildDistanceMax(nextMax >= videoBuildDistanceMaxBound ? '' : String(nextMax));
+                            }}
+                            formatValue={(value) => `${Math.round(value)}`}
+                            tickValues={[0, videoBuildDistanceMidpoint, videoBuildDistanceMaxBound]}
+                            tickFormatter={(value) => String(Math.round(value))}
+                            showBoundsText={false}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'carry' ? (
+                      <div className="space-y-3">
+                        <div className="grid gap-3 lg:grid-cols-4">
+                          <MultiSelect label="Origin" placeholder="Any" values={videoBuildOriginZones} onChange={setVideoBuildOriginZones} options={videoBuildOriginOptions} />
+                          <MultiSelect label="Endpoint" placeholder="Any" values={videoBuildEndZones} onChange={setVideoBuildEndZones} options={videoBuildEndOptions} />
+                          <MultiSelect label="Outcome" placeholder="Any" values={videoBuildOutcomes} onChange={setVideoBuildOutcomes} options={videoBuildOutcomeOptions} />
+                          <MultiSelect label="Pressure" placeholder="Any" values={videoBuildPressure} onChange={setVideoBuildPressure} options={videoBuildPressureOptions} />
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.8fr)]">
+                          <MultiSelect label="Take On" placeholder="Any" values={videoCarryTakeOns} onChange={setVideoCarryTakeOns} options={videoCarryTakeOnOptions} />
+                          <MultiSelect label="Progressive" placeholder="Any" values={videoBuildProgressive} onChange={setVideoBuildProgressive} options={videoBuildProgressiveOptions} />
+                          <RangeSliderField
+                            compact
+                            label="Distance"
+                            min={0}
+                            max={videoBuildDistanceMaxBound}
+                            step={1}
+                            value={[
+                              videoBuildDistanceMin === '' ? 0 : Number(videoBuildDistanceMin),
+                              videoBuildDistanceMax === '' ? videoBuildDistanceMaxBound : Number(videoBuildDistanceMax),
+                            ]}
+                            onChange={([nextMin, nextMax]) => {
+                              setVideoBuildDistanceMin(nextMin <= 0 ? '' : String(nextMin));
+                              setVideoBuildDistanceMax(nextMax >= videoBuildDistanceMaxBound ? '' : String(nextMax));
+                            }}
+                            formatValue={(value) => `${Math.round(value)}`}
+                            tickValues={[0, videoBuildDistanceMidpoint, videoBuildDistanceMaxBound]}
+                            tickFormatter={(value) => String(Math.round(value))}
+                            showBoundsText={false}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'kickout' ? (
+                      <div className="grid gap-3 lg:grid-cols-4">
+                        <MultiSelect label="Target" placeholder="Any" values={videoKickoutTargets} onChange={setVideoKickoutTargets} options={videoKickoutTargetOptions} />
+                        <MultiSelect label="Won By" placeholder="Any" values={videoKickoutWonBy} onChange={setVideoKickoutWonBy} options={kickoutWonByOptions} />
+                        <MultiSelect label="Lost By" placeholder="Any" values={videoKickoutLostBy} onChange={setVideoKickoutLostBy} options={videoKickoutLostByOptions} />
+                        <MultiSelect label="Outcome" placeholder="Any" values={videoKickoutOutcomes} onChange={setVideoKickoutOutcomes} options={videoKickoutOutcomeOptions} />
+                        <MultiSelect label="Distance" placeholder="Any" values={videoKickoutLengths} onChange={setVideoKickoutLengths} options={videoKickoutLengthOptions} />
+                        <MultiSelect label="Direction" placeholder="Any" values={videoKickoutSides} onChange={setVideoKickoutSides} options={videoKickoutSideOptions} />
+                        <MultiSelect label="Press" placeholder="Any" values={videoKickoutPress} onChange={setVideoKickoutPress} options={videoKickoutPressOptions} />
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'turnover' ? (
+                      <div className="grid gap-3 lg:grid-cols-4">
+                        <MultiSelect label="Type" placeholder="Any" values={videoTurnoverTypes} onChange={setVideoTurnoverTypes} options={videoTurnoverTypeOptions} />
+                        <MultiSelect label="Won By" placeholder="Any" values={videoTurnoverWonBy} onChange={setVideoTurnoverWonBy} options={videoTurnoverWonByOptions} />
+                        <MultiSelect label="Lost By" placeholder="Any" values={videoTurnoverLostBy} onChange={setVideoTurnoverLostBy} options={videoTurnoverLostByOptions} />
+                        <MultiSelect label="Recovered By" placeholder="Any" values={videoTurnoverRecoveredBy} onChange={setVideoTurnoverRecoveredBy} options={videoTurnoverRecoveredByOptions} />
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'foul' ? (
+                      <div className="grid gap-3 lg:grid-cols-3">
+                        <MultiSelect label="Type" placeholder="Any" values={videoFoulTypes} onChange={setVideoFoulTypes} options={videoFoulTypeOptions} />
+                        <MultiSelect label="Foul On" placeholder="Any" values={videoFoulOn} onChange={setVideoFoulOn} options={videoFoulOnOptions} />
+                        <MultiSelect label="Foul By" placeholder="Any" values={videoFoulBy} onChange={setVideoFoulBy} options={videoFoulByOptions} />
+                      </div>
+                    ) : null}
+                    {videoPlayAction === 'def_pressure' ? (
+                      <div className="grid gap-3 lg:grid-cols-4">
+                        <MultiSelect label="Outcome" placeholder="Any" values={videoDefPressureOutcomes} onChange={setVideoDefPressureOutcomes} options={videoDefPressureOutcomeOptions} />
+                        <MultiSelect label="Action" placeholder="Any" values={videoDefPressureActions} onChange={setVideoDefPressureActions} options={videoDefPressureActionOptions} />
+                        <MultiSelect label="Zone" placeholder="Any" values={videoDefPressureZones} onChange={setVideoDefPressureZones} options={videoDefPressureZoneOptions} />
+                        <MultiSelect label="Attacker" placeholder="Any" values={videoDefPressureAttackers} onChange={setVideoDefPressureAttackers} options={videoDefPressureAttackerOptions} />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.55fr)] lg:items-stretch">
+                  <div className={VIDEO_FIELD_STACK_CLASS}>
+                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Team</Label>
+                    <Select value={videoPossessionTeam} onValueChange={setVideoPossessionTeam}>
+                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <MultiSelect
+                    label="Half"
+                    values={videoPossessionHalves}
+                    onChange={setVideoPossessionHalves}
+                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    triggerClassName={VIDEO_CONTROL_CLASS}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                  />
+                  <MultiSelect label="Start Zone" placeholder="Any" values={videoPossessionStartZoneFilter} onChange={setVideoPossessionStartZoneFilter} options={POSSESSION_START_ZONES.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Origin" placeholder="Any" values={videoPossessionOriginFilter} onChange={setVideoPossessionOriginFilter} options={POSSESSION_ORIGIN_GROUPS.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Outcome" placeholder="Any" values={videoPossessionOutcomeFilter} onChange={setVideoPossessionOutcomeFilter} options={POSSESSION_OUTCOME_GROUPS.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MatchTimeRangeSlider
+                    className="lg:col-span-1 min-h-[84px] self-stretch"
+                    timeMin={videoPossessionTimeMin}
+                    timeMax={videoPossessionTimeMax}
+                    match={match}
+                    stats={stats}
+                    imputedTimeById={imputedTimeById}
+                    compact
+                    onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
+                      setVideoPossessionTimeMin(nextMin);
+                      setVideoPossessionTimeMax(nextMax);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="font-semibold text-slate-900">{videoBrowseMode === 'play' ? 'Play Workspace' : 'Possession Workspace'}</div>
+                <div className="text-xs text-slate-500">
+                  {videoBrowseMode === 'play'
+                    ? `Showing ${Math.min(videoVisiblePlayRows.length, sortedVideoPlayTableRows.length)} of ${sortedVideoPlayTableRows.length} event rows.`
+                    : `Showing ${Math.min(videoVisiblePossessionRows.length, sortedVideoPossessionRows.length)} of ${sortedVideoPossessionRows.length} possessions.`}
+                </div>
+              </div>
+              <div className="flex min-h-[32px] flex-wrap items-center justify-end gap-2 lg:min-w-[360px]">
+                <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                  <Button type="button" variant={videoViewMode === 'table' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('table')}>Table</Button>
+                  <Button type="button" variant={videoViewMode === 'pitch' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('pitch')}>Pitch</Button>
+                  <Button type="button" variant={videoViewMode === 'split' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('split')}>Split</Button>
+                </div>
+                {(videoBrowseMode === 'play' ? sortedVideoPlayTableRows.length : sortedVideoPossessionRows.length) > VIDEO_PREVIEW_COUNT ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-[92px] px-3 text-xs"
+                    onClick={() => videoBrowseMode === 'play' ? setVideoPlayExpanded((current) => !current) : setVideoPossessionExpanded((current) => !current)}
+                  >
+                    {(videoBrowseMode === 'play' ? videoPlayExpanded : videoPossessionExpanded) ? 'Collapse' : 'Expand'}
+                  </Button>
+                ) : <div className="h-8 w-[92px]" />}
+              </div>
+            </div>
+
+            <div className={`${videoViewMode === 'split' ? 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]' : ''}`}>
+              {(videoViewMode === 'pitch' || videoViewMode === 'split') ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    {videoBrowseMode === 'play' ? (
+                      <PitchViz
+                        stats={sortedVideoPlayTableRows.map((row) => row.stat)}
+                        contextStats={stats}
+                        homeColor={homeTeam?.color}
+                        awayColor={awayTeam?.color}
+                        colorBy="team"
+                        showColorControls
+                        onOpenVideoAt={openVideoAt}
+                        onStatClick={(stat) => setSelectedVideoPlayId((current) => String(current) === String(stat?.id) ? null : stat?.id)}
+                        selectedStatId={selectedVideoPlayId}
+                        fullscreenEnabled={false}
+                        fullscreenTitle="Video Pitch"
+                      />
+                    ) : (
+                      <PitchViz
+                        stats={selectedVideoPossessionRow?.stats || videoVisiblePossessionRows.flatMap((row) => row.stats || [])}
+                        contextStats={stats}
+                        homeColor={homeTeam?.color}
+                        awayColor={awayTeam?.color}
+                        colorBy="team"
+                        showColorControls
+                        onOpenVideoAt={openVideoAt}
+                        onStatClick={(stat) => {
+                          const owner = sortedVideoPossessionRows.find((row) => Array.isArray(row.stats) && row.stats.some((entry) => String(entry?.id) === String(stat?.id)));
+                          if (owner) setSelectedVideoPossessionKey(owner.key);
+                        }}
+                        fullscreenEnabled={false}
+                        fullscreenTitle="Possession Pitch"
+                      />
+                    )}
+                  </div>
+
+                  {videoBrowseMode === 'play' && selectedVideoPlayRow ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">{selectedVideoPlayRow.player}</div>
+                          <div className="text-xs text-slate-500">{selectedVideoPlayRow.team} Â· {selectedVideoPlayRow.action} Â· {selectedVideoPlayRow.time}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!isLiveMode && Number.isFinite(Number(selectedVideoPlayRow.stat?.time_s)) ? (
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(Number(selectedVideoPlayRow.stat.time_s))}>Open Video</Button>
+                          ) : null}
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => {
+                            setVizStats([selectedVideoPlayRow.stat]);
+                            setVizTitle(`${selectedVideoPlayRow.action} - ${selectedVideoPlayRow.team}`);
+                            setVizOpen(true);
+                          }}>Visualise</Button>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                        <div>Play: <span className="font-medium text-slate-900">{selectedVideoPlayRow.play ?? 'NA'}</span></div>
+                        <div>Poss: <span className="font-medium text-slate-900">{selectedVideoPlayRow.poss ?? 'NA'}</span></div>
+                        <div>Secondary: <span className="font-medium text-slate-900">{selectedVideoPlayRow.secondaryPlayer}</span></div>
+                        <div>Outcome: <span className="font-medium text-slate-900">{selectedVideoPlayRow.outcome}</span></div>
+                        <div>Half: <span className="font-medium text-slate-900">{selectedVideoPlayRow.half}</span></div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {videoBrowseMode === 'possession' && selectedVideoPossessionRow ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">Possession #{selectedVideoPossessionRow.possessionId}</div>
+                          <div className="text-xs text-slate-500">{formatTeamName(selectedVideoPossessionRow.teamSide, homeTeam, awayTeam)} Â· {selectedVideoPossessionRow.originLabel} Â· {selectedVideoPossessionRow.groupedOutcome}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!isLiveMode && Number.isFinite(selectedVideoPossessionRow.videoStartTime) ? (
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(selectedVideoPossessionRow.videoStartTime)}>Open Video</Button>
+                          ) : null}
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openPossessionVisualise(selectedVideoPossessionRow)}>Visualise</Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {(videoViewMode === 'table' || videoViewMode === 'split') ? (
+                <div className="overflow-x-auto">
+                  {videoBrowseMode === 'play' ? (
+                    <Table className="table-fixed w-full">
+                      <colgroup>
+                        {videoPlayColumns.map((column) => (
+                          <col key={column.key} style={column.width ? { width: column.width } : undefined} />
+                        ))}
+                      </colgroup>
+                      <TableHeader>
+                        <TableRow>
+                          {videoPlayColumns.map((column) => (
+                            <SortableTableHead
+                              key={column.key}
+                              column={column}
+                              sortState={videoPlaySort}
+                              onToggle={toggleVideoPlaySort}
+                              className={column.key === 'actions' ? 'text-center' : undefined}
+                            />
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {videoVisiblePlayRows.map((row) => {
+                          const t = Number(row.stat?.time_s);
+                          const hasTime = Number.isFinite(t);
+                          const isSelected = String(selectedVideoPlayId) === String(row.id);
+                          return (
+                            <TableRow
+                              key={row.id}
+                              style={{
+                                ...dataRowStyle(row.stat, homeTeam, awayTeam),
+                                boxShadow: isSelected ? 'inset 0 0 0 2px rgba(15,23,42,0.2)' : undefined,
+                              }}
+                              className="cursor-pointer"
+                              onClick={() => setSelectedVideoPlayId((current) => String(current) === String(row.id) ? null : row.id)}
+                            >
+                              <TableCell className="font-mono text-xs tabular-nums">{row.play ?? 'NA'}</TableCell>
+                              <TableCell className="font-mono text-xs tabular-nums">{row.poss ?? 'NA'}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{row.half}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{row.time}</TableCell>
+                              <TableCell className="truncate text-xs">{row.team}</TableCell>
+                              <TableCell className="truncate text-xs">{row.player}</TableCell>
+                              <TableCell className="truncate text-xs">{row.action}</TableCell>
+                              <TableCell className="truncate text-xs">{row.outcome}</TableCell>
+                              <TableCell className="truncate text-xs">{row.secondaryPlayer}</TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-2">
+                                  {!isLiveMode ? (
+                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} onClick={(e) => { e.stopPropagation(); hasTime && openVideoAt(t); }}>
+                                      Open Video
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setVizStats([row.stat]);
+                                      setVizTitle(`${row.action} - ${row.team}`);
+                                      setVizOpen(true);
+                                    }}
+                                  >
+                                    Visualise
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {videoVisiblePlayRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={10} className="py-8 text-center text-sm text-slate-500">No play clips found for the current filters.</TableCell>
+                          </TableRow>
+                        ) : null}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <Table className="table-fixed w-full">
+                      <colgroup>
+                        {videoPossessionColumns.map((column) => (
+                          <col key={column.key} style={column.width ? { width: column.width } : undefined} />
+                        ))}
+                      </colgroup>
+                      <TableHeader>
+                        <TableRow>
+                          {videoPossessionColumns.map((column) => (
+                            <SortableTableHead
+                              key={column.key}
+                              column={column}
+                              sortState={videoPossessionSort}
+                              onToggle={toggleVideoPossessionSort}
+                              className={column.key === 'actions' ? 'text-center' : undefined}
+                            />
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {videoVisiblePossessionRows.map((row) => {
+                          const isSelected = String(selectedVideoPossessionKey) === String(row.key);
+                          return (
+                            <TableRow
+                              key={row.key}
+                              style={{
+                                ...possessionRowStyle({ possession_team_side: row.teamSide }, homeTeam, awayTeam),
+                                boxShadow: isSelected ? 'inset 0 0 0 2px rgba(15,23,42,0.2)' : undefined,
+                              }}
+                              className="cursor-pointer"
+                              onClick={() => setSelectedVideoPossessionKey((current) => String(current) === String(row.key) ? null : row.key)}
+                            >
+                              <TableCell className="font-mono text-xs tabular-nums">{row.possessionId}</TableCell>
+                              <TableCell className="truncate text-xs">{formatTeamName(row.teamSide, homeTeam, awayTeam)}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{toTitleCase(row.half)}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{Number.isFinite(row.startTime) ? formatMatchClock(row.startTime, match, row.half) : 'NA'}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{Number.isFinite(row.endTime) ? formatMatchClock(row.endTime, match, row.half) : 'NA'}</TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">{Number.isFinite(row.duration) ? `${row.duration.toFixed(1)}s` : 'NA'}</TableCell>
+                              <TableCell className="truncate text-xs">{row.originLabel || 'NA'}</TableCell>
+                              <TableCell className="truncate text-xs">{row.groupedOutcome || 'NA'}</TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-2">
+                                  {!isLiveMode && Number.isFinite(row.videoStartTime) ? (
+                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openVideoAt(row.videoStartTime); }}>
+                                      Open Video
+                                    </Button>
+                                  ) : null}
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openPossessionVisualise(row); }}>
+                                    Visualise
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {videoVisiblePossessionRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={9} className="py-8 text-center text-sm text-slate-500">No possession clips found for the current filters.</TableCell>
+                          </TableRow>
+                        ) : null}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Dialog open={vizOpen} onOpenChange={setVizOpen}>
+          <DialogContent className="sm:max-w-4xl p-4">
+            <DialogHeader>
+              <div className="flex items-center justify-between gap-2">
+                <DialogTitle className="text-base">{vizTitle || 'Visualise'}</DialogTitle>
+                {(() => {
+                  const times = (vizStats || []).map((s) => Number(s?.time_s)).filter(Number.isFinite);
+                  if (isLiveMode || !times.length) return null;
+                  const t = Math.min(...times);
+                  return (
+                    <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => openVideoAt(t)}>
+                      Open Video @ {formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}
+                    </Button>
+                  );
+                })()}
+              </div>
+            </DialogHeader>
+            <div className="pt-2">
+              <PitchViz stats={vizStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="team" showColorControls />
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {!isVideoMode && (
@@ -936,14 +2446,18 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               onChange={setPlayerIds}
               options={playerOptions.map((p) => ({ value: p.id, label: (p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label }))}
             />
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Start Time</Label>
-              <Input className="h-8 text-xs" inputMode="numeric" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} placeholder="e.g. 0" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">End Time</Label>
-              <Input className="h-8 text-xs" inputMode="numeric" value={timeMax} onChange={(e) => setTimeMax(e.target.value)} placeholder="e.g. 35" />
-            </div>
+            <MatchTimeRangeSlider
+              className="lg:col-span-2"
+              timeMin={timeMin}
+              timeMax={timeMax}
+              match={match}
+              stats={stats}
+              imputedTimeById={imputedTimeById}
+              onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
+                setTimeMin(nextMin);
+                setTimeMax(nextMax);
+              }}
+            />
           </div>
         </CardContent>
       </Card>
@@ -1464,7 +2978,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                                         { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
                                         { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
                                         { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
-                                        { label: 'Set Defence', value: s.counter_attack ? 'Yes' : 'No' },
+                                        { label: 'Set Defence', value: getSetDefenceValue(s, false) ? 'Yes' : 'No' },
                                         { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
                                         { label: 'Time', value: (() => { const rowTime = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA'; })() },
                                         { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
@@ -1575,5 +3089,6 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
 }
 
 export default DataTab;
+
 
 

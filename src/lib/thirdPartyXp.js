@@ -42,6 +42,12 @@ function normalizeTextLower(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeShotSituation(value) {
+  const raw = normalizeTextLower(value);
+  if (raw === 'free_kick') return 'free_hands';
+  return raw;
+}
+
 function csvEscape(value) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
@@ -113,12 +119,13 @@ function getShotTypeLabel(shotType) {
 }
 
 function getSetPlayLabel(situation) {
-  if (situation === 'play') return 'Open Play';
-  if (situation === 'free_hands') return 'Free Kick from Hands';
-  if (situation === 'free_ground') return 'Free Kick from Ground';
-  if (situation === 'penalty') return 'Penalty';
-  if (situation === '45') return '45m Kick';
-  if (situation === 'mark') return 'Mark';
+  const normalized = normalizeShotSituation(situation);
+  if (normalized === 'play') return 'Open Play';
+  if (normalized === 'free_hands') return 'Free Kick from Hands';
+  if (normalized === 'free_ground') return 'Free Kick from Ground';
+  if (normalized === 'penalty') return 'Penalty';
+  if (normalized === '45') return '45m Kick';
+  if (normalized === 'mark') return 'Mark';
   return '';
 }
 
@@ -276,8 +283,8 @@ export function buildThirdPartyShotRecords(stats, match, teams = {}, players = [
       shotType: getShotTypeLabel(String(shot?.type || shot?.shot_type || shot?.shotType || 'point') === '2 point'
         ? '2_point'
         : String(shot?.type || shot?.shot_type || shot?.shotType || 'point')),
-      setPlayKey: String(shot?.situation || ''),
-      setPlay: getSetPlayLabel(String(shot?.situation || '')),
+      setPlayKey: normalizeShotSituation(shot?.situation || ''),
+      setPlay: getSetPlayLabel(shot?.situation || ''),
       shotMethodKey: String(shot?.method || ''),
       shotMethod: getShotMethodLabel(String(shot?.method || '')),
       distanceValue: Number.isFinite(distance) ? Math.round(distance) : NaN,

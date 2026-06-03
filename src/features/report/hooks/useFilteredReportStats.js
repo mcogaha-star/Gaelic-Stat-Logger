@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { getMatchTimeS } from '@/lib/reportAnalytics';
-import { collectPlayerIds, deriveOutcome, safeParseJSON, statMatchesActionType } from '../shared';
+import { collectPlayerIds, deriveOutcome, safeParseJSON, statMatchesActionType, statMatchesDisplayTimeRange } from '../shared';
 
 export function useFilteredReportStats({ stats, overviewHalf, reportFilters, match, imputedTimeById }) {
   const overviewStats = useMemo(() => {
@@ -12,11 +11,6 @@ export function useFilteredReportStats({ stats, overviewHalf, reportFilters, mat
 
   const filteredForReport = useMemo(() => {
     const list = Array.isArray(stats) ? stats : [];
-    const minM = Number(reportFilters.timeMin);
-    const maxM = Number(reportFilters.timeMax);
-    const minS = Number.isFinite(minM) && reportFilters.timeMin !== '' ? minM * 60 : null;
-    const maxS = Number.isFinite(maxM) && reportFilters.timeMax !== '' ? maxM * 60 : null;
-
     return list.filter((s) => {
       if (!s) return false;
       if (reportFilters.team !== 'both' && s.team_side !== reportFilters.team) return false;
@@ -33,12 +27,13 @@ export function useFilteredReportStats({ stats, overviewHalf, reportFilters, mat
         const any = reportFilters.playerIds.some((id) => ids.has(String(id)));
         if (!any) return false;
       }
-      if (minS != null || maxS != null) {
-        const t = getMatchTimeS(s, match, imputedTimeById);
-        if (!Number.isFinite(t)) return false;
-        if (minS != null && t < minS) return false;
-        if (maxS != null && t > maxS) return false;
-      }
+      if (!statMatchesDisplayTimeRange(s, {
+        timeMin: reportFilters.timeMin,
+        timeMax: reportFilters.timeMax,
+        match,
+        imputedTimeById,
+        stats: reportFilters?.allStats || list,
+      })) return false;
       return true;
     });
   }, [stats, reportFilters, match, imputedTimeById]);

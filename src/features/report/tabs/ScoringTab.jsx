@@ -38,6 +38,7 @@ import {
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
+  deriveAttackTypeState,
   getCompletedReceiptSelection,
   getPrimaryActorSelection,
   getKeeperCandidate,
@@ -56,9 +57,16 @@ import {
   shotZoneFromDistance,
   teamRowTint,
   applyNonTeamReportFilters,
+  attackTypeStateKey,
 } from '../shared';
 
 const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+
+function normalizeShootingSituation(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'free_kick') return 'free_hands';
+  return raw;
+}
 
 function ptsXpCellStyle(value) {
   if (!Number.isFinite(value)) return undefined;
@@ -317,18 +325,20 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
                 const row = payload[0]?.payload;
                 if (!row) return null;
                 return (
-                  <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-sm">
-                    <div className="mb-2 font-semibold text-slate-900">{label || row.pressure || 'Pressure'}</div>
+                  <div className="rounded-md border bg-white px-3 py-2 text-[13px] shadow-sm">
+                    <div className="mb-2 text-center font-semibold text-slate-900 underline underline-offset-2">{label || row.pressure || 'Pressure'}</div>
                     {teamMode === 'both' ? (
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <div>{row.home_label || 'Home'}: <span className="font-mono">{row.home_scores}/{row.home_attempts}</span></div>
+                          <div className="font-semibold text-slate-900">{row.home_label || 'Home'}</div>
+                          <div><span className="font-mono">{row.home_scores}/{row.home_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.home_conv)}</span></div>
                           <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.home_pps) ? row.home_pps.toFixed(2) : 'NA'}</span></div>
                           <div>xP/Shot: <span className="font-mono">{Number.isFinite(row.home_xps) ? row.home_xps.toFixed(2) : 'NA'}</span></div>
                         </div>
                         <div className="space-y-1">
-                          <div>{row.away_label || 'Away'}: <span className="font-mono">{row.away_scores}/{row.away_attempts}</span></div>
+                          <div className="font-semibold text-slate-900">{row.away_label || 'Away'}</div>
+                          <div><span className="font-mono">{row.away_scores}/{row.away_attempts}</span></div>
                           <div>Conversion: <span className="font-mono">{formatPct(row.away_conv)}</span></div>
                           <div>Pts/Shot: <span className="font-mono">{Number.isFinite(row.away_pps) ? row.away_pps.toFixed(2) : 'NA'}</span></div>
                           <div>xP/Shot: <span className="font-mono">{Number.isFinite(row.away_xps) ? row.away_xps.toFixed(2) : 'NA'}</span></div>
@@ -439,9 +449,10 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
   );
 }
 
-function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, onOpenVideoAt }) {
+function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
+  const scoringAttackTypeFilter = String(attackType || 'any');
   const [shotMapMode, setShotMapMode] = useState('all');
   const [detailedSituationOpen, setDetailedSituationOpen] = useState(false);
   const playerLookup = useMemo(() => {
@@ -457,9 +468,31 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
     }
     return { byId, bySideNumber };
   }, [playerOptions]);
+  const shootingPossessionAttackTypeByKey = useMemo(() => {
+    const sourceStats = applyNonTeamReportFilters(
+      Array.isArray(reportFilters?.allStats) ? reportFilters.allStats : [],
+      {
+        ...reportFilters,
+        actionTypes: [],
+        outcomes: [],
+        playerIds: [],
+        allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'],
+      }
+    );
+    const groups = groupByPossession(sourceStats);
+    const map = new Map();
+    for (const [key, evs] of groups.entries()) {
+      const [teamSide] = String(key).split('-');
+      if (teamSide !== 'home' && teamSide !== 'away') continue;
+      const acting = (Array.isArray(evs) ? evs : []).filter((e) => e && e.team_side === teamSide);
+      if (!acting.length) continue;
+      map.set(String(key), deriveAttackTypeState(acting));
+    }
+    return map;
+  }, [reportFilters]);
 
-  const shots = useMemo(() => {
-    const list = Array.isArray(stats) ? stats : [];
+  const buildShotRows = React.useCallback((sourceStats) => {
+    const list = Array.isArray(sourceStats) ? sourceStats : [];
     const out = [];
     for (const s of list) {
       if (!s || s.stat_type !== 'shot') continue;
@@ -471,9 +504,9 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       const o = String(sh.outcome || '');
       const st = String(sh.type || sh.shot_type || sh.shotType || '');
       const stNorm = st === '2 point' ? '2_point' : st;
-      const sit = String(sh.situation || '');
+      const sit = normalizeShootingSituation(sh.situation || '');
       const pr = String(sh.pressure || '');
-      const xpRaw = sh?.xp?.value ?? sh.expected_points ?? sh.expectedPoints ?? sh.xp ?? sh.xP ?? null;
+      const xpRaw = extra?.shot?.xp?.value ?? sh?.xp?.value ?? sh.expected_points ?? sh.expectedPoints ?? sh.xp ?? sh.xP ?? null;
       const xp = Number(xpRaw);
 
       const dist = calcDistanceToGoal(x, y);
@@ -525,6 +558,7 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         situation: sit,
         method: String(sh.method || ''),
         pressure: pr,
+        attackType: shootingPossessionAttackTypeByKey.get(`${s.possession_team_side}-${Number(s.possession_id)}`) || 'Set',
         outcome: o,
         broughtBackAdv: !!sh.brought_back_adv || isBroughtBackAdvantageStat(s),
         distance: dist,
@@ -547,7 +581,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       });
     }
     return out;
-  }, [stats, playerLookup, scopedReportFilters]);
+  }, [playerLookup, scopedReportFilters, shootingPossessionAttackTypeByKey]);
+
+  const shots = useMemo(() => buildShotRows(stats), [stats, buildShotRows]);
+  const simShots = useMemo(() => buildShotRows(simStats ?? stats), [simStats, stats, buildShotRows]);
 
   const situationLabelMap = useMemo(() => ({
     play: 'Play',
@@ -594,9 +631,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       if (situation.length && !situation.includes(s.situation)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
       if (method.length && !method.includes(s.method)) return false;
+      if (scoringAttackTypeFilter !== 'any' && attackTypeStateKey(s.attackType) !== scoringAttackTypeFilter) return false;
       return true;
     });
-  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method]);
+  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
 
   const mapShots = useMemo(() => {
     return shots.filter((s) => {
@@ -606,9 +644,10 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
       if (situation.length && !situation.includes(s.situation)) return false;
       if (pressure.length && !pressure.includes(s.pressure)) return false;
       if (method.length && !method.includes(s.method)) return false;
+      if (scoringAttackTypeFilter !== 'any' && attackTypeStateKey(s.attackType) !== scoringAttackTypeFilter) return false;
       return true;
     });
-  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method]);
+  }, [shots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
 
   const kpis = useMemo(() => {
     const calc = (side) => {
@@ -932,7 +971,14 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
   const winProbabilitySim = useMemo(() => {
     return simulateFullMatchFromShots(
-      filteredShots
+      simShots
+        .filter((shot) => !shot.broughtBackAdv)
+        .filter((shot) => matchesSelectedPlayer(shot))
+        .filter((shot) => shotType.length ? shotType.includes(shot.shotType) : true)
+        .filter((shot) => situation.length ? situation.includes(shot.situation) : true)
+        .filter((shot) => pressure.length ? pressure.includes(shot.pressure) : true)
+        .filter((shot) => method.length ? method.includes(shot.method) : true)
+        .filter((shot) => scoringAttackTypeFilter !== 'any' ? attackTypeStateKey(shot.attackType) === scoringAttackTypeFilter : true)
         .filter((shot) => Number.isFinite(shot?.xp))
         .map((shot) => ({
           team_side: shot.team_side,
@@ -941,13 +987,13 @@ function ScoringTab({ stats, homeTeam, awayTeam, playerOptions = [], reportFilte
         })),
       10000,
     );
-  }, [filteredShots]);
+  }, [simShots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
 
   return (
     <div className="space-y-4">
       <div className="report-metric-split">
         <ComparisonMetricsCard
-          title=""
+          title="Shooting Metrics"
           cardClassName="w-full"
           homeTeam={homeTeam}
           awayTeam={awayTeam}

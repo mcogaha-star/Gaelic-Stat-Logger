@@ -31,7 +31,7 @@ import {
     upsertPrivateTeamFromLocal,
 } from '@/lib/serverSync';
 import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
-import { deriveMatchLengthMinutes, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
+import { deriveMatchLengthMinutes, getSetDefenceValue, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
@@ -56,7 +56,7 @@ function stringifyServerExtra(extraData) {
 }
 
 function localStatFromServer(row, localMatchId, playerByServerId = new Map()) {
-    const setDefence = typeof row?.set_defence === 'boolean' ? row.set_defence : !!row?.counter_attack;
+    const setDefence = getSetDefenceValue(row, false);
     const player = row?.player_ref ? playerByServerId.get(row.player_ref) : null;
     const recipient = row?.recipient_ref ? playerByServerId.get(row.recipient_ref) : null;
     const restoredExtra = restoreExtraDataFromPrivateRefs(row?.extra_data, playerByServerId);

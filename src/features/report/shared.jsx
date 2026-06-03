@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2 } from 'lucide-react';
@@ -23,6 +23,8 @@ import {
   isAttackPossession,
   getMatchSectionOffsets,
   getMatchTimeS,
+  getNormalizedTimeS,
+  formatHalfClock,
   formatMatchClock as formatMatchClockFromAnalytics,
   getProgressiveMeters,
   isBroughtBackAdvantageStat,
@@ -32,6 +34,7 @@ import {
   shotOutcomeGroup,
   statHasEmbeddedTurnover,
   statHasEnteredOpp45,
+  getSetDefenceValue,
 } from '@/lib/reportAnalytics';
 
 const REPORT_PITCH_VERTICAL_SCALE = 1;
@@ -60,6 +63,262 @@ function formatMMSS(seconds) {
   const mm = Math.floor(s / 60);
   const ss = s % 60;
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+function formatMatchTimeLabel(seconds) {
+  return formatMMSS(seconds);
+}
+
+const MATCH_SECTION_ORDER = ['first', 'second', 'et_first', 'et_second'];
+
+function getSectionBoundaryLabel(half) {
+  if (half === 'first') return 'HT';
+  if (half === 'second') return 'FT';
+  if (half === 'et_first') return 'ET HT';
+  return '';
+}
+
+function buildMatchTimeDisplayLayout(stats, match, imputedTimeById) {
+  const sectionStats = MATCH_SECTION_ORDER.map((half) => {
+    const rows = (Array.isArray(stats) ? stats : []).filter((stat) => stat?.half === half);
+    const times = rows
+      .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
+      .filter(Number.isFinite);
+    const periodEndTimes = rows
+      .filter((stat) => stat?.stat_type === 'period_end')
+      .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
+      .filter(Number.isFinite);
+    const lastLiveOrLoggedTime = times.length ? Math.max(...times) : 0;
+    const boundaryTime = periodEndTimes.length ? Math.max(...periodEndTimes) : lastLiveOrLoggedTime;
+    return {
+      half,
+      hasData: times.length > 0,
+      boundaryTime,
+    };
+  }).filter((section) => section.hasData);
+
+  if (!sectionStats.length) {
+    return {
+      axisMax: 5 * 60,
+      ticks: [0, 5 * 60],
+      formatTick: () => '00:00',
+      getDisplayTimeForStat: () => null,
+    };
+  }
+
+  let runningOffset = 0;
+  const sections = sectionStats.map((section) => {
+    const next = { ...section, offset: runningOffset };
+    runningOffset += section.boundaryTime;
+    return next;
+  });
+
+  const axisMax = Math.max(5 * 60, sections[sections.length - 1].offset + sections[sections.length - 1].boundaryTime);
+  const ticks = Array.from(new Set(sections.flatMap((section) => {
+    const values = [section.offset];
+    for (let local = 10 * 60; local < section.boundaryTime; local += 10 * 60) {
+      values.push(section.offset + local);
+    }
+    values.push(section.offset + section.boundaryTime);
+    return values;
+  })))
+    .filter((value) => Number.isFinite(value) && value >= 0 && value <= axisMax)
+    .sort((a, b) => a - b);
+
+  const findSectionForDisplayTime = (displayTimeS) => {
+    const value = Math.max(0, Number(displayTimeS) || 0);
+    for (const section of sections) {
+      const start = section.offset;
+      const end = section.offset + section.boundaryTime;
+      if (value >= start && value <= end) return section;
+    }
+    return sections[sections.length - 1];
+  };
+
+  return {
+    axisMax,
+    ticks,
+    formatTick: (displayTimeS) => {
+      const section = findSectionForDisplayTime(displayTimeS);
+      const exactBoundary = sections.find((entry) => Math.abs(Number(displayTimeS) - (entry.offset + entry.boundaryTime)) < 0.5);
+      const boundaryLabel = getSectionBoundaryLabel(exactBoundary?.half);
+      if (boundaryLabel) return boundaryLabel;
+      const localTime = Math.max(0, Number(displayTimeS) - Number(section?.offset || 0));
+      return formatHalfClock(localTime, section?.half, match);
+    },
+    getDisplayTimeForStat: (stat) => {
+      const normalized = getNormalizedTimeS(stat, imputedTimeById);
+      if (!Number.isFinite(normalized)) return null;
+      const section = sections.find((entry) => entry.half === stat?.half);
+      if (!section) return normalized;
+      return section.offset + normalized;
+    },
+  };
+}
+
+function clampTimeRange(range, min = 0, max = 0) {
+  const rawStart = Array.isArray(range) ? Number(range[0]) : min;
+  const rawEnd = Array.isArray(range) ? Number(range[1]) : max;
+  const start = Number.isFinite(rawStart) ? Math.max(min, Math.min(max, rawStart)) : min;
+  const end = Number.isFinite(rawEnd) ? Math.max(min, Math.min(max, rawEnd)) : max;
+  return start <= end ? [start, end] : [end, start];
+}
+
+function getFilterTimeSeconds(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || String(value ?? '') === '') return null;
+  return Math.max(0, Math.round(minutes * 60));
+}
+
+function serializeFilterTimeSeconds(seconds, fallbackSeconds) {
+  if (!Number.isFinite(seconds)) return '';
+  if (seconds <= 0) return '';
+  if (Number.isFinite(fallbackSeconds) && seconds >= fallbackSeconds) return '';
+  return (seconds / 60).toFixed(3).replace(/\.?0+$/, '');
+}
+
+function normalizeTimeRangeForSlider({ timeMin, timeMax, maxSeconds }) {
+  const safeMax = Math.max(0, Number(maxSeconds) || 0);
+  const start = getFilterTimeSeconds(timeMin);
+  const end = getFilterTimeSeconds(timeMax);
+  return clampTimeRange([
+    start == null ? 0 : start,
+    end == null ? safeMax : end,
+  ], 0, safeMax);
+}
+
+function statMatchesDisplayTimeRange(stat, { timeMin, timeMax, match, imputedTimeById, stats }) {
+  const minDisplayS = getFilterTimeSeconds(timeMin);
+  const maxDisplayS = getFilterTimeSeconds(timeMax);
+  if (minDisplayS == null && maxDisplayS == null) return true;
+  const layout = buildMatchTimeDisplayLayout(stats, match, imputedTimeById);
+  const displayTime = layout.getDisplayTimeForStat(stat);
+  if (!Number.isFinite(displayTime)) return false;
+  if (minDisplayS != null && displayTime < minDisplayS) return false;
+  if (maxDisplayS != null && displayTime > maxDisplayS) return false;
+  return true;
+}
+
+function RangeSliderField({
+  label,
+  min = 0,
+  max = 100,
+  value = [0, 100],
+  onChange,
+  formatValue = (n) => String(n),
+  resetLabel = 'Full Range',
+  onReset,
+  step = 1,
+  className = '',
+  tickValues = [],
+  tickFormatter = (n) => String(n),
+  showBoundsText = true,
+  compact = false,
+}) {
+  const normalized = clampTimeRange(value, min, max);
+  const range = Math.max(1, max - min);
+  return (
+    <div className={`${compact ? 'space-y-0.5' : 'space-y-2'} ${className}`.trim()}>
+      <div className="flex min-h-[20px] items-center justify-between gap-3">
+        <Label className={`text-xs leading-none text-slate-600 ${compact ? 'pt-0.5' : ''}`}>{label}</Label>
+        {onReset ? (
+          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-slate-500" onClick={onReset}>
+            {resetLabel}
+          </Button>
+        ) : null}
+      </div>
+      <div className={`rounded-xl border border-slate-200 bg-slate-50 shadow-sm ${compact ? 'px-2 py-1.5' : 'p-3'}`}>
+        <div className={`flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-700 ${compact ? 'mb-0.5 leading-none' : 'mb-2'}`}>
+          <span>{formatValue(normalized[0])}</span>
+          <span>{formatValue(normalized[1])}</span>
+        </div>
+        <Slider
+          min={min}
+          max={max}
+          step={step}
+          value={normalized}
+          onValueChange={(next) => onChange?.(clampTimeRange(next, min, max))}
+          className={compact ? 'px-0 py-0.5' : 'px-0'}
+        />
+        {Array.isArray(tickValues) && tickValues.length > 0 ? (
+          <div className={`relative text-[10px] text-slate-500 ${compact ? 'mt-0.5 h-3' : 'mt-2 h-4'}`}>
+            {tickValues.map((tick, index) => {
+              const pct = ((tick - min) / range) * 100;
+              const alignClass = index === 0 ? '-translate-x-0' : index === tickValues.length - 1 ? '-translate-x-full' : '-translate-x-1/2';
+              return (
+                <span
+                  key={tick}
+                  className={`absolute top-0 whitespace-nowrap ${alignClass}`}
+                  style={{ left: `${pct}%` }}
+                >
+                  {tickFormatter(tick)}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+        {showBoundsText ? (
+          <div className={`${compact ? 'mt-1' : 'mt-2'} text-[11px] text-slate-500`}>
+            {formatValue(min)} - {formatValue(max)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MatchTimeRangeSlider({
+  label = 'Time Range',
+  timeMin,
+  timeMax,
+  onChange,
+  match,
+  stats,
+  imputedTimeById,
+  className = '',
+  compact = false,
+}) {
+  const displayLayout = useMemo(
+    () => buildMatchTimeDisplayLayout(stats, match, imputedTimeById),
+    [match, stats, imputedTimeById],
+  );
+  const maxSeconds = displayLayout.axisMax;
+  const sliderTicks = useMemo(() => {
+    const boundaryTicks = (displayLayout.ticks || []).filter((tick) => tick > 0);
+    return [0, ...boundaryTicks.filter((tick) => {
+      const label = displayLayout.formatTick(tick);
+      return label === 'HT' || label === 'FT';
+    })];
+  }, [displayLayout]);
+  const sliderValue = useMemo(
+    () => normalizeTimeRangeForSlider({ timeMin, timeMax, maxSeconds }),
+    [timeMin, timeMax, maxSeconds],
+  );
+
+  const handleChange = (nextRange) => {
+    const [start, end] = clampTimeRange(nextRange, 0, maxSeconds);
+    onChange?.({
+      timeMin: serializeFilterTimeSeconds(start, maxSeconds),
+      timeMax: serializeFilterTimeSeconds(end, maxSeconds),
+    });
+  };
+
+  return (
+    <RangeSliderField
+      label={label}
+      min={0}
+      max={maxSeconds}
+      step={1}
+      value={sliderValue}
+      onChange={handleChange}
+      formatValue={displayLayout.formatTick}
+      tickValues={sliderTicks}
+      tickFormatter={(value) => (value === 0 ? '0' : displayLayout.formatTick(value))}
+      showBoundsText={false}
+      className={className}
+      compact={compact}
+    />
+  );
 }
 
 function formatAddedTime(baseSeconds, totalSeconds) {
@@ -108,6 +367,7 @@ function sortRows(rows, sortState, columns = [], fallbackKey = 'key') {
 function SortableTableHead({ column, sortState, onToggle, className = '', children }) {
   const active = sortState?.key === column?.key;
   const Icon = !column?.sortable ? null : active ? (sortState?.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const rightAligned = className.includes('text-right');
   return (
     <TableHead className={className}>
       {column?.sortable === false ? (
@@ -115,11 +375,13 @@ function SortableTableHead({ column, sortState, onToggle, className = '', childr
       ) : (
         <button
           type="button"
-          className={`inline-flex items-center gap-1 font-medium text-left ${className.includes('text-right') ? 'ml-auto' : ''}`}
+          className={`inline-flex w-full items-center gap-1 font-medium text-left ${rightAligned ? 'justify-end ml-auto' : ''}`}
           onClick={() => onToggle?.(column?.key)}
         >
           <span>{children ?? column?.label}</span>
-          {Icon ? <Icon className="h-3.5 w-3.5 text-slate-500" /> : null}
+          <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+            {Icon ? <Icon className="h-3.5 w-3.5 text-slate-500" /> : null}
+          </span>
         </button>
       )}
     </TableHead>
@@ -534,7 +796,7 @@ function statMatchesActionType(stat, actionType) {
   return false;
 }
 
-function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '' }) {
+function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '', triggerClassName = '', labelClassName = '' }) {
   const valuesSet = useMemo(() => new Set(Array.isArray(values) ? values : []), [values]);
 
   const toggle = (v) => {
@@ -556,10 +818,10 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
 
   return (
     <div className={'space-y-1 ' + className}>
-      <Label className="text-xs text-slate-600">{label}</Label>
+      <Label className={`text-xs text-slate-600 ${labelClassName}`.trim()}>{label}</Label>
       <Popover>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between text-xs">
+          <Button type="button" variant="outline" size="sm" className={`h-8 w-full justify-between text-xs ${triggerClassName}`.trim()}>
             <span className="truncate">{summaryText}</span>
             <span className="text-slate-400">▾</span>
           </Button>
@@ -821,15 +1083,35 @@ function isDirectTouchAction(stat) {
 }
 
 function deriveCounterAttackState(actingStats) {
-  const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && typeof s.counter_attack === 'boolean');
+  const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && getSetDefenceValue(s, null) != null);
   if (!relevant.length) return 'No';
-  const flags = relevant.map((s) => !!s.counter_attack);
+  const flags = relevant.map((s) => !!getSetDefenceValue(s, false));
   const last = flags[flags.length - 1];
   return last ? 'Yes' : 'No';
 }
 
+function deriveAttackTypeState(actingStats) {
+  const relevant = (Array.isArray(actingStats) ? actingStats : []).filter((s) => s && s.stat_type !== 'kickout' && getSetDefenceValue(s, null) != null);
+  if (!relevant.length) return 'Set';
+  const flags = relevant.map((s) => !!getSetDefenceValue(s, false));
+  if (flags.every(Boolean)) return 'Set';
+  if (flags.every((flag) => !flag)) return 'Transition';
+  let sawTransition = false;
+  for (const flag of flags) {
+    if (!flag) sawTransition = true;
+    if (sawTransition && flag) return 'Transition->Set';
+  }
+  return flags[0] ? 'Set' : 'Transition';
+}
+
 function defenceSetStateKey(state) {
   return state === 'Yes' ? 'defence_set_yes' : 'defence_set_no';
+}
+
+function attackTypeStateKey(state) {
+  if (state === 'Transition') return 'attack_type_transition';
+  if (state === 'Transition->Set') return 'attack_type_transition_to_set';
+  return 'attack_type_set';
 }
 
 function getPossessionStartZone(actingStats) {
@@ -1178,12 +1460,15 @@ function PitchViz({
   mirrorAwayWhenBoth = true,
   directionLabel = 'Home ->',
   kickoutOutcomeDots = false,
+  kickoutCircleMode = false,
   turnoverEndpointOnly = false,
   pitchScale = REPORT_PITCH_SCALE,
   onOpenVideoAt = null,
   fullscreenEnabled = true,
   fullscreenTitle = 'Map',
   align = 'center',
+  onStatClick = null,
+  selectedStatId = null,
 }) {
   const defaultActionPalette = {
     shot: '#111827',
@@ -1280,10 +1565,21 @@ function PitchViz({
     const kickoutWinner = s.stat_type === 'kickout'
       ? selectionTooltipLabel(extra?.kickout?.won_by)
       : '';
+    const kickoutLoser = s.stat_type === 'kickout'
+      ? selectionTooltipLabel(extra?.kickout?.lost_by)
+      : '';
+    const kickoutBrokenBy = s.stat_type === 'kickout'
+      ? selectionTooltipLabel(extra?.kickout?.broken_by)
+      : '';
     const recipient = getCompletedReceiptSelection(s, extra);
     const recipientLabel = selectionTooltipLabel(recipient);
-    if (kickoutWinner) lines.push(`Won By: ${kickoutWinner}`);
-    else if (recipientLabel && s.stat_type !== 'shot') lines.push(`Recipient: ${recipientLabel}`);
+    if (s.stat_type === 'kickout') {
+      lines.push(`Won By: ${kickoutWinner || '—'}`);
+      lines.push(`Lost By: ${kickoutLoser || '—'}`);
+      lines.push(`Broken By: ${kickoutBrokenBy || '—'}`);
+    } else if (recipientLabel && s.stat_type !== 'shot') {
+      lines.push(`Recipient: ${recipientLabel}`);
+    }
     // Prefer normalized match time for display across the Stats pages.
     const normT = Number(s.normalized_time_s);
     const rawT = Number(s.time_s);
@@ -1340,6 +1636,7 @@ function PitchViz({
             const extra = safeParseJSON(s.extra_data || '{}', {});
             const col = getColor(s, extra);
             const tip = tooltipText(s, extra);
+            const isSelected = selectedStatId != null && String(selectedStatId) === String(s?.id);
             const start = transformDisplayPoint(s.x_position, s.y_position, s.team_side, mirrorAwayWhenBoth);
             if (!start) return null;
             const end = transformDisplayPoint(s.end_x_position, s.end_y_position, s.team_side, mirrorAwayWhenBoth);
@@ -1361,14 +1658,18 @@ function PitchViz({
                 return (
                   <g
                     key={s.id}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStatClick?.(s);
+                    }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       openVideoForStat(s);
                     }}
                   >
                     <title>{tip}</title>
-                    <circle cx={x2} cy={y2} r="1.6" fill={col} opacity="0.95" />
+                    {isSelected ? <circle cx={x2} cy={y2} r="2.5" fill="none" stroke="#111827" strokeWidth="0.5" opacity="0.95" /> : null}
+                    <circle cx={x2} cy={y2} r="1.6" fill={col} opacity={isSelected ? '1' : '0.95'} />
                   </g>
                 );
               }
@@ -1382,14 +1683,40 @@ function PitchViz({
                 : (teamPalette?.home || homeColor || '#22c55e');
               const kickWonSide = inferRestartWinnerSide(s, nextContextById.get(s.id));
               const kickoutDotUsesOutcome = ['clean', 'break', 'sideline_for', 'sideline_against', 'foul'].includes(kickOutcome);
-              const kickoutEndColor = kickoutOutcomeDots && s.stat_type === 'kickout'
+              const kickoutOutcomeFill = s.stat_type === 'kickout'
                 ? (kickoutDotUsesOutcome && kickWonSide && kickTeamSide && kickWonSide === kickTeamSide ? '#16a34a' : '#dc2626')
                 : col;
+              const kickoutEndColor = kickoutOutcomeDots && s.stat_type === 'kickout'
+                ? kickoutOutcomeFill
+                : col;
               const lineColor = s.stat_type === 'kickout' && kickoutOutcomeDots ? kickoutTeamColor : col;
+              if (kickoutCircleMode && s.stat_type === 'kickout') {
+                return (
+                  <g
+                    key={s.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStatClick?.(s);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      openVideoForStat(s);
+                    }}
+                  >
+                    <title>{tip}</title>
+                    {isSelected ? <circle cx={x2} cy={y2} r="2.9" fill="none" stroke="#111827" strokeWidth="0.55" opacity="0.95" /> : null}
+                    <circle cx={x2} cy={y2} r="1.9" fill="#ffffff" stroke={kickoutTeamColor} strokeWidth={isSelected ? "0.95" : "0.7"} opacity="0.98" />
+                    <circle cx={x2} cy={y2} r="1.05" fill={kickoutOutcomeFill} opacity="0.98" />
+                  </g>
+                );
+              }
               return (
                 <g
                   key={s.id}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStatClick?.(s);
+                  }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     openVideoForStat(s);
@@ -1402,14 +1729,14 @@ function PitchViz({
                     x2={x2}
                     y2={y2}
                     stroke={lineColor}
-                    strokeWidth={strokeW}
-                    opacity="0.95"
+                    strokeWidth={isSelected ? strokeW + 0.25 : strokeW}
+                    opacity={isSelected ? '1' : '0.95'}
                     markerEnd="url(#gstl_arrow)"
                   />
                   {(s.stat_type === 'kickout') && (
                     <>
-                      <circle cx={x1} cy={y1} r="1.15" fill={lineColor} />
-                      <circle cx={x2} cy={y2} r="1.15" fill={kickoutEndColor} stroke={lineColor} strokeWidth="0.35" />
+                      <circle cx={x1} cy={y1} r={isSelected ? "1.35" : "1.15"} fill={lineColor} />
+                      <circle cx={x2} cy={y2} r={isSelected ? "1.35" : "1.15"} fill={kickoutEndColor} stroke={lineColor} strokeWidth={isSelected ? "0.5" : "0.35"} />
                     </>
                   )}
                 </g>
@@ -1418,14 +1745,18 @@ function PitchViz({
             return (
               <g
                 key={s.id}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStatClick?.(s);
+                }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   openVideoForStat(s);
                 }}
               >
                 <title>{tip}</title>
-                <circle cx={x1} cy={y1} r="1.6" fill={col} opacity="0.95" />
+                {isSelected ? <circle cx={x1} cy={y1} r="2.5" fill="none" stroke="#111827" strokeWidth="0.5" opacity="0.95" /> : null}
+                <circle cx={x1} cy={y1} r="1.6" fill={col} opacity={isSelected ? '1' : '0.95'} />
               </g>
             );
           })}
@@ -1518,7 +1849,7 @@ function PitchViz({
   );
 }
 
-function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows, fullscreenEnabled = true }) {
+function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor, rows, fullscreenEnabled = true, compact = false, cardClassName = '' }) {
   const rowFor = (channel) => rows.find((r) => r.channel === channel) || {};
   const channels = ['Left', 'Middle', 'Right'];
   const allPcts = channels.flatMap((channel) => {
@@ -1532,19 +1863,19 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     const count = row.count;
     const label = `${Number.isFinite(pct) ? pct.toFixed(1) : 'NA'}%`;
     const strength = Number.isFinite(pct) ? Math.max(0.2, pct / maxPct) : 0.2;
-    const x1 = 14;
-    const arrowLength = 26 + (strength * 28);
-    const headLength = 7 + (strength * 5);
-    const shaftHeight = 2 + (strength * 2.8);
-    const x2 = Math.min(64, x1 + arrowLength);
+    const x1 = 18;
+    const arrowLength = 20 + (strength * 16);
+    const headLength = 5 + (strength * 3);
+    const shaftHeight = 2.2 + (strength * 2.2);
+    const x2 = Math.min(58, x1 + arrowLength);
     const shaftEnd = x2 - headLength;
     const textX = 4;
     const y = row.channel === 'Left' ? 18 : row.channel === 'Middle' ? 42.5 : 67;
     return (
       <g>
-        <text x={textX} y={y - 2.4} textAnchor="start" fontSize="4.3" fontWeight="700" fill="#0f172a">{label}</text>
-        <text x={textX} y={y + 2.8} textAnchor="start" fontSize="3.1" fill="#475569">{row.channel}</text>
-        <text x={textX} y={y + 7.2} textAnchor="start" fontSize="2.7" fill="#64748b">
+        <text x={textX} y={y - 2.4} textAnchor="start" fontSize="4.2" fontWeight="700" fill="#000000">{label}</text>
+        <text x={textX} y={y + 2.8} textAnchor="start" fontSize="3.2" fontWeight="600" fill="#000000">{row.channel}</text>
+        <text x={textX} y={y + 7.1} textAnchor="start" fontSize="2.7" fill="#000000">
           {Number.isFinite(count) ? `${count} attacks` : 'NA'}
         </text>
         <line
@@ -1566,68 +1897,57 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
     );
   };
 
-  const TeamHalf = ({ side, title, color, isFullscreen = false }) => {
+  const TeamHalf = ({ side, title, color }) => {
     const panelRows = channels.map((channel) => ({
       channel,
       count: side === 'home' ? rowFor(channel).homeCount : rowFor(channel).awayCount,
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className="space-y-2">
-        <div className="text-sm font-medium text-slate-900">{title}</div>
-        <div className={`overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
-          <div
-            data-fullscreen-trigger="true"
-            className={`relative ${isFullscreen ? 'mx-auto' : ''}`}
-            style={{
-              ...(isFullscreen ? fullscreenPitchStyle((PITCH_W / 2) / PITCH_H) : { width: '73%' }),
-              aspectRatio: `${PITCH_W / 2} / ${PITCH_H * REPORT_PITCH_VERTICAL_SCALE}`,
-              backgroundImage: `url(${pitchImg})`,
-              backgroundSize: '200% 100%',
-              backgroundPosition: 'right center',
-            }}
-          >
-            <svg className="absolute inset-0 h-full w-full" viewBox={`-4 -4 ${(PITCH_W / 2) + 8} ${PITCH_H + 8}`} preserveAspectRatio="none">
-              {panelRows.map((row) => (
-                <g key={`${side}-${row.channel}`}>
-                  <title>{`${title} - ${row.channel}: ${row.count || 0} attacks (${Number.isFinite(row.pct) ? row.pct.toFixed(1) : 'NA'}%)`}</title>
-                  <ArrowRow row={row} color={color} />
-                </g>
-              ))}
-            </svg>
+      <div className={`flex h-full w-full flex-col rounded-2xl border-2 border-slate-400 bg-slate-50/70 p-3 shadow-sm ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
+        <div className="flex h-full flex-col space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>
+            <div className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-900">
+              Attacking left to right
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden rounded-2xl border-2 border-slate-300 bg-white/90 shadow-sm">
+            <div
+              className="relative h-full w-full overflow-hidden rounded-[1.25rem]"
+              style={{
+                backgroundImage: `url(${pitchImg})`,
+                backgroundSize: '200% 100%',
+                backgroundPosition: 'right center',
+              }}
+            >
+              <DirectionBadge className="left-3 top-3 text-black" label="Attacking ->" />
+              <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W / 2} ${PITCH_H}`} preserveAspectRatio="none">
+                {panelRows.map((row) => (
+                  <g key={`${side}-${row.channel}`}>
+                    <title>{`${title} - ${row.channel}: ${row.count || 0} attacks (${Number.isFinite(row.pct) ? row.pct.toFixed(1) : 'NA'}%)`}</title>
+                    <ArrowRow row={row} color={color} />
+                  </g>
+                ))}
+              </svg>
+            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderContent = (isFullscreen = false) => (
-    <div className="w-full space-y-3">
-        {!isFullscreen && <div className="font-semibold text-slate-900">Attack Entry Channels</div>}
-        {teamMode === 'both' ? (
-          <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-2' : 'lg:grid-cols-2'}`}>
-            <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} isFullscreen={isFullscreen} />
-            <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} isFullscreen={isFullscreen} />
-          </div>
-        ) : (
-          <TeamHalf
-            side={teamMode === 'away' ? 'away' : 'home'}
-            title={teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
-            color={teamMode === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb')}
-            isFullscreen={isFullscreen}
-          />
-        )}
-    </div>
-  );
-
   return (
-    <FullscreenMapShell title="Attack Entry Channels" enabled={fullscreenEnabled}>
-      {(isFullscreen) => renderContent(isFullscreen)}
-    </FullscreenMapShell>
+    <div className={`h-full w-full ${cardClassName}`.trim()}>
+      <div className={`grid h-full gap-4 justify-items-start ${compact ? 'sm:grid-cols-2' : 'lg:grid-cols-2'}`}>
+        <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} />
+        <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} />
+      </div>
+    </div>
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume' }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -1773,20 +2093,47 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const computedCentralityRows = nodes
     .slice()
-    .sort((a, b) => (b.weightedDegree - a.weightedDegree) || (b.betweenness - a.betweenness))
-    .slice(0, 8);
+    .sort((a, b) => (b.weightedDegree - a.weightedDegree) || (b.betweenness - a.betweenness));
   const centralityRows = Array.isArray(centralityRowsOverride) ? centralityRowsOverride : computedCentralityRows;
   const visibleCentralityRows = centralityRows.filter((row) => !hiddenSet.has(row.id));
   const [tableSort, setTableSort] = useState({ key: 'weightedDegree', dir: 'desc' });
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
   const tableColumns = useMemo(() => ([
-    { key: 'player', label: 'Player', sortValue: (row) => `${row.number ?? ''} ${row.name || ''}`.trim() },
+    { key: 'number', label: 'Number', sortValue: (row) => row.number ?? Number.MAX_SAFE_INTEGER },
+    { key: 'name', label: 'Name', sortValue: (row) => row.name || '' },
     { key: 'made', label: 'Passes', sortValue: (row) => row.made },
     { key: 'received', label: 'Received', sortValue: (row) => row.received },
-    { key: 'weightedDegree', label: 'Weighted Degree', sortValue: (row) => row.weightedDegree },
-    { key: 'betweenness', label: 'Betweenness', sortValue: (row) => row.betweenness },
+    { key: 'weightedDegree', label: 'Activity Score', sortValue: (row) => row.weightedDegree },
+    { key: 'betweenness', label: 'Connector Score', sortValue: (row) => row.betweenness },
   ]), []);
   const sortedCentralityRows = useMemo(() => sortRows(visibleCentralityRows, tableSort, tableColumns, 'id'), [visibleCentralityRows, tableSort, tableColumns]);
-  const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' ? 'asc' : 'desc' });
+  const rankedCentralityRows = useMemo(
+    () => sortedCentralityRows.map((row, index) => ({ ...row, rank: index + 1 })),
+    [sortedCentralityRows],
+  );
+  const displayedCentralityRows = useMemo(
+    () => (showAllRows ? rankedCentralityRows : rankedCentralityRows.slice(0, 8)),
+    [showAllRows, rankedCentralityRows],
+  );
+  const toggleTableSort = (key) => setTableSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' || key === 'number' ? 'asc' : 'desc' });
+
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    if (!visibleNodeIdSet.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+  }, [selectedNodeId, visibleNodeIdSet]);
+
+  const selectedConnections = useMemo(() => {
+    if (!selectedNodeId) return new Set();
+    const connected = new Set([selectedNodeId]);
+    visibleEdgeList.forEach((edge) => {
+      if (edge.a === selectedNodeId) connected.add(edge.b);
+      if (edge.b === selectedNodeId) connected.add(edge.a);
+    });
+    return connected;
+  }, [selectedNodeId, visibleEdgeList]);
 
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
@@ -1814,6 +2161,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               const bPoint = displayPoint(b.x, b.y);
               if (!aPoint || !bPoint) return null;
               const w = 0.35 + (e.total / maxEdge) * 2.4;
+              const isSelectedEdge = !!selectedNodeId && (e.a === selectedNodeId || e.b === selectedNodeId);
               const aLabel = (a.number != null ? `#${a.number}` : 'Player') + (a.name ? ` ${a.name}` : '');
               const bLabel = (b.number != null ? `#${b.number}` : 'Player') + (b.name ? ` ${b.name}` : '');
               return (
@@ -1825,8 +2173,8 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
                     x2={bPoint.x}
                     y2={bPoint.y}
                     stroke={strokeBase}
-                    strokeOpacity="0.5"
-                    strokeWidth={w}
+                    strokeOpacity={selectedNodeId ? (isSelectedEdge ? 0.92 : 0.14) : 0.5}
+                    strokeWidth={selectedNodeId ? (isSelectedEdge ? w + 0.8 : Math.max(0.3, w * 0.72)) : w}
                   />
                 </g>
               );
@@ -1836,12 +2184,36 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               const touches = n.made + n.received;
               const point = displayPoint(n.x, n.y);
               if (!point) return null;
-              const r = Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
+              const isFixedSize = nodeSizeMode === 'fixed';
+              const r = isFixedSize
+                ? 2
+                : Math.min(5.2, 1.8 + (touches / maxTouches) * 3.4);
               const label = (n.number != null ? `#${n.number}` : 'Player') + (n.name ? ` ${n.name}` : '');
+              const isSelectedNode = n.id === selectedNodeId;
+              const isConnectedNode = selectedConnections.has(n.id);
+              const nodeOpacity = selectedNodeId ? (isConnectedNode ? 1 : 0.3) : 1;
               return (
                 <g key={n.id}>
-                  <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nWeighted Degree: ${n.weightedDegree}\nBetweenness: ${n.betweenness.toFixed(2)}`}</title>
-                  <circle cx={point.x} cy={point.y} r={r} fill={strokeBase} fillOpacity="0.9" stroke="#ffffff" strokeWidth="0.6" />
+                  <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nActivity Score: ${n.weightedDegree}\nConnector Score: ${Math.round(n.betweenness)}`}</title>
+                  {isSelectedNode ? (
+                    <circle
+                      cx={point.x}
+                      cy={point.y}
+                      r={r + (isFixedSize ? 0.95 : 1.25)}
+                      fill="none"
+                      stroke="#111827"
+                      strokeWidth="0.85"
+                    />
+                  ) : null}
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={isSelectedNode ? r + 0.25 : r}
+                    fill={strokeBase}
+                    fillOpacity={isSelectedNode ? 1 : (nodeOpacity * 0.9)}
+                    stroke="#ffffff"
+                    strokeWidth={isSelectedNode ? '0.9' : (isFixedSize ? '0.18' : '0.6')}
+                  />
                   {n.number != null && (
                     <text
                       x={point.x}
@@ -1864,30 +2236,55 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
         )}
         {showTable && visibleCentralityRows.length > 0 && (
           <div data-fullscreen-block="true" className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
+          <div className="mb-2 flex items-center justify-end gap-3">
+            {sortedCentralityRows.length > 8 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => setShowAllRows((current) => !current)}
+              >
+                {showAllRows ? 'Show Top 8' : 'View Full Table'}
+              </Button>
+            ) : null}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Rank</TableHead>
                 {tableColumns.map((column) => (
                   <SortableTableHead
                     key={column.key}
                     column={column}
                     sortState={tableSort}
                     onToggle={toggleTableSort}
-                    className={column.key === 'player' ? undefined : 'text-right'}
+                    className={column.key === 'name' ? undefined : 'text-right'}
                   />
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedCentralityRows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">{(row.number != null ? `#${row.number}` : 'Player') + (row.name ? ` ${row.name}` : '')}</TableCell>
+              {displayedCentralityRows.map((row, index) => {
+                const isSelectedRow = row.id === selectedNodeId;
+                const rowTint = hexToRgba(strokeBase, index % 2 === 0 ? 0.05 : 0.1);
+                const selectedTint = hexToRgba(strokeBase, 0.18);
+                return (
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer"
+                  style={{ backgroundColor: isSelectedRow ? selectedTint : rowTint }}
+                  onClick={() => setSelectedNodeId((current) => current === row.id ? null : row.id)}
+                >
+                  <TableCell className="font-medium text-slate-600">{row.rank}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.number ?? '—'}</TableCell>
+                  <TableCell className="font-medium">{row.name || 'Player'}</TableCell>
                   <TableCell className="text-right tabular-nums">{row.made}</TableCell>
                   <TableCell className="text-right tabular-nums">{row.received}</TableCell>
                   <TableCell className="text-right tabular-nums">{row.weightedDegree}</TableCell>
-                  <TableCell className="text-right tabular-nums">{row.betweenness.toFixed(2)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{Math.round(row.betweenness)}</TableCell>
                 </TableRow>
-              ))}
+              )})}
             </TableBody>
           </Table>
           </div>
@@ -2135,7 +2532,17 @@ function TouchMap({ touchEvents, playerId, title = 'Touch Map', homeColor, awayC
   );
 }
 
-function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam, showPlayer = true, showAction = true }) {
+function ReportFiltersFields({
+  reportFilters,
+  playerOptions,
+  homeTeam,
+  awayTeam,
+  showPlayer = true,
+  showAction = true,
+  showOutcome = true,
+  actionLabel = 'Action',
+  timeBeforeAction = false,
+}) {
   const allowedActionTypes = Array.isArray(reportFilters?.allowedActionTypes) && reportFilters.allowedActionTypes.length
     ? reportFilters.allowedActionTypes
     : null;
@@ -2173,6 +2580,41 @@ function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam,
     return selected.filter((value) => available.has(value));
   }, [reportFilters?.outcomes, outcomeOptions]);
 
+  const timeField = (
+    <MatchTimeRangeSlider
+      compact
+      timeMin={reportFilters.timeMin}
+      timeMax={reportFilters.timeMax}
+      match={reportFilters.match}
+      stats={reportFilters.allStats}
+      imputedTimeById={reportFilters.imputedTimeById}
+      onChange={({ timeMin, timeMax }) => {
+        reportFilters.setTimeMin(timeMin);
+        reportFilters.setTimeMax(timeMax);
+      }}
+    />
+  );
+
+  const actionField = showAction ? (
+    <MultiSelect
+      label={actionLabel}
+      placeholder="All"
+      values={effectiveActionValues}
+      onChange={reportFilters.setActionTypes}
+      options={actionOptions}
+    />
+  ) : null;
+
+  const outcomeField = showOutcome ? (
+    <MultiSelect
+      label="Outcome"
+      placeholder="All"
+      values={effectiveOutcomeValues}
+      onChange={reportFilters.setOutcomes}
+      options={outcomeOptions}
+    />
+  ) : null;
+
   return (
     <div className="space-y-3">
       <div className="space-y-1">
@@ -2195,6 +2637,8 @@ function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam,
         options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
       />
 
+      {timeBeforeAction ? timeField : null}
+
       {showPlayer ? (
         <MultiSelect
           label="Player"
@@ -2205,44 +2649,10 @@ function ReportFiltersFields({ reportFilters, playerOptions, homeTeam, awayTeam,
         />
       ) : null}
 
-      {showAction ? (
-        <MultiSelect
-          label="Action"
-          placeholder="All"
-          values={effectiveActionValues}
-          onChange={reportFilters.setActionTypes}
-          options={actionOptions}
-        />
-      ) : null}
+      {actionField}
+      {outcomeField}
 
-      <MultiSelect
-        label="Outcome"
-        placeholder="All"
-        values={effectiveOutcomeValues}
-        onChange={reportFilters.setOutcomes}
-        options={outcomeOptions}
-      />
-
-      <div className="space-y-1">
-        <Label className="text-xs text-slate-600">Start Time</Label>
-        <Input
-          className="h-8 text-xs"
-          inputMode="numeric"
-          value={reportFilters.timeMin}
-          onChange={(e) => reportFilters.setTimeMin(e.target.value)}
-          placeholder="e.g. 0"
-        />
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs text-slate-600">End Time</Label>
-        <Input
-          className="h-8 text-xs"
-          inputMode="numeric"
-          value={reportFilters.timeMax}
-          onChange={(e) => reportFilters.setTimeMax(e.target.value)}
-          placeholder="e.g. 35"
-        />
-      </div>
+      {!timeBeforeAction ? timeField : null}
     </div>
   );
 }
@@ -2649,10 +3059,6 @@ function applyNonTeamReportFilters(stats, reportFilters) {
   const playerIds = Array.isArray(reportFilters?.playerIds) ? reportFilters.playerIds : [];
   const actionTypes = Array.isArray(reportFilters?.actionTypes) ? reportFilters.actionTypes : [];
   const outcomes = Array.isArray(reportFilters?.outcomes) ? reportFilters.outcomes : [];
-  const minM = Number(reportFilters?.timeMin);
-  const maxM = Number(reportFilters?.timeMax);
-  const minS = Number.isFinite(minM) && String(reportFilters?.timeMin ?? '') !== '' ? minM * 60 : null;
-  const maxS = Number.isFinite(maxM) && String(reportFilters?.timeMax ?? '') !== '' ? maxM * 60 : null;
   const imputed = reportFilters?.imputedTimeById;
   const match = reportFilters?.match;
 
@@ -2671,12 +3077,13 @@ function applyNonTeamReportFilters(stats, reportFilters) {
       const any = playerIds.some((id) => ids.has(String(id)));
       if (!any) return false;
     }
-    if (minS != null || maxS != null) {
-      const t = getMatchTimeS(s, match, imputed);
-      if (!Number.isFinite(t)) return false;
-      if (minS != null && t < minS) return false;
-      if (maxS != null && t > maxS) return false;
-    }
+    if (!statMatchesDisplayTimeRange(s, {
+      timeMin: reportFilters?.timeMin,
+      timeMax: reportFilters?.timeMax,
+      match,
+      imputedTimeById: imputed,
+      stats: reportFilters?.allStats || list,
+    })) return false;
     return true;
   });
 }
@@ -2687,12 +3094,18 @@ export {
   safeParseJSON,
   toTitleCase,
   formatMMSS,
+  formatMatchTimeLabel,
   formatAddedTime,
   formatMatchClock,
   formatPct,
+  clampTimeRange,
+  normalizeTimeRangeForSlider,
+  statMatchesDisplayTimeRange,
   sortRows,
   SortableTableHead,
   requestElementFullscreen,
+  RangeSliderField,
+  MatchTimeRangeSlider,
   ComparisonMetricsCard,
   teamRowTint,
   computeImputedNormalizedTimes,
@@ -2716,6 +3129,7 @@ export {
   getCompletedReceiptSelection,
   isDirectTouchAction,
   deriveCounterAttackState,
+  deriveAttackTypeState,
   inferPossessionStartSource,
   getPossessionStartZone,
   isGoalkeeperPlayer,
@@ -2725,6 +3139,7 @@ export {
   buildTouchEvents,
   buildTouchesMap,
   buildPassSonarData,
+  getPassMethodColor,
   DirectionBadge,
   transformDisplayPoint,
   PitchViz,
@@ -2733,6 +3148,7 @@ export {
   PassSonar,
   TouchMap,
   defenceSetStateKey,
+  attackTypeStateKey,
   ReportFiltersFields,
   ReportFiltersCard,
   shotSideFromY,

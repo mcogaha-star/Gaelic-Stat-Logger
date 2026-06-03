@@ -36,7 +36,11 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
   const [scoringSituation, setScoringSituation] = useState([]);
   const [scoringPressure, setScoringPressure] = useState([]);
   const [scoringMethod, setScoringMethod] = useState([]);
-  const [possessionsCounterFilter, setPossessionsCounterFilter] = useState('any');
+  const [scoringAttackType, setScoringAttackType] = useState('any');
+  const [possessionsAttackTypeFilter, setPossessionsAttackTypeFilter] = useState('any');
+  const [possessionsOutcomeFilter, setPossessionsOutcomeFilter] = useState([]);
+  const [possessionsOriginFilter, setPossessionsOriginFilter] = useState([]);
+  const [possessionsStartZoneFilter, setPossessionsStartZoneFilter] = useState([]);
   const [buildEventTypes, setBuildEventTypes] = useState([]);
   const [buildPressure, setBuildPressure] = useState([]);
   const [buildOutcome, setBuildOutcome] = useState([]);
@@ -187,8 +191,12 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     setScoringSituation([]);
     setScoringPressure([]);
     setScoringMethod([]);
+    setScoringAttackType('any');
 
-    setPossessionsCounterFilter('any');
+    setPossessionsAttackTypeFilter('any');
+    setPossessionsOutcomeFilter([]);
+    setPossessionsOriginFilter([]);
+    setPossessionsStartZoneFilter([]);
 
     setBuildEventTypes([]);
     setBuildPressure([]);
@@ -241,8 +249,16 @@ export function useReportFilterState({ stats, match, imputedTimeById }) {
     setScoringPressure,
     scoringMethod,
     setScoringMethod,
-    possessionsCounterFilter,
-    setPossessionsCounterFilter,
+    scoringAttackType,
+    setScoringAttackType,
+    possessionsAttackTypeFilter,
+    setPossessionsAttackTypeFilter,
+    possessionsOutcomeFilter,
+    setPossessionsOutcomeFilter,
+    possessionsOriginFilter,
+    setPossessionsOriginFilter,
+    possessionsStartZoneFilter,
+    setPossessionsStartZoneFilter,
     buildEventTypes,
     setBuildEventTypes,
     buildPressure,
