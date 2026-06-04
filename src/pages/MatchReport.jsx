@@ -209,11 +209,14 @@ function getSharedPayloadData(sharedPayload) {
   const teams = Array.isArray(payload?.teams) ? payload.teams : [];
   const players = Array.isArray(payload?.players) ? payload.players : [];
   const rawStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const highlightReels = Array.isArray(payload?.highlight_reels) ? payload.highlight_reels : [];
+  const highlightReelClips = Array.isArray(payload?.highlight_reel_clips) ? payload.highlight_reel_clips : [];
+  const videoNotes = Array.isArray(payload?.video_notes) ? payload.video_notes : [];
   const homeTeam = teams.find((team) => team?.id === match?.home_team_id) || teams[0] || null;
   const awayTeam = teams.find((team) => team?.id === match?.away_team_id) || teams[1] || null;
   const homePlayers = players.filter((player) => player?.team_id === homeTeam?.id);
   const awayPlayers = players.filter((player) => player?.team_id === awayTeam?.id);
-  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats };
+  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats, highlightReels, highlightReelClips, videoNotes };
 }
 
 function formatRestartFilterPlayerLabel(player) {
@@ -617,12 +620,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
     try {
       setShareBusy(true);
+      const [highlightReels, highlightReelClips, publicVideoNotes] = await Promise.all([
+        db.entities.HighlightReel.filter({ match_id: match.id }),
+        db.entities.HighlightReelClip.filter({ match_id: match.id }),
+        db.entities.VideoNote.filter({ match_id: match.id, visibility: 'public' }),
+      ]);
       const result = await createSharedMatchSnapshot({
         match,
         homeTeam,
         awayTeam,
         players: allPlayersForShare,
         stats,
+        highlightReels,
+        highlightReelClips,
+        publicVideoNotes,
         shareType,
       });
       if (!result?.ok) throw new Error(result?.reason || 'Failed to create share code');
@@ -1743,6 +1754,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               homePlayers={effectiveHomePlayers}
               awayPlayers={effectiveAwayPlayers}
+              sharedHighlightReels={sharedData.highlightReels}
+              sharedHighlightReelClips={sharedData.highlightReelClips}
+              sharedVideoNotes={sharedData.videoNotes}
               readOnly={readOnly}
               mode="video"
             />
@@ -1764,6 +1778,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               homePlayers={effectiveHomePlayers}
               awayPlayers={effectiveAwayPlayers}
+              sharedHighlightReels={sharedData.highlightReels}
+              sharedHighlightReelClips={sharedData.highlightReelClips}
+              sharedVideoNotes={sharedData.videoNotes}
               readOnly={readOnly}
               mode="data"
             />

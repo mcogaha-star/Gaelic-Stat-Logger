@@ -1,0 +1,42 @@
+{
+  "name": "VideoNote",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string"
+    },
+    "target_type": {
+      "type": "string",
+      "enum": [
+        "play",
+        "possession"
+      ]
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "private"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "author_user_id": {
+      "type": "string"
+    },
+    "author_initials": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "match_id",
+    "target_type",
+    "target_id",
+    "visibility",
+    "text"
+  ]
+}

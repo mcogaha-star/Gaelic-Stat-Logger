@@ -1,0 +1,27 @@
+{
+  "name": "VideoFilterPreset",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "play",
+        "possession"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "filters_json": {
+      "type": "string"
+    },
+    "sort_json": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "mode",
+    "name",
+    "filters_json"
+  ]
+}

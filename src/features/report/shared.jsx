@@ -368,6 +368,7 @@ function SortableTableHead({ column, sortState, onToggle, className = '', childr
   const active = sortState?.key === column?.key;
   const Icon = !column?.sortable ? null : active ? (sortState?.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
   const rightAligned = className.includes('text-right');
+  const centerAligned = className.includes('text-center');
   return (
     <TableHead className={className}>
       {column?.sortable === false ? (
@@ -375,7 +376,10 @@ function SortableTableHead({ column, sortState, onToggle, className = '', childr
       ) : (
         <button
           type="button"
-          className={`inline-flex w-full items-center gap-1 font-medium text-left ${rightAligned ? 'justify-end ml-auto' : ''}`}
+          className={[
+            'inline-flex w-full items-center gap-1 font-medium',
+            centerAligned ? 'justify-center text-center' : rightAligned ? 'justify-end ml-auto text-right' : 'text-left',
+          ].join(' ')}
           onClick={() => onToggle?.(column?.key)}
         >
           <span>{children ?? column?.label}</span>
@@ -796,10 +800,14 @@ function statMatchesActionType(stat, actionType) {
   return false;
 }
 
-function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '', triggerClassName = '', labelClassName = '' }) {
+function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '', triggerClassName = '', labelClassName = '', singleSelect = false }) {
   const valuesSet = useMemo(() => new Set(Array.isArray(values) ? values : []), [values]);
 
   const toggle = (v) => {
+    if (singleSelect) {
+      onChange(valuesSet.has(v) ? [] : [v]);
+      return;
+    }
     const next = new Set(valuesSet);
     if (next.has(v)) next.delete(v);
     else next.add(v);
@@ -821,7 +829,7 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
       <Label className={`text-xs text-slate-600 ${labelClassName}`.trim()}>{label}</Label>
       <Popover>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm" className={`h-8 w-full justify-between text-xs ${triggerClassName}`.trim()}>
+          <Button type="button" variant="outline" className={`flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md px-3 py-2 text-sm font-normal leading-none shadow-sm [&>span:first-child]:line-clamp-1 ${triggerClassName}`.trim()}>
             <span className="truncate">{summaryText}</span>
             <span className="text-slate-400">▾</span>
           </Button>
@@ -847,15 +855,17 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange([])}>
               Clear
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => onChange(options.map((o) => o.value))}
-            >
-              Select All
-            </Button>
+            {!singleSelect ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onChange(options.map((o) => o.value))}
+              >
+                Select All
+              </Button>
+            ) : <div />}
           </div>
         </PopoverContent>
       </Popover>
@@ -2152,7 +2162,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               }}
             >
               <DirectionBadge />
-              <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none">
+              <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none" onClick={() => setSelectedNodeId(null)}>
             {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
@@ -2193,7 +2203,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               const isConnectedNode = selectedConnections.has(n.id);
               const nodeOpacity = selectedNodeId ? (isConnectedNode ? 1 : 0.3) : 1;
               return (
-                <g key={n.id}>
+                <g key={n.id} onClick={(event) => { event.stopPropagation(); setSelectedNodeId((current) => current === n.id ? null : n.id); }} style={{ cursor: 'pointer' }}>
                   <title>{`${label}\nPasses: ${n.made}\nPasses Received: ${n.received}\nActivity Score: ${n.weightedDegree}\nConnector Score: ${Math.round(n.betweenness)}`}</title>
                   {isSelectedNode ? (
                     <circle

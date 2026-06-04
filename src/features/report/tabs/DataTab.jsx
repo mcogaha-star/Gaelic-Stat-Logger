@@ -2,9 +2,10 @@
   entities: new Proxy({}, { get: () => ({ filter: async () => [], get: async () => null, create: async () => ({}), update: async () => ({}), delete: async () => ({}) }) }),
 };
 
-import React, { useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Download, FileJson } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, Download, FileJson, ListVideo, PencilLine, Plus, StickyNote } from 'lucide-react';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,11 +13,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { createPageUrl } from '@/utils';
 import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, getSetDefenceValue, isAttackPossession, isProgressive as isProgressiveShared, oppositeTeamSide, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+import { useAuth } from '@/lib/AuthContext';
+import {
+  buildClipSignature,
+  createPlayClipRef,
+  createPossessionClipRef,
+  getAuthorInitials,
+  getVideoClipSettings,
+  parsePresetPayload,
+  reorderClipList,
+  serializeClipSettings,
+} from '@/lib/videoWorkflow';
 import {
   safeParseJSON,
   toTitleCase,
@@ -61,9 +78,11 @@ const VIDEO_PREVIEW_COUNT = 5;
 const POSSESSION_OUTCOME_GROUPS = ['Score', 'Missed Shot', 'Turnover', 'Half End'];
 const POSSESSION_ORIGIN_GROUPS = ['Own KO Won', 'Opp KO Won', 'Turnover Won', 'Shot Missed (Live Ball)', 'Throw In Won'];
 const POSSESSION_START_ZONES = ['Defensive Third', 'Middle Third', 'Attacking Third'];
-const VIDEO_FIELD_STACK_CLASS = 'flex min-h-[84px] flex-col justify-start gap-1.5';
+const POSSESSION_ATTACK_TYPE_OPTIONS = ['Transition', 'Set', 'Transition->Set'];
+const VIDEO_FIELD_STACK_CLASS = 'flex min-h-[84px] flex-col justify-start gap-1.5 pt-0';
 const VIDEO_FIELD_LABEL_CLASS = 'flex min-h-[20px] items-center text-xs text-slate-600';
 const VIDEO_CONTROL_CLASS = 'h-10 border-slate-200 bg-white text-xs shadow-sm';
+const VIDEO_MULTISELECT_CLASS = `${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0 [&>label]:flex [&>label]:min-h-[20px] [&>label]:items-center [&>button]:mt-0 [&>button]:h-10 [&>button]:w-full [&>button]:justify-between`;
 
 function formatSelectionLabel(selection) {
   if (!selection || typeof selection !== 'object') return '';
@@ -95,17 +114,22 @@ function normalizeShotSituation(value) {
   return raw.replace(/\s+/g, '_');
 }
 
+function getPossessionSourceStat(possession, statType) {
+  const stats = Array.isArray(possession?.stats) ? possession.stats : [];
+  const direct = stats.find((stat) => stat?.stat_type === statType);
+  if (direct) return direct;
+  return possession?.previousStat?.stat_type === statType ? possession.previousStat : null;
+}
+
 function formatPossessionOriginLabel(possession, { grouped = true } = {}) {
   const startSource = String(possession?.startSource || '');
   if (['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved'].includes(startSource)) {
     return grouped ? 'Shot Missed (Live Ball)' : startSource;
   }
   if (startSource !== 'Kickout Won') return startSource;
-  const firstStat = Array.isArray(possession?.stats) ? possession.stats[0] : null;
-  const kickoutStat = firstStat?.stat_type === 'kickout'
-    ? firstStat
-    : (possession?.previousStat?.stat_type === 'kickout' ? possession.previousStat : null);
-  const kickoutTeamSide = kickoutStat?.team_side;
+  const kickoutStat = getPossessionSourceStat(possession, 'kickout');
+  const kickoutExtra = safeParseJSON(kickoutStat?.extra_data || '{}', {});
+  const kickoutTeamSide = kickoutExtra?.kickout?.team_side || kickoutStat?.team_side;
   if (kickoutTeamSide === 'home' || kickoutTeamSide === 'away') {
     return kickoutTeamSide === possession?.teamSide ? 'Own KO Won' : 'Opp KO Won';
   }
@@ -189,6 +213,21 @@ function getTurnoverClassification(stat) {
     result: recovered ? 'won' : lost ? 'lost' : '',
     type: type || 'unknown',
   };
+}
+
+function getTurnoverTypeLabelForDetails(stat, extra) {
+  const turnoverType = String(
+    extra?.turnover?.turnover_type
+    || extra?.turnover?.type
+    || extra?.pass?.turnover_type
+    || extra?.carry?.turnover_type
+    || ''
+  ).trim();
+  if (!turnoverType) return '';
+  const action = String(stat?.stat_type || '');
+  const actionOutcome = String(deriveOutcome(stat, extra) || '').trim().toLowerCase();
+  if (action === 'turnover' || actionOutcome === 'turnover') return formatDisplayOutcome(turnoverType);
+  return '';
 }
 
 function formatDisplayOutcome(value) {
@@ -321,9 +360,13 @@ function dataRowStyle(stat, homeTeam, awayTeam) {
 }
 
 function possessionRowStyle(stat, homeTeam, awayTeam) {
-  return stat?.possession_team_side === 'home' || stat?.possession_team_side === 'away'
+  const possessionStyle = stat?.possession_team_side === 'home' || stat?.possession_team_side === 'away'
     ? teamRowTint(stat.possession_team_side, homeTeam?.color, awayTeam?.color, 0.04)
     : {};
+  return {
+    ...possessionStyle,
+    borderLeft: `6px solid ${teamColor(stat?.possession_team_side, homeTeam, awayTeam)}`,
+  };
 }
 
 function getContiguousRange(ordered, index, mode) {
@@ -399,10 +442,24 @@ function resequenceOrderedStats(ordered) {
   return ordered.map((stat, index) => ({ ...stat, play_id: index + 1 }));
 }
 
-function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayPlayers, readOnly = false, mode = 'data' }) {
+function DataTab({
+  matchId,
+  match,
+  stats,
+  homeTeam,
+  awayTeam,
+  homePlayers,
+  awayPlayers,
+  sharedHighlightReels = [],
+  sharedHighlightReelClips = [],
+  sharedVideoNotes = [],
+  readOnly = false,
+  mode = 'data',
+}) {
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
   const isVideoMode = mode === 'video';
   const allowEditing = !readOnly && !isVideoMode;
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [team, setTeam] = useState('both');
   const [actions, setActions] = useState([]);
@@ -460,6 +517,45 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const [videoPossessionOutcomeFilter, setVideoPossessionOutcomeFilter] = useState([]);
   const [videoPossessionOriginFilter, setVideoPossessionOriginFilter] = useState([]);
   const [videoPossessionStartZoneFilter, setVideoPossessionStartZoneFilter] = useState([]);
+  const [videoPossessionAttackTypeFilter, setVideoPossessionAttackTypeFilter] = useState([]);
+  const [highlightMenuAction, setHighlightMenuAction] = useState('');
+  const [manualSelectionEnabled, setManualSelectionEnabled] = useState(false);
+  const [selectedVideoClipKeys, setSelectedVideoClipKeys] = useState([]);
+  const [reelNameDraft, setReelNameDraft] = useState('');
+  const [selectedReelId, setSelectedReelId] = useState('');
+  const [editingReelId, setEditingReelId] = useState('');
+  const [editingReelName, setEditingReelName] = useState('');
+  const [editingReelClips, setEditingReelClips] = useState([]);
+  const [clipSettingsDraft, setClipSettingsDraft] = useState(() => getVideoClipSettings(match));
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [noteTarget, setNoteTarget] = useState(null);
+  const [publicNoteDraft, setPublicNoteDraft] = useState('');
+  const [privateNoteDraft, setPrivateNoteDraft] = useState('');
+  const [noteVisibilityTab, setNoteVisibilityTab] = useState('public');
+  const isSharedContext = readOnly && String(matchId || '').startsWith('shared:');
+  const { data: localHighlightReels = [] } = useQuery({
+    queryKey: ['highlight-reels', matchId],
+    queryFn: () => db.entities.HighlightReel.filter({ match_id: matchId }),
+    enabled: !!matchId && !isSharedContext,
+  });
+  const { data: localHighlightReelClips = [] } = useQuery({
+    queryKey: ['highlight-reel-clips', matchId],
+    queryFn: () => db.entities.HighlightReelClip.filter({ match_id: matchId }),
+    enabled: !!matchId && !isSharedContext,
+  });
+  const { data: localVideoNotes = [] } = useQuery({
+    queryKey: ['video-notes', matchId],
+    queryFn: () => db.entities.VideoNote.filter({ match_id: matchId }),
+    enabled: !!matchId && !isSharedContext,
+  });
+  const { data: videoPresets = [] } = useQuery({
+    queryKey: ['video-filter-presets'],
+    queryFn: () => db.entities.VideoFilterPreset.list('-updated_date'),
+    enabled: !readOnly,
+  });
+  const highlightReels = isSharedContext ? sharedHighlightReels : localHighlightReels;
+  const highlightReelClips = isSharedContext ? sharedHighlightReelClips : localHighlightReelClips;
+  const videoNotes = isSharedContext ? sharedVideoNotes : localVideoNotes;
   const groupBy = 'none';
   const [vizOpen, setVizOpen] = useState(false);
   const [vizTitle, setVizTitle] = useState('');
@@ -503,6 +599,28 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   };
 
   const VIDEO_PRE_ROLL_S = 5;
+
+  useEffect(() => {
+    setClipSettingsDraft(getVideoClipSettings(match));
+  }, [match?.video_clip_settings]);
+
+  useEffect(() => {
+    setSelectedVideoClipKeys([]);
+  }, [videoBrowseMode, manualSelectionEnabled]);
+
+  const openHighlightSelectionFlow = (action) => {
+    if (action === 'create-reel') setReelNameDraft('');
+    if (action === 'add-to-reel') setSelectedReelId('');
+    setSelectedVideoClipKeys([]);
+    setManualSelectionEnabled(true);
+    setHighlightMenuAction(action);
+  };
+
+  const closeHighlightSelectionFlow = () => {
+    setHighlightMenuAction('');
+    setManualSelectionEnabled(false);
+    setSelectedVideoClipKeys([]);
+  };
 
   const persistMutation = useMutation({
     mutationFn: async (updates) => {
@@ -710,13 +828,13 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   const renderTurnoverFields = (title = 'Turnover Details') => (
     <div className="rounded-lg border border-orange-200 bg-orange-50/40 p-3 space-y-2">
       <div className="text-xs font-semibold text-orange-900">{title}</div>
-      <div className="grid md:grid-cols-5 gap-3">
-        <FieldSelect
-          label="Turnover Type"
-          value={structuredExtra?.turnover?.turnover_type || 'interception'}
-          onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v)}
-          options={['interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-        />
+        <div className="grid md:grid-cols-5 gap-3">
+          <FieldSelect
+            label="Turnover Type"
+            value={structuredExtra?.turnover?.turnover_type || 'NA'}
+            onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v === 'NA' ? '' : v)}
+            options={['NA', 'interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: v === 'NA' ? 'NA' : toTitleCase(v) }))}
+          />
         <SelectionField label="Lost By" section="turnover" field="lost_by" />
         <SelectionField label="Forced By" section="turnover" field="forced_by" />
         {structuredExtra?.turnover?.turnover_type !== 'foul' && <SelectionField label="Recovered By" section="turnover" field="recovered_by" />}
@@ -879,8 +997,12 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
         const wonBy = turnoverData?.recovered_by || turnoverData?.forced_by;
         const lostBy = turnoverData?.lost_by;
         const recoveredBy = turnoverData?.recovered_by;
-        if (videoTurnoverWonBy.length && !videoTurnoverWonBy.includes(String(wonBy?.id || ''))) return false;
-        if (videoTurnoverLostBy.length && !videoTurnoverLostBy.includes(String(lostBy?.id || ''))) return false;
+        const wonById = String(wonBy?.id || '');
+        const wonByTeamValue = wonBy?.team_side ? `team:${wonBy.team_side}` : '';
+        const lostById = String(lostBy?.id || '');
+        const lostByTeamValue = lostBy?.team_side ? `team:${lostBy.team_side}` : '';
+        if (videoTurnoverWonBy.length && !videoTurnoverWonBy.includes(wonById) && !videoTurnoverWonBy.includes(wonByTeamValue)) return false;
+        if (videoTurnoverLostBy.length && !videoTurnoverLostBy.includes(lostById) && !videoTurnoverLostBy.includes(lostByTeamValue)) return false;
         if (videoTurnoverRecoveredBy.length && !videoTurnoverRecoveredBy.includes(String(recoveredBy?.id || ''))) return false;
       }
       if (videoPlayAction === 'foul') {
@@ -1035,8 +1157,9 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     if (videoPossessionOutcomeFilter.length && !videoPossessionOutcomeFilter.includes(p.groupedOutcome)) return false;
     if (videoPossessionOriginFilter.length && !videoPossessionOriginFilter.includes(p.originLabel)) return false;
     if (videoPossessionStartZoneFilter.length && !videoPossessionStartZoneFilter.includes(String(p.startZone || ''))) return false;
+    if (videoPossessionAttackTypeFilter.length && !videoPossessionAttackTypeFilter.includes(String(p.attackType || ''))) return false;
     return true;
-  }), [videoPossessions, videoPossessionTeam, videoPossessionOutcomeFilter, videoPossessionOriginFilter, videoPossessionStartZoneFilter]);
+  }), [videoPossessions, videoPossessionTeam, videoPossessionOutcomeFilter, videoPossessionOriginFilter, videoPossessionStartZoneFilter, videoPossessionAttackTypeFilter]);
 
   const videoPlayTableRows = useMemo(() => videoPlayRows.map((stat) => {
     const extra = safeParseJSON(stat?.extra_data || '{}', {});
@@ -1064,16 +1187,17 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   }), [videoPlayRows, match, imputedTimeById, homeTeam, awayTeam, videoPlayAction]);
 
   const videoPlayColumns = useMemo(() => ([
-    { key: 'play', label: 'Play', width: '56px', sortValue: (row) => row.play ?? Number.POSITIVE_INFINITY },
-    { key: 'poss', label: 'Poss', width: '56px', sortValue: (row) => row.poss ?? Number.POSITIVE_INFINITY },
-    { key: 'half', label: 'Half', width: '68px', sortValue: (row) => row.halfRaw || '' },
+    { key: 'play', label: 'Play', width: '48px', sortValue: (row) => row.play ?? Number.POSITIVE_INFINITY },
+    { key: 'poss', label: 'Poss', width: '48px', sortValue: (row) => row.poss ?? Number.POSITIVE_INFINITY },
+    { key: 'half', label: 'Half', width: '60px', sortValue: (row) => row.halfRaw || '' },
     { key: 'time', label: 'Time', width: '92px', sortValue: (row) => row.timeSort },
     { key: 'team', label: 'Team', width: '116px', sortValue: (row) => row.teamRaw || '' },
     { key: 'player', label: 'Player', width: '156px', sortValue: (row) => row.player || '' },
     { key: 'action', label: 'Action', width: '102px', sortValue: (row) => row.actionRaw || '' },
     { key: 'outcome', label: 'Outcome', width: '118px', sortValue: (row) => row.outcomeRaw || '' },
-    { key: 'secondaryPlayer', label: 'Secondary Player', width: '200px', sortValue: (row) => row.secondaryPlayer === '—' ? '' : row.secondaryPlayer },
-    { key: 'actions', label: 'Actions', width: '180px', sortable: false },
+    { key: 'secondaryPlayer', label: 'Secondary Player', width: '156px', sortValue: (row) => row.secondaryPlayer === '—' ? '' : row.secondaryPlayer },
+    { key: 'select', label: '', width: '44px', sortable: false },
+    { key: 'actions', label: 'Actions', width: '220px', sortable: false },
   ]), []);
 
   const sortedVideoPlayTableRows = useMemo(
@@ -1090,8 +1214,17 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     { key: 'duration', label: 'Duration', width: '86px', sortValue: (row) => Number.isFinite(row.duration) ? row.duration : Number.POSITIVE_INFINITY },
     { key: 'originLabel', label: 'Origin', width: '180px', sortValue: (row) => row.originLabel || '' },
     { key: 'groupedOutcome', label: 'Outcome', width: '130px', sortValue: (row) => row.groupedOutcome || '' },
-    { key: 'actions', label: 'Actions', width: '180px', sortable: false },
+    { key: 'select', label: '', width: '44px', sortable: false },
+    { key: 'actions', label: 'Actions', width: '220px', sortable: false },
   ]), []);
+  const visibleVideoPlayColumns = useMemo(
+    () => (manualSelectionEnabled ? videoPlayColumns : videoPlayColumns.filter((column) => column.key !== 'select')),
+    [manualSelectionEnabled, videoPlayColumns]
+  );
+  const visibleVideoPossessionColumns = useMemo(
+    () => (manualSelectionEnabled ? videoPossessionColumns : videoPossessionColumns.filter((column) => column.key !== 'select')),
+    [manualSelectionEnabled, videoPossessionColumns]
+  );
   const sortedVideoPossessionRows = useMemo(
     () => sortRows(videoPossessionRows, videoPossessionSort, videoPossessionColumns, 'key'),
     [videoPossessionRows, videoPossessionSort, videoPossessionColumns]
@@ -1272,6 +1405,8 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   }, [videoGenericFiltered]);
   const videoTurnoverWonByOptions = useMemo(() => {
     const values = new Map();
+    values.set('team:home', { value: 'team:home', label: homeTeam?.name || 'Home Team' });
+    values.set('team:away', { value: 'team:away', label: awayTeam?.name || 'Away Team' });
     for (const stat of videoGenericFiltered) {
       if (!statMatchesActionType(stat, 'turnover')) continue;
       const turnover = safeParseJSON(stat?.extra_data || '{}', {})?.turnover || {};
@@ -1281,9 +1416,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       if (id && label) values.set(id, { value: id, label });
     }
     return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [videoGenericFiltered]);
+  }, [videoGenericFiltered, homeTeam, awayTeam]);
   const videoTurnoverLostByOptions = useMemo(() => {
     const values = new Map();
+    values.set('team:home', { value: 'team:home', label: homeTeam?.name || 'Home Team' });
+    values.set('team:away', { value: 'team:away', label: awayTeam?.name || 'Away Team' });
     for (const stat of videoGenericFiltered) {
       if (!statMatchesActionType(stat, 'turnover')) continue;
       const selection = safeParseJSON(stat?.extra_data || '{}', {})?.turnover?.lost_by;
@@ -1292,7 +1429,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       if (id && label) values.set(id, { value: id, label });
     }
     return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [videoGenericFiltered]);
+  }, [videoGenericFiltered, homeTeam, awayTeam]);
   const videoTurnoverRecoveredByOptions = useMemo(() => {
     const values = new Map();
     for (const stat of videoGenericFiltered) {
@@ -1377,6 +1514,131 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     () => sortedVideoPossessionRows.find((row) => String(row.key) === String(selectedVideoPossessionKey)) || null,
     [sortedVideoPossessionRows, selectedVideoPossessionKey]
   );
+  const reelClipsByReelId = useMemo(() => {
+    const map = new Map();
+    for (const clip of highlightReelClips) {
+      const reelId = String(clip?.reel_id || '');
+      if (!reelId) continue;
+      const list = map.get(reelId) || [];
+      list.push(clip);
+      map.set(reelId, list);
+    }
+    for (const [reelId, list] of map.entries()) {
+      map.set(reelId, list.slice().sort((a, b) => {
+        const aOrder = Number(a?.order_index);
+        const bOrder = Number(b?.order_index);
+        if (Number.isFinite(aOrder) && Number.isFinite(bOrder) && aOrder !== bOrder) return aOrder - bOrder;
+        return Number(a?.start_time || 0) - Number(b?.start_time || 0);
+      }));
+    }
+    return map;
+  }, [highlightReelClips]);
+  const compatibleReels = useMemo(
+    () => highlightReels.filter((reel) => reel?.match_id === matchId && reel?.reel_type === videoBrowseMode),
+    [highlightReels, matchId, videoBrowseMode]
+  );
+  const noteMapByKey = useMemo(() => {
+    const map = new Map();
+    for (const note of videoNotes) {
+      const key = `${note?.target_type}:${note?.target_id}:${note?.visibility}`;
+      map.set(key, note);
+    }
+    return map;
+  }, [videoNotes]);
+  const playClipCandidates = useMemo(
+    () => sortedVideoPlayTableRows.map((row, index) => createPlayClipRef(row, sortedVideoPlayTableRows[index + 1] || null, match, clipSettingsDraft)).filter(Boolean),
+    [sortedVideoPlayTableRows, match, clipSettingsDraft]
+  );
+  const possessionClipCandidates = useMemo(
+    () => sortedVideoPossessionRows.map((row) => createPossessionClipRef(row, match, homeTeam, awayTeam, clipSettingsDraft)).filter(Boolean),
+    [sortedVideoPossessionRows, match, homeTeam, awayTeam, clipSettingsDraft]
+  );
+  const currentClipCandidates = videoBrowseMode === 'play' ? playClipCandidates : possessionClipCandidates;
+  const clipCandidatesByRef = useMemo(
+    () => new Map(currentClipCandidates.map((clip) => [String(clip.source_ref), clip])),
+    [currentClipCandidates]
+  );
+  const currentSelectedClipRefs = useMemo(
+    () => selectedVideoClipKeys.map((key) => clipCandidatesByRef.get(String(key))).filter(Boolean),
+    [selectedVideoClipKeys, clipCandidatesByRef]
+  );
+  const createCandidateClips = (selectionMode = 'filtered') => {
+    const source = selectionMode === 'selected' ? currentSelectedClipRefs : currentClipCandidates;
+    const seen = new Set();
+    return source.filter((clip) => {
+      const signature = buildClipSignature({
+        reelType: clip.reel_type,
+        sourceRef: clip.source_ref,
+        playId: clip.play_id,
+        possessionId: clip.possession_id,
+        startTime: clip.start_time,
+        endTime: clip.end_time,
+      });
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    });
+  };
+  const selectedTargetNotes = useMemo(() => {
+    if (!noteTarget) return { publicNote: null, privateNote: null };
+    return {
+      publicNote: noteMapByKey.get(`${noteTarget.type}:${noteTarget.id}:public`) || null,
+      privateNote: noteMapByKey.get(`${noteTarget.type}:${noteTarget.id}:private`) || null,
+    };
+  }, [noteTarget, noteMapByKey]);
+  const suggestedPlayPresets = useMemo(() => ([
+    { key: 'shots', label: 'Shots' },
+    { key: 'scores', label: 'Scores' },
+    { key: 'turnovers_lost', label: 'Turnovers Lost' },
+    { key: 'kickout_breaks', label: 'Kickout Breaks' },
+    { key: 'shots_on_goal', label: 'Shots on Goal' },
+    { key: 'incisive_passes', label: 'Incisive Passes' },
+  ]), []);
+  const suggestedPossessionPresets = useMemo(() => ([
+    { key: 'transition_attacks', label: 'Transition Attacks' },
+    { key: 'set_attacks', label: 'Set Attacks' },
+    { key: 'transition_to_set_attacks', label: 'Transition→Set Attacks' },
+    { key: 'scores', label: 'Scores' },
+    { key: 'turnovers', label: 'Turnovers' },
+  ]), []);
+  const currentSuggestedPresets = videoBrowseMode === 'play' ? suggestedPlayPresets : suggestedPossessionPresets;
+  const applySuggestedPreset = (presetKey) => {
+    if (videoBrowseMode === 'play') {
+      resetVideoPlayFilters();
+      if (presetKey === 'shots') {
+        setVideoPlayAction('shot');
+      } else if (presetKey === 'scores') {
+        setVideoPlayAction('shot');
+        setVideoShotOutcomes(['goal', '2_point', 'point']);
+      } else if (presetKey === 'turnovers_lost') {
+        setVideoPlayAction('turnover');
+      } else if (presetKey === 'kickout_breaks') {
+        setVideoPlayAction('kickout');
+        setVideoKickoutOutcomes(['Break']);
+      } else if (presetKey === 'shots_on_goal') {
+        setVideoPlayAction('shot');
+        setVideoShotTypes(['goal']);
+      } else if (presetKey === 'incisive_passes') {
+        // The distance filter is inclusive in the matcher, so use 30.1 to represent >30m.
+        setVideoPlayAction('pass');
+        setVideoBuildProgressive(['yes']);
+        setVideoBuildDistanceMin('30.1');
+      }
+      return;
+    }
+    resetVideoPossessionFilters();
+    if (presetKey === 'transition_attacks') {
+      setVideoPossessionAttackTypeFilter(['Transition']);
+    } else if (presetKey === 'set_attacks') {
+      setVideoPossessionAttackTypeFilter(['Set']);
+    } else if (presetKey === 'transition_to_set_attacks') {
+      setVideoPossessionAttackTypeFilter(['Transition->Set']);
+    } else if (presetKey === 'scores') {
+      setVideoPossessionOutcomeFilter(['Score']);
+    } else if (presetKey === 'turnovers') {
+      setVideoPossessionOutcomeFilter(['Turnover']);
+    }
+  };
 
   const toggleVideoPlaySort = (key) => setVideoPlaySort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'play' || key === 'poss' || key === 'time' ? 'asc' : 'asc' });
   const toggleVideoPossessionSort = (key) => setVideoPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'possessionId' || key === 'startTime' || key === 'endTime' || key === 'duration' ? 'asc' : 'asc' });
@@ -1434,9 +1696,339 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
     setVideoPossessionStartZoneFilter([]);
     setVideoPossessionOriginFilter([]);
     setVideoPossessionOutcomeFilter([]);
+    setVideoPossessionAttackTypeFilter([]);
     setSelectedVideoPossessionKey(null);
     setVideoPossessionExpanded(false);
     setVideoPossessionSort({ key: 'startTime', dir: 'asc' });
+  };
+
+  const getCurrentPresetSnapshot = () => (
+    videoBrowseMode === 'play'
+      ? {
+          team,
+          playerIds,
+          halves,
+          timeMin,
+          timeMax,
+          videoPlayAction,
+          videoShotTypes,
+          videoShotSituations,
+          videoShotPressure,
+          videoShotMethods,
+          videoShotOutcomes,
+          videoBuildOutcomes,
+          videoBuildOriginZones,
+          videoBuildEndZones,
+          videoBuildPressure,
+          videoBuildAccuracy,
+          videoBuildProgressive,
+          videoBuildRecipientIds,
+          videoBuildDistanceMin,
+          videoBuildDistanceMax,
+          videoCarryTakeOns,
+          videoKickoutTargets,
+          videoKickoutOutcomes,
+          videoKickoutWonBy,
+          videoKickoutLostBy,
+          videoKickoutPress,
+          videoKickoutLengths,
+          videoKickoutSides,
+          videoTurnoverTypes,
+          videoTurnoverWonBy,
+          videoTurnoverLostBy,
+          videoTurnoverRecoveredBy,
+          videoFoulTypes,
+          videoFoulOn,
+          videoFoulBy,
+          videoDefPressureOutcomes,
+          videoDefPressureActions,
+          videoDefPressureZones,
+          videoDefPressureAttackers,
+        }
+      : {
+          videoPossessionTeam,
+          videoPossessionHalves,
+          videoPossessionTimeMin,
+          videoPossessionTimeMax,
+          videoPossessionOutcomeFilter,
+          videoPossessionOriginFilter,
+          videoPossessionStartZoneFilter,
+          videoPossessionAttackTypeFilter,
+        }
+  );
+
+  const applyPresetRecord = (record) => {
+    const payload = parsePresetPayload(record);
+    const filters = payload.filters || {};
+    if (record?.mode === 'play') {
+      setVideoBrowseMode('play');
+      setTeam(filters.team || 'both');
+      setPlayerIds(Array.isArray(filters.playerIds) ? filters.playerIds : []);
+      setHalves(Array.isArray(filters.halves) ? filters.halves : []);
+      setTimeMin(filters.timeMin ?? '');
+      setTimeMax(filters.timeMax ?? '');
+      setVideoPlayAction(filters.videoPlayAction || 'all');
+      setVideoShotTypes(filters.videoShotTypes || []);
+      setVideoShotSituations(filters.videoShotSituations || []);
+      setVideoShotPressure(filters.videoShotPressure || []);
+      setVideoShotMethods(filters.videoShotMethods || []);
+      setVideoShotOutcomes(filters.videoShotOutcomes || []);
+      setVideoBuildOutcomes(filters.videoBuildOutcomes || []);
+      setVideoBuildOriginZones(filters.videoBuildOriginZones || []);
+      setVideoBuildEndZones(filters.videoBuildEndZones || []);
+      setVideoBuildPressure(filters.videoBuildPressure || []);
+      setVideoBuildAccuracy(filters.videoBuildAccuracy || []);
+      setVideoBuildProgressive(filters.videoBuildProgressive || []);
+      setVideoBuildRecipientIds(filters.videoBuildRecipientIds || []);
+      setVideoBuildDistanceMin(filters.videoBuildDistanceMin ?? '');
+      setVideoBuildDistanceMax(filters.videoBuildDistanceMax ?? '');
+      setVideoCarryTakeOns(filters.videoCarryTakeOns || []);
+      setVideoKickoutTargets(filters.videoKickoutTargets || []);
+      setVideoKickoutOutcomes(filters.videoKickoutOutcomes || []);
+      setVideoKickoutWonBy(filters.videoKickoutWonBy || []);
+      setVideoKickoutLostBy(filters.videoKickoutLostBy || []);
+      setVideoKickoutPress(filters.videoKickoutPress || []);
+      setVideoKickoutLengths(filters.videoKickoutLengths || []);
+      setVideoKickoutSides(filters.videoKickoutSides || []);
+      setVideoTurnoverTypes(filters.videoTurnoverTypes || []);
+      setVideoTurnoverWonBy(filters.videoTurnoverWonBy || []);
+      setVideoTurnoverLostBy(filters.videoTurnoverLostBy || []);
+      setVideoTurnoverRecoveredBy(filters.videoTurnoverRecoveredBy || []);
+      setVideoFoulTypes(filters.videoFoulTypes || []);
+      setVideoFoulOn(filters.videoFoulOn || []);
+      setVideoFoulBy(filters.videoFoulBy || []);
+      setVideoDefPressureOutcomes(filters.videoDefPressureOutcomes || []);
+      setVideoDefPressureActions(filters.videoDefPressureActions || []);
+      setVideoDefPressureZones(filters.videoDefPressureZones || []);
+      setVideoDefPressureAttackers(filters.videoDefPressureAttackers || []);
+      if (payload.sort?.key) setVideoPlaySort(payload.sort);
+    } else {
+      setVideoBrowseMode('possession');
+      setVideoPossessionTeam(filters.videoPossessionTeam || 'both');
+      setVideoPossessionHalves(filters.videoPossessionHalves || []);
+      setVideoPossessionTimeMin(filters.videoPossessionTimeMin ?? '');
+      setVideoPossessionTimeMax(filters.videoPossessionTimeMax ?? '');
+      setVideoPossessionOutcomeFilter(filters.videoPossessionOutcomeFilter || []);
+      setVideoPossessionOriginFilter(filters.videoPossessionOriginFilter || []);
+      setVideoPossessionStartZoneFilter(filters.videoPossessionStartZoneFilter || []);
+      setVideoPossessionAttackTypeFilter(filters.videoPossessionAttackTypeFilter || []);
+      if (payload.sort?.key) setVideoPossessionSort(payload.sort);
+    }
+    toast.success(`Applied preset: ${record?.name || 'Preset'}`);
+  };
+
+  const saveCurrentPreset = async () => {
+    if (readOnly) return;
+    const name = window.prompt('Preset name');
+    if (!name || !String(name).trim()) return;
+    await db.entities.VideoFilterPreset.create({
+      mode: videoBrowseMode,
+      name: String(name).trim(),
+      filters_json: JSON.stringify(getCurrentPresetSnapshot()),
+      sort_json: JSON.stringify(videoBrowseMode === 'play' ? videoPlaySort : videoPossessionSort),
+    });
+    await queryClient.invalidateQueries({ queryKey: ['video-filter-presets'] });
+    toast.success('Preset saved');
+  };
+
+  const deletePreset = async (presetId) => {
+    await db.entities.VideoFilterPreset.delete(presetId);
+    await queryClient.invalidateQueries({ queryKey: ['video-filter-presets'] });
+    toast.success('Preset deleted');
+  };
+
+  const openNotesForTarget = (target) => {
+    const type = target?.type;
+    const id = String(target?.id || '');
+    if (!type || !id) return;
+    const publicNote = noteMapByKey.get(`${type}:${id}:public`);
+    const privateNote = noteMapByKey.get(`${type}:${id}:private`);
+    setNoteTarget({ ...target, id });
+    setPublicNoteDraft(publicNote?.text || '');
+    setPrivateNoteDraft(privateNote?.text || '');
+    setNoteVisibilityTab(publicNote?.text ? 'public' : 'private');
+    setNoteDialogOpen(true);
+  };
+
+  const saveNotes = async () => {
+    if (!noteTarget || isSharedContext) return;
+    const nextInitials = getAuthorInitials(user);
+    const entries = [
+      { visibility: 'public', text: publicNoteDraft },
+      { visibility: 'private', text: privateNoteDraft },
+    ];
+    for (const entry of entries) {
+      const existing = noteMapByKey.get(`${noteTarget.type}:${noteTarget.id}:${entry.visibility}`) || null;
+      const text = String(entry.text || '').trim();
+      if (!text) {
+        if (existing?.id) await db.entities.VideoNote.delete(existing.id);
+        continue;
+      }
+      const payload = {
+        match_id: matchId,
+        target_type: noteTarget.type,
+        target_id: noteTarget.id,
+        visibility: entry.visibility,
+        text,
+        author_user_id: user?.id || null,
+        author_initials: entry.visibility === 'public' ? nextInitials : null,
+      };
+      if (existing?.id) await db.entities.VideoNote.update(existing.id, payload);
+      else await db.entities.VideoNote.create(payload);
+    }
+    await queryClient.invalidateQueries({ queryKey: ['video-notes', matchId] });
+    setNoteDialogOpen(false);
+    toast.success('Notes saved');
+  };
+
+  const persistClipSettings = async () => {
+    if (!match?.id || readOnly) return;
+    await db.entities.Match.update(match.id, { video_clip_settings: serializeClipSettings(clipSettingsDraft) });
+    await queryClient.invalidateQueries({ queryKey: ['match', matchId] });
+    toast.success('Clip settings saved');
+    setHighlightMenuAction('');
+  };
+
+  const mergeClipsIntoReel = async (reelId, candidateClips) => {
+    const existing = (reelClipsByReelId.get(String(reelId)) || []).slice();
+    const existingKeys = new Set(existing.map((clip) => buildClipSignature({
+      reelType: clip.reel_type,
+      sourceRef: clip.source_ref,
+      playId: clip.play_id,
+      possessionId: clip.possession_id,
+      startTime: clip.start_time,
+      endTime: clip.end_time,
+    })));
+    const toCreate = [];
+    let skipped = 0;
+    for (const clip of candidateClips) {
+      const signature = buildClipSignature({
+        reelType: clip.reel_type,
+        sourceRef: clip.source_ref,
+        playId: clip.play_id,
+        possessionId: clip.possession_id,
+        startTime: clip.start_time,
+        endTime: clip.end_time,
+      });
+      if (existingKeys.has(signature)) {
+        skipped += 1;
+        continue;
+      }
+      existingKeys.add(signature);
+      toCreate.push({
+        ...clip,
+        reel_id: reelId,
+        order_index: existing.length + toCreate.length,
+      });
+    }
+    for (const clip of toCreate) {
+      await db.entities.HighlightReelClip.create(clip);
+    }
+    await db.entities.HighlightReel.update(reelId, {
+      clip_count: existing.length + toCreate.length,
+    });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+    if (skipped && toCreate.length) toast.success(`Added ${toCreate.length} clips, skipped ${skipped} duplicates`);
+    else if (skipped) toast.message(`Skipped ${skipped} duplicate clip${skipped === 1 ? '' : 's'}`);
+    else toast.success(`Added ${toCreate.length} clips`);
+  };
+
+  const createHighlightReel = async (selectionMode = 'filtered') => {
+    if (readOnly) return;
+    const name = String(reelNameDraft || '').trim();
+    if (!name) {
+      toast.error('Name the reel first');
+      return;
+    }
+    const clips = createCandidateClips(selectionMode);
+    if (!clips.length) {
+      toast.error(selectionMode === 'selected' ? 'Select at least one clip first' : 'No clips available from the current filters');
+      return;
+    }
+    const created = await db.entities.HighlightReel.create({
+      match_id: matchId,
+      reel_type: videoBrowseMode,
+      name,
+      clip_count: clips.length,
+    });
+    for (const clip of clips) {
+      await db.entities.HighlightReelClip.create({
+        ...clip,
+        reel_id: created.id,
+        order_index: Number.isFinite(Number(clip.order_index)) ? Number(clip.order_index) : clips.indexOf(clip),
+      });
+    }
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+    setReelNameDraft('');
+    closeHighlightSelectionFlow();
+    toast.success('Highlight reel created');
+  };
+
+  const addSelectionToExistingReel = async (selectionMode = 'filtered') => {
+    if (!selectedReelId) {
+      toast.error('Choose a reel first');
+      return;
+    }
+    const clips = createCandidateClips(selectionMode);
+    if (!clips.length) {
+      toast.error(selectionMode === 'selected' ? 'Select at least one clip first' : 'No clips available from the current filters');
+      return;
+    }
+    await mergeClipsIntoReel(selectedReelId, clips);
+    setSelectedReelId('');
+    closeHighlightSelectionFlow();
+  };
+
+  const openReelEditor = (reelId) => {
+    const reel = compatibleReels.find((entry) => String(entry.id) === String(reelId))
+      || highlightReels.find((entry) => String(entry.id) === String(reelId))
+      || null;
+    setEditingReelId(reelId);
+    setEditingReelName(reel?.name || '');
+    setEditingReelClips((reelClipsByReelId.get(String(reelId)) || []).slice());
+    setHighlightMenuAction('edit-reel');
+  };
+
+  const saveReelEdits = async () => {
+    if (!editingReelId) return;
+    const existingIds = new Set((reelClipsByReelId.get(String(editingReelId)) || []).map((clip) => String(clip.id)));
+    const retainedIds = new Set(editingReelClips.map((clip) => String(clip.id)));
+    await db.entities.HighlightReel.update(editingReelId, {
+      name: String(editingReelName || '').trim() || 'Untitled Reel',
+      clip_count: editingReelClips.length,
+    });
+    for (const clipId of existingIds) {
+      if (!retainedIds.has(clipId)) await db.entities.HighlightReelClip.delete(clipId);
+    }
+    const ordered = reorderClipList(editingReelClips);
+    for (const clip of ordered) {
+      await db.entities.HighlightReelClip.update(clip.id, { order_index: clip.order_index });
+    }
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+    setHighlightMenuAction('');
+    toast.success('Highlight reel updated');
+  };
+
+  const removeClipFromEditingReel = (clipId) => {
+    setEditingReelClips((current) => current.filter((clip) => String(clip.id) !== String(clipId)));
+  };
+
+  const onReelDragEnd = (result) => {
+    if (!result?.destination) return;
+    setEditingReelClips((current) => {
+      const next = current.slice();
+      const [moved] = next.splice(result.source.index, 1);
+      next.splice(result.destination.index, 0, moved);
+      return next;
+    });
+  };
+
+  const openReviewPlayerForReel = (reelId) => {
+    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&reelId=${encodeURIComponent(reelId)}`)}`;
+    window.open(url, `gstl_video_review_${reelId}`, 'popup=yes,width=1280,height=840');
   };
 
   const openPossessionVisualise = (possession) => {
@@ -1536,6 +2128,9 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
       teams: [homeTeam, awayTeam].filter(Boolean),
       players: [...(homePlayers || []), ...(awayPlayers || [])],
       stats: orderedAllStats,
+      highlight_reels: highlightReels,
+      highlight_reel_clips: highlightReelClips,
+      video_notes: videoNotes.filter((note) => note?.visibility === 'public'),
       counts: {
         teams: [homeTeam, awayTeam].filter(Boolean).length,
         players: [...(homePlayers || []), ...(awayPlayers || [])].length,
@@ -1832,45 +2427,79 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
   if (isVideoMode) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <div className="inline-flex rounded-xl bg-slate-100 p-1 shadow-sm">
-            <Button type="button" variant={videoBrowseMode === 'play' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('play')}>Play</Button>
-            <Button type="button" variant={videoBrowseMode === 'possession' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('possession')}>Possession</Button>
-          </div>
+        <div className="-mt-[54px] flex items-center justify-end gap-2 flex-wrap">
+            <div className="inline-flex rounded-xl bg-slate-100 p-1 shadow-sm">
+              <Button type="button" variant={videoBrowseMode === 'play' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('play')}>Play</Button>
+              <Button type="button" variant={videoBrowseMode === 'possession' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('possession')}>Possession</Button>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm">
+                  <ListVideo className="mr-2 h-4 w-4" />
+                  Highlight Reel
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuItem onClick={() => openHighlightSelectionFlow('create-reel')}>
+                  Create Highlight Reel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('view-reels'); }}>
+                  View Highlights
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('edit-picker'); }}>
+                  Edit Existing Highlights
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openHighlightSelectionFlow('add-to-reel')}>
+                  Add to Existing Highlight
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('clip-settings'); }}>
+                  Clip Settings
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
         <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
           <CardContent className="p-4 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-semibold text-slate-900">Filters</div>
-                <div className="text-xs text-slate-500">Switch between event clips and possession clips from the top-level mode toggle.</div>
               </div>
-              <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => videoBrowseMode === 'play' ? resetVideoPlayFilters() : resetVideoPossessionFilters()}>
-                Reset Filters
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('presets'); }}>
+                  Presets
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => videoBrowseMode === 'play' ? resetVideoPlayFilters() : resetVideoPossessionFilters()}>
+                  Reset Filters
+                </Button>
+              </div>
             </div>
 
             {videoBrowseMode === 'play' ? (
               <div className="space-y-3">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.55fr)] lg:items-stretch">
-                  <div className={VIDEO_FIELD_STACK_CLASS}>
-                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Team</Label>
-                    <Select value={team} onValueChange={setTeam}>
-                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Team"
+                    placeholder="Both"
+                    values={[team]}
+                    onChange={(values) => setTeam(values[0] || 'both')}
+                    options={[
+                      { value: 'both', label: 'Both' },
+                      { value: 'home', label: homeTeam?.name || 'Home' },
+                      { value: 'away', label: awayTeam?.name || 'Away' },
+                    ]}
+                    className={VIDEO_MULTISELECT_CLASS}
+                    triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                    singleSelect
+                  />
                   <MultiSelect
                     label="Player"
                     placeholder="Any"
                     values={playerIds}
                     onChange={setPlayerIds}
                     options={labelledPlayerOptions}
-                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    className={VIDEO_MULTISELECT_CLASS}
                     triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
                   />
@@ -1879,21 +2508,21 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                     values={halves}
                     onChange={setHalves}
                     options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    className={VIDEO_MULTISELECT_CLASS}
                     triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
                   />
-                  <div className={VIDEO_FIELD_STACK_CLASS}>
-                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Action</Label>
-                    <Select value={videoPlayAction} onValueChange={setVideoPlayAction}>
-                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {VIDEO_PLAY_ACTION_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <MultiSelect
+                    label="Action"
+                    placeholder="All"
+                    values={[videoPlayAction]}
+                    onChange={(values) => setVideoPlayAction(values[0] || 'all')}
+                    options={VIDEO_PLAY_ACTION_OPTIONS}
+                    className={VIDEO_MULTISELECT_CLASS}
+                    triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                    singleSelect
+                  />
                   <MatchTimeRangeSlider
                     className="lg:col-span-1 min-h-[84px] self-stretch"
                     timeMin={timeMin}
@@ -2027,30 +2656,35 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.55fr)] lg:items-stretch">
-                  <div className={VIDEO_FIELD_STACK_CLASS}>
-                    <Label className={VIDEO_FIELD_LABEL_CLASS}>Team</Label>
-                    <Select value={videoPossessionTeam} onValueChange={setVideoPossessionTeam}>
-                      <SelectTrigger className={VIDEO_CONTROL_CLASS}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,0.82fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.05fr)_minmax(0,1.5fr)] lg:items-stretch">
+                  <MultiSelect
+                    label="Team"
+                    placeholder="Both"
+                    values={[videoPossessionTeam]}
+                    onChange={(values) => setVideoPossessionTeam(values[0] || 'both')}
+                    options={[
+                      { value: 'both', label: 'Both' },
+                      { value: 'home', label: homeTeam?.name || 'Home' },
+                      { value: 'away', label: awayTeam?.name || 'Away' },
+                    ]}
+                    className={VIDEO_MULTISELECT_CLASS}
+                    triggerClassName={VIDEO_CONTROL_CLASS}
+                    labelClassName={VIDEO_FIELD_LABEL_CLASS}
+                    singleSelect
+                  />
                   <MultiSelect
                     label="Half"
                     values={videoPossessionHalves}
                     onChange={setVideoPossessionHalves}
                     options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                    className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`}
+                    className={VIDEO_MULTISELECT_CLASS}
                     triggerClassName={VIDEO_CONTROL_CLASS}
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
                   />
-                  <MultiSelect label="Start Zone" placeholder="Any" values={videoPossessionStartZoneFilter} onChange={setVideoPossessionStartZoneFilter} options={POSSESSION_START_ZONES.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
-                  <MultiSelect label="Origin" placeholder="Any" values={videoPossessionOriginFilter} onChange={setVideoPossessionOriginFilter} options={POSSESSION_ORIGIN_GROUPS.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
-                  <MultiSelect label="Outcome" placeholder="Any" values={videoPossessionOutcomeFilter} onChange={setVideoPossessionOutcomeFilter} options={POSSESSION_OUTCOME_GROUPS.map((value) => ({ value, label: value }))} className={`${VIDEO_FIELD_STACK_CLASS} self-stretch space-y-0`} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Start Zone" placeholder="Any" values={videoPossessionStartZoneFilter} onChange={setVideoPossessionStartZoneFilter} options={POSSESSION_START_ZONES.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Origin" placeholder="Any" values={videoPossessionOriginFilter} onChange={setVideoPossessionOriginFilter} options={POSSESSION_ORIGIN_GROUPS.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Outcome" placeholder="Any" values={videoPossessionOutcomeFilter} onChange={setVideoPossessionOutcomeFilter} options={POSSESSION_OUTCOME_GROUPS.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Attack Type" placeholder="Any" values={videoPossessionAttackTypeFilter} onChange={setVideoPossessionAttackTypeFilter} options={POSSESSION_ATTACK_TYPE_OPTIONS.map((value) => ({ value, label: value === 'Transition->Set' ? 'Transition→Set' : value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
                   <MatchTimeRangeSlider
                     className="lg:col-span-1 min-h-[84px] self-stretch"
                     timeMin={videoPossessionTimeMin}
@@ -2082,6 +2716,52 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                 </div>
               </div>
               <div className="flex min-h-[32px] flex-wrap items-center justify-end gap-2 lg:min-w-[360px]">
+                {manualSelectionEnabled ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
+                    <span className="font-semibold text-slate-900">
+                      {highlightMenuAction === 'add-to-reel' ? 'Selection mode: add clips' : 'Selection mode: create reel'}
+                    </span>
+                    <span>{selectedVideoClipKeys.length} selected</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => setSelectedVideoClipKeys((videoBrowseMode === 'play' ? videoVisiblePlayRows : videoVisiblePossessionRows).map((row) => String(videoBrowseMode === 'play' ? row.id : row.key)))}
+                    >
+                      Select Visible
+                    </Button>
+                    {currentClipCandidates.length <= 50 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[11px]"
+                        onClick={() => setSelectedVideoClipKeys(currentClipCandidates.map((clip) => String(clip.source_ref)))}
+                      >
+                        Select All
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => setSelectedVideoClipKeys([])}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={closeHighlightSelectionFlow}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="inline-flex rounded-xl bg-slate-100 p-1">
                   <Button type="button" variant={videoViewMode === 'table' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('table')}>Table</Button>
                   <Button type="button" variant={videoViewMode === 'pitch' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('pitch')}>Pitch</Button>
@@ -2146,8 +2826,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <div className="text-xs text-slate-500">{selectedVideoPlayRow.team} Â· {selectedVideoPlayRow.action} Â· {selectedVideoPlayRow.time}</div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openNotesForTarget({ type: 'play', id: selectedVideoPlayRow.id, label: selectedVideoPlayRow.action })}>
+                            Notes
+                          </Button>
                           {!isLiveMode && Number.isFinite(Number(selectedVideoPlayRow.stat?.time_s)) ? (
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(Number(selectedVideoPlayRow.stat.time_s))}>Open Video</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(Number(selectedVideoPlayRow.stat.time_s))}>Video</Button>
                           ) : null}
                           <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => {
                             setVizStats([selectedVideoPlayRow.stat]);
@@ -2174,8 +2857,11 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                           <div className="text-xs text-slate-500">{formatTeamName(selectedVideoPossessionRow.teamSide, homeTeam, awayTeam)} Â· {selectedVideoPossessionRow.originLabel} Â· {selectedVideoPossessionRow.groupedOutcome}</div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openNotesForTarget({ type: 'possession', id: selectedVideoPossessionRow.key, label: `Possession ${selectedVideoPossessionRow.possessionId}` })}>
+                            Notes
+                          </Button>
                           {!isLiveMode && Number.isFinite(selectedVideoPossessionRow.videoStartTime) ? (
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(selectedVideoPossessionRow.videoStartTime)}>Open Video</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(selectedVideoPossessionRow.videoStartTime)}>Video</Button>
                           ) : null}
                           <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openPossessionVisualise(selectedVideoPossessionRow)}>Visualise</Button>
                         </div>
@@ -2190,13 +2876,13 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   {videoBrowseMode === 'play' ? (
                     <Table className="table-fixed w-full">
                       <colgroup>
-                        {videoPlayColumns.map((column) => (
+                        {visibleVideoPlayColumns.map((column) => (
                           <col key={column.key} style={column.width ? { width: column.width } : undefined} />
                         ))}
                       </colgroup>
                       <TableHeader>
                         <TableRow>
-                          {videoPlayColumns.map((column) => (
+                          {visibleVideoPlayColumns.map((column) => (
                             <SortableTableHead
                               key={column.key}
                               column={column}
@@ -2231,11 +2917,35 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <TableCell className="truncate text-xs">{row.action}</TableCell>
                               <TableCell className="truncate text-xs">{row.outcome}</TableCell>
                               <TableCell className="truncate text-xs">{row.secondaryPlayer}</TableCell>
+                              {manualSelectionEnabled ? (
+                                <TableCell className="text-center">
+                                  <Checkbox
+                                    checked={selectedVideoClipKeys.includes(String(row.id))}
+                                    onCheckedChange={(checked) => {
+                                      const key = String(row.id);
+                                      setSelectedVideoClipKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                              ) : null}
                               <TableCell className="whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openNotesForTarget({ type: 'play', id: row.id, label: row.action });
+                                    }}
+                                  >
+                                    Notes
+                                  </Button>
                                   {!isLiveMode ? (
                                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} onClick={(e) => { e.stopPropagation(); hasTime && openVideoAt(t); }}>
-                                      Open Video
+                                      Video
                                     </Button>
                                   ) : null}
                                   <Button
@@ -2259,7 +2969,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         })}
                         {videoVisiblePlayRows.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={10} className="py-8 text-center text-sm text-slate-500">No play clips found for the current filters.</TableCell>
+                            <TableCell colSpan={visibleVideoPlayColumns.length} className="py-8 text-center text-sm text-slate-500">No play clips found for the current filters.</TableCell>
                           </TableRow>
                         ) : null}
                       </TableBody>
@@ -2267,13 +2977,13 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                   ) : (
                     <Table className="table-fixed w-full">
                       <colgroup>
-                        {videoPossessionColumns.map((column) => (
+                        {visibleVideoPossessionColumns.map((column) => (
                           <col key={column.key} style={column.width ? { width: column.width } : undefined} />
                         ))}
                       </colgroup>
                       <TableHeader>
                         <TableRow>
-                          {videoPossessionColumns.map((column) => (
+                          {visibleVideoPossessionColumns.map((column) => (
                             <SortableTableHead
                               key={column.key}
                               column={column}
@@ -2305,11 +3015,26 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <TableCell className="text-xs whitespace-nowrap">{Number.isFinite(row.duration) ? `${row.duration.toFixed(1)}s` : 'NA'}</TableCell>
                               <TableCell className="truncate text-xs">{row.originLabel || 'NA'}</TableCell>
                               <TableCell className="truncate text-xs">{row.groupedOutcome || 'NA'}</TableCell>
+                              {manualSelectionEnabled ? (
+                                <TableCell className="text-center">
+                                  <Checkbox
+                                    checked={selectedVideoClipKeys.includes(String(row.key))}
+                                    onCheckedChange={(checked) => {
+                                      const key = String(row.key);
+                                      setSelectedVideoClipKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                              ) : null}
                               <TableCell className="whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-2">
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openNotesForTarget({ type: 'possession', id: row.key, label: `Possession ${row.possessionId}` }); }}>
+                                    Notes
+                                  </Button>
                                   {!isLiveMode && Number.isFinite(row.videoStartTime) ? (
                                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openVideoAt(row.videoStartTime); }}>
-                                      Open Video
+                                      Video
                                     </Button>
                                   ) : null}
                                   <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openPossessionVisualise(row); }}>
@@ -2322,7 +3047,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         })}
                         {videoVisiblePossessionRows.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={9} className="py-8 text-center text-sm text-slate-500">No possession clips found for the current filters.</TableCell>
+                            <TableCell colSpan={visibleVideoPossessionColumns.length} className="py-8 text-center text-sm text-slate-500">No possession clips found for the current filters.</TableCell>
                           </TableRow>
                         ) : null}
                       </TableBody>
@@ -2354,6 +3079,305 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
             <div className="pt-2">
               <PitchViz stats={vizStats} homeColor={homeTeam?.color} awayColor={awayTeam?.color} colorBy="team" showColorControls />
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <StickyNote className="h-4 w-4" />
+                Notes
+              </DialogTitle>
+            </DialogHeader>
+              <div className="space-y-4">
+                <div className="text-sm text-slate-600">{noteTarget?.label || 'Selected row'}</div>
+                <div className="space-y-3">
+                  <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                    <Button type="button" variant={noteVisibilityTab === 'public' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('public')}>
+                      Public
+                    </Button>
+                    <Button type="button" variant={noteVisibilityTab === 'private' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('private')}>
+                      Private
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium text-slate-900">{noteVisibilityTab === 'public' ? 'Public' : 'Private'}</Label>
+                      {noteVisibilityTab === 'public' && selectedTargetNotes.publicNote?.author_initials ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                          {selectedTargetNotes.publicNote.author_initials}
+                        </span>
+                      ) : null}
+                    </div>
+                    <Textarea
+                      value={noteVisibilityTab === 'public' ? publicNoteDraft : privateNoteDraft}
+                      onChange={(e) => noteVisibilityTab === 'public' ? setPublicNoteDraft(e.target.value) : setPrivateNoteDraft(e.target.value)}
+                      rows={8}
+                      readOnly={isSharedContext}
+                      placeholder={noteVisibilityTab === 'public' ? 'Shared with the match' : 'Private to your copy'}
+                    />
+                  </div>
+                </div>
+              </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNoteDialogOpen(false)}>Close</Button>
+              {!isSharedContext ? <Button type="button" onClick={saveNotes}>Save Notes</Button> : null}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'create-reel'} onOpenChange={(open) => open ? openHighlightSelectionFlow('create-reel') : closeHighlightSelectionFlow()}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Create {videoBrowseMode === 'play' ? 'Play' : 'Possession'} Highlight Reel</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Reel Name</Label>
+                <Input value={reelNameDraft} onChange={(e) => setReelNameDraft(e.target.value)} placeholder="e.g. First Half Scores" />
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                <div>{currentClipCandidates.length} clips available from the current filtered subset.</div>
+                <div className="mt-1">{selectedVideoClipKeys.length} clips selected with row ticks.</div>
+                <div className="mt-1 text-xs text-slate-500">Selection mode is active in the workspace. Tick the clips you want to include, then confirm below.</div>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => createHighlightReel('filtered')}>Create From Filtered Subset</Button>
+              <Button type="button" disabled={!selectedVideoClipKeys.length} onClick={() => createHighlightReel('selected')}>Create From Selection{selectedVideoClipKeys.length ? ` (${selectedVideoClipKeys.length})` : ''}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'add-to-reel'} onOpenChange={(open) => open ? openHighlightSelectionFlow('add-to-reel') : closeHighlightSelectionFlow()}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Add To Existing Highlight</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Compatible Reels</Label>
+                <Select value={selectedReelId} onValueChange={setSelectedReelId}>
+                  <SelectTrigger><SelectValue placeholder="Choose a reel" /></SelectTrigger>
+                  <SelectContent>
+                    {compatibleReels.map((reel) => (
+                      <SelectItem key={reel.id} value={reel.id}>{reel.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                <div>{currentClipCandidates.length} filtered clip references are available.</div>
+                <div className="mt-1">{selectedVideoClipKeys.length} clip references selected with row ticks.</div>
+                <div className="mt-1 text-xs text-slate-500">Selection mode is active in the workspace. Tick the clips you want to add, then confirm below.</div>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => addSelectionToExistingReel('filtered')}>Add Filtered Subset</Button>
+              <Button type="button" disabled={!selectedVideoClipKeys.length} onClick={() => addSelectionToExistingReel('selected')}>Add Selection{selectedVideoClipKeys.length ? ` (${selectedVideoClipKeys.length})` : ''}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'edit-picker'} onOpenChange={(open) => setHighlightMenuAction(open ? 'edit-picker' : '')}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit Existing Highlights</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {(highlightReels || []).filter((reel) => reel?.match_id === matchId).map((reel) => (
+                <div key={reel.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+                  <div>
+                    <div className="font-medium text-slate-900">{reel.name}</div>
+                    <div className="text-xs text-slate-500">{toTitleCase(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => openReviewPlayerForReel(reel.id)}>Review</Button>
+                    <Button type="button" size="sm" onClick={() => openReelEditor(reel.id)}>Edit</Button>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete highlight reel "${reel.name}"?`)) return;
+                          for (const clip of (reelClipsByReelId.get(String(reel.id)) || [])) {
+                            await db.entities.HighlightReelClip.delete(clip.id);
+                          }
+                          await db.entities.HighlightReel.delete(reel.id);
+                          await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+                          await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+                          toast.success('Highlight reel deleted');
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'view-reels'} onOpenChange={(open) => setHighlightMenuAction(open ? 'view-reels' : '')}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>View Highlights</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {(highlightReels || []).filter((reel) => reel?.match_id === matchId).map((reel) => (
+                <div key={reel.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+                  <div>
+                    <div className="font-medium text-slate-900">{reel.name}</div>
+                    <div className="text-xs text-slate-500">{toTitleCase(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
+                  </div>
+                  <Button type="button" onClick={() => openReviewPlayerForReel(reel.id)}>View Highlight</Button>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'edit-reel'} onOpenChange={(open) => setHighlightMenuAction(open ? 'edit-reel' : '')}>
+          <DialogContent className="sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Edit Highlight Reel</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Input value={editingReelName} onChange={(e) => setEditingReelName(e.target.value)} placeholder="Reel name" />
+              <ScrollArea className="max-h-[420px] rounded-lg border border-slate-200">
+                <div className="p-3">
+                  <DragDropContext onDragEnd={onReelDragEnd}>
+                    <Droppable droppableId="reel-clips">
+                      {(provided) => (
+                        <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
+                          {editingReelClips.map((clip, index) => (
+                            <Draggable key={clip.id} draggableId={String(clip.id)} index={index}>
+                              {(dragProvided) => (
+                                <div
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  {...dragProvided.dragHandleProps}
+                                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
+                                >
+                                  <div>
+                                    <div className="font-medium text-slate-900">{clip.label}</div>
+                                    <div className="text-xs text-slate-500">{formatMMSS(Number(clip.start_time))} - {formatMMSS(Number(clip.end_time))}</div>
+                                  </div>
+                                  <Button type="button" variant="outline" size="sm" onClick={() => removeClipFromEditingReel(clip.id)}>Remove</Button>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </DragDropContext>
+                </div>
+              </ScrollArea>
+            </div>
+            <DialogFooter>
+              {!readOnly ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    if (!editingReelId || !window.confirm(`Delete highlight reel "${editingReelName || 'this reel'}"?`)) return;
+                    for (const clip of (reelClipsByReelId.get(String(editingReelId)) || [])) {
+                      await db.entities.HighlightReelClip.delete(clip.id);
+                    }
+                    await db.entities.HighlightReel.delete(editingReelId);
+                    await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+                    await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+                    setHighlightMenuAction('');
+                    toast.success('Highlight reel deleted');
+                  }}
+                >
+                  Delete Reel
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" onClick={() => openReviewPlayerForReel(editingReelId)}>Open Review Player</Button>
+              <Button type="button" onClick={saveReelEdits}>Save Reel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'presets'} onOpenChange={(open) => { setHighlightMenuAction(open ? 'presets' : ''); }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Presets</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {!readOnly ? <Button type="button" onClick={saveCurrentPreset}>Save Current Preset</Button> : null}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Suggested Presets</div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {currentSuggestedPresets.map((preset) => (
+                      <Button
+                        key={preset.key}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => {
+                          applySuggestedPreset(preset.key);
+                          setHighlightMenuAction('');
+                        }}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved Presets</div>
+                {(videoPresets || []).filter((preset) => preset?.mode === videoBrowseMode).map((preset) => (
+                  <div key={preset.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+                    <div>
+                      <div className="font-medium text-slate-900">{preset.name}</div>
+                      <div className="text-xs text-slate-500">{toTitleCase(preset.mode)} preset</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => { applyPresetRecord(preset); setHighlightMenuAction(''); }}>Apply</Button>
+                      {!readOnly ? <Button type="button" variant="outline" size="sm" onClick={() => deletePreset(preset.id)}>Delete</Button> : null}
+                    </div>
+                  </div>
+                ))}
+                {(videoPresets || []).filter((preset) => preset?.mode === videoBrowseMode).length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 p-3 text-sm text-slate-500">No saved presets for this mode yet.</div>
+                ) : null}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={highlightMenuAction === 'clip-settings'} onOpenChange={(open) => setHighlightMenuAction(open ? 'clip-settings' : '')}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Clip Settings</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <Label>Play preroll (seconds)</Label>
+                <Input value={clipSettingsDraft.play_preroll_s} onChange={(e) => setClipSettingsDraft((current) => ({ ...current, play_preroll_s: Number(e.target.value || 0) }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Play fallback post-roll (seconds)</Label>
+                <Input value={clipSettingsDraft.play_fallback_postroll_s} onChange={(e) => setClipSettingsDraft((current) => ({ ...current, play_fallback_postroll_s: Number(e.target.value || 0) }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Possession post-roll (seconds)</Label>
+                <Input value={clipSettingsDraft.possession_postroll_s} onChange={(e) => setClipSettingsDraft((current) => ({ ...current, possession_postroll_s: Number(e.target.value || 0) }))} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={persistClipSettings}>Save Settings</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -2953,7 +3977,7 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2 flex-wrap">
                             {!isLiveMode && (
-                              <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Open Video</Button>
+                              <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} title={hasTime ? `Open video at ${formatMMSS(Math.max(0, t - VIDEO_PRE_ROLL_S))}` : 'No video time recorded for this row'} onClick={() => hasTime && openVideoAt(t)}>Video</Button>
                             )}
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => { setVizStats([s]); setVizTitle(`${toTitleCase(s.stat_type)} - ${toTitleCase(s.half)} - ${s.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`); setVizOpen(true); }}>Visualise</Button>
                           </div>
@@ -2973,19 +3997,21 @@ function DataTab({ matchId, match, stats, homeTeam, awayTeam, homePlayers, awayP
                               <div className="max-h-56 overflow-auto rounded-md border border-slate-200">
                                 <Table>
                                   <TableBody>
-                                    {(() => {
-                                      const baseItems = [
-                                        { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
-                                        { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
-                                        { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
-                                        { label: 'Set Defence', value: getSetDefenceValue(s, false) ? 'Yes' : 'No' },
+                                      {(() => {
+                                        const detailTurnoverType = getTurnoverTypeLabelForDetails(s, extra);
+                                        const baseItems = [
+                                          { label: 'Play', value: Number.isFinite(Number(s.play_id)) ? String(Number(s.play_id)) : 'NA' },
+                                          { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
+                                          { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
+                                          { label: 'Set Defence', value: getSetDefenceValue(s, false) ? 'Yes' : 'No' },
                                         { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
                                         { label: 'Time', value: (() => { const rowTime = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA'; })() },
                                         { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
-                                        { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
-                                        { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
-                                        { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : 'NA' },
-                                      ];
+                                          { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },
+                                          { label: 'Raw X, Y', value: Number.isFinite(Number(s.raw_x_position)) && Number.isFinite(Number(s.raw_y_position)) ? `${Number(s.raw_x_position).toFixed(2)}, ${Number(s.raw_y_position).toFixed(2)}` : 'NA' },
+                                          { label: 'Raw End', value: Number.isFinite(Number(s.raw_end_x_position)) && Number.isFinite(Number(s.raw_end_y_position)) ? `${Number(s.raw_end_x_position).toFixed(2)}, ${Number(s.raw_end_y_position).toFixed(2)}` : 'NA' },
+                                          ...(detailTurnoverType ? [{ label: 'Turnover Type', value: detailTurnoverType }] : []),
+                                        ];
                                       const extraItems = flattenExtra(extra)
                                         .filter((r) => r.key !== 'counter_attack')
                                         .filter((r) => !/(^|\.)(pitch_w|pitch_h|pitch_width|pitch_height|pitch_length)$/i.test(String(r.key || '')))

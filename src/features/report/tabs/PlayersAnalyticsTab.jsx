@@ -492,13 +492,14 @@ function PlayersAnalyticsTab({
         const r = ensure(p);
         const isProg = isProgressiveShared(s);
         const isCompleted = deriveOutcome(s, ex) === 'completed';
+        const gainedMeters = isCompleted ? getProgressiveMeters(s) : 0;
         if (r) {
           r.passes += 1;
           if (isCompleted) r.passComp += 1;
+          r.progMeters += gainedMeters;
           if (isProg) {
             r.progPassAtt += 1;
             if (isCompleted) r.progPassComp += 1;
-            r.progMeters += getProgressiveMeters(s);
           }
           if (isCompleted && getScoringZoneEntry(s)) {
             r.passesIntoScoringZone += 1;
@@ -516,13 +517,14 @@ function PlayersAnalyticsTab({
         const r = ensure(p);
         const isProg = isProgressiveShared(s);
         const isCompleted = deriveOutcome(s, ex) === 'completed';
+        const gainedMeters = isCompleted ? getProgressiveMeters(s) : 0;
         if (r) {
           r.carries += 1;
           if (isCompleted) r.carryComp += 1;
+          r.progMeters += gainedMeters;
           if (isProg) {
             r.progCarryAtt += 1;
             if (isCompleted) r.progCarryComp += 1;
-            r.progMeters += getProgressiveMeters(s);
           }
           if (getScoringZoneEntry(s)) r.scoringZoneEntriesCreated += 1;
         }

@@ -228,7 +228,7 @@ function KickoutSankeyNode(props) {
   return (
     <g
       key={`ko-node-${index}`}
-      onClick={onSelect ? () => onSelect(payload) : undefined}
+      onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(payload); } : undefined}
       style={{ cursor: onSelect ? 'pointer' : 'default' }}
     >
       <rect
@@ -460,10 +460,9 @@ function buildKickoutSankeyHighlight(data, selectedNodeKey) {
     const idx = nodes.indexOf(selectedNodeKey);
     if (idx === -1) return;
     const count = Number(flow?.value || 0);
-    const prefix = nodes.slice(0, idx + 1);
-    const originLabel = kickoutSankeyNodeKeyToName(prefix[0]);
-    for (let i = 0; i < prefix.length; i += 1) {
-      const nodeKey = prefix[i];
+    const originLabel = kickoutSankeyNodeKeyToName(nodes[0]);
+    for (let i = 0; i < nodes.length; i += 1) {
+      const nodeKey = nodes[i];
       const nodeName = kickoutSankeyNodeKeyToName(nodeKey);
       nodeKeys.add(nodeKey);
       if (!nodeOriginTotals.has(nodeKey)) nodeOriginTotals.set(nodeKey, new Map());
@@ -472,13 +471,13 @@ function buildKickoutSankeyHighlight(data, selectedNodeKey) {
       bumpKickoutTooltipMatrix(
         nodeMatrices,
         nodeKey,
-        i > 0 ? kickoutSankeyNodeKeyToName(prefix[i - 1]) : null,
-        i < prefix.length - 1 ? kickoutSankeyNodeKeyToName(prefix[i + 1]) : null,
+        i > 0 ? kickoutSankeyNodeKeyToName(nodes[i - 1]) : null,
+        i < nodes.length - 1 ? kickoutSankeyNodeKeyToName(nodes[i + 1]) : null,
         count
       );
     }
-    for (let i = 0; i < prefix.length - 1; i += 1) {
-      const linkKey = `${prefix[i]}->${prefix[i + 1]}`;
+    for (let i = 0; i < nodes.length - 1; i += 1) {
+      const linkKey = `${nodes[i]}->${nodes[i + 1]}`;
       linkValues.set(linkKey, (linkValues.get(linkKey) || 0) + count);
     }
   });
@@ -1616,39 +1615,39 @@ function RestartsTab({
                 </div>
                 <Table className="table-fixed w-full">
                   <colgroup>
-                    <col style={{ width: '110px' }} />
-                    <col style={{ width: '170px' }} />
+                    <col style={{ width: '108px' }} />
+                    <col style={{ width: '182px' }} />
                     <col style={{ width: '72px' }} />
                     <col style={{ width: '92px' }} />
-                    <col style={{ width: '78px' }} />
-                    <col style={{ width: '82px' }} />
-                    <col style={{ width: '82px' }} />
-                    <col style={{ width: '78px' }} />
-                    <col style={{ width: '82px' }} />
-                    <col style={{ width: '82px' }} />
+                    <col style={{ width: '74px' }} />
                     <col style={{ width: '78px' }} />
                     <col style={{ width: '78px' }} />
-                    <col style={{ width: '70px' }} />
+                    <col style={{ width: '74px' }} />
+                    <col style={{ width: '78px' }} />
+                    <col style={{ width: '78px' }} />
+                    <col style={{ width: '74px' }} />
+                    <col style={{ width: '72px' }} />
+                    <col style={{ width: '68px' }} />
                   </colgroup>
                   <TableHeader>
                     <TableRow>
-                      <TableHead rowSpan={2} className="px-2 py-2 align-middle bg-slate-100/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Team</TableHead>
-                      <TableHead rowSpan={2} className="px-2 py-2 align-middle border-r-2 border-slate-300 bg-slate-100/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Player</TableHead>
-                      <TableHead colSpan={3} className="px-2 py-2 border-r-2 border-slate-300 bg-slate-100/70 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Targets</TableHead>
-                      <TableHead colSpan={8} className="px-2 py-2 bg-slate-50 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">All</TableHead>
+                      <TableHead rowSpan={2} className="whitespace-nowrap px-3 py-2.5 align-middle bg-slate-100/70 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600">Team</TableHead>
+                      <TableHead rowSpan={2} className="whitespace-nowrap px-3 py-2.5 align-middle border-r-2 border-slate-300 bg-slate-100/70 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600">Player</TableHead>
+                      <TableHead colSpan={3} className="whitespace-nowrap px-2 py-2.5 align-middle border-r-2 border-slate-300 bg-slate-100/70 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-600">Targets</TableHead>
+                      <TableHead colSpan={8} className="whitespace-nowrap px-2 py-2.5 align-middle bg-slate-50 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-600">All</TableHead>
                     </TableRow>
                     <TableRow>
                       {targetColumns.filter((column) => column.key !== 'team' && column.key !== 'label').map((column) => (
                         <SortableTableHead
                           key={column.key}
                           column={column}
-                          sortState={targetSort}
-                          onToggle={toggleTargetSort}
-                          className={[
-                            'bg-white px-2 py-2 text-[11px] font-semibold text-slate-700',
-                            ['targeted', 'won', 'winPct', 'cleanWon', 'cleanLost', 'breakWon', 'breakLost', 'breakPct', 'broken', 'marks'].includes(column.key) ? 'text-right' : '',
-                            column.key === 'winPct' ? 'border-r-2 border-slate-300' : '',
-                          ].filter(Boolean).join(' ')}
+                            sortState={targetSort}
+                            onToggle={toggleTargetSort}
+                            className={[
+                              'whitespace-nowrap bg-white px-2 py-2.5 align-middle text-[12px] font-semibold text-slate-700',
+                              ['targeted', 'won', 'winPct', 'cleanWon', 'cleanLost', 'cleanPct', 'breakWon', 'breakLost', 'breakPct', 'broken', 'marks'].includes(column.key) ? 'text-center' : '',
+                              column.key === 'winPct' ? 'border-r-2 border-slate-300' : '',
+                            ].filter(Boolean).join(' ')}
                         />
                       ))}
                     </TableRow>
@@ -1656,19 +1655,19 @@ function RestartsTab({
                   <TableBody>
                     {(showAllKickoutTargets ? sortedKickoutTargets : sortedKickoutTargets.slice(0, 8)).map((r, idx) => (
                       <TableRow key={`${r.team}-${r.key}-${idx}`} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
-                        <TableCell className="px-2 py-2">{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
-                        <TableCell className="px-2 py-2 border-r-2 border-slate-300 font-medium">{r.label || 'NA'}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.targeted}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.won}</TableCell>
-                        <TableCell className="px-2 py-2 border-r-2 border-slate-300 text-right tabular-nums">{formatPct(r.targeted ? (r.won / r.targeted) * 100 : NaN)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.cleanWon}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.cleanLost}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{formatPct((r.cleanWon + r.cleanLost) ? (r.cleanWon / (r.cleanWon + r.cleanLost)) * 100 : NaN)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.breakWon}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.breakLost}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{formatPct((r.breakWon + r.breakLost) ? (r.breakWon / (r.breakWon + r.breakLost)) * 100 : NaN)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.broken}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{r.marks}</TableCell>
+                        <TableCell className="px-3 py-2.5 text-left align-middle">{r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}</TableCell>
+                        <TableCell className="px-3 py-2.5 text-left align-middle border-r-2 border-slate-300 font-medium">{r.label || 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.targeted}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.won}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle border-r-2 border-slate-300 tabular-nums">{formatPct(r.targeted ? (r.won / r.targeted) * 100 : NaN)}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.cleanWon}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.cleanLost}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{formatPct((r.cleanWon + r.cleanLost) ? (r.cleanWon / (r.cleanWon + r.cleanLost)) * 100 : NaN)}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.breakWon}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.breakLost}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{formatPct((r.breakWon + r.breakLost) ? (r.breakWon / (r.breakWon + r.breakLost)) * 100 : NaN)}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.broken}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.marks}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1751,7 +1750,7 @@ function RestartsTab({
                 </div>
                 {kickoutSankeyRenderData.totalKickouts > 0 && kickoutSankeyRenderData.links.length > 0 ? (
                   <>
-                    <div className="h-[420px] w-full overflow-visible">
+                    <div className="h-[420px] w-full overflow-visible" onClick={() => setSelectedKickoutSankeyNodeKey(null)}>
                       <ResponsiveContainer width="100%" height="100%">
                         <Sankey
                           data={kickoutSankeyRenderData}

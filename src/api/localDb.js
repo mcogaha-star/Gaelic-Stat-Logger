@@ -8,9 +8,19 @@
 //   - delete(id: string)
 
 const DB_NAME = 'base44-local-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
-const DEFAULT_STORES = ['Match', 'Team', 'Player', 'StatEntry', 'AppSettings'];
+const DEFAULT_STORES = [
+  'Match',
+  'Team',
+  'Player',
+  'StatEntry',
+  'AppSettings',
+  'HighlightReel',
+  'HighlightReelClip',
+  'VideoFilterPreset',
+  'VideoNote',
+];
 
 function nowIso() {
   return new Date().toISOString();

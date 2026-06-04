@@ -26,7 +26,7 @@ import {
   shotPointsForOutcome,
   normalizeFoulType,
 } from '@/lib/reportAnalytics';
-import { simulateFullMatchFromShots } from '@/lib/winProbability';
+import { createSeededRng, hashSimulationSeed, simulateFullMatchFromShots } from '@/lib/winProbability';
 import {
   safeParseJSON,
   toTitleCase,
@@ -305,7 +305,7 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
         <div className="font-semibold text-slate-900">{title}</div>
         <ChartContainer
           id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
-          className="h-[360px] w-full"
+          className="h-[336px] w-full"
           config={{
             home_scored: { label: 'Home Scored', color: homeFill },
             home_missed: { label: 'Home No Score', color: faded(homeFill, 0.28) },
@@ -397,7 +397,7 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
 
   return (
     <Card className={paneClassName}>
-      <CardContent className="p-4 space-y-1">
+      <CardContent className="px-4 pt-3 pb-2 space-y-0.5">
         <div className="font-semibold text-slate-900">{title}</div>
         {sim ? (
           <div className="space-y-0">
@@ -407,7 +407,7 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
             </div>
             <ChartContainer
               id="expected-point-post-game-win-probability"
-              className="h-[70px] w-full"
+              className="h-[56px] w-full"
               config={{
                 home: { label: `${homeLabel} Win`, color: homeFill },
                 draw: { label: 'Draw', color: '#cbd5e1' },
@@ -954,6 +954,7 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
     return out;
   }, [filteredShots, teamMode]);
   const [playerSort, setPlayerSort] = useState({ key: 'points', dir: 'desc' });
+  const [showAllPlayerShooting, setShowAllPlayerShooting] = useState(false);
   const playerColumns = useMemo(() => ([
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'shots', label: 'Shots', sortValue: (r) => r.shots },
@@ -969,32 +970,50 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
   ]), []);
   const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
-  const winProbabilitySim = useMemo(() => {
-    return simulateFullMatchFromShots(
-      simShots
-        .filter((shot) => !shot.broughtBackAdv)
-        .filter((shot) => matchesSelectedPlayer(shot))
-        .filter((shot) => shotType.length ? shotType.includes(shot.shotType) : true)
-        .filter((shot) => situation.length ? situation.includes(shot.situation) : true)
-        .filter((shot) => pressure.length ? pressure.includes(shot.pressure) : true)
-        .filter((shot) => method.length ? method.includes(shot.method) : true)
-        .filter((shot) => scoringAttackTypeFilter !== 'any' ? attackTypeStateKey(shot.attackType) === scoringAttackTypeFilter : true)
-        .filter((shot) => Number.isFinite(shot?.xp))
-        .map((shot) => ({
-          team_side: shot.team_side,
-          shotType: shot.shotType,
-          xp: shot.xp,
-        })),
+  const simulationShots = useMemo(() => (
+    simShots
+      .filter((shot) => !shot.broughtBackAdv)
+      .filter((shot) => matchesSelectedPlayer(shot))
+      .filter((shot) => shotType.length ? shotType.includes(shot.shotType) : true)
+      .filter((shot) => situation.length ? situation.includes(shot.situation) : true)
+      .filter((shot) => pressure.length ? pressure.includes(shot.pressure) : true)
+      .filter((shot) => method.length ? method.includes(shot.method) : true)
+      .filter((shot) => scoringAttackTypeFilter !== 'any' ? attackTypeStateKey(shot.attackType) === scoringAttackTypeFilter : true)
+      .filter((shot) => Number.isFinite(shot?.xp))
+      .map((shot) => ({
+        key: shot.id || `${shot.team_side}-${shot.shotType}-${shot.xp}-${shot.time_s ?? ''}`,
+        team_side: shot.team_side,
+        shotType: shot.shotType,
+        xp: shot.xp,
+      }))
+  ), [simShots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
+  const winProbabilitySeed = useMemo(
+    () => hashSimulationSeed({
+      teamMode,
+      selectedPlayerKeys: [...selectedPlayerKeys].sort(),
+      shotType: [...shotType].sort(),
+      situation: [...situation].sort(),
+      pressure: [...pressure].sort(),
+      method: [...method].sort(),
+      scoringAttackTypeFilter,
+      shots: simulationShots.map((shot) => [shot.key, shot.team_side, shot.shotType, Number(shot.xp).toFixed(4)]),
+    }),
+    [teamMode, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter, simulationShots]
+  );
+  const winProbabilitySim = useMemo(() => (
+    simulateFullMatchFromShots(
+      simulationShots,
       10000,
-    );
-  }, [simShots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
+      createSeededRng(winProbabilitySeed),
+    )
+  ), [simulationShots, winProbabilitySeed]);
 
   return (
     <div className="space-y-4">
-      <div className="report-metric-split">
+      <div className="report-metric-split items-stretch">
         <ComparisonMetricsCard
           title="Shooting Metrics"
-          cardClassName="w-full"
+          cardClassName="w-full h-full min-h-[540px]"
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamMode={teamMode}
@@ -1020,7 +1039,7 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
         />
         <div className="report-companion-grid">
           <WinProbabilityBar
-            title="Expected point post game win probability"
+            title="xP win probability"
             sim={winProbabilitySim}
             homeTeam={homeTeam}
             awayTeam={awayTeam}
@@ -1193,8 +1212,34 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
 
             <Card className={paneClassName}>
               <CardContent className="p-4 space-y-3">
-                <div className="font-semibold text-slate-900">Player Shooting</div>
-                <Table>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold text-slate-900">Player Shooting</div>
+                  {sortedPlayerSummary.length > 8 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-[108px] px-2 text-xs"
+                      onClick={() => setShowAllPlayerShooting((current) => !current)}
+                    >
+                      {showAllPlayerShooting ? 'Show Top 8' : 'Expand Table'}
+                    </Button>
+                  ) : null}
+                </div>
+                <Table className="table-fixed w-full">
+                  <colgroup>
+                    <col style={{ width: '230px' }} />
+                    <col style={{ width: '74px' }} />
+                    <col style={{ width: '74px' }} />
+                    <col style={{ width: '82px' }} />
+                    <col style={{ width: '90px' }} />
+                    <col style={{ width: '92px' }} />
+                    <col style={{ width: '92px' }} />
+                    <col style={{ width: '90px' }} />
+                    <col style={{ width: '86px' }} />
+                    <col style={{ width: '86px' }} />
+                    <col style={{ width: '86px' }} />
+                  </colgroup>
                   <TableHeader>
                     <TableRow>
                       {playerColumns.map((column) => (
@@ -1203,25 +1248,27 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
                           column={column}
                           sortState={playerSort}
                           onToggle={togglePlayerSort}
-                          className={column.key === 'player' ? undefined : 'text-right'}
+                          className={column.key === 'player'
+                            ? 'whitespace-nowrap px-3 py-2 text-left align-middle'
+                            : 'whitespace-nowrap px-2 py-2 text-center align-middle'}
                         />
                       ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sortedPlayerSummary.map((r) => (
+                    {(showAllPlayerShooting ? sortedPlayerSummary : sortedPlayerSummary.slice(0, 8)).map((r) => (
                       <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
-                        <TableCell className="font-medium">{r.player}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.shots}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.points}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.xp) ? r.xp.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums" style={ptsXpCellStyle(r.xpPts)}>{Number.isFinite(r.xpPts) ? r.xpPts.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.pointMade}/{r.pointAtt}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.twoMade}/{r.twoAtt}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.goalMade}/{r.goalAtt}</TableCell>
+                        <TableCell className="px-3 py-2.5 text-left align-middle font-medium">{r.player}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.shots}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.points}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xp) ? r.xp.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums" style={ptsXpCellStyle(r.xpPts)}>{Number.isFinite(r.xpPts) ? r.xpPts.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.pointMade}/{r.pointAtt}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.twoMade}/{r.twoAtt}</TableCell>
+                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.goalMade}/{r.goalAtt}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

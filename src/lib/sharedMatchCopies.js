@@ -113,7 +113,16 @@ function getShareMatchKey(match = {}) {
   return localId ? `local:${localId}` : null;
 }
 
-export function buildShareableMatchPayload({ match, homeTeam, awayTeam, players = [], stats = [] }) {
+export function buildShareableMatchPayload({
+  match,
+  homeTeam,
+  awayTeam,
+  players = [],
+  stats = [],
+  highlightReels = [],
+  highlightReelClips = [],
+  publicVideoNotes = [],
+} = {}) {
   const normalizedStats = rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((stats || []).filter((row) => row?.stat_type !== 'defensive_contact'))));
   return {
     schema_version: 1,
@@ -123,17 +132,41 @@ export function buildShareableMatchPayload({ match, homeTeam, awayTeam, players 
     teams: [homeTeam, awayTeam].filter(Boolean).map((team) => cloneWithoutIdentity(team, { keepIds: true })),
     players: (players || []).filter(Boolean).map((player) => cloneWithoutIdentity(player, { keepIds: true })),
     stats: normalizedStats.map((stat) => cloneWithoutIdentity(stat, { keepIds: true })),
+    highlight_reels: (highlightReels || []).filter(Boolean).map((reel) => cloneWithoutIdentity(reel, { keepIds: true })),
+    highlight_reel_clips: (highlightReelClips || []).filter(Boolean).map((clip) => cloneWithoutIdentity(clip, { keepIds: true })),
+    video_notes: (publicVideoNotes || []).filter(Boolean).map((note) => cloneWithoutIdentity(note, { keepIds: true })),
   };
 }
 
-export async function createSharedMatchSnapshot({ match, homeTeam, awayTeam, players = [], stats = [], sourceSnapshotId = null, sharedFromCode = null, shareType = 'game_copy' } = {}) {
+export async function createSharedMatchSnapshot({
+  match,
+  homeTeam,
+  awayTeam,
+  players = [],
+  stats = [],
+  highlightReels = [],
+  highlightReelClips = [],
+  publicVideoNotes = [],
+  sourceSnapshotId = null,
+  sharedFromCode = null,
+  shareType = 'game_copy',
+} = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!match?.id) return { ok: false, reason: 'missing_match' };
   const sourceMatchKey = getShareMatchKey(match);
   if (!sourceMatchKey) return { ok: false, reason: 'missing_match_key' };
 
-  const payload = buildShareableMatchPayload({ match, homeTeam, awayTeam, players, stats });
+  const payload = buildShareableMatchPayload({
+    match,
+    homeTeam,
+    awayTeam,
+    players,
+    stats,
+    highlightReels,
+    highlightReelClips,
+    publicVideoNotes,
+  });
   const { data: existing, error: existingError } = await supabase
     .from('shared_match_snapshots')
     .select('id,share_code')
@@ -230,6 +263,9 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
   const sourceTeams = Array.isArray(payload?.teams) ? payload.teams : [];
   const sourcePlayers = Array.isArray(payload?.players) ? payload.players : [];
   const sourceStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const sourceHighlightReels = Array.isArray(payload?.highlight_reels) ? payload.highlight_reels : [];
+  const sourceHighlightReelClips = Array.isArray(payload?.highlight_reel_clips) ? payload.highlight_reel_clips : [];
+  const sourceVideoNotes = Array.isArray(payload?.video_notes) ? payload.video_notes : [];
 
   const oldHomeTeamId = sourceMatch?.home_team_id || sourceTeams[0]?.id || null;
   const oldAwayTeamId = sourceMatch?.away_team_id || sourceTeams[1]?.id || null;
@@ -309,6 +345,7 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
   });
 
   const importedStats = [];
+  const statIdMap = new Map();
   for (const stat of sourceStats) {
     const created = await db.entities.StatEntry.create({
       ...stat,
@@ -321,7 +358,41 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
       recipient_name: stat?.recipient_name || '',
       extra_data: remapExtraData(stat?.extra_data, playerIdMap),
     });
+    if (stat?.id && created?.id) statIdMap.set(stat.id, created.id);
     importedStats.push(created);
+  }
+
+  const reelIdMap = new Map();
+  for (const reel of sourceHighlightReels) {
+    const createdReel = await db.entities.HighlightReel.create({
+      ...reel,
+      id: undefined,
+      match_id: createdMatch.id,
+    });
+    if (reel?.id && createdReel?.id) reelIdMap.set(reel.id, createdReel.id);
+  }
+
+  for (const clip of sourceHighlightReelClips) {
+    await db.entities.HighlightReelClip.create({
+      ...clip,
+      id: undefined,
+      match_id: createdMatch.id,
+      reel_id: reelIdMap.get(clip?.reel_id) || clip?.reel_id || null,
+      source_ref: clip?.source_type === 'play'
+        ? (statIdMap.get(clip?.source_ref) || clip?.source_ref || null)
+        : (clip?.source_ref || null),
+    });
+  }
+
+  for (const note of sourceVideoNotes) {
+    await db.entities.VideoNote.create({
+      ...note,
+      id: undefined,
+      match_id: createdMatch.id,
+      target_id: note?.target_type === 'play'
+        ? (statIdMap.get(note?.target_id) || note?.target_id || null)
+        : (note?.target_id || null),
+    });
   }
 
   const syncedHomeTeam = createdHomeTeam?.id ? await upsertPrivateTeamFromLocal(await db.entities.Team.get(createdHomeTeam.id)) : null;
@@ -379,6 +450,9 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
       return [...home, ...away];
     }),
     stats: await db.entities.StatEntry.filter({ match_id: createdMatch.id }),
+    highlightReels: await db.entities.HighlightReel.filter({ match_id: createdMatch.id }),
+    highlightReelClips: await db.entities.HighlightReelClip.filter({ match_id: createdMatch.id }),
+    publicVideoNotes: await db.entities.VideoNote.filter({ match_id: createdMatch.id, visibility: 'public' }),
     sourceSnapshotId: snapshotRow?.id || null,
     sharedFromCode: snapshotRow?.share_code || null,
     shareType: 'game_copy',

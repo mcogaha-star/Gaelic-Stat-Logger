@@ -577,7 +577,6 @@ function BuildUpHeatmapPane({ title, stats, side, teamColor, mode }) {
   const cols = 6;
   const rows = 5;
   const heatmap = useMemo(() => buildBuildUpHeatmapData(stats, side, mode, cols, rows), [stats, side, mode]);
-  const modeMeta = BUILD_UP_HEATMAP_MODES.find((entry) => entry.key === mode) || BUILD_UP_HEATMAP_MODES[0];
   const maxActivity = Math.max(1, ...heatmap.flat().map((cell) => cell.activityCount || 0));
 
   const fillFor = (cell) => {
@@ -613,16 +612,13 @@ function BuildUpHeatmapPane({ title, stats, side, teamColor, mode }) {
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="w-full">
-        <div className="mb-2">
-          <div className="font-semibold text-slate-900">{title}</div>
-          <div className="text-xs text-slate-500">{modeMeta.subtitle}</div>
-        </div>
+    <div className="w-full">
+      <div className="mx-auto w-[88%]">
+        <div className="mb-2 text-left text-sm font-semibold text-slate-900">{title}</div>
         <div
-          className="relative mx-auto overflow-hidden rounded-xl border border-slate-200"
+          className="relative overflow-hidden"
           style={{
-            width: '73%',
+            width: '100%',
             aspectRatio: `${PITCH_W} / ${PITCH_H}`,
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
@@ -663,12 +659,12 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
   const modeMeta = BUILD_UP_HEATMAP_MODES.find((entry) => entry.key === mode) || BUILD_UP_HEATMAP_MODES[0];
   const teams = teamMode === 'both'
     ? [
-        { title: `${homeTeam?.name || 'Home'} Build-Up Heatmap`, side: 'home', color: homeColor || '#2563eb' },
-        { title: `${awayTeam?.name || 'Away'} Build-Up Heatmap`, side: 'away', color: awayColor || '#ef4444' },
+        { title: `${homeTeam?.name || 'Home'}`, side: 'home', color: homeColor || '#2563eb' },
+        { title: `${awayTeam?.name || 'Away'}`, side: 'away', color: awayColor || '#ef4444' },
       ]
     : [
         {
-          title: `${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Build-Up Heatmap`,
+          title: `${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`,
           side: teamMode === 'away' ? 'away' : 'home',
           color: teamMode === 'away' ? (awayColor || '#ef4444') : (homeColor || '#2563eb'),
         },
@@ -678,7 +674,10 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
     <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="font-semibold text-slate-900">Build-Up Heatmap</div>
+          <div>
+            <div className="font-semibold text-slate-900">Build-Up Heatmap</div>
+            <div className="text-xs text-slate-500">{modeMeta.subtitle}</div>
+          </div>
           <div className="inline-flex rounded-xl bg-slate-100 p-1">
             {BUILD_UP_HEATMAP_MODES.map((option) => {
               const active = option.key === mode;
@@ -699,14 +698,15 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
         </div>
         <div className={teamMode === 'both' ? 'grid gap-4 lg:grid-cols-2' : ''}>
           {teams.map((team) => (
-            <BuildUpHeatmapPane
-              key={team.side}
-              title={team.title}
-              stats={stats}
-              side={team.side}
-              teamColor={team.color}
-              mode={mode}
-            />
+            <div key={team.side} className="space-y-2">
+              <BuildUpHeatmapPane
+                title={team.title}
+                stats={stats}
+                side={team.side}
+                teamColor={team.color}
+                mode={mode}
+              />
+            </div>
           ))}
         </div>
         <div className="text-[11px] leading-4 text-slate-500">

@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig, prettyShortcut } from '@/lib/shortcuts';
+import { useAuth } from '@/lib/AuthContext';
+import { getAuthorInitials } from '@/lib/videoWorkflow';
 
 const CHANNEL_NAME = 'gstl_video';
 
@@ -71,15 +75,21 @@ function ensureYouTubeAPI() {
 }
 
 export default function Video() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const location = useLocation();
   const params = useMemo(() => new URLSearchParams(location.search || ''), [location.search]);
   const matchId = params.get('matchId') || params.get('id') || '';
+  const reviewMode = params.get('review') === '1';
+  const reelId = params.get('reelId') || '';
 
   const channelRef = useRef(null);
   const localVideoRef = useRef(null);
   const ytPlayerRef = useRef(null);
   const ytContainerRef = useRef(null);
   const intervalRef = useRef(null);
+  const reviewRootRef = useRef(null);
+  const completedClipRef = useRef('');
 
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' | 'local'
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -88,6 +98,13 @@ export default function Video() {
   const [playing, setPlaying] = useState(false);
   const [timeS, setTimeS] = useState(0);
   const [pipActive, setPipActive] = useState(false);
+  const [currentClipIndex, setCurrentClipIndex] = useState(0);
+  const [autoplayEnabled, setAutoplayEnabled] = useState(true);
+  const [showClipList, setShowClipList] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
+  const [publicNoteDraft, setPublicNoteDraft] = useState('');
+  const [privateNoteDraft, setPrivateNoteDraft] = useState('');
+  const [noteVisibilityTab, setNoteVisibilityTab] = useState('public');
 
   const { data: settingsRecords = [] } = useQuery({
     queryKey: ['app-settings'],
@@ -97,6 +114,31 @@ export default function Video() {
     () => parseShortcutConfig(settingsRecords?.[0]?.keyboard_shortcuts_config),
     [settingsRecords]
   );
+  const { data: reviewReel = null } = useQuery({
+    queryKey: ['review-reel', reelId],
+    queryFn: () => db.entities.HighlightReel.get(reelId),
+    enabled: reviewMode && !!reelId,
+  });
+  const { data: reviewClipsRaw = [] } = useQuery({
+    queryKey: ['review-clips', reelId],
+    queryFn: () => db.entities.HighlightReelClip.filter({ reel_id: reelId }),
+    enabled: reviewMode && !!reelId,
+  });
+  const { data: reviewNotes = [] } = useQuery({
+    queryKey: ['review-notes', matchId],
+    queryFn: () => db.entities.VideoNote.filter({ match_id: matchId }),
+    enabled: reviewMode && !!matchId,
+  });
+  const reviewClips = useMemo(
+    () => (reviewClipsRaw || []).slice().sort((a, b) => {
+      const aOrder = Number(a?.order_index);
+      const bOrder = Number(b?.order_index);
+      if (Number.isFinite(aOrder) && Number.isFinite(bOrder) && aOrder !== bOrder) return aOrder - bOrder;
+      return Number(a?.start_time || 0) - Number(b?.start_time || 0);
+    }),
+    [reviewClipsRaw]
+  );
+  const currentClip = reviewMode ? (reviewClips[currentClipIndex] || null) : null;
 
   const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
   const canCloseWindow = typeof window !== 'undefined' && !!window.opener;
@@ -184,6 +226,62 @@ export default function Video() {
       } catch {
         // ignore
       }
+    }
+  };
+
+  const pausePlayback = () => {
+    if (sourceType === 'local' && localVideoRef.current) {
+      localVideoRef.current.pause();
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current?.pauseVideo) {
+      ytPlayerRef.current.pauseVideo();
+    }
+  };
+
+  const playPlayback = () => {
+    if (sourceType === 'local' && localVideoRef.current) {
+      localVideoRef.current.play().catch(() => {});
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current?.playVideo) {
+      ytPlayerRef.current.playVideo();
+    }
+  };
+
+  const seekToAbsolute = (seconds) => {
+    const target = Math.max(0, Number(seconds) || 0);
+    if (sourceType === 'local' && localVideoRef.current) {
+      localVideoRef.current.currentTime = target;
+      return;
+    }
+    if (sourceType === 'youtube' && ytPlayerRef.current?.seekTo) {
+      ytPlayerRef.current.seekTo(target, true);
+    }
+  };
+
+  const jumpToClip = (index, { autoplay = true } = {}) => {
+    if (!reviewClips.length) return;
+    const nextIndex = Math.max(0, Math.min(reviewClips.length - 1, Number(index) || 0));
+    const clip = reviewClips[nextIndex];
+    setCurrentClipIndex(nextIndex);
+    completedClipRef.current = '';
+    if (!clip) return;
+    seekToAbsolute(Number(clip.start_time));
+    if (autoplay) {
+      window.setTimeout(() => playPlayback(), 100);
+    } else {
+      pausePlayback();
+    }
+  };
+
+  const requestReviewFullscreen = async () => {
+    try {
+      if (reviewRootRef.current?.requestFullscreen) {
+        await reviewRootRef.current.requestFullscreen();
+      }
+    } catch {
+      toast.error('Could not enter fullscreen');
     }
   };
 
@@ -373,8 +471,74 @@ export default function Video() {
   }, [sourceType, ready]);
 
   useEffect(() => {
+    if (!reviewMode) return;
+    if (!reviewClips.length) {
+      setCurrentClipIndex(0);
+      return;
+    }
+    setCurrentClipIndex((current) => Math.max(0, Math.min(reviewClips.length - 1, current)));
+  }, [reviewMode, reviewClips.length]);
+
+  useEffect(() => {
+    if (!reviewMode || !currentClip || !ready) return;
+    const clipId = String(currentClip.id || currentClip.source_ref || currentClipIndex);
+    const clipEnd = Number(currentClip.end_time);
+    if (!Number.isFinite(clipEnd)) return;
+    if (timeS < clipEnd - 0.05) {
+      completedClipRef.current = '';
+      return;
+    }
+    if (completedClipRef.current === clipId) return;
+    completedClipRef.current = clipId;
+    if (autoplayEnabled && currentClipIndex < reviewClips.length - 1) {
+      jumpToClip(currentClipIndex + 1, { autoplay: true });
+      return;
+    }
+    pausePlayback();
+    seekToAbsolute(clipEnd);
+  }, [reviewMode, currentClip, ready, timeS, autoplayEnabled, currentClipIndex, reviewClips.length]);
+
+  useEffect(() => {
     const onKeyDown = (e) => {
       if (isTypingTarget(e.target)) return;
+      if (reviewMode) {
+        const key = String(e.key || '').toLowerCase();
+        if (key === ' ') {
+          e.preventDefault();
+          togglePlayPause();
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          seekRelative(-3);
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          seekRelative(3);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (currentClipIndex > 0) jumpToClip(currentClipIndex - 1, { autoplay: true });
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (currentClipIndex < reviewClips.length - 1) jumpToClip(currentClipIndex + 1, { autoplay: true });
+          return;
+        }
+        if (key === 'l') {
+          e.preventDefault();
+          setShowClipList((current) => !current);
+          return;
+        }
+        if (key === 'n') {
+          e.preventDefault();
+          setShowNotes((current) => !current);
+          return;
+        }
+      }
       for (const [command, shortcut] of Object.entries(shortcutConfig?.video || {})) {
         if (!eventMatchesShortcut(e, shortcut)) continue;
         e.preventDefault();
@@ -392,13 +556,63 @@ export default function Video() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [shortcutConfig, sourceType, playing]);
+  }, [shortcutConfig, sourceType, playing, reviewMode, currentClipIndex, reviewClips.length]);
+
+  useEffect(() => {
+    if (!reviewMode || !ready || !currentClip) return;
+    seekToAbsolute(Number(currentClip.start_time));
+  }, [reviewMode, ready, currentClip?.id]);
+
+  const currentClipPublicNote = useMemo(
+    () => reviewNotes.find((note) => note?.target_type === currentClip?.source_type && String(note?.target_id || '') === String(currentClip?.source_ref || '') && note?.visibility === 'public') || null,
+    [reviewNotes, currentClip]
+  );
+  const currentClipPrivateNote = useMemo(
+    () => reviewNotes.find((note) => note?.target_type === currentClip?.source_type && String(note?.target_id || '') === String(currentClip?.source_ref || '') && note?.visibility === 'private') || null,
+    [reviewNotes, currentClip]
+  );
+  useEffect(() => {
+    setPublicNoteDraft(currentClipPublicNote?.text || '');
+    setPrivateNoteDraft(currentClipPrivateNote?.text || '');
+    setNoteVisibilityTab(currentClipPublicNote?.text ? 'public' : 'private');
+  }, [currentClipPublicNote?.id, currentClipPrivateNote?.id, currentClip?.id]);
+
+  const saveCurrentClipNotes = async () => {
+    if (!currentClip?.source_type || !currentClip?.source_ref || !matchId) return;
+    const nextInitials = getAuthorInitials(user);
+    const entries = [
+      { visibility: 'public', text: publicNoteDraft, existing: currentClipPublicNote },
+      { visibility: 'private', text: privateNoteDraft, existing: currentClipPrivateNote },
+    ];
+    for (const entry of entries) {
+      const text = String(entry.text || '').trim();
+      if (!text) {
+        if (entry.existing?.id) await db.entities.VideoNote.delete(entry.existing.id);
+        continue;
+      }
+      const payload = {
+        match_id: matchId,
+        target_type: currentClip.source_type,
+        target_id: String(currentClip.source_ref),
+        visibility: entry.visibility,
+        text,
+        author_user_id: user?.id || null,
+        author_initials: entry.visibility === 'public' ? nextInitials : null,
+      };
+      if (entry.existing?.id) await db.entities.VideoNote.update(entry.existing.id, payload);
+      else await db.entities.VideoNote.create(payload);
+    }
+    await queryClient.invalidateQueries({ queryKey: ['review-notes', matchId] });
+    toast.success('Notes saved');
+  };
 
   const header = (
     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
       <div className="flex items-baseline gap-2">
-        <div className="font-semibold">Video</div>
-        <div className="text-xs text-slate-500">Match {matchId ? matchId.slice(0, 8) : ''}</div>
+        <div className="font-semibold">{reviewMode ? 'Review Player' : 'Video'}</div>
+        <div className="text-xs text-slate-500">
+          {reviewMode ? (reviewReel?.name || 'Highlight Reel') : `Match ${matchId ? matchId.slice(0, 8) : ''}`}
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <div className="font-mono text-sm">{formatTimeMMSS(timeS)}</div>
@@ -425,106 +639,213 @@ export default function Video() {
     </div>
   );
 
+  const sourcePicker = (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={sourceType === 'youtube' ? 'default' : 'outline'}
+          className="h-8"
+          onClick={() => setSourceType('youtube')}
+        >
+          YouTube
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={sourceType === 'local' ? 'default' : 'outline'}
+          className="h-8"
+          onClick={() => setSourceType('local')}
+        >
+          Local File
+        </Button>
+      </div>
+      <Link className="text-xs text-slate-500 underline" to={createPageUrl(`MatchStats?id=${matchId}`)}>
+        Back to Match
+      </Link>
+    </div>
+  );
+
+  const sourceSetup = sourceType === 'youtube' ? (
+    <div className="space-y-1">
+      <Label className="text-xs">YouTube URL</Label>
+      <Input
+        className="h-9"
+        value={youtubeUrl}
+        onChange={(e) => setYoutubeUrl(e.target.value)}
+        placeholder="https://www.youtube.com/watch?v=..."
+      />
+      {!reviewMode ? (
+        <>
+          <div className="text-xs text-slate-500">Tip: press play, then return to the match window to log stats.</div>
+          <div className="text-xs text-slate-500">
+            Note: browsers cannot keep a normal popup "always on top". If your browser/OS supports Picture-in-Picture for YouTube, use that to keep the video visible.
+          </div>
+        </>
+      ) : (
+        <div className="text-xs text-slate-500">The review player uses the saved clip timestamps on top of the current source.</div>
+      )}
+    </div>
+  ) : (
+    <div className="space-y-1">
+      <Label className="text-xs">Video File</Label>
+      <Input
+        className="h-9"
+        type="file"
+        accept="video/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          setFileName(file.name);
+          const url = URL.createObjectURL(file);
+          const v = localVideoRef.current;
+          if (v) {
+            v.src = url;
+            v.load();
+            setReady(true);
+            toast.success('Video loaded');
+          }
+        }}
+      />
+      {fileName ? <div className="text-xs text-slate-500">Loaded: {fileName}</div> : <div className="text-xs text-slate-500">Select a file (local-only).</div>}
+      <div className="text-xs text-slate-500">
+        Tip: use the <span className="font-semibold">PiP</span> button in the header to keep the video above the logger while you click the pitch.
+      </div>
+    </div>
+  );
+
+  const playerSurface = (
+    <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
+      {sourceType === 'youtube' ? (
+        <div className="aspect-video bg-black">
+          <div ref={ytContainerRef} className="w-full h-full" />
+        </div>
+      ) : (
+        <video ref={localVideoRef} className="w-full" controls />
+      )}
+    </div>
+  );
+
+  if (reviewMode) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {header}
+        <div ref={reviewRootRef} className="mx-auto max-w-7xl px-4 py-4">
+          <div className={`grid gap-4 ${showClipList ? 'lg:grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+            {showClipList ? (
+              <div className="rounded-xl border bg-white shadow-sm">
+                <div className="border-b px-3 py-2 text-sm font-semibold text-slate-900">Clips</div>
+                <div className="max-h-[78vh] overflow-y-auto p-2">
+                  {reviewClips.map((clip, index) => (
+                    <button
+                      key={clip.id || `${clip.source_ref}-${index}`}
+                      type="button"
+                      className={`mb-2 w-full rounded-lg border px-3 py-2 text-left text-sm ${index === currentClipIndex ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+                      onClick={() => jumpToClip(index, { autoplay: true })}
+                    >
+                      <div className="font-medium">{clip.label || `Clip ${index + 1}`}</div>
+                      <div className={`text-xs ${index === currentClipIndex ? 'text-slate-200' : 'text-slate-500'}`}>
+                        {formatTimeMMSS(Number(clip.start_time))} - {formatTimeMMSS(Number(clip.end_time))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="space-y-4">
+              {sourcePicker}
+              <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
+                {sourceSetup}
+                {playerSurface}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className="h-8" disabled={currentClipIndex <= 0} onClick={() => jumpToClip(currentClipIndex - 1, { autoplay: true })}>Previous Clip</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" disabled={currentClipIndex >= reviewClips.length - 1} onClick={() => jumpToClip(currentClipIndex + 1, { autoplay: true })}>Next Clip</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-3)}>-3s</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(3)}>+3s</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={requestReviewFullscreen}>Fullscreen</Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <span>Autoplay</span>
+                    <Switch checked={autoplayEnabled} onCheckedChange={setAutoplayEnabled} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>Show Clip List</span>
+                    <Switch checked={showClipList} onCheckedChange={setShowClipList} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>Show Notes</span>
+                    <Switch checked={showNotes} onCheckedChange={setShowNotes} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Space Play/Pause</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">← -3s</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">→ +3s</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">↑ Previous</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">↓ Next</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">L Clip List</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">N Notes</span>
+                </div>
+              </div>
+                {showNotes ? (
+                  <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
+                    <div className="text-sm font-semibold text-slate-900">Notes</div>
+                    <div className="space-y-3">
+                      <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                        <Button type="button" variant={noteVisibilityTab === 'public' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('public')}>
+                          Public
+                        </Button>
+                        <Button type="button" variant={noteVisibilityTab === 'private' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('private')}>
+                          Private
+                        </Button>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900">
+                          <span>{noteVisibilityTab === 'public' ? 'Public' : 'Private'}</span>
+                          {noteVisibilityTab === 'public' && currentClipPublicNote?.author_initials ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px]">{currentClipPublicNote.author_initials}</span> : null}
+                        </div>
+                        <Textarea
+                          value={noteVisibilityTab === 'public' ? publicNoteDraft : privateNoteDraft}
+                          onChange={(e) => noteVisibilityTab === 'public' ? setPublicNoteDraft(e.target.value) : setPrivateNoteDraft(e.target.value)}
+                          rows={7}
+                          placeholder={noteVisibilityTab === 'public' ? 'Shared with the match' : 'Private to your copy'}
+                        />
+                      </div>
+                    </div>
+                  <div className="flex items-center justify-end">
+                    <Button type="button" disabled={!currentClip} onClick={saveCurrentClipNotes}>Save Notes</Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       {header}
       <div className="max-w-5xl mx-auto px-4 py-4 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={sourceType === 'youtube' ? 'default' : 'outline'}
-              className="h-8"
-              onClick={() => setSourceType('youtube')}
-            >
-              YouTube
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={sourceType === 'local' ? 'default' : 'outline'}
-              className="h-8"
-              onClick={() => setSourceType('local')}
-            >
-              Local File
-            </Button>
+        {sourcePicker}
+        <div className="space-y-2">
+          {sourceSetup}
+          {playerSurface}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-10)}>-10s</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(10)}>+10s</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(-0.25)}>Slower</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(0.25)}>Faster</Button>
           </div>
-          <Link className="text-xs text-slate-500 underline" to={createPageUrl(`MatchStats?id=${matchId}`)}>
-            Back to Match
-          </Link>
+          {sourceType === 'youtube' && !extractYouTubeId(youtubeUrl) ? (
+            <div className="text-xs text-slate-600">Paste a valid YouTube URL to load the player.</div>
+          ) : null}
         </div>
-
-        {sourceType === 'youtube' ? (
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <Label className="text-xs">YouTube URL</Label>
-              <Input
-                className="h-9"
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-              />
-              <div className="text-xs text-slate-500">Tip: press play, then return to the match window to log stats.</div>
-              <div className="text-xs text-slate-500">
-                Note: browsers cannot keep a normal popup "always on top". If your browser/OS supports Picture-in-Picture for YouTube, use that to keep the video visible.
-              </div>
-            </div>
-            <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
-              <div className="aspect-video bg-black">
-                <div ref={ytContainerRef} className="w-full h-full" />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-10)}>-10s</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(10)}>+10s</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(-0.25)}>Slower</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(0.25)}>Faster</Button>
-            </div>
-            {!extractYouTubeId(youtubeUrl) && (
-              <div className="text-xs text-slate-600">Paste a valid YouTube URL to load the player.</div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Video File</Label>
-              <Input
-                className="h-9"
-                type="file"
-                accept="video/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setFileName(file.name);
-                  const url = URL.createObjectURL(file);
-                  const v = localVideoRef.current;
-                  if (v) {
-                    v.src = url;
-                    v.load();
-                    setReady(true);
-                    toast.success('Video loaded');
-                  }
-                }}
-              />
-              {fileName ? <div className="text-xs text-slate-500">Loaded: {fileName}</div> : <div className="text-xs text-slate-500">Select a file (local-only).</div>}
-              <div className="text-xs text-slate-500">
-                Tip: use the <span className="font-semibold">PiP</span> button in the header to keep the video above the logger while you click the pitch.
-              </div>
-            </div>
-            <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
-              <video ref={localVideoRef} className="w-full" controls />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-10)}>-10s</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(10)}>+10s</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(-0.25)}>Slower</Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => changePlaybackRate(0.25)}>Faster</Button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

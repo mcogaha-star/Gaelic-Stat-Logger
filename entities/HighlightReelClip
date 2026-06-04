@@ -1,0 +1,53 @@
+{
+  "name": "HighlightReelClip",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string"
+    },
+    "reel_id": {
+      "type": "string"
+    },
+    "reel_type": {
+      "type": "string",
+      "enum": [
+        "play",
+        "possession"
+      ]
+    },
+    "source_type": {
+      "type": "string"
+    },
+    "source_ref": {
+      "type": "string"
+    },
+    "play_id": {
+      "type": "number"
+    },
+    "possession_id": {
+      "type": "number"
+    },
+    "label": {
+      "type": "string"
+    },
+    "start_time": {
+      "type": "number"
+    },
+    "end_time": {
+      "type": "number"
+    },
+    "order_index": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "match_id",
+    "reel_id",
+    "reel_type",
+    "source_type",
+    "source_ref",
+    "label",
+    "start_time",
+    "end_time"
+  ]
+}
