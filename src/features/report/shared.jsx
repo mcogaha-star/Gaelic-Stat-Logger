@@ -1048,6 +1048,12 @@ function normalizePlayerRef(sel) {
   return null;
 }
 
+function normalizeTeamSideRef(sel) {
+  if (!sel || typeof sel !== 'object') return null;
+  if (sel.team_side === 'home' || sel.team_side === 'away') return sel.team_side;
+  return null;
+}
+
 function getPrimaryActorSelection(stat, extra) {
   if (!stat) return null;
   if (stat.stat_type === 'shot') {
@@ -1124,12 +1130,74 @@ function attackTypeStateKey(state) {
   return 'attack_type_set';
 }
 
-function getPossessionStartZone(actingStats) {
-  const first = (Array.isArray(actingStats) ? actingStats : []).find((s) => Number.isFinite(Number(s?.x_position)));
-  const sx = Number(first?.x_position);
+function getPossessionStartZone(actingStats, options = {}) {
+  const list = Array.isArray(actingStats) ? actingStats : [];
+  const startSource = String(options?.startSource || '');
+  const previousStat = options?.previousStat || null;
+  const teamSide = options?.teamSide;
+  const match = options?.match || null;
+  const firstAny = list[0] || null;
+  const acting = list.filter((s) => !teamSide || s?.team_side === teamSide);
+  const firstActing = acting.find((s) =>
+    Number.isFinite(Number(s?.raw_x_position)) || Number.isFinite(Number(s?.x_position))
+  );
+  const sourceKickout = list.find((s) => s?.stat_type === 'kickout')
+    || (previousStat?.stat_type === 'kickout' ? previousStat : null);
+  const sourceThrowIn = list.find((s) => s?.stat_type === 'throw_in')
+    || (previousStat?.stat_type === 'throw_in' ? previousStat : null);
+  const half = String(
+    sourceKickout?.half
+    || sourceThrowIn?.half
+    || firstActing?.half
+    || previousStat?.half
+    || firstAny?.half
+    || 'first'
+  );
+
+  const getDirectionByPeriod = (matchValue) => {
+    const fallback = { first: 'right', second: 'left', et_first: 'right', et_second: 'left' };
+    const raw = matchValue?.direction_by_period;
+    if (!raw) return fallback;
+    if (typeof raw === 'object') return { ...fallback, ...raw };
+    try {
+      return { ...fallback, ...JSON.parse(raw) };
+    } catch {
+      return fallback;
+    }
+  };
+  const homeAttacksRight = getDirectionByPeriod(match)?.[half] !== 'left';
+  const normalizeRawToHomePerspective = (rawX) => {
+    const value = Number(rawX);
+    if (!Number.isFinite(value)) return NaN;
+    return homeAttacksRight ? value : (PITCH_W - value);
+  };
+  const getStatStartX = (stat) => {
+    const raw = Number(stat?.raw_x_position);
+    if (Number.isFinite(raw)) return normalizeRawToHomePerspective(raw);
+    const fallback = Number(stat?.x_position);
+    return Number.isFinite(fallback) ? fallback : NaN;
+  };
+  const getKickoutEndX = (stat) => {
+    const rawEnd = Number(stat?.raw_end_x_position);
+    if (Number.isFinite(rawEnd)) return normalizeRawToHomePerspective(rawEnd);
+    const end = Number(stat?.end_x_position);
+    if (Number.isFinite(end)) return end;
+    return getStatStartX(stat);
+  };
+
+  let sx = NaN;
+  if (startSource === 'Kickout Won') {
+    sx = getKickoutEndX(sourceKickout);
+  } else if (startSource === 'Throw In Won') {
+    sx = getStatStartX(sourceThrowIn);
+  } else {
+    sx = getStatStartX(firstActing);
+  }
+
   if (!Number.isFinite(sx)) return 'NA';
-  if (sx < PITCH_W / 3) return 'Defensive Third';
-  if (sx < (2 * PITCH_W) / 3) return 'Middle Third';
+  const perspectiveX = teamSide === 'away' ? (PITCH_W - sx) : sx;
+  if (perspectiveX < PITCH_W / 3) return 'Defensive Third';
+  if (perspectiveX < (2 * PITCH_W) / 3) return 'Middle Third';
   return 'Attacking Third';
 }
 
@@ -1313,10 +1381,93 @@ function buildTouchesMap(stats, playerOptions = []) {
   return out;
 }
 
-function buildDefensiveActions(stats) {
+function buildDefensiveActions(stats, options = {}) {
+  const match = options?.match || null;
   const teamActions = [];
+  const debugRows = [];
   const playerActions = [];
   const playerSeen = new Set();
+  const fallbackDirectionByPeriod = { first: 'right', second: 'left', et_first: 'right', et_second: 'left' };
+  const getDirectionByPeriod = () => {
+    const raw = match?.direction_by_period;
+    if (!raw) return fallbackDirectionByPeriod;
+    if (typeof raw === 'object') return { ...fallbackDirectionByPeriod, ...raw };
+    try {
+      return { ...fallbackDirectionByPeriod, ...JSON.parse(raw) };
+    } catch {
+      return fallbackDirectionByPeriod;
+    }
+  };
+  const directionByPeriod = getDirectionByPeriod();
+  const normalizeRawPoint = (stat, rawX, rawY, fallbackX, fallbackY) => {
+    const xRaw = Number(rawX);
+    const yRaw = Number(rawY);
+    const half = String(stat?.half || 'first');
+    const directionUsed = directionByPeriod?.[half] || 'right';
+    if (Number.isFinite(xRaw) && Number.isFinite(yRaw)) {
+      const homeAttacksRight = directionUsed !== 'left';
+      return homeAttacksRight
+        ? {
+            x: xRaw,
+            y: yRaw,
+            directionUsed,
+            transformApplied: 'raw_to_home_attacking_right',
+          }
+        : {
+            x: PITCH_W - xRaw,
+            y: PITCH_H - yRaw,
+            directionUsed,
+            transformApplied: 'raw_to_home_attacking_right',
+          };
+    }
+    const fx = Number(fallbackX);
+    const fy = Number(fallbackY);
+    if (Number.isFinite(fx) && Number.isFinite(fy)) {
+      return {
+        x: fx,
+        y: fy,
+        directionUsed,
+        transformApplied: 'fallback_display_no_normalise',
+      };
+    }
+    return null;
+  };
+  const toDefensiveDisplayPoint = (stat, teamSide, rawX, rawY, fallbackX, fallbackY) => {
+    const normalized = normalizeRawPoint(stat, rawX, rawY, fallbackX, fallbackY);
+    if (!normalized) return null;
+    return {
+      ...normalized,
+      mirrorApplied: false,
+    };
+  };
+  const resolveCoordinate = (stat, kind = 'event') => {
+    const rawEndX = Number(stat?.raw_end_x_position);
+    const rawEndY = Number(stat?.raw_end_y_position);
+    const rawStartX = Number(stat?.raw_x_position);
+    const rawStartY = Number(stat?.raw_y_position);
+    const endX = Number(stat?.end_x_position);
+    const endY = Number(stat?.end_y_position);
+    const startX = Number(stat?.x_position);
+    const startY = Number(stat?.y_position);
+    const turnoverUsesEndpoint = kind === 'turnover' && ['pass', 'carry'].includes(String(stat?.stat_type || ''));
+    if (turnoverUsesEndpoint && Number.isFinite(rawEndX) && Number.isFinite(rawEndY)) {
+      return { rawX: rawEndX, rawY: rawEndY, fallbackX: endX, fallbackY: endY, coordSource: 'raw_end', coordFrame: 'raw', locationConfidence: 'high' };
+    }
+    if (Number.isFinite(rawStartX) && Number.isFinite(rawStartY)) {
+      return { rawX: rawStartX, rawY: rawStartY, fallbackX: startX, fallbackY: startY, coordSource: 'raw_start', coordFrame: 'raw', locationConfidence: kind === 'turnover' ? 'medium' : 'high' };
+    }
+    if (turnoverUsesEndpoint && Number.isFinite(endX) && Number.isFinite(endY)) {
+      return { rawX: NaN, rawY: NaN, fallbackX: endX, fallbackY: endY, coordSource: 'end_fallback', coordFrame: 'display_or_unknown', locationConfidence: 'low' };
+    }
+    if (Number.isFinite(startX) && Number.isFinite(startY)) {
+      return { rawX: NaN, rawY: NaN, fallbackX: startX, fallbackY: startY, coordSource: 'start_fallback', coordFrame: 'display_or_unknown', locationConfidence: 'low' };
+    }
+    return { rawX: NaN, rawY: NaN, fallbackX: NaN, fallbackY: NaN, coordSource: 'missing_coordinates', coordFrame: 'none', locationConfidence: 'none' };
+  };
+  const TECHNICAL_FOUL_TYPES = new Set(['technical', 'breach', 'advancement', 'dissent']);
+  const OFFENSIVE_FOUL_TYPES = new Set(['throw', 'double_bounce', 'doublebounce', 'charge', 'overcarry']);
+  const isTechnicalFoulType = (value) => TECHNICAL_FOUL_TYPES.has(normalizeFoulType(value));
+  const isOffensiveFoulType = (value) => OFFENSIVE_FOUL_TYPES.has(normalizeFoulType(value));
   const addPlayerAction = (stat, sel, reason, x, y) => {
     const player = normalizePlayerRef(sel);
     if (!player) return;
@@ -1325,14 +1476,15 @@ function buildDefensiveActions(stats) {
     playerSeen.add(key);
     playerActions.push({
       key,
-      stat,
-      player,
-      teamSide: player.team_side,
-      reason,
-      x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
-      y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
-    });
-  };
+        stat,
+        player,
+        teamSide: player.team_side,
+        reason,
+        metricIncluded: true,
+        x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
+        y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
+      });
+    };
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat) continue;
@@ -1340,77 +1492,245 @@ function buildDefensiveActions(stats) {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const actionsForRow = new Set();
 
-    const addTeamAction = (teamSide, reason, x, y, frameTeamSide = null) => {
-      if (teamSide !== 'home' && teamSide !== 'away') return;
-      const key = `${stat?.id || 'stat'}:${teamSide}`;
-      if (actionsForRow.has(key)) return;
-      actionsForRow.add(key);
-      teamActions.push({
-        key,
-        stat,
-        teamSide,
-        colorTeamSide: teamSide,
-        frameTeamSide: frameTeamSide === 'home' || frameTeamSide === 'away' ? frameTeamSide : null,
-        reason,
-        x: Number.isFinite(Number(x)) ? Number(x) : Number(stat?.x_position),
-        y: Number.isFinite(Number(y)) ? Number(y) : Number(stat?.y_position),
-      });
-    };
+      const addTeamAction = (teamSide, reason, rawPoint, meta = {}) => {
+        const key = `${stat?.id || 'stat'}:${teamSide}`;
+        if (actionsForRow.has(key)) return;
+        const display = toDefensiveDisplayPoint(
+          stat,
+          teamSide,
+          rawPoint?.rawX,
+          rawPoint?.rawY,
+          rawPoint?.fallbackX,
+          rawPoint?.fallbackY
+        );
+        actionsForRow.add(key);
+        const row = {
+          key,
+          stat,
+          statId: stat?.id || null,
+          teamSide,
+          team: teamSide,
+          colorTeamSide: teamSide,
+          frameTeamSide: meta?.frameTeamSide === 'home' || meta?.frameTeamSide === 'away' ? meta.frameTeamSide : null,
+          period: stat?.half || '',
+          half: stat?.half || '',
+          reason,
+          primaryCategory: meta?.primaryCategory || meta?.actionCategory || 'pressure',
+          actionCategory: meta?.actionCategory || 'pressure',
+          filterTags: Array.isArray(meta?.filterTags) ? Array.from(new Set(meta.filterTags.filter(Boolean))) : [String(reason || '').toLowerCase()],
+          metricIncluded: meta?.metricIncluded !== false,
+          excludedReason: meta?.excludedReason || null,
+          sourceType: stat?.stat_type || '',
+          actingTeamSide: meta?.actingTeamSide || stat?.team_side || null,
+          committingTeamSide: meta?.committingTeamSide || null,
+          playerLabel: meta?.playerLabel || '',
+          oppositionPlayerLabel: meta?.oppositionPlayerLabel || '',
+          defenderLabel: meta?.defenderLabel || '',
+          forcedByLabel: meta?.forcedByLabel || '',
+          recoveredByLabel: meta?.recoveredByLabel || '',
+          fouledByLabel: meta?.fouledByLabel || '',
+          lostByLabel: meta?.lostByLabel || '',
+          pressure: meta?.pressure || '',
+          turnoverType: meta?.turnoverType || '',
+          foulType: meta?.foulType || '',
+          isTechnicalFoul: !!meta?.isTechnicalFoul,
+          isOffensiveFoul: !!meta?.isOffensiveFoul,
+          turnoverWonBy: meta?.turnoverWonBy || '',
+          turnoverLostBy: meta?.turnoverLostBy || '',
+          outcome: meta?.outcome || deriveOutcome(stat, extra) || '',
+          rawX: Number.isFinite(Number(rawPoint?.rawX)) ? Number(rawPoint.rawX) : NaN,
+          rawY: Number.isFinite(Number(rawPoint?.rawY)) ? Number(rawPoint.rawY) : NaN,
+          fallbackX: Number.isFinite(Number(rawPoint?.fallbackX)) ? Number(rawPoint.fallbackX) : NaN,
+          fallbackY: Number.isFinite(Number(rawPoint?.fallbackY)) ? Number(rawPoint.fallbackY) : NaN,
+          normalizedX: Number.isFinite(Number(display?.x)) ? Number(display.x) : NaN,
+          normalizedY: Number.isFinite(Number(display?.y)) ? Number(display.y) : NaN,
+          displayX: Number.isFinite(Number(display?.x)) ? Number(display.x) : NaN,
+          displayY: Number.isFinite(Number(display?.y)) ? Number(display.y) : NaN,
+          coordSource: rawPoint?.coordSource || 'missing_coordinates',
+          coordFrame: rawPoint?.coordFrame || 'none',
+          locationConfidence: rawPoint?.locationConfidence || 'none',
+          directionByPeriodUsed: display?.directionUsed || (directionByPeriod?.[String(stat?.half || 'first')] || 'right'),
+          transformApplied: display?.transformApplied || 'missing_coordinates',
+          mirrorApplied: !!display?.mirrorApplied,
+          missingCoordinateReason:
+            rawPoint?.coordSource === 'missing_coordinates'
+              ? 'missing_coordinates'
+              : (!Number.isFinite(Number(display?.x)) || !Number.isFinite(Number(display?.y)) ? 'unusable_coordinates' : null),
+          x: Number.isFinite(Number(display?.x)) ? Number(display.x) : Number(stat?.x_position),
+          y: Number.isFinite(Number(display?.y)) ? Number(display.y) : Number(stat?.y_position),
+        };
+        debugRows.push(row);
+        if (teamSide === 'home' || teamSide === 'away') {
+          teamActions.push(row);
+        }
+      };
 
-    if (stat.stat_type === 'turnover' || extra?.turnover) {
-      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
-      const recovered = normalizePlayerRef(extra?.turnover?.recovered_by);
-      const forced = normalizePlayerRef(extra?.turnover?.forced_by);
-      const teamSide =
-        recovered?.team_side
-        || forced?.team_side
-        || (turnoverType === 'foul'
-          ? normalizePlayerRef(extractFoulFromStat(stat)?.foul_on || extractFoulFromStat(stat)?.foul_on_or_forced_by)?.team_side
-          : null);
-      const frameTeamSide =
-        normalizePlayerRef(extra?.turnover?.lost_by)?.team_side
-        || stat?.team_side
-        || null;
-      // Turnover defensive actions are plotted at the regain/turnover endpoint.
-      addTeamAction(teamSide, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, frameTeamSide);
-      if (turnoverType !== 'foul') {
-        addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+      const foul = extractFoulFromStat(stat);
+      const foulType = String(foul?.foul_type || '');
+      const technicalFoul = isTechnicalFoulType(foulType);
+      const offensiveFoul = isOffensiveFoulType(foulType);
+      const embeddedTurnover = statHasEmbeddedTurnover(stat);
+      const turnoverData = embeddedTurnover ? (extra?.turnover || {}) : null;
+      const turnoverType = normalizeOutcomeAlias(
+        turnoverData?.turnover_type
+        || turnoverData?.type
+        || extra?.turnover_type
+        || extra?.pass?.turnover_type
+        || extra?.carry?.turnover_type,
+        'turnover'
+      );
+
+      if (turnoverData) {
+        const recovered = normalizePlayerRef(extra?.turnover?.recovered_by);
+        const forced = normalizePlayerRef(extra?.turnover?.forced_by);
+        const lostPlayer = normalizePlayerRef(extra?.turnover?.lost_by);
+        const actingTeamSide = lostPlayer?.team_side || stat?.team_side || null;
+        const teamSide =
+          recovered?.team_side
+          || forced?.team_side
+          || (turnoverType === 'foul'
+            ? (normalizePlayerRef(foul?.foul_on || foul?.foul_on_or_forced_by)?.team_side
+              || normalizeTeamSideRef(foul?.foul_on || foul?.foul_on_or_forced_by))
+            : oppositeTeamSide(actingTeamSide));
+        const frameTeamSide =
+          lostPlayer?.team_side
+          || stat?.team_side
+          || null;
+        const turnoverCoord = resolveCoordinate(stat, 'turnover');
+        const offensiveTurnover = isOffensiveFoulType(turnoverType) || offensiveFoul;
+        const technicalTurnover = isTechnicalFoulType(turnoverType) || technicalFoul;
+        const mapOnlyTurnover = offensiveTurnover || technicalTurnover;
+        const turnoverFilterTags = ['turnover'];
+        if (foul || turnoverType === 'foul' || technicalTurnover || offensiveTurnover) turnoverFilterTags.push('foul');
+        if (technicalTurnover) turnoverFilterTags.push('technical_foul');
+        if (offensiveTurnover) turnoverFilterTags.push('offensive_foul');
+        addTeamAction(
+          teamSide,
+          'Turnover Won',
+          turnoverCoord,
+          {
+          frameTeamSide,
+          primaryCategory: 'turnover',
+          actionCategory: 'turnover',
+          filterTags: turnoverFilterTags,
+          metricIncluded: !mapOnlyTurnover,
+          excludedReason: mapOnlyTurnover ? 'offensive_or_technical_foul_turnover' : null,
+          actingTeamSide,
+          committingTeamSide: lostPlayer?.team_side || actingTeamSide,
+          playerLabel: selectionTooltipLabel(recovered || forced || lostPlayer || foul?.foul_by || null),
+          oppositionPlayerLabel: selectionTooltipLabel(lostPlayer || foul?.foul_on || foul?.foul_on_or_forced_by || null),
+          forcedByLabel: selectionTooltipLabel(forced || null),
+          recoveredByLabel: selectionTooltipLabel(recovered || null),
+          lostByLabel: selectionTooltipLabel(lostPlayer || null),
+          pressure: '',
+          turnoverType: toTitleCase(turnoverType || 'unknown'),
+          foulType: foulType,
+          isTechnicalFoul: technicalTurnover,
+          isOffensiveFoul: offensiveTurnover,
+          turnoverWonBy: teamSide,
+          turnoverLostBy: lostPlayer?.team_side || '',
+          outcome: deriveOutcome(stat, extra) || 'turnover',
+        });
+        if (turnoverType !== 'foul') {
+          addPlayerAction(stat, recovered, 'Turnover Recovered', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+        }
+        addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
+        continue;
       }
-      addPlayerAction(stat, forced, 'Turnover Forced', stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position);
-      if (stat.stat_type === 'carry' && String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
-        addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+
+      if (foul) {
+        const foulingTeam = foul?.foul_by?.team_side || null;
+        const foulCoord = resolveCoordinate(stat, 'event');
+        addTeamAction(foulingTeam, 'Foul', foulCoord, {
+          frameTeamSide: foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || stat?.team_side || null,
+          primaryCategory: technicalFoul ? 'technical_foul' : offensiveFoul ? 'offensive_foul' : 'foul',
+          actionCategory: technicalFoul ? 'technical_foul' : offensiveFoul ? 'offensive_foul' : 'foul',
+          filterTags: [
+            'foul',
+            ...(technicalFoul ? ['technical_foul'] : []),
+            ...(offensiveFoul ? ['offensive_foul'] : []),
+          ],
+          metricIncluded: !(technicalFoul || offensiveFoul),
+          excludedReason: technicalFoul || offensiveFoul ? 'technical_offensive_foul' : null,
+          actingTeamSide: stat?.team_side || foulingTeam,
+          committingTeamSide: foulingTeam,
+          playerLabel: selectionTooltipLabel(foul?.foul_by || null),
+          oppositionPlayerLabel: selectionTooltipLabel(foul?.foul_on || foul?.foul_on_or_forced_by || null),
+          fouledByLabel: selectionTooltipLabel(foul?.foul_by || null),
+          foulType,
+          isTechnicalFoul: technicalFoul,
+          isOffensiveFoul: offensiveFoul,
+          outcome: deriveOutcome(stat, extra) || 'foul',
+        });
+        continue;
       }
-      continue;
+
+      if (stat.stat_type === 'carry') {
+        const carrierSide = extra?.carry?.carrier?.team_side || stat?.team_side;
+        if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
+          const defendingSide = oppositeTeamSide(carrierSide);
+          addTeamAction(defendingSide, 'High Pressure', resolveCoordinate(stat, 'event'), {
+            frameTeamSide: carrierSide,
+            primaryCategory: 'pressure',
+            actionCategory: 'pressure',
+            filterTags: ['pressure'],
+            metricIncluded: true,
+            actingTeamSide: carrierSide,
+            committingTeamSide: carrierSide,
+            playerLabel: selectionTooltipLabel(extra?.carry?.defender || null),
+            oppositionPlayerLabel: selectionTooltipLabel(extra?.carry?.carrier || null),
+            defenderLabel: selectionTooltipLabel(extra?.carry?.defender || null),
+            pressure: 'high',
+            outcome: deriveOutcome(stat, extra) || 'carry',
+          });
+          addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
+        }
+        continue;
+      }
+
+      if (stat.stat_type === 'pass') {
+        const passerSide = extra?.pass?.passer?.team_side || stat?.team_side;
+        if (String(extra?.pass?.pressure_on_passer || '').toLowerCase() === 'high') {
+          addTeamAction(oppositeTeamSide(passerSide), 'High Pressure', resolveCoordinate(stat, 'event'), {
+            frameTeamSide: passerSide,
+            primaryCategory: 'pressure',
+            actionCategory: 'pressure',
+            filterTags: ['pressure'],
+            metricIncluded: true,
+            actingTeamSide: passerSide,
+            committingTeamSide: passerSide,
+            playerLabel: selectionTooltipLabel(extra?.pass?.defender || null),
+            oppositionPlayerLabel: selectionTooltipLabel(extra?.pass?.passer || null),
+            defenderLabel: selectionTooltipLabel(extra?.pass?.defender || null),
+            pressure: 'high',
+            outcome: deriveOutcome(stat, extra) || 'pass',
+          });
+        }
+        continue;
+      }
+
+      if (stat.stat_type === 'shot') {
+        const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
+        if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') {
+          addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure', resolveCoordinate(stat, 'event'), {
+            frameTeamSide: shooterSide,
+            primaryCategory: 'pressure',
+            actionCategory: 'pressure',
+            filterTags: ['pressure'],
+            metricIncluded: true,
+            actingTeamSide: shooterSide,
+            committingTeamSide: shooterSide,
+            playerLabel: selectionTooltipLabel(extra?.shot?.defender || null),
+            oppositionPlayerLabel: selectionTooltipLabel(extra?.shot?.player || null),
+            defenderLabel: selectionTooltipLabel(extra?.shot?.defender || null),
+            pressure: 'high',
+            outcome: deriveOutcome(stat, extra) || 'shot',
+          });
+        }
+      }
     }
 
-    if (stat.stat_type === 'carry') {
-      const carrierSide = extra?.carry?.carrier?.team_side || stat?.team_side;
-      if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
-        const defendingSide = oppositeTeamSide(carrierSide);
-        // Pressure defensive actions stay at the event point.
-        addTeamAction(defendingSide, 'High Pressure Carry', stat?.x_position, stat?.y_position, carrierSide);
-        addPlayerAction(stat, extra?.carry?.defender, 'High Pressure Carry', stat?.x_position, stat?.y_position);
-      }
-      continue;
-    }
-
-    if (stat.stat_type === 'pass') {
-      const passerSide = extra?.pass?.passer?.team_side || stat?.team_side;
-      if (String(extra?.pass?.pressure_on_passer || '').toLowerCase() === 'high') {
-        addTeamAction(oppositeTeamSide(passerSide), 'High Pressure Pass', stat?.x_position, stat?.y_position, passerSide);
-      }
-      continue;
-    }
-
-    if (stat.stat_type === 'shot') {
-      const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
-      if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') {
-        addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure Shot', stat?.x_position, stat?.y_position, shooterSide);
-      }
-    }
-  }
-
-  return { teamActions, playerActions };
+  return { teamActions, playerActions, debugRows };
 }
 
 function DirectionBadge({ className = '', label = 'Attacking ->' }) {

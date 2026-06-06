@@ -525,7 +525,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       const counterState = deriveCounterAttackState(acting);
       const attackType = deriveAttackTypeState(acting);
       const attackEntryChannel = isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '';
-      const startZone = getPossessionStartZone(acting);
+      const startZone = getPossessionStartZone(evs, { startSource, previousStat, teamSide, match: reportFilters?.match });
 
       out.push({
         key,

@@ -1139,7 +1139,7 @@ function DataTab({
         isAttack,
         attackType: deriveAttackTypeState(acting),
         attackEntryChannel: isAttack ? getAttackEntryChannelForPossession(evs, teamSide) : '',
-        startZone: getPossessionStartZone(acting),
+        startZone: getPossessionStartZone(evs, { startSource, previousStat, teamSide, match }),
         passes,
         shots,
         points,

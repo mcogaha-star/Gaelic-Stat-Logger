@@ -1034,10 +1034,10 @@ function BuildUpTab({
         if (!String(key).startsWith(side + '-')) continue;
         const acting = evs.filter((e) => e && e.team_side === side);
         if (!acting.length) continue;
-        const zone = getPossessionStartZone(acting);
-        if (startZones[zone] != null) startZones[zone] += 1;
         const previousStat = previousByPossessionKey.get(key) || null;
         const startSource = inferPossessionStartSource(evs, side, previousStat || []);
+        const zone = getPossessionStartZone(evs, { startSource, previousStat, teamSide: side, match: reportFilters?.match });
+        if (startZones[zone] != null) startZones[zone] += 1;
         const liveStartAnchor = getLivePossessionStartAnchor(previousStat, startSource, reportFilters?.match, reportFilters?.imputedTimeById);
         const timeSummary = getPossessionTimeSummary(evs, side, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
         const liveDuration = Number.isFinite(timeSummary.liveSeconds)
