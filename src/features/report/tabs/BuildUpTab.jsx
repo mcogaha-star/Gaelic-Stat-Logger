@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
@@ -39,7 +38,6 @@ import {
   formatMMSS,
   formatPct,
   sortRows,
-  SortableTableHead,
   groupByPossession,
   derivePossessionOutcome,
   deriveCounterAttackState,
@@ -58,7 +56,6 @@ import {
   MatchTimeRangeSlider,
   RangeSliderField,
   DirectionBadge,
-  teamRowTint,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -107,275 +104,6 @@ function getRecipientSelectionForBuildUp(stat, extra) {
   return extra?.pass?.intended_recipient?.kind === 'player'
     ? extra.pass.intended_recipient
     : (extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : getCompletedReceiptSelection(stat, extra));
-}
-
-function canonicalizeCombinationKey(ids) {
-  return (Array.isArray(ids) ? ids : [])
-    .map((id) => String(id || '').trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
-    .join('|');
-}
-
-function buildUnorderedCombinations(ids, size) {
-  const list = Array.isArray(ids) ? ids : [];
-  if (!Number.isInteger(size) || size <= 0 || list.length < size) return [];
-  const output = [];
-  const walk = (start, acc) => {
-    if (acc.length === size) {
-      output.push(acc.slice());
-      return;
-    }
-    for (let i = start; i <= list.length - (size - acc.length); i += 1) {
-      acc.push(list[i]);
-      walk(i + 1, acc);
-      acc.pop();
-    }
-  };
-  walk(0, []);
-  return output;
-}
-
-function getCompletedPassLink(stat, side, playerLookup = new Map(), hiddenPlayerIds = null) {
-  if (!stat || stat.stat_type !== 'pass') return null;
-  const extra = safeParseJSON(stat.extra_data || '{}', {});
-  if (extra?.pass?.outcome !== 'completed') return null;
-  const passer = normalizePlayerRef(extra?.pass?.passer);
-  const receiver = normalizePlayerRef(extra?.pass?.won_by?.kind === 'player' ? extra.pass.won_by : getCompletedReceiptSelection(stat, extra));
-  if (!passer?.id || !receiver?.id || passer.id === receiver.id) return null;
-  if (passer.team_side !== side || receiver.team_side !== side) return null;
-  const hiddenSet = hiddenPlayerIds instanceof Set ? hiddenPlayerIds : new Set(Array.isArray(hiddenPlayerIds) ? hiddenPlayerIds : []);
-  if (hiddenSet.has(passer.id) || hiddenSet.has(receiver.id)) return null;
-  const withFallback = (player) => {
-    const lookup = playerLookup.get(player.id) || {};
-    return {
-      id: player.id,
-      number: player.number ?? lookup.number ?? null,
-      name: player.name || lookup.name || lookup.label || '',
-    };
-  };
-  return {
-    passer: withFallback(passer),
-    receiver: withFallback(receiver),
-    stat,
-  };
-}
-
-function getPassConnectedPlayersForUnit(unitStats, side, playerLookup = new Map(), hiddenPlayerIds = null) {
-  const adjacency = new Map();
-  const members = new Map();
-  (Array.isArray(unitStats) ? unitStats : []).forEach((stat) => {
-    const link = getCompletedPassLink(stat, side, playerLookup, hiddenPlayerIds);
-    if (!link) return;
-    const a = String(link.passer.id);
-    const b = String(link.receiver.id);
-    if (!adjacency.has(a)) adjacency.set(a, new Set());
-    if (!adjacency.has(b)) adjacency.set(b, new Set());
-    adjacency.get(a).add(b);
-    adjacency.get(b).add(a);
-    if (!members.has(a)) members.set(a, link.passer);
-    if (!members.has(b)) members.set(b, link.receiver);
-  });
-
-  const seen = new Set();
-  const components = [];
-  adjacency.forEach((_, id) => {
-    if (seen.has(id)) return;
-    const stack = [id];
-    const component = [];
-    seen.add(id);
-    while (stack.length) {
-      const current = stack.pop();
-      component.push(members.get(current) || { id: current, number: null, name: '' });
-      (adjacency.get(current) || []).forEach((next) => {
-        if (seen.has(next)) return;
-        seen.add(next);
-        stack.push(next);
-      });
-    }
-    components.push(component);
-  });
-  return components;
-}
-
-function formatCombinationPlayer(member) {
-  const name = String(member?.name || '').trim();
-  const shortName = name ? (name.split(/\s+/).filter(Boolean).slice(-1)[0] || name) : '';
-  return shortName || name || 'Player';
-}
-
-function buildTeamPassCombinationCounts(stats, side, size, playerLookup = new Map(), hiddenPlayerIds = null) {
-  const counts = new Map();
-  const record = (members) => {
-    const canonicalIds = canonicalizeCombinationKey(members.map((member) => member?.id));
-    if (!canonicalIds) return;
-    const existing = counts.get(canonicalIds);
-    if (existing) {
-      existing.count += 1;
-      return;
-    }
-    const orderedIds = canonicalIds.split('|');
-    const memberById = new Map(members.map((member) => [String(member.id), member]));
-    counts.set(canonicalIds, {
-      key: canonicalIds,
-      ids: orderedIds,
-      members: orderedIds.map((id) => memberById.get(id) || {
-        id,
-        number: playerLookup.get(id)?.number ?? null,
-        name: playerLookup.get(id)?.name || playerLookup.get(id)?.label || '',
-      }),
-      count: 1,
-    });
-  };
-
-  if (size === 2) {
-    (Array.isArray(stats) ? stats : []).forEach((stat) => {
-      const link = getCompletedPassLink(stat, side, playerLookup, hiddenPlayerIds);
-      if (!link) return;
-      record([link.passer, link.receiver]);
-    });
-  } else {
-    const possessionGroups = groupByPossession(Array.isArray(stats) ? stats : []);
-    possessionGroups.forEach((unitStats, key) => {
-      if (!String(key).startsWith(`${side}-`)) return;
-      const components = getPassConnectedPlayersForUnit(unitStats, side, playerLookup, hiddenPlayerIds);
-      components.forEach((component) => {
-        if (component.length < size) return;
-        const orderedIds = canonicalizeCombinationKey(component.map((member) => member.id)).split('|');
-        const componentMembers = orderedIds.map((id) => component.find((member) => String(member.id) === id) || {
-          id,
-          number: playerLookup.get(id)?.number ?? null,
-          name: playerLookup.get(id)?.name || playerLookup.get(id)?.label || '',
-        });
-        buildUnorderedCombinations(componentMembers, size).forEach((combo) => record(combo));
-      });
-    });
-  }
-
-  return Array.from(counts.values())
-    .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key, undefined, { numeric: true, sensitivity: 'base' }))
-    .map((row, index) => ({
-      ...row,
-      rank: index + 1,
-      label: row.members.map((member) => formatCombinationPlayer(member)).join(' + '),
-    }));
-}
-
-function PlayerCombinationsPane({ stats, side, teamLabel, teamColor, hiddenPlayerIds = null, playerLookup = new Map(), title = 'Player Combinations' }) {
-  const [size, setSize] = useState(2);
-  const [showAllRows, setShowAllRows] = useState(false);
-  const sizeOptions = [
-    { key: 2, label: '2 Players' },
-    { key: 3, label: '3 Players' },
-    { key: 4, label: '4 Players' },
-  ];
-
-  const rows = useMemo(
-    () => buildTeamPassCombinationCounts(stats, side, size, playerLookup, hiddenPlayerIds),
-    [stats, side, size, playerLookup, hiddenPlayerIds],
-  );
-  const displayedRows = useMemo(() => (showAllRows ? rows : rows.slice(0, 8)), [rows, showAllRows]);
-
-  useEffect(() => {
-    setShowAllRows(false);
-  }, [size, side]);
-
-  const emptyLabel = `${teamLabel || toTitleCase(side)} - No ${size}-player passing combinations found for current filters.`;
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="font-semibold text-slate-900">{title}</div>
-          <div className="text-xs text-slate-500">{teamLabel || toTitleCase(side)} passing links</div>
-        </div>
-        <div className="inline-flex rounded-xl bg-slate-100 p-1">
-          {sizeOptions.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => setSize(option.key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                size === option.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {rows.length ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-end">
-            {rows.length > 8 ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => setShowAllRows((current) => !current)}
-              >
-                {showAllRows ? 'Show Top 8' : 'View Full Table'}
-              </Button>
-            ) : null}
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[68px]">Rank</TableHead>
-                <TableHead>Combination</TableHead>
-                <TableHead className="text-right">Count</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayedRows.map((row, index) => (
-                <TableRow key={row.key} style={teamRowTint(side, side === 'home' ? teamColor : null, side === 'away' ? teamColor : null, index % 2 === 0 ? 0.06 : 0.11)}>
-                  <TableCell className="font-medium text-slate-600">{row.rank}</TableCell>
-                  <TableCell className="font-medium">{row.label}</TableCell>
-                  <TableCell className="text-right tabular-nums">{row.count}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-          {emptyLabel}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PlayerCombinationsSection({ stats, homeTeam, awayTeam, homeColor, awayColor, playerLookup, hiddenHomePlayerIds = null, hiddenAwayPlayerIds = null }) {
-  return (
-    <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
-      <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">Player Combinations</div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <PlayerCombinationsPane
-            stats={stats}
-            side="home"
-            title={homeTeam?.name || 'Home'}
-            teamLabel={homeTeam?.name || 'Home'}
-            teamColor={homeColor || '#2563eb'}
-            hiddenPlayerIds={hiddenHomePlayerIds}
-            playerLookup={playerLookup}
-          />
-          <PlayerCombinationsPane
-            stats={stats}
-            side="away"
-            title={awayTeam?.name || 'Away'}
-            teamLabel={awayTeam?.name || 'Away'}
-            teamColor={awayColor || '#ef4444'}
-            hiddenPlayerIds={hiddenAwayPlayerIds}
-            playerLookup={playerLookup}
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function getLivePossessionStartAnchor(previousStat, startSource, match, imputedMap) {
@@ -1118,7 +846,7 @@ function BuildUpTab({
 
   const formatHandKickRatio = (handCount, kickCount) => {
     if (!Number.isFinite(Number(handCount)) || !Number.isFinite(Number(kickCount)) || Number(kickCount) <= 0) return 'NA';
-    return `${(Number(handCount) / Number(kickCount)).toFixed(2)}:1`;
+    return `${(Number(handCount) / Number(kickCount)).toFixed(1)} : 1`;
   };
 
   const networkPasses = useMemo(() => {
@@ -1599,17 +1327,6 @@ function BuildUpTab({
                 </div>
               </CardContent>
             </Card>
-
-            <PlayerCombinationsSection
-              stats={networkPasses}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              homeColor={homeTeam?.color}
-              awayColor={awayTeam?.color}
-              playerLookup={playerLookup}
-              hiddenHomePlayerIds={networkSide === 'home' ? hiddenPlayerIds : null}
-              hiddenAwayPlayerIds={networkSide === 'away' ? hiddenPlayerIds : null}
-            />
           </>
         )}
     </div>

@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
@@ -20,6 +18,7 @@ import {
   getDerivedPossessionDurationSeconds,
   getMatchTimeS,
   getPossessionTimeSummary,
+  getShotExpectedPointsValue,
   isDeadBallGapStart,
   getProgressiveMeters,
   getScoringZoneEntry,
@@ -121,9 +120,42 @@ function formatPossessionHalfLabel(half) {
   return toTitleCase(half || 'NA');
 }
 
+function derivePossessionOriginLabel(possession, { grouped = true } = {}) {
+  const startSource = String(possession?.startSource || '');
+  if (['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved'].includes(startSource)) {
+    return grouped ? 'Shot Missed (Live Ball)' : startSource;
+  }
+  if (startSource !== 'Kickout Won') return startSource;
+  const kickoutStat = getPossessionSourceStat(possession, 'kickout');
+  const kickoutExtra = safeParseJSON(kickoutStat?.extra_data || '{}', {});
+  const kickoutTeamSide = kickoutExtra?.kickout?.team_side || kickoutStat?.team_side;
+  if (kickoutTeamSide === 'home' || kickoutTeamSide === 'away') {
+    return kickoutTeamSide === possession?.teamSide ? 'Own KO Won' : 'Opp KO Won';
+  }
+  return 'Own KO Won';
+}
+
 function getHalfBreakdownLabel(half) {
   if (half === 'first' || half === 'et_first') return '1st';
   if (half === 'second' || half === 'et_second') return '2nd';
+  return 'Unknown';
+}
+
+function getPossessionLengthBucket(possession) {
+  const duration = Number(possession?.duration);
+  if (!Number.isFinite(duration)) return 'Unknown';
+  if (duration <= 10) return '0-10s';
+  if (duration <= 20) return '10-20s';
+  if (duration <= 30) return '20-30s';
+  return '30s+';
+}
+
+function formatPossessionValueGroupLabel(groupBy, possession) {
+  if (groupBy === 'all') return 'All';
+  if (groupBy === 'origin') return formatPossessionZoneLabel(possession?.startZone) || 'NA';
+  if (groupBy === 'source') return derivePossessionOriginLabel(possession);
+  if (groupBy === 'length') return getPossessionLengthBucket(possession);
+  if (groupBy === 'attackType') return String(possession?.attackType || 'Unknown');
   return 'Unknown';
 }
 
@@ -422,6 +454,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const [flowView, setFlowView] = useState('charts');
   const [selectedPossessionSankeyNodeKey, setSelectedPossessionSankeyNodeKey] = useState(null);
   const [showAllPossessions, setShowAllPossessions] = useState(false);
+  const [possessionValueGroupBy, setPossessionValueGroupBy] = useState('all');
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [breakdownCategory, setBreakdownCategory] = useState('');
   const [originBreakdownOpen, setOriginBreakdownOpen] = useState(false);
@@ -498,13 +531,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         ? liveDuration + anchorGap
         : (Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN);
 
-      const points = acting.reduce((a, e) => {
-        if (e.stat_type !== 'shot') return a;
-        if (shouldExcludeFromTotals(e)) return a;
-        const ex = safeParseJSON(e.extra_data || '{}', {});
-        return a + shotPointsForOutcome(ex?.shot?.outcome);
-      }, 0);
-
       const isAttack = isAttackPossession(evs, teamSide);
       const orderedActing = acting.slice().sort((a, b) => {
         const pa = Number(a?.play_id);
@@ -515,6 +541,11 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
         return String(a?.id || '').localeCompare(String(b?.id || ''));
       });
+      const firstValidShot = orderedActing.find((e) => e?.stat_type === 'shot' && !shouldExcludeFromTotals(e)) || null;
+      const firstShotPoints = firstValidShot
+        ? shotPointsForOutcome(safeParseJSON(firstValidShot.extra_data || '{}', {})?.shot?.outcome)
+        : 0;
+      const firstShotXP = firstValidShot ? getShotExpectedPointsValue(firstValidShot) : 0;
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
       const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e)).length;
       const firstOpp45EntryStat = orderedActing.find((stat) => statHasEnteredOpp45(stat));
@@ -543,7 +574,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         isAttack,
         passes,
         shots,
-        points,
+        points: firstShotPoints,
+        xp: firstShotXP,
+        firstShotId: firstValidShot?.id || null,
+        hasFirstShot: !!firstValidShot,
         counterState,
         attackType,
         attackEntryChannel,
@@ -567,7 +601,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       if (attackTypeFilter !== 'any' && attackTypeStateKey(p.attackType) !== attackTypeFilter) return false;
       const groupedOutcome = ['Wide', 'Short', 'Blocked', 'Saved', 'Post'].includes(String(p?.outcome || '')) ? 'Missed Shot' : String(p?.outcome || '');
       if (outcomeFilter.length && !outcomeFilter.includes(groupedOutcome)) return false;
-      const originLabel = deriveOriginLabel(p);
+      const originLabel = derivePossessionOriginLabel(p);
       if (originFilter.length && !originFilter.includes(originLabel)) return false;
       if (startZoneFilter.length && !startZoneFilter.includes(String(p?.startZone || ''))) return false;
       return true;
@@ -575,6 +609,80 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   }, [possessions, attackTypeFilter, outcomeFilter, originFilter, startZoneFilter]);
 
   const attacks = useMemo(() => possessionsFiltered.filter((p) => p.isAttack), [possessionsFiltered]);
+
+  const possessionValueRows = useMemo(() => {
+    const grouped = new Map();
+    for (const possession of possessionsFiltered) {
+      const group = formatPossessionValueGroupLabel(possessionValueGroupBy, possession);
+      if (!grouped.has(group)) {
+        grouped.set(group, {
+          group,
+          homePoss: 0,
+          homeXpTotal: 0,
+          homePtsTotal: 0,
+          awayPoss: 0,
+          awayXpTotal: 0,
+          awayPtsTotal: 0,
+        });
+      }
+      const row = grouped.get(group);
+      if (possession.teamSide === 'home') {
+        row.homePoss += 1;
+        row.homeXpTotal += Number(possession.xp || 0);
+        row.homePtsTotal += Number(possession.points || 0);
+      } else if (possession.teamSide === 'away') {
+        row.awayPoss += 1;
+        row.awayXpTotal += Number(possession.xp || 0);
+        row.awayPtsTotal += Number(possession.points || 0);
+      }
+    }
+
+    const rows = Array.from(grouped.values()).map((row) => ({
+      ...row,
+      homeXpPerPoss: row.homePoss > 0 ? row.homeXpTotal / row.homePoss : null,
+      homePtsPerPoss: row.homePoss > 0 ? row.homePtsTotal / row.homePoss : null,
+      awayXpPerPoss: row.awayPoss > 0 ? row.awayXpTotal / row.awayPoss : null,
+      awayPtsPerPoss: row.awayPoss > 0 ? row.awayPtsTotal / row.awayPoss : null,
+    }));
+
+    const preferredOrder = possessionValueGroupBy === 'all'
+      ? ['All']
+      : possessionValueGroupBy === 'origin'
+      ? ['Def 1/3', 'Mid 1/3', 'Att 1/3', 'NA']
+      : possessionValueGroupBy === 'source'
+      ? ['Turnover Won', 'Own KO Won', 'Opp KO Won', 'Shot Missed (Live Ball)', 'Throw In Won']
+      : possessionValueGroupBy === 'length'
+      ? ['0-10s', '10-20s', '20-30s', '30s+', 'Unknown']
+      : [];
+    const orderIndex = new Map(preferredOrder.map((label, index) => [label, index]));
+    rows.sort((a, b) => {
+      const ai = orderIndex.has(a.group) ? orderIndex.get(a.group) : 999;
+      const bi = orderIndex.has(b.group) ? orderIndex.get(b.group) : 999;
+      if (ai !== bi) return ai - bi;
+      return String(a.group).localeCompare(String(b.group));
+    });
+    return rows;
+  }, [possessionsFiltered, possessionValueGroupBy]);
+
+  const possessionValueRowsHome = useMemo(
+    () => possessionValueRows.map((row) => ({
+      group: row.group,
+      poss: row.homePoss,
+      xpPerPoss: row.homeXpPerPoss,
+      ptsPerPoss: row.homePtsPerPoss,
+    })),
+    [possessionValueRows]
+  );
+
+  const possessionValueRowsAway = useMemo(
+    () => possessionValueRows.map((row) => ({
+      group: row.group,
+      poss: row.awayPoss,
+      xpPerPoss: row.awayXpPerPoss,
+      ptsPerPoss: row.awayPtsPerPoss,
+    })),
+    [possessionValueRows]
+  );
 
   const sideKpis = useMemo(() => {
     const calc = (rows) => {
@@ -779,20 +887,6 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
       : 'cursor-default border-slate-100 bg-slate-50 text-slate-500'
     }`;
-  function deriveOriginLabel(possession, { grouped = true } = {}) {
-      const startSource = String(possession?.startSource || '');
-      if (['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved'].includes(startSource)) {
-        return grouped ? 'Shot Missed (Live Ball)' : startSource;
-      }
-      if (startSource !== 'Kickout Won') return startSource;
-      const kickoutStat = getPossessionSourceStat(possession, 'kickout');
-      const kickoutExtra = safeParseJSON(kickoutStat?.extra_data || '{}', {});
-      const kickoutTeamSide = kickoutExtra?.kickout?.team_side || kickoutStat?.team_side;
-      if (kickoutTeamSide === 'home' || kickoutTeamSide === 'away') {
-        return kickoutTeamSide === possession?.teamSide ? 'Own KO Won' : 'Opp KO Won';
-      }
-      return 'Own KO Won';
-    }
   const possessionOriginData = useMemo(() => {
     const allowed = originSeries.map((item) => item.key);
     const counts = {
@@ -800,7 +894,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       away: Object.fromEntries(allowed.map((key) => [key, 0])),
     };
     for (const p of possessionsFiltered) {
-      const sourceLabel = deriveOriginLabel(p);
+      const sourceLabel = derivePossessionOriginLabel(p);
       if (!allowed.includes(sourceLabel)) continue;
       const source = sourceLabel;
       if (p.teamSide === 'home') counts.home[source] += 1;
@@ -821,7 +915,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   }, [possessionOriginData, originSeries]);
   const originBreakdownRows = useMemo(() => {
     const originKey = String(originBreakdownCategory || '');
-    const matching = possessionsFiltered.filter((p) => deriveOriginLabel(p) === originKey);
+      const matching = possessionsFiltered.filter((p) => derivePossessionOriginLabel(p) === originKey);
     const detailKeys = originKey === 'Shot Missed (Live Ball)'
       ? ['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved']
       : originKey === 'Turnover Won'
@@ -850,7 +944,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         away: Object.fromEntries(detailKeys.map((key) => [key, 0])),
       };
       for (const p of matching) {
-        let sourceLabel = deriveOriginLabel(p, { grouped: false });
+        let sourceLabel = derivePossessionOriginLabel(p, { grouped: false });
         if (originKey === 'Turnover Won') {
           const previousExtra = safeParseJSON(p?.previousStat?.extra_data || '{}', {});
           const turnoverType = normalizeOutcomeAlias(previousExtra?.turnover?.type || previousExtra?.turnover?.turnover_type, 'turnover');
@@ -982,7 +1076,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       origins.set(originLabel, (origins.get(originLabel) || 0) + count);
     };
     for (const p of possessionsFiltered.filter((row) => !teamSide || row.teamSide === teamSide)) {
-      const origin = deriveOriginLabel(p);
+      const origin = derivePossessionOriginLabel(p);
       const outcome = ['Wide', 'Short', 'Blocked', 'Saved', 'Post'].includes(String(p?.outcome || '')) ? 'Missed Shot' : String(p?.outcome || 'Turnover');
       if (!origin || !outcome) continue;
       const key = `${origin}__${outcome}`;
@@ -1367,6 +1461,63 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                     </div>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+            <Card className={paneClassName}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold text-slate-900">Possession Value</div>
+                  <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                    {[
+                      { value: 'all', label: 'All' },
+                      { value: 'origin', label: 'Origin' },
+                      { value: 'source', label: 'Source' },
+                      { value: 'length', label: 'Length' },
+                      { value: 'attackType', label: 'Attack Type' },
+                    ].map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant={possessionValueGroupBy === option.value ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => setPossessionValueGroupBy(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                    {[
+                      { side: 'home', title: homeTeam?.name || 'Home', rows: possessionValueRowsHome },
+                      { side: 'away', title: awayTeam?.name || 'Away', rows: possessionValueRowsAway },
+                    ].map((panel) => (
+                      <div key={panel.side} className="rounded-xl border border-slate-200 bg-white/80 p-3 space-y-3">
+                        <div className="font-semibold text-slate-900">{panel.title}</div>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{toTitleCase(possessionValueGroupBy)}</TableHead>
+                              <TableHead className="text-right">Poss</TableHead>
+                              <TableHead className="text-right">xP/Poss</TableHead>
+                              <TableHead className="text-right">Pts/Poss</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {panel.rows.map((row) => (
+                              <TableRow key={`${panel.side}-${row.group}`}>
+                                <TableCell className="font-medium">{row.group}</TableCell>
+                                <TableCell className="text-right tabular-nums">{row.poss}</TableCell>
+                                <TableCell className="text-right tabular-nums">{row.poss > 0 && Number.isFinite(row.xpPerPoss) ? row.xpPerPoss.toFixed(2) : '—'}</TableCell>
+                                <TableCell className="text-right tabular-nums">{row.poss > 0 && Number.isFinite(row.ptsPerPoss) ? row.ptsPerPoss.toFixed(2) : '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ))}
+                  </div>
               </CardContent>
             </Card>
             <Card className={paneClassName}>

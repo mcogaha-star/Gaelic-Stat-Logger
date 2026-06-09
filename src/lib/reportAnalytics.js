@@ -30,6 +30,567 @@ export function deriveMatchHalfMinutes(matchOrCode, maybeLevel) {
   return deriveMatchLengthMinutes(matchOrCode, maybeLevel) / 2;
 }
 
+export function getOfficialPeriodLengthMinutes(match, periodKey) {
+  const normalHalfLength = deriveMatchHalfMinutes(match);
+  if (periodKey === 'et_first' || periodKey === 'et_second') return 10;
+  if (periodKey === 'first' || periodKey === 'second') return normalHalfLength;
+  return normalHalfLength;
+}
+
+export function getPlayerRateMinutesBase(match) {
+  return deriveMatchLengthMinutes(match) === 70 ? 70 : 60;
+}
+
+function safeParseIdList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeParseExtraObject(stat) {
+  if (!stat?.extra_data) return {};
+  return safeParseJSONLocal(stat.extra_data, {});
+}
+
+function safeNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function clampMinZero(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.max(0, num) : 0;
+}
+
+function buildPlayerIdentityMaps(playerOptions = []) {
+  const byId = new Map();
+  const byTeamNumber = new Map();
+  const byTeamName = new Map();
+  for (const player of Array.isArray(playerOptions) ? playerOptions : []) {
+    const teamSide = player?.team_side === 'home' || player?.team_side === 'away' ? player.team_side : null;
+    if (!teamSide) continue;
+    const id = player?.id ? String(player.id) : null;
+    const number = player?.number != null ? String(player.number) : '';
+    const name = String(player?.name || '').trim();
+    if (id) byId.set(`${teamSide}|${id}`, player);
+    if (number) byTeamNumber.set(`${teamSide}|${number}`, player);
+    if (name) byTeamName.set(`${teamSide}|${name.toLowerCase()}`, player);
+  }
+  return { byId, byTeamNumber, byTeamName };
+}
+
+function normalizeTeamSideLocal(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'home' || v === 'home team') return 'home';
+  if (v === 'away' || v === 'away team') return 'away';
+  return null;
+}
+
+function normalizeSelectionToPlayerLocal(selection, playerMaps, fallbackTeamSide = null) {
+  if (!selection || typeof selection !== 'object') return null;
+  const teamSide = normalizeTeamSideLocal(selection.team_side) || fallbackTeamSide || null;
+  const id = selection.id ? String(selection.id) : '';
+  if (teamSide && id) {
+    const direct = playerMaps.byId.get(`${teamSide}|${id}`);
+    if (direct) return { ...selection, ...direct, id: direct.id, team_side: teamSide };
+  }
+  const number = selection.number != null ? String(selection.number) : '';
+  if (teamSide && number) {
+    const byNumber = playerMaps.byTeamNumber.get(`${teamSide}|${number}`);
+    if (byNumber) return { ...selection, ...byNumber, id: byNumber.id, team_side: teamSide };
+  }
+  const name = String(selection.name || '').trim();
+  if (teamSide && name) {
+    const byName = playerMaps.byTeamName.get(`${teamSide}|${name.toLowerCase()}`);
+    if (byName) return { ...selection, ...byName, id: byName.id, team_side: teamSide };
+  }
+  if (!teamSide || (!id && !number && !name)) return null;
+  return {
+    id: id || null,
+    number: selection.number ?? null,
+    name,
+    team_side: teamSide,
+  };
+}
+
+function makePlayerKeyLocal(playerLike) {
+  if (!playerLike) return null;
+  const teamSide = normalizeTeamSideLocal(playerLike.team_side);
+  if (!teamSide) return null;
+  if (playerLike.id) return `${teamSide}|${playerLike.id}`;
+  const number = playerLike.number != null ? String(playerLike.number) : '';
+  const name = String(playerLike.name || '').trim().toLowerCase();
+  if (!number && !name) return null;
+  return `${teamSide}|${number}|${name}`;
+}
+
+function displayPlayerNameLocal(playerLike) {
+  if (!playerLike) return '';
+  const number = playerLike.number != null && String(playerLike.number).trim() !== '' ? `#${playerLike.number} ` : '';
+  const name = String(playerLike.name || '').trim();
+  return `${number}${name}`.trim();
+}
+
+function buildPlayerSeed(match, playerOptions = []) {
+  const seeds = new Map();
+  const addSeed = (playerLike, teamSide, warningTarget = null) => {
+    const normalized = normalizeSelectionToPlayerLocal({ ...(playerLike || {}), team_side: teamSide || playerLike?.team_side }, playerMaps, teamSide);
+    const key = makePlayerKeyLocal(normalized);
+    if (!key) return null;
+    if (!seeds.has(key)) {
+      seeds.set(key, {
+        playerKey: key,
+        playerId: normalized?.id || null,
+        playerName: normalized?.name || '',
+        playerNumber: normalized?.number ?? null,
+        teamSide: normalized?.team_side || teamSide || 'unknown',
+        teamName: normalized?.team_side === 'away'
+          ? (match?.away_team_name || match?.awayTeamName || 'Away')
+          : (match?.home_team_name || match?.homeTeamName || 'Home'),
+      });
+    }
+    return key;
+  };
+  const playerMaps = buildPlayerIdentityMaps(playerOptions);
+
+  for (const player of Array.isArray(playerOptions) ? playerOptions : []) addSeed(player, player?.team_side);
+  const homeStarters = safeParseIdList(match?.home_starters || match?.home_on_field);
+  const awayStarters = safeParseIdList(match?.away_starters || match?.away_on_field);
+  for (const id of homeStarters) addSeed({ id, team_side: 'home' }, 'home');
+  for (const id of awayStarters) addSeed({ id, team_side: 'away' }, 'away');
+
+  return { seeds, playerMaps };
+}
+
+function extractSubstitutionInfo(stat, playerMaps) {
+  if (String(stat?.stat_type || '') !== 'substitution') return null;
+  const extra = safeParseExtraObject(stat);
+  const normalizedTeamSide = normalizeTeamSideLocal(stat?.team_side);
+  const playerOff = normalizeSelectionToPlayerLocal({ id: extra?.sub_out_id || null, team_side: normalizedTeamSide }, playerMaps, normalizedTeamSide);
+  const playerOn = normalizeSelectionToPlayerLocal({ id: extra?.sub_in_id || null, team_side: normalizedTeamSide }, playerMaps, normalizedTeamSide);
+  return {
+    teamSide: normalizedTeamSide,
+    playerOff,
+    playerOn,
+    timeMinutes: clampMinZero((safeNumber(stat?.normalized_time_s) || 0) / 60),
+    playId: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
+    statId: stat?.id || null,
+    temporary: !!extra?.temporary,
+  };
+}
+
+function getStatPeriodKey(stat) {
+  const half = String(stat?.half || '').trim();
+  return ['first', 'second', 'et_first', 'et_second'].includes(half) ? half : null;
+}
+
+function getPeriodActualLengthInfo(match, stats = []) {
+  const periods = ['first', 'second', 'et_first', 'et_second'];
+  const periodInfo = {};
+  for (const periodKey of periods) {
+    const officialPeriodLengthMinutes = getOfficialPeriodLengthMinutes(match, periodKey);
+    const periodStats = (Array.isArray(stats) ? stats : []).filter((stat) => getStatPeriodKey(stat) === periodKey);
+    const explicitEndRows = periodStats
+      .filter((stat) => String(stat?.stat_type || '') === 'period_end')
+      .map((stat) => safeNumber(stat?.normalized_time_s))
+      .filter((value) => value != null)
+      .map((value) => value / 60);
+    const latestEventTimeMinutes = periodStats
+      .map((stat) => safeNumber(stat?.normalized_time_s))
+      .filter((value) => value != null)
+      .map((value) => value / 60)
+      .reduce((max, value) => Math.max(max, value), 0);
+
+    const hasData = periodStats.length > 0;
+    let actualLoggedPeriodLengthMinutes = officialPeriodLengthMinutes;
+    let confidence = 'low';
+    let source = 'official_fallback';
+
+    if (!hasData && (periodKey === 'et_first' || periodKey === 'et_second')) {
+      actualLoggedPeriodLengthMinutes = 0;
+      confidence = 'low';
+      source = 'no_period_data';
+    } else if (explicitEndRows.length) {
+      actualLoggedPeriodLengthMinutes = explicitEndRows.reduce((max, value) => Math.max(max, value), 0);
+      confidence = 'high';
+      source = 'period_end';
+    } else if (latestEventTimeMinutes > 0) {
+      actualLoggedPeriodLengthMinutes = latestEventTimeMinutes;
+      confidence = 'medium';
+      source = 'latest_event';
+    }
+
+    const validActual = Number.isFinite(actualLoggedPeriodLengthMinutes) && actualLoggedPeriodLengthMinutes > 0;
+    const scaleFactor = validActual ? (officialPeriodLengthMinutes / actualLoggedPeriodLengthMinutes) : 1;
+    periodInfo[periodKey] = {
+      officialPeriodLengthMinutes,
+      actualLoggedPeriodLengthMinutes: hasData
+        ? (validActual ? actualLoggedPeriodLengthMinutes : officialPeriodLengthMinutes)
+        : 0,
+      scaleFactor: Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1,
+      confidence,
+      source,
+      hasData,
+    };
+  }
+  return periodInfo;
+}
+
+function sortStatsForStints(stats = []) {
+  return (Array.isArray(stats) ? stats : []).slice().sort((a, b) => {
+    const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
+    const pa = periodOrder[getStatPeriodKey(a)] ?? 99;
+    const pb = periodOrder[getStatPeriodKey(b)] ?? 99;
+    if (pa !== pb) return pa - pb;
+    const ta = safeNumber(a?.normalized_time_s) ?? -1;
+    const tb = safeNumber(b?.normalized_time_s) ?? -1;
+    if (ta !== tb) return ta - tb;
+    const playA = safeNumber(a?.play_id) ?? -1;
+    const playB = safeNumber(b?.play_id) ?? -1;
+    if (playA !== playB) return playA - playB;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
+function buildPossessionWindows(stats = []) {
+  const ordered = sortStatsForStints(stats).filter((stat) => !ADMIN_STAT_TYPES.includes(String(stat?.stat_type || '')));
+  const grouped = new Map();
+  for (const stat of ordered) {
+    const periodKey = getStatPeriodKey(stat);
+    const teamSide = normalizeTeamSideLocal(stat?.possession_team_side);
+    const possessionId = Number(stat?.possession_id);
+    const timeSeconds = safeNumber(stat?.normalized_time_s);
+    if (!periodKey || !teamSide || !Number.isFinite(possessionId) || possessionId <= 0 || timeSeconds == null) continue;
+    const key = `${periodKey}|${teamSide}|${possessionId}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(stat);
+  }
+
+  const windowsByPeriod = new Map();
+  for (const [key, evs] of grouped.entries()) {
+    const [periodKey, teamSide, possessionIdRaw] = key.split('|');
+    const possessionId = Number(possessionIdRaw);
+    evs.sort((a, b) => {
+      const ta = safeNumber(a?.normalized_time_s) ?? -1;
+      const tb = safeNumber(b?.normalized_time_s) ?? -1;
+      if (ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    const startMinutes = (safeNumber(evs[0]?.normalized_time_s) || 0) / 60;
+    const endMinutesSeed = (safeNumber(evs[evs.length - 1]?.normalized_time_s) || 0) / 60;
+    const row = {
+      key,
+      possessionId,
+      teamSide,
+      periodKey,
+      startLoggedMinute: startMinutes,
+      endLoggedMinute: endMinutesSeed,
+      confidence: 'medium',
+      source: 'last_event',
+      statIds: evs.map((ev) => ev?.id).filter(Boolean),
+    };
+    if (!windowsByPeriod.has(periodKey)) windowsByPeriod.set(periodKey, []);
+    windowsByPeriod.get(periodKey).push(row);
+  }
+
+  const possessions = [];
+  for (const [periodKey, rows] of windowsByPeriod.entries()) {
+    rows.sort((a, b) => {
+      if (a.startLoggedMinute !== b.startLoggedMinute) return a.startLoggedMinute - b.startLoggedMinute;
+      return a.possessionId - b.possessionId;
+    });
+    for (let i = 0; i < rows.length; i += 1) {
+      const current = rows[i];
+      const next = rows[i + 1] || null;
+      let endLoggedMinute = current.endLoggedMinute;
+      let confidence = current.confidence;
+      let source = current.source;
+      if ((!Number.isFinite(endLoggedMinute) || endLoggedMinute <= current.startLoggedMinute) && next && Number.isFinite(next.startLoggedMinute)) {
+        endLoggedMinute = next.startLoggedMinute;
+        confidence = 'medium';
+        source = 'next_possession_start';
+      }
+      if (!Number.isFinite(endLoggedMinute) || endLoggedMinute < current.startLoggedMinute) {
+        endLoggedMinute = current.startLoggedMinute;
+        confidence = 'low';
+        source = 'same_start_fallback';
+      }
+      possessions.push({
+        ...current,
+        endLoggedMinute,
+        confidence,
+        source,
+      });
+    }
+  }
+  return possessions;
+}
+
+export function buildPlayerTimeAndPossessionStats({
+  match,
+  stats = [],
+  playerOptions = [],
+  homeTeam = null,
+  awayTeam = null,
+} = {}) {
+  const warnings = [];
+  const { seeds, playerMaps } = buildPlayerSeed(
+    {
+      ...match,
+      home_team_name: homeTeam?.name || match?.home_team_name || 'Home',
+      away_team_name: awayTeam?.name || match?.away_team_name || 'Away',
+    },
+    playerOptions,
+  );
+
+  const players = {};
+  const ensurePlayerRecord = (playerLike, teamSide = null) => {
+    const normalized = normalizeSelectionToPlayerLocal({ ...(playerLike || {}), team_side: teamSide || playerLike?.team_side }, playerMaps, teamSide);
+    const key = makePlayerKeyLocal(normalized);
+    if (!key) return null;
+    const seed = seeds.get(key) || {
+      playerKey: key,
+      playerId: normalized?.id || null,
+      playerName: normalized?.name || '',
+      playerNumber: normalized?.number ?? null,
+      teamSide: normalized?.team_side || teamSide || 'unknown',
+      teamName: (normalized?.team_side || teamSide) === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home'),
+    };
+    if (!players[key]) {
+      players[key] = {
+        ...seed,
+        started: false,
+        stints: [],
+        minutesPlayed: 0,
+        minutesPlayedRawLogged: 0,
+        minutesPlayedScaledBeforeCards: 0,
+        blackCards: 0,
+        blackCardMinutesSubtracted: 0,
+        ownPossessionsPlayed: 0,
+        oppPossessionsPlayed: 0,
+        totalPossessionsPlayed: 0,
+        ownPossessionIdsPlayed: [],
+        oppPossessionIdsPlayed: [],
+        totalPossessionIdsPlayed: [],
+        rateMinutesBase: getPlayerRateMinutesBase(match),
+        minutesRateFactor: null,
+        ownPossRateFactor10: null,
+        oppPossRateFactor10: null,
+        totalPossRateFactor10: null,
+        confidence: 'high',
+        warnings: [],
+      };
+    }
+    return players[key];
+  };
+
+  for (const seed of seeds.values()) ensurePlayerRecord(seed, seed.teamSide);
+
+  const periodInfo = getPeriodActualLengthInfo(match, stats);
+  const periodOrder = ['first', 'second', 'et_first', 'et_second'];
+  const sortedStats = sortStatsForStints(stats);
+
+  const homeStarterIds = safeParseIdList(match?.home_starters).length
+    ? safeParseIdList(match?.home_starters)
+    : safeParseIdList(match?.home_on_field);
+  const awayStarterIds = safeParseIdList(match?.away_starters).length
+    ? safeParseIdList(match?.away_starters)
+    : safeParseIdList(match?.away_on_field);
+
+  const onPitchBySide = {
+    home: new Set(homeStarterIds),
+    away: new Set(awayStarterIds),
+  };
+
+  const addWarning = (message, playerKey = null) => {
+    warnings.push(message);
+    if (playerKey && players[playerKey]) players[playerKey].warnings.push(message);
+  };
+
+  for (const starterId of homeStarterIds) {
+    const row = ensurePlayerRecord({ id: starterId, team_side: 'home' }, 'home');
+    if (row) row.started = true;
+  }
+  for (const starterId of awayStarterIds) {
+    const row = ensurePlayerRecord({ id: starterId, team_side: 'away' }, 'away');
+    if (row) row.started = true;
+  }
+
+  for (const periodKey of periodOrder) {
+    const info = periodInfo[periodKey] || {
+      officialPeriodLengthMinutes: getOfficialPeriodLengthMinutes(match, periodKey),
+      actualLoggedPeriodLengthMinutes: getOfficialPeriodLengthMinutes(match, periodKey),
+      scaleFactor: 1,
+      confidence: 'low',
+      source: 'official_fallback',
+      hasData: periodKey === 'first' || periodKey === 'second',
+    };
+    if ((periodKey === 'et_first' || periodKey === 'et_second') && !info.hasData) continue;
+    const periodEndMinute = clampMinZero(info.actualLoggedPeriodLengthMinutes);
+    const sourceLabel = periodKey === 'first'
+      ? 'starter'
+      : periodKey.startsWith('et_')
+        ? 'extra_time_carryover'
+        : 'carryover';
+    const openStints = new Map();
+
+    for (const teamSide of ['home', 'away']) {
+      for (const playerId of onPitchBySide[teamSide]) {
+        const row = ensurePlayerRecord({ id: playerId, team_side: teamSide }, teamSide);
+        if (!row) {
+          addWarning(`Unable to resolve ${teamSide} on-pitch player ${playerId} at start of ${periodKey}.`);
+          continue;
+        }
+        openStints.set(row.playerKey, {
+          playerKey: row.playerKey,
+          startLoggedMinute: 0,
+          source: sourceLabel,
+          teamSide,
+        });
+      }
+    }
+
+    const periodSubs = sortedStats
+      .filter((stat) => getStatPeriodKey(stat) === periodKey && String(stat?.stat_type || '') === 'substitution')
+      .map((stat) => extractSubstitutionInfo(stat, playerMaps))
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.timeMinutes !== b.timeMinutes) return a.timeMinutes - b.timeMinutes;
+        const playA = a.playId ?? -1;
+        const playB = b.playId ?? -1;
+        if (playA !== playB) return playA - playB;
+        return String(a.statId || '').localeCompare(String(b.statId || ''));
+      });
+
+    const closeStint = (playerKey, endMinute) => {
+      const row = players[playerKey];
+      const open = openStints.get(playerKey);
+      if (!row || !open) return;
+      const loggedDurationMinutes = Math.max(0, endMinute - open.startLoggedMinute);
+      const scaledDurationMinutes = loggedDurationMinutes * (Number.isFinite(info.scaleFactor) && info.scaleFactor > 0 ? info.scaleFactor : 1);
+      row.stints.push({
+        playerKey,
+        playerId: row.playerId,
+        playerName: row.playerName,
+        playerNumber: row.playerNumber,
+        teamSide: row.teamSide,
+        periodKey,
+        startLoggedMinute: open.startLoggedMinute,
+        endLoggedMinute: endMinute,
+        loggedDurationMinutes,
+        scaleFactor: info.scaleFactor,
+        scaledDurationMinutes,
+        source: open.source,
+        confidence: info.confidence,
+      });
+      openStints.delete(playerKey);
+    };
+
+    for (const sub of periodSubs) {
+      const teamSide = sub.teamSide;
+      if (teamSide !== 'home' && teamSide !== 'away') {
+        addWarning(`Substitution ${sub.statId || ''} has no team side in ${periodKey}.`);
+        continue;
+      }
+      if (sub.playerOff) {
+        const offRow = ensurePlayerRecord(sub.playerOff, teamSide);
+        const offKey = offRow?.playerKey;
+        if (!offKey) addWarning(`Substitution ${sub.statId || ''} player_off could not be resolved.`, null);
+        if (offKey && !onPitchBySide[teamSide].has(offRow.playerId || sub.playerOff.id)) {
+          addWarning(`Sub player_off not currently on pitch for ${offRow.playerName || offKey} in ${periodKey}.`, offKey);
+        }
+        if (offKey) {
+          closeStint(offKey, sub.timeMinutes);
+          if (offRow.playerId) onPitchBySide[teamSide].delete(String(offRow.playerId));
+        }
+      }
+      if (sub.playerOn) {
+        const onRow = ensurePlayerRecord(sub.playerOn, teamSide);
+        const onKey = onRow?.playerKey;
+        if (!onKey) addWarning(`Substitution ${sub.statId || ''} player_on could not be resolved.`, null);
+        if (onKey) {
+          if (onRow.playerId) onPitchBySide[teamSide].add(String(onRow.playerId));
+          openStints.set(onKey, {
+            playerKey: onKey,
+            startLoggedMinute: sub.timeMinutes,
+            source: 'sub_on',
+            teamSide,
+          });
+        }
+      }
+      if (onPitchBySide[teamSide].size > 15) addWarning(`More than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`);
+      if (onPitchBySide[teamSide].size < 15) addWarning(`Fewer than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`);
+    }
+
+    for (const [playerKey] of openStints.entries()) closeStint(playerKey, periodEndMinute);
+  }
+
+  const blackCardsByPlayer = new Map();
+  for (const stat of Array.isArray(stats) ? stats : []) {
+    const extra = safeParseExtraObject(stat);
+    const card = String(extra?.foul?.card || stat?.card || '').trim().toLowerCase();
+    if (card !== 'black') continue;
+    const foulBy = normalizeSelectionToPlayerLocal(extra?.foul?.foul_by, playerMaps, normalizeTeamSideLocal(stat?.team_side));
+    const key = makePlayerKeyLocal(foulBy);
+    if (!key) continue;
+    blackCardsByPlayer.set(key, (blackCardsByPlayer.get(key) || 0) + 1);
+  }
+
+  const possessions = buildPossessionWindows(stats);
+  const possessionIdsByPlayer = new Map();
+  for (const possession of possessions) {
+    const possessionStart = clampMinZero(possession.startLoggedMinute);
+    const possessionEnd = clampMinZero(possession.endLoggedMinute);
+    for (const row of Object.values(players)) {
+      const overlappingStint = row.stints.find((stint) => stint.periodKey === possession.periodKey && possessionStart < stint.endLoggedMinute && possessionEnd > stint.startLoggedMinute);
+      if (!overlappingStint) continue;
+      const posKey = possession.key;
+      if (!possessionIdsByPlayer.has(row.playerKey)) {
+        possessionIdsByPlayer.set(row.playerKey, { own: new Set(), opp: new Set(), total: new Set() });
+      }
+      const bucket = possessionIdsByPlayer.get(row.playerKey);
+      bucket.total.add(posKey);
+      if (possession.teamSide === row.teamSide) bucket.own.add(posKey);
+      else bucket.opp.add(posKey);
+    }
+  }
+
+  for (const row of Object.values(players)) {
+    row.minutesPlayedRawLogged = row.stints.reduce((sum, stint) => sum + (Number(stint.loggedDurationMinutes) || 0), 0);
+    row.minutesPlayedScaledBeforeCards = row.stints.reduce((sum, stint) => sum + (Number(stint.scaledDurationMinutes) || 0), 0);
+    row.blackCards = blackCardsByPlayer.get(row.playerKey) || 0;
+    row.blackCardMinutesSubtracted = row.blackCards * 10;
+    row.minutesPlayed = Math.max(0, row.minutesPlayedScaledBeforeCards - row.blackCardMinutesSubtracted);
+    row.rateMinutesBase = getPlayerRateMinutesBase(match);
+    row.minutesRateFactor = row.minutesPlayed > 0 ? row.rateMinutesBase / row.minutesPlayed : null;
+    const possBucket = possessionIdsByPlayer.get(row.playerKey);
+    row.ownPossessionIdsPlayed = possBucket ? Array.from(possBucket.own) : [];
+    row.oppPossessionIdsPlayed = possBucket ? Array.from(possBucket.opp) : [];
+    row.totalPossessionIdsPlayed = possBucket ? Array.from(possBucket.total) : [];
+    row.ownPossessionsPlayed = row.ownPossessionIdsPlayed.length;
+    row.oppPossessionsPlayed = row.oppPossessionIdsPlayed.length;
+    row.totalPossessionsPlayed = row.totalPossessionIdsPlayed.length;
+    row.ownPossRateFactor10 = row.ownPossessionsPlayed > 0 ? 10 / row.ownPossessionsPlayed : null;
+    row.oppPossRateFactor10 = row.oppPossessionsPlayed > 0 ? 10 / row.oppPossessionsPlayed : null;
+    row.totalPossRateFactor10 = row.totalPossessionsPlayed > 0 ? 10 / row.totalPossessionsPlayed : null;
+    if (row.blackCards > 0) {
+      row.warnings.push('Black card minutes subtracted from minutes only; possession counts not adjusted for sin-bin timing.');
+      row.confidence = row.confidence === 'low' ? 'low' : 'medium';
+    }
+  }
+
+  return {
+    players,
+    periodInfo,
+    warnings,
+  };
+}
+
 function shouldMigrateDefenceSetRow(stat) {
   if (!stat || typeof stat?.counter_attack !== 'boolean') return false;
   if (typeof stat?.set_defence === 'boolean') return false;
@@ -221,6 +782,24 @@ export function shotPointsForOutcome(outcome) {
   if (outcome === '2_point') return 2;
   if (outcome === 'point') return 1;
   return 0;
+}
+
+export function getShotExpectedPointsValue(stat) {
+  const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
+  const shot = extra?.shot || {};
+  const xpRaw = shot?.xp?.value ?? shot?.expected_points ?? shot?.expectedPoints ?? shot?.xp ?? shot?.xP ?? null;
+  const xp = Number(xpRaw);
+  return Number.isFinite(xp) ? xp : 0;
+}
+
+export function getShotContextType(stat) {
+  const extra = safeParseJSONLocal(stat?.extra_data || '{}', {});
+  const shot = extra?.shot || {};
+  const raw = String(shot?.situation || shot?.source || shot?.context || '').trim().toLowerCase();
+  const normalized = raw === 'free_kick' ? 'free_hands' : raw;
+  if (normalized === 'play') return 'play';
+  if (['free_ground', 'free_hands', '45', 'penalty', 'mark'].includes(normalized)) return 'deadball';
+  return 'unknown';
 }
 
 export function getNormalizedTimeS(stat, imputedMap) {

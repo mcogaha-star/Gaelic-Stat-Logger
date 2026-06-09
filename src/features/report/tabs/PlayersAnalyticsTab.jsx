@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,7 @@ import {
   getFieldTiltContribution,
   getNextBallActionStat,
   getMatchTimeS,
+  buildPlayerTimeAndPossessionStats,
   getProgressiveMeters,
   getScoringZoneEntry,
   inferRestartWinnerSide,
@@ -250,13 +251,19 @@ function PlayersAnalyticsTab({
   reportFilters,
   playerLinkFactory = null,
   onPlayerSelect = null,
+  focusPlayerId = null,
+  setFocusPlayerId = null,
   lockPlayerValue = null,
   lockPlayerBucket = null,
   singlePlayerOnly = false,
 }) {
+  const externalSelectionRef = useRef({ lockPlayerValue: lockPlayerValue || null, focusPlayerId: focusPlayerId || null });
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }), [reportFilters]);
   const [playerBucket, setPlayerBucket] = useState(lockPlayerBucket || 'scoring');
-  const [chartPlayerId, setChartPlayerId] = useState(lockPlayerValue || 'all');
+  const [activeMode, setActiveMode] = useState(singlePlayerOnly ? 'player-card' : 'player-card');
+  const [chartPlayerId, setChartPlayerId] = useState(lockPlayerValue || focusPlayerId || 'all');
+  const [comparisonPlayerA, setComparisonPlayerA] = useState(lockPlayerValue || focusPlayerId || 'all');
+  const [comparisonPlayerB, setComparisonPlayerB] = useState('all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' }); // key + dir
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
@@ -330,6 +337,10 @@ function PlayersAnalyticsTab({
   const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
   const touchEvents = useMemo(() => buildTouchEvents(calcBase, playerOptions), [calcBase, playerOptions]);
   const defensiveActions = useMemo(() => buildDefensiveActions(calcBase), [calcBase]);
+  const playerTimeAndPossessionStats = useMemo(
+    () => buildPlayerTimeAndPossessionStats({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
+    [reportFilters?.match, stats, playerOptions, homeTeam, awayTeam],
+  );
 
   const leaderboard = useMemo(() => {
     const rows = new Map();
@@ -383,6 +394,11 @@ function PlayersAnalyticsTab({
         scoringPossessionsInvolved: 0,
         kickoutTargets: 0,
         kickoutWins: 0,
+        cleanWon: 0,
+        cleanLost: 0,
+        breakWon: 0,
+        breakLost: 0,
+        broken: 0,
         throwInsWon: 0,
         marks: 0,
         touches: 0,
@@ -592,11 +608,23 @@ function PlayersAnalyticsTab({
           }
         }
         const target = ensure(kick?.intended_recipient);
-        if (target) target.kickoutTargets += 1;
-        const wonBy = ensure(kick?.won_by);
-        if (wonBy) {
-          wonBy.kickoutWins += 1;
-          if (kick?.mark) wonBy.marks += 1;
+        const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
+        const winnerRow = ensure(kick?.won_by);
+        const loserRow = ensure(kick?.lost_by);
+        const brokenRow = ensure(kick?.broken_by);
+        if (target) {
+          target.kickoutTargets += 1;
+          if (wonSide === koTeam) target.kickoutWins += 1;
+        }
+        if (kick?.outcome === 'clean') {
+          if (winnerRow) winnerRow.cleanWon += 1;
+          if (loserRow) loserRow.cleanLost += 1;
+          if (kick?.mark && winnerRow) winnerRow.marks += 1;
+        }
+        if (kick?.outcome === 'break') {
+          if (winnerRow) winnerRow.breakWon += 1;
+          if (loserRow) loserRow.breakLost += 1;
+          if (brokenRow) brokenRow.broken += 1;
         }
       }
       if (s.stat_type === 'throw_in') {
@@ -666,9 +694,13 @@ function PlayersAnalyticsTab({
         ? (row.goalShotsSaved / (row.goalShotsSaved + row.goalShotsAgainst)) * 100
         : NaN;
       const ownKickoutWinPct = row.kickoutsTaken ? (row.ownKickoutsWon / row.kickoutsTaken) * 100 : NaN;
+      const kickoutTargetWinPct = row.kickoutTargets ? (row.kickoutWins / row.kickoutTargets) * 100 : NaN;
       const cleanKickoutWinPct = row.kickoutsTaken ? (row.cleanKickoutsWon / row.kickoutsTaken) * 100 : NaN;
       const shortKickoutWinPct = row.shortKickoutsTaken ? (row.shortKickoutsWon / row.shortKickoutsTaken) * 100 : NaN;
       const longKickoutWinPct = row.longKickoutsTaken ? (row.longKickoutsWon / row.longKickoutsTaken) * 100 : NaN;
+      const cleanWinPct = (row.cleanWon + row.cleanLost) ? (row.cleanWon / (row.cleanWon + row.cleanLost)) * 100 : NaN;
+      const breakWinPct = (row.breakWon + row.breakLost) ? (row.breakWon / (row.breakWon + row.breakLost)) * 100 : NaN;
+      const timeStats = playerTimeAndPossessionStats?.players?.[row.key] || null;
       return {
         ...row,
         passPct,
@@ -682,12 +714,32 @@ function PlayersAnalyticsTab({
         avgShotDist,
         goalShotSavePct,
         ownKickoutWinPct,
+        kickoutTargetWinPct,
         cleanKickoutWinPct,
         shortKickoutWinPct,
         longKickoutWinPct,
+        cleanWinPct,
+        breakWinPct,
+        minutesPlayed: timeStats?.minutesPlayed ?? 0,
+        minutesPlayedRawLogged: timeStats?.minutesPlayedRawLogged ?? 0,
+        minutesPlayedScaledBeforeCards: timeStats?.minutesPlayedScaledBeforeCards ?? 0,
+        blackCards: timeStats?.blackCards ?? 0,
+        blackCardMinutesSubtracted: timeStats?.blackCardMinutesSubtracted ?? 0,
+        ownPossessionsPlayed: timeStats?.ownPossessionsPlayed ?? 0,
+        oppPossessionsPlayed: timeStats?.oppPossessionsPlayed ?? 0,
+        totalPossessionsPlayed: timeStats?.totalPossessionsPlayed ?? 0,
+        rateMinutesBase: timeStats?.rateMinutesBase ?? 60,
+        minutesRateFactor: timeStats?.minutesRateFactor ?? null,
+        ownPossRateFactor10: timeStats?.ownPossRateFactor10 ?? null,
+        oppPossRateFactor10: timeStats?.oppPossRateFactor10 ?? null,
+        totalPossRateFactor10: timeStats?.totalPossRateFactor10 ?? null,
+        started: timeStats?.started ?? false,
+        playerTimeConfidence: timeStats?.confidence ?? 'low',
+        playerTimeWarnings: Array.isArray(timeStats?.warnings) ? timeStats.warnings : [],
+        playerStints: Array.isArray(timeStats?.stints) ? timeStats.stints : [],
       };
     });
-  }, [calcBase, nextStatById, playerMetaByKey, playerMetaByTeamName, playerMetaByTeamNumber, playerOptions, shotAssistCredits, touchEvents, defensiveActions]);
+  }, [calcBase, nextStatById, playerMetaByKey, playerMetaByTeamName, playerMetaByTeamNumber, playerOptions, shotAssistCredits, touchEvents, defensiveActions, playerTimeAndPossessionStats]);
 
   const toggleSort = (key) => {
     setLbSort((cur) => {
@@ -792,8 +844,16 @@ function PlayersAnalyticsTab({
     restarts: [
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (r) => r.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') },
-      { key: 'kickoutTargets', label: 'KO Targets', numeric: true },
-      { key: 'kickoutWins', label: 'KO Wins', numeric: true },
+      { key: 'kickoutTargets', label: 'Targets', numeric: true },
+      { key: 'kickoutWins', label: 'Won By Team', numeric: true },
+      { key: 'kickoutTargetWinPct', label: 'Win %', numeric: true, sortValue: (r) => r.kickoutTargetWinPct, render: (r) => r.kickoutTargets ? formatPct(r.kickoutTargetWinPct) : 'NA' },
+      { key: 'cleanWon', label: 'Clean Won', numeric: true },
+      { key: 'cleanLost', label: 'Clean Lost', numeric: true },
+      { key: 'cleanWinPct', label: 'Clean %', numeric: true, sortValue: (r) => r.cleanWinPct, render: (r) => Number.isFinite(r.cleanWinPct) ? formatPct(r.cleanWinPct) : 'NA' },
+      { key: 'breakWon', label: 'Break Won', numeric: true },
+      { key: 'breakLost', label: 'Break Lost', numeric: true },
+      { key: 'breakWinPct', label: 'Break %', numeric: true, sortValue: (r) => r.breakWinPct, render: (r) => Number.isFinite(r.breakWinPct) ? formatPct(r.breakWinPct) : 'NA' },
+      { key: 'broken', label: 'Broken', numeric: true },
       { key: 'throwInsWon', label: 'Throw-Ins Won', numeric: true },
       { key: 'marks', label: 'Marks', numeric: true },
     ],
@@ -871,34 +931,96 @@ function PlayersAnalyticsTab({
     [playerOptions, teamMode],
   );
   const chartPlayerOptions = useMemo(
-    () => availableChartPlayers.map((p) => ({
-      ...p,
-      value: `${String(p.team_side || '')}|${String(p.id)}`,
-    })),
-    [availableChartPlayers],
+    () => availableChartPlayers
+      .map((p) => ({
+        ...p,
+        value: `${String(p.team_side || '')}|${String(p.id)}`,
+        displayLabel: `${p.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} · ${p.label || formatExtraValue({ kind: 'player', ...p })}`,
+      }))
+      .sort((a, b) => String(a.displayLabel).localeCompare(String(b.displayLabel), undefined, { numeric: true, sensitivity: 'base' })),
+    [availableChartPlayers, awayTeam, homeTeam],
   );
+  const leaderboardByKey = useMemo(() => {
+    const map = new Map();
+    for (const row of leaderboard || []) map.set(row.key, row);
+    return map;
+  }, [leaderboard]);
+  const firstSelectablePlayer = chartPlayerOptions[0]?.value || 'all';
+  const secondSelectablePlayer = chartPlayerOptions[1]?.value || firstSelectablePlayer;
   const safeChartPlayerValue = useMemo(() => {
     if (chartPlayerId === 'all') return 'all';
     return chartPlayerOptions.some((p) => p.value === chartPlayerId) ? chartPlayerId : 'all';
   }, [chartPlayerId, chartPlayerOptions]);
+  const safeComparisonPlayerA = useMemo(() => {
+    if (comparisonPlayerA === 'all') return 'all';
+    return chartPlayerOptions.some((p) => p.value === comparisonPlayerA) ? comparisonPlayerA : 'all';
+  }, [comparisonPlayerA, chartPlayerOptions]);
+  const safeComparisonPlayerB = useMemo(() => {
+    if (comparisonPlayerB === 'all') return 'all';
+    return chartPlayerOptions.some((p) => p.value === comparisonPlayerB) ? comparisonPlayerB : 'all';
+  }, [comparisonPlayerB, chartPlayerOptions]);
   useEffect(() => {
     if (safeChartPlayerValue !== chartPlayerId) setChartPlayerId(safeChartPlayerValue);
   }, [safeChartPlayerValue, chartPlayerId]);
   useEffect(() => {
+    if (safeComparisonPlayerA !== comparisonPlayerA) setComparisonPlayerA(safeComparisonPlayerA);
+  }, [safeComparisonPlayerA, comparisonPlayerA]);
+  useEffect(() => {
+    if (safeComparisonPlayerB !== comparisonPlayerB) setComparisonPlayerB(safeComparisonPlayerB);
+  }, [safeComparisonPlayerB, comparisonPlayerB]);
+  useEffect(() => {
     if (lockPlayerBucket && playerBucket !== lockPlayerBucket) setPlayerBucket(lockPlayerBucket);
   }, [lockPlayerBucket, playerBucket]);
   useEffect(() => {
-    if (lockPlayerValue && chartPlayerId !== lockPlayerValue) setChartPlayerId(lockPlayerValue);
-  }, [lockPlayerValue, chartPlayerId]);
+    if (lockPlayerValue && externalSelectionRef.current.lockPlayerValue !== lockPlayerValue) {
+      externalSelectionRef.current.lockPlayerValue = lockPlayerValue;
+      setChartPlayerId(lockPlayerValue);
+      setComparisonPlayerA(lockPlayerValue);
+    } else if (!lockPlayerValue) {
+      externalSelectionRef.current.lockPlayerValue = null;
+    }
+  }, [lockPlayerValue]);
+  useEffect(() => {
+    if (!lockPlayerValue && focusPlayerId && externalSelectionRef.current.focusPlayerId !== focusPlayerId) {
+      externalSelectionRef.current.focusPlayerId = focusPlayerId;
+      setChartPlayerId(focusPlayerId);
+    } else if (!focusPlayerId) {
+      externalSelectionRef.current.focusPlayerId = null;
+    }
+  }, [focusPlayerId, lockPlayerValue]);
+  useEffect(() => {
+    if (chartPlayerId === 'all' && firstSelectablePlayer !== 'all') {
+      setChartPlayerId(firstSelectablePlayer);
+    }
+  }, [chartPlayerId, firstSelectablePlayer]);
+  useEffect(() => {
+    if (comparisonPlayerA === 'all' && firstSelectablePlayer !== 'all') setComparisonPlayerA(firstSelectablePlayer);
+  }, [comparisonPlayerA, firstSelectablePlayer]);
+  useEffect(() => {
+    if ((comparisonPlayerB === 'all' || comparisonPlayerB === comparisonPlayerA) && secondSelectablePlayer !== 'all') {
+      setComparisonPlayerB(secondSelectablePlayer === comparisonPlayerA && chartPlayerOptions.length > 1 ? chartPlayerOptions[1].value : secondSelectablePlayer);
+    }
+  }, [comparisonPlayerB, secondSelectablePlayer, comparisonPlayerA, chartPlayerOptions]);
+  useEffect(() => {
+    if (typeof setFocusPlayerId === 'function' && chartPlayerId !== 'all') setFocusPlayerId(chartPlayerId);
+  }, [chartPlayerId, setFocusPlayerId]);
 
   const activeChartPlayerId = safeChartPlayerValue;
   const activeChartPlayer = useMemo(
     () => chartPlayerOptions.find((p) => p.value === activeChartPlayerId) || null,
     [chartPlayerOptions, activeChartPlayerId],
   );
+  const activeComparisonPlayerA = useMemo(
+    () => chartPlayerOptions.find((p) => p.value === safeComparisonPlayerA) || null,
+    [chartPlayerOptions, safeComparisonPlayerA],
+  );
+  const activeComparisonPlayerB = useMemo(
+    () => chartPlayerOptions.find((p) => p.value === safeComparisonPlayerB) || null,
+    [chartPlayerOptions, safeComparisonPlayerB],
+  );
   const activeChartPlayerKey = activeChartPlayer ? `${activeChartPlayer.team_side}|${activeChartPlayer.id}` : null;
   const playerChartMirrorAway = activeChartPlayer?.team_side === 'away';
-  const chartsResetKey = `${playerBucket}|${teamMode}|${activeChartPlayerId}|${base.length}`;
+  const chartsResetKey = `${activeMode}|${teamMode}|${activeChartPlayerId}|${base.length}`;
   const matchesActiveChartPlayer = (selection) => {
     if (!activeChartPlayer) return false;
     const candidate = resolveLeaderboardPlayer(selection);
@@ -982,17 +1104,15 @@ function PlayersAnalyticsTab({
     return touchEvents.filter((event) => matchesActiveChartPlayer(event?.player));
   }, [activeChartPlayerId, activeChartPlayer, touchEvents]);
 
-  const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
-
   const formatBreakdownCell = (won, taken) => {
     if (!taken) return 'NA';
     return `${won}/${taken} (${formatPct((won / taken) * 100)})`;
   };
 
   const goalkeeperPressCards = useMemo(() => {
-    if (playerBucket !== 'goalkeepers') return [];
+    const sourceRows = (leaderboard || []).filter((row) => isGoalkeeperPlayer(row));
     const cards = [];
-    for (const row of sortedLeaderboard) {
+    for (const row of sourceRows) {
       const pressRows = ['m2m', 'zonal', 'conceded']
         .map((press) => {
           const info = row.pressBreakdown?.[press];
@@ -1017,178 +1137,411 @@ function PlayersAnalyticsTab({
       });
     }
     return cards;
-  }, [playerBucket, sortedLeaderboard]);
+  }, [leaderboard]);
+
+  const renderSimpleTable = (rows, columns) => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {columns.map((col) => (
+            <SortableTableHead
+              key={col.key}
+              column={{ key: col.key, label: col.label }}
+              sortState={lbSort}
+              onToggle={toggleSort}
+              className={col.numeric ? 'text-right' : undefined}
+            />
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.slice(0, 250).map((r) => (
+          <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
+            {columns.map((col) => (
+              <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
+                {col.render ? col.render(r) : r[col.key]}
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+
+  const formatDisplayValue = (value, formatter = null) => {
+    if (formatter) return formatter(value);
+    if (value == null) return 'NA';
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NA';
+    const text = String(value).trim();
+    return text ? text : 'NA';
+  };
+
+  const buildPlayerHeaderMeta = (playerOption, row, isGoalkeeperCard = false) => {
+    if (!playerOption && !row) return null;
+    const teamLabel = (row?.team || playerOption?.team_side) === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+    const playerLine = row?.player || playerOption?.label || playerOption?.displayLabel || 'Unknown Player';
+    const minutes = row?.minutesPlayed;
+    return {
+      title: playerLine,
+      subtitle: `${teamLabel} | Role: ${isGoalkeeperCard ? 'Goalkeeper / Restart Controller' : 'TBD'} | Minutes: ${Number.isFinite(minutes) && minutes >= 0 ? minutes.toFixed(1).replace(/\.0$/, '') : 'NA'}`,
+    };
+  };
+
+  const buildOutfieldKpis = (row) => ([
+    { label: 'Touches', value: row?.touches },
+    { label: 'Shots', value: row?.shots },
+    { label: 'xP', value: row?.xpCount ? row.xpTotal.toFixed(2) : 'NA' },
+    { label: 'Points', value: row?.points },
+    { label: 'Progressive Actions', value: (row ? (row.progPassComp + row.progCarryComp) : null) },
+    { label: 'TO Lost', value: row?.turnoversLost },
+    { label: 'Defensive Actions', value: row?.defActions },
+    { label: 'Fouls', value: row?.foulsConceded },
+  ]);
+
+  const buildGoalkeeperKpis = (row) => ([
+    { label: 'Kickouts Taken', value: row?.kickoutsTaken },
+    { label: 'Own KO Win %', value: row?.kickoutsTaken ? formatPct(row.ownKickoutWinPct) : 'NA' },
+    { label: 'Clean KO Wins', value: row?.cleanKickoutsWon },
+    { label: 'Break Wins', value: row?.ownKickoutsWon != null && row?.cleanKickoutsWon != null ? Math.max(0, row.ownKickoutsWon - row.cleanKickoutsWon) : 'NA' },
+    { label: 'Short KO %', value: row?.shortKickoutsTaken ? formatPct(row.shortKickoutWinPct) : 'NA' },
+    { label: 'Long KO %', value: row?.longKickoutsTaken ? formatPct(row.longKickoutWinPct) : 'NA' },
+    { label: 'Saves', value: row?.goalShotsSaved },
+    { label: 'Goals Conceded', value: row?.goalShotsAgainst },
+  ]);
+
+  const renderKpiGrid = (kpis) => (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {kpis.map((kpi) => (
+        <Card key={kpi.label}>
+          <CardContent className="p-4 space-y-1">
+            <div className="text-xs uppercase tracking-wide text-slate-500">{kpi.label}</div>
+            <div className="text-2xl font-semibold text-slate-900">{formatDisplayValue(kpi.value)}</div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+
+  const renderPlayerChartsSection = () => activeChartPlayer ? (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] items-start">
+        <div className="min-w-0 space-y-4">
+          <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
+            <TouchMap
+              touchEvents={focusTouchEvents}
+              playerId={null}
+              title="Touch Map"
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+              mirrorAwayWhenBoth={playerChartMirrorAway}
+              directionLabel="Attacking ->"
+              fullscreenEnabled={false}
+              cardless
+            />
+          </ChartsErrorBoundary>
+          <ChartsErrorBoundary resetKey={`${chartsResetKey}|events`} label="Player Events">
+            <div className="space-y-3">
+              <div className="font-semibold text-slate-900">Player Action Maps</div>
+              {focusStats.length ? (
+                <PitchViz
+                  stats={focusStats}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy="action"
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={playerChartMirrorAway}
+                  directionLabel="Attacking ->"
+                  fullscreenEnabled={false}
+                />
+              ) : (
+                <div className="text-sm text-slate-500">No player events under the current filters.</div>
+              )}
+            </div>
+          </ChartsErrorBoundary>
+          <ChartsErrorBoundary resetKey={`${chartsResetKey}|da`} label="Defensive Action Map">
+            <div className="space-y-3">
+              <div className="font-semibold text-slate-900">Defensive Action Map</div>
+              {focusPlayerDefensiveActionStats.length ? (
+                <PitchViz
+                  stats={focusPlayerDefensiveActionStats}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  colorBy="team"
+                  showColorControls={false}
+                  mirrorAwayWhenBoth={playerChartMirrorAway}
+                  directionLabel="Attacking ->"
+                  fullscreenEnabled={false}
+                />
+              ) : (
+                <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
+              )}
+            </div>
+          </ChartsErrorBoundary>
+        </div>
+        <div className="min-w-0 space-y-3">
+          <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
+            <div className="space-y-3">
+              <div>
+                <div className="font-semibold text-slate-900">Reception / Pass Network Map</div>
+                <div className="text-xs text-slate-500">
+                  {focusPlayerSonar.some((zone) => zone.total > 0)
+                    ? 'Direction and pass-method mix by start zone'
+                    : 'No passes available for the selected player under current filters'}
+                </div>
+              </div>
+              <div className="space-y-3">
+                {['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall'].map((zoneName) => {
+                  const zone = focusPlayerSonar.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
+                  return <PlayerSonarZoneCard key={zoneName} zone={zone} />;
+                })}
+              </div>
+            </div>
+          </ChartsErrorBoundary>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <Card>
+      <CardContent className="p-6 text-sm text-slate-600">Select a player to view charts.</CardContent>
+    </Card>
+  );
+
+  const renderPlaceholderPanels = (labels) => (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {labels.map((label) => (
+        <Card key={label}>
+          <CardContent className="p-4 space-y-1">
+            <div className="font-semibold text-slate-900">{label}</div>
+            <div className="text-sm text-slate-500">Coming next.</div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+
+  const getRowFromOption = (option) => {
+    if (!option) return null;
+    return leaderboardByKey.get(`${option.team_side}|${option.id}`) || null;
+  };
+
+  const selectedPlayerRow = getRowFromOption(activeChartPlayer);
+  const comparisonRowA = getRowFromOption(activeComparisonPlayerA);
+  const comparisonRowB = getRowFromOption(activeComparisonPlayerB);
+  const selectedIsGoalkeeper = selectedPlayerRow ? isGoalkeeperPlayer(selectedPlayerRow) : false;
+  const comparisonHasGoalkeeper = Boolean(
+    (comparisonRowA && isGoalkeeperPlayer(comparisonRowA))
+    || (comparisonRowB && isGoalkeeperPlayer(comparisonRowB))
+  );
+
+  const tableOptions = [
+    { value: 'scoring', label: 'Player Shooting' },
+    { value: 'restarts', label: 'Player Restarts' },
+    { value: 'defense', label: 'Player Defensive' },
+    { value: 'progression', label: 'Progression' },
+    { value: 'retention', label: 'Retention' },
+    { value: 'tendencies', label: 'Tendencies' },
+    { value: 'touches', label: 'Touches' },
+    { value: 'goalkeepers', label: 'Goalkeepers' },
+  ];
+
+  const currentColumns = bucketColumns[playerBucket] || bucketColumns.scoring;
+
+  const renderPlayerSelect = (label, value, onChange) => (
+    <div className="space-y-1">
+      <Label className="text-xs text-slate-600">{label}</Label>
+      <Select value={String(value || 'all')} onValueChange={onChange}>
+        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Select Player</SelectItem>
+          {chartPlayerOptions.map((p) => (
+            <SelectItem key={p.value} value={p.value}>
+              {p.displayLabel}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const renderPlayerHeader = (playerOption, row, goalkeeperMode = false) => {
+    const meta = buildPlayerHeaderMeta(playerOption, row, goalkeeperMode);
+    if (!meta) return null;
+    return (
+      <Card>
+        <CardContent className="p-5 space-y-1">
+          <div className="text-2xl font-semibold text-slate-900">{meta.title}</div>
+          <div className="text-sm text-slate-500">{meta.subtitle}</div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const comparisonMetricRows = comparisonHasGoalkeeper
+    ? [
+        ['Kickouts Taken', (r) => r?.kickoutsTaken],
+        ['Own KO Win %', (r) => r?.kickoutsTaken ? formatPct(r.ownKickoutWinPct) : 'NA'],
+        ['Clean KO Wins', (r) => r?.cleanKickoutsWon],
+        ['Short KO %', (r) => r?.shortKickoutsTaken ? formatPct(r.shortKickoutWinPct) : 'NA'],
+        ['Long KO %', (r) => r?.longKickoutsTaken ? formatPct(r.longKickoutWinPct) : 'NA'],
+        ['Saves', (r) => r?.goalShotsSaved],
+        ['Goals Conceded', (r) => r?.goalShotsAgainst],
+      ]
+    : [
+        ['Touches', (r) => r?.touches],
+        ['Shots', (r) => r?.shots],
+        ['xP', (r) => r?.xpCount ? r.xpTotal.toFixed(2) : 'NA'],
+        ['Points', (r) => r?.points],
+        ['Progressive Actions', (r) => r ? (r.progPassComp + r.progCarryComp) : 'NA'],
+        ['TO Lost', (r) => r?.turnoversLost],
+        ['Defensive Actions', (r) => r?.defActions],
+        ['Fouls', (r) => r?.foulsConceded],
+      ];
+
+  const topModeButtons = singlePlayerOnly
+    ? [['player-card', 'Player Card']]
+    : [['player-card', 'Player Card'], ['comparison', 'Comparison'], ['tables', 'Tables']];
 
   return (
     <div className="space-y-4">
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {[
-                ['scoring', 'Scoring'],
-                ['progression', 'Progression'],
-                ['retention', 'Retention'],
-                ['tendencies', 'Tendencies'],
-                ['defense', 'Defense'],
-                ['sonar', 'Charts'],
-                ['touches', 'Touches'],
-                ['restarts', 'Restarts'],
-                ['goalkeepers', 'Goalkeepers'],
-              ].map(([value, label]) => (
-                <Button
-                  key={value}
-                  type="button"
-                  variant={playerBucket === value ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setPlayerBucket(value)}
-                >
-                  {value === 'scoring' ? 'Shooting' : label}
-                </Button>
-              ))}
-            </div>
-            {playerBucket === 'sonar' ? (
-              <div className="space-y-4">
-                <div className="max-w-sm space-y-1">
-                  <Label className="text-xs text-slate-600">Player</Label>
-                  <Select value={String(safeChartPlayerValue || 'all')} onValueChange={setChartPlayerId}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Select Player</SelectItem>
-                      {chartPlayerOptions
-                        .map((p) => (
-                          <SelectItem key={p.value} value={p.value}>
-                            {(p.team_side === 'away' ? 'Away: ' : 'Home: ') + p.label}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {topModeButtons.map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                variant={activeMode === value ? 'default' : 'outline'}
+                size="sm"
+                className="h-8 px-3 text-sm"
+                onClick={() => setActiveMode(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
+          {activeMode === 'player-card' && (
+            <div className="space-y-4">
+              {!singlePlayerOnly && (
+                <div className="max-w-md">
+                  {renderPlayerSelect('Select Player', safeChartPlayerValue, setChartPlayerId)}
                 </div>
+              )}
               {activeChartPlayer ? (
                 <div className="space-y-4">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] items-start">
-                    <div className="min-w-0 space-y-4">
-                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|touches`} label="Touch Map">
-                        <TouchMap
-                          touchEvents={focusTouchEvents}
-                          playerId={null}
-                          title="Touch Map"
-                          homeColor={homeTeam?.color}
-                          awayColor={awayTeam?.color}
-                          mirrorAwayWhenBoth={playerChartMirrorAway}
-                          directionLabel="Attacking ->"
-                          fullscreenEnabled={false}
-                          cardless
-                        />
-                      </ChartsErrorBoundary>
-                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|events`} label="Player Events">
-                        <div className="space-y-3">
-                          <div className="font-semibold text-slate-900">Player Events</div>
-                          {focusStats.length ? (
-                            <PitchViz
-                              stats={focusStats}
-                              homeColor={homeTeam?.color}
-                              awayColor={awayTeam?.color}
-                              colorBy="action"
-                              showColorControls={false}
-                              mirrorAwayWhenBoth={playerChartMirrorAway}
-                              directionLabel="Attacking ->"
-                              fullscreenEnabled={false}
-                            />
-                          ) : (
-                            <div className="text-sm text-slate-500">No player events under the current filters.</div>
-                          )}
-                        </div>
-                      </ChartsErrorBoundary>
-                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|da`} label="Defensive Action Map">
-                        <div className="space-y-3">
-                          <div className="font-semibold text-slate-900">Defensive Action Map</div>
-                          {focusPlayerDefensiveActionStats.length ? (
-                            <PitchViz
-                              stats={focusPlayerDefensiveActionStats}
-                              homeColor={homeTeam?.color}
-                              awayColor={awayTeam?.color}
-                              colorBy="team"
-                              showColorControls={false}
-                              mirrorAwayWhenBoth={playerChartMirrorAway}
-                              directionLabel="Attacking ->"
-                              fullscreenEnabled={false}
-                            />
-                          ) : (
-                            <div className="text-sm text-slate-500">No defensive actions under the current filters.</div>
-                          )}
-                        </div>
-                      </ChartsErrorBoundary>
+                  {renderPlayerHeader(activeChartPlayer, selectedPlayerRow, selectedIsGoalkeeper)}
+                  {renderKpiGrid(selectedIsGoalkeeper ? buildGoalkeeperKpis(selectedPlayerRow) : buildOutfieldKpis(selectedPlayerRow))}
+                  {renderPlayerChartsSection()}
+                  {!selectedIsGoalkeeper && renderPlaceholderPanels([
+                    'Stats by Category',
+                    'Heatmaps',
+                    'Tendencies',
+                    'Spider Graph vs Average',
+                  ])}
+                  {selectedIsGoalkeeper && (
+                    <div className="space-y-4">
+                      {goalkeeperPressCards.filter((card) => card.key === activeChartPlayerKey).map((card) => (
+                        <Card key={card.key}>
+                          <CardContent className="p-4 space-y-3">
+                            <div className="font-semibold text-slate-900">Goalkeeper Restart Profile</div>
+                            <GoalkeeperPressTable card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {renderPlaceholderPanels([
+                        'Kickout Map',
+                        'Kickout Target Distribution',
+                        'Goal Shot / Saves Map',
+                        'Goalkeeper Event Log',
+                      ])}
                     </div>
-                    <div className="min-w-0 space-y-3">
-                      <ChartsErrorBoundary resetKey={`${chartsResetKey}|sonar`} label="Player Pass Sonar">
-                        <div className="space-y-3">
-                          <div>
-                            <div className="font-semibold text-slate-900">Player Pass Sonar</div>
-                            <div className="text-xs text-slate-500">
-                              {focusPlayerSonar.some((zone) => zone.total > 0)
-                                ? 'Direction and pass-method mix by start zone'
-                                : 'No passes available for the selected player under current filters'}
-                            </div>
-                          </div>
-                          <div className="space-y-3">
-                            {['Attacking Third', 'Middle Third', 'Defensive Third', 'Overall'].map((zoneName) => {
-                              const zone = focusPlayerSonar.find((entry) => entry.zone === zoneName) || { zone: zoneName, total: 0, buckets: [] };
-                              return <PlayerSonarZoneCard key={zoneName} zone={zone} />;
-                            })}
-                          </div>
-                        </div>
-                      </ChartsErrorBoundary>
-                    </div>
-                  </div>
+                  )}
                 </div>
               ) : (
-                <div className="text-sm text-slate-600">Select a player here to show their charts and maps.</div>
+                <div className="text-sm text-slate-600">Select a player to view the player card.</div>
               )}
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {currentColumns.map((col) => (
-                      <SortableTableHead
-                        key={col.key}
-                        column={{ key: col.key, label: col.label }}
-                        sortState={lbSort}
-                        onToggle={toggleSort}
-                        className={col.numeric ? 'text-right' : undefined}
-                      />
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedLeaderboard.slice(0, 250).map((r) => (
-                    <TableRow key={r.key} style={teamRowTint(r.team, homeTeam?.color, awayTeam?.color, 0.07)}>
-                      {currentColumns.map((col) => (
-                        <TableCell key={col.key} className={col.numeric ? 'text-right tabular-nums' : (col.key === 'player' ? 'font-medium' : '')}>
-                          {col.render ? col.render(r) : r[col.key]}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
 
-        {playerBucket === 'goalkeepers' && goalkeeperPressCards.length > 0 && (
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                {goalkeeperPressCards.map((card) => (
-                  <GoalkeeperPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
-                ))}
+          {activeMode === 'comparison' && !singlePlayerOnly && (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                {renderPlayerSelect('Select Player A', safeComparisonPlayerA, setComparisonPlayerA)}
+                {renderPlayerSelect('Select Player B', safeComparisonPlayerB, setComparisonPlayerB)}
               </div>
-            </CardContent>
-          </Card>
-        )}
+              {activeComparisonPlayerA && activeComparisonPlayerB ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {renderPlayerHeader(activeComparisonPlayerA, comparisonRowA, comparisonRowA ? isGoalkeeperPlayer(comparisonRowA) : false)}
+                    {renderPlayerHeader(activeComparisonPlayerB, comparisonRowB, comparisonRowB ? isGoalkeeperPlayer(comparisonRowB) : false)}
+                  </div>
+                  <Card>
+                    <CardContent className="p-4">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Metric</TableHead>
+                            <TableHead className="text-right">{comparisonRowA?.player || activeComparisonPlayerA?.label || 'Player A'}</TableHead>
+                            <TableHead className="text-right">{comparisonRowB?.player || activeComparisonPlayerB?.label || 'Player B'}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {comparisonMetricRows.map(([label, accessor]) => (
+                            <TableRow key={label}>
+                              <TableCell className="font-medium">{label}</TableCell>
+                              <TableCell className="text-right tabular-nums">{formatDisplayValue(accessor(comparisonRowA))}</TableCell>
+                              <TableCell className="text-right tabular-nums">{formatDisplayValue(accessor(comparisonRowB))}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                  {renderPlaceholderPanels([
+                    'Player A Chart',
+                    'Player B Chart',
+                    'Spider Graph',
+                    'Side-by-side Action Maps',
+                  ])}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-600">Select two players to compare them.</div>
+              )}
+            </div>
+          )}
+
+          {activeMode === 'tables' && (
+            <div className="space-y-4">
+              <div className="max-w-sm space-y-1">
+                <Label className="text-xs text-slate-600">Select Table</Label>
+                <Select value={playerBucket} onValueChange={setPlayerBucket}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {tableOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {renderSimpleTable(sortedLeaderboard, currentColumns)}
+              {playerBucket === 'goalkeepers' && goalkeeperPressCards.length > 0 && (
+                <Card>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {goalkeeperPressCards.map((card) => (
+                        <GoalkeeperPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

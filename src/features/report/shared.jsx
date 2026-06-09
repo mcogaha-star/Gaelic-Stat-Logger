@@ -1468,6 +1468,16 @@ function buildDefensiveActions(stats, options = {}) {
   const OFFENSIVE_FOUL_TYPES = new Set(['throw', 'double_bounce', 'doublebounce', 'charge', 'overcarry']);
   const isTechnicalFoulType = (value) => TECHNICAL_FOUL_TYPES.has(normalizeFoulType(value));
   const isOffensiveFoulType = (value) => OFFENSIVE_FOUL_TYPES.has(normalizeFoulType(value));
+  const playerMeta = (sel) => {
+    const player = normalizePlayerRef(sel);
+    if (!player?.id) return null;
+    return {
+      id: String(player.id),
+      label: selectionTooltipLabel(player) || '—',
+      teamSide: player.team_side || '',
+    };
+  };
+  const uniquePlayerIds = (...metas) => Array.from(new Set(metas.filter(Boolean).map((meta) => String(meta.id || '')).filter(Boolean)));
   const addPlayerAction = (stat, sel, reason, x, y) => {
     const player = normalizePlayerRef(sel);
     if (!player) return;
@@ -1529,10 +1539,26 @@ function buildDefensiveActions(stats, options = {}) {
           forcedByLabel: meta?.forcedByLabel || '',
           recoveredByLabel: meta?.recoveredByLabel || '',
           fouledByLabel: meta?.fouledByLabel || '',
+          fouledOnLabel: meta?.fouledOnLabel || '',
           lostByLabel: meta?.lostByLabel || '',
+          blockedByLabel: meta?.blockedByLabel || '',
+          savedByLabel: meta?.savedByLabel || '',
+          shotRecoveredByLabel: meta?.shotRecoveredByLabel || '',
           pressure: meta?.pressure || '',
           turnoverType: meta?.turnoverType || '',
           foulType: meta?.foulType || '',
+          blockSaveType: meta?.blockSaveType || '',
+          forcedById: meta?.forcedById || '',
+          recoveredById: meta?.recoveredById || '',
+          lostById: meta?.lostById || '',
+          foulById: meta?.foulById || '',
+          foulOnId: meta?.foulOnId || '',
+          defenderId: meta?.defenderId || '',
+          blockedById: meta?.blockedById || '',
+          savedById: meta?.savedById || '',
+          shotRecoveredById: meta?.shotRecoveredById || '',
+          playerInvolvementIds: Array.isArray(meta?.playerInvolvementIds) ? Array.from(new Set(meta.playerInvolvementIds.filter(Boolean).map(String))) : [],
+          unforced: !!meta?.unforced,
           isTechnicalFoul: !!meta?.isTechnicalFoul,
           isOffensiveFoul: !!meta?.isOffensiveFoul,
           turnoverWonBy: meta?.turnoverWonBy || '',
@@ -1599,7 +1625,12 @@ function buildDefensiveActions(stats, options = {}) {
         const turnoverCoord = resolveCoordinate(stat, 'turnover');
         const offensiveTurnover = isOffensiveFoulType(turnoverType) || offensiveFoul;
         const technicalTurnover = isTechnicalFoulType(turnoverType) || technicalFoul;
-        const mapOnlyTurnover = offensiveTurnover || technicalTurnover;
+        const mapOnlyTurnover = technicalTurnover;
+        const recoveredMeta = playerMeta(recovered);
+        const forcedMeta = playerMeta(forced);
+        const lostMeta = playerMeta(lostPlayer);
+        const foulByMeta = playerMeta(foul?.foul_by);
+        const foulOnMeta = playerMeta(foul?.foul_on || foul?.foul_on_or_forced_by);
         const turnoverFilterTags = ['turnover'];
         if (foul || turnoverType === 'foul' || technicalTurnover || offensiveTurnover) turnoverFilterTags.push('foul');
         if (technicalTurnover) turnoverFilterTags.push('technical_foul');
@@ -1614,17 +1645,30 @@ function buildDefensiveActions(stats, options = {}) {
           actionCategory: 'turnover',
           filterTags: turnoverFilterTags,
           metricIncluded: !mapOnlyTurnover,
-          excludedReason: mapOnlyTurnover ? 'offensive_or_technical_foul_turnover' : null,
+          excludedReason: mapOnlyTurnover ? 'technical_foul_turnover' : null,
           actingTeamSide,
           committingTeamSide: lostPlayer?.team_side || actingTeamSide,
           playerLabel: selectionTooltipLabel(recovered || forced || lostPlayer || foul?.foul_by || null),
           oppositionPlayerLabel: selectionTooltipLabel(lostPlayer || foul?.foul_on || foul?.foul_on_or_forced_by || null),
-          forcedByLabel: selectionTooltipLabel(forced || null),
-          recoveredByLabel: selectionTooltipLabel(recovered || null),
-          lostByLabel: selectionTooltipLabel(lostPlayer || null),
+          forcedByLabel: forcedMeta?.label || '',
+          recoveredByLabel: recoveredMeta?.label || '',
+          lostByLabel: lostMeta?.label || '',
+          fouledByLabel: foulByMeta?.label || '',
+          fouledOnLabel: foulOnMeta?.label || '',
+          forcedByTeamSide: forcedMeta?.teamSide || normalizeTeamSideRef(turnoverData?.forced_by) || '',
+          recoveredByTeamSide: recoveredMeta?.teamSide || normalizeTeamSideRef(turnoverData?.recovered_by) || '',
+          lostByTeamSide: lostMeta?.teamSide || normalizeTeamSideRef(turnoverData?.lost_by) || '',
+          foulOnTeamSide: foulOnMeta?.teamSide || normalizeTeamSideRef(foul?.foul_on || foul?.foul_on_or_forced_by) || '',
           pressure: '',
           turnoverType: toTitleCase(turnoverType || 'unknown'),
           foulType: foulType,
+          forcedById: forcedMeta?.id || '',
+          recoveredById: recoveredMeta?.id || '',
+          lostById: lostMeta?.id || '',
+          foulById: foulByMeta?.id || '',
+          foulOnId: foulOnMeta?.id || '',
+          playerInvolvementIds: uniquePlayerIds(forcedMeta, recoveredMeta, lostMeta, foulByMeta, foulOnMeta),
+          unforced: !!turnoverData?.unforced,
           isTechnicalFoul: technicalTurnover,
           isOffensiveFoul: offensiveTurnover,
           turnoverWonBy: teamSide,
@@ -1641,6 +1685,8 @@ function buildDefensiveActions(stats, options = {}) {
       if (foul) {
         const foulingTeam = foul?.foul_by?.team_side || null;
         const foulCoord = resolveCoordinate(stat, 'event');
+        const foulByMeta = playerMeta(foul?.foul_by);
+        const foulOnMeta = playerMeta(foul?.foul_on || foul?.foul_on_or_forced_by);
         addTeamAction(foulingTeam, 'Foul', foulCoord, {
           frameTeamSide: foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || stat?.team_side || null,
           primaryCategory: technicalFoul ? 'technical_foul' : offensiveFoul ? 'offensive_foul' : 'foul',
@@ -1650,14 +1696,19 @@ function buildDefensiveActions(stats, options = {}) {
             ...(technicalFoul ? ['technical_foul'] : []),
             ...(offensiveFoul ? ['offensive_foul'] : []),
           ],
-          metricIncluded: !(technicalFoul || offensiveFoul),
-          excludedReason: technicalFoul || offensiveFoul ? 'technical_offensive_foul' : null,
+          metricIncluded: !technicalFoul,
+          excludedReason: technicalFoul ? 'technical_foul' : null,
           actingTeamSide: stat?.team_side || foulingTeam,
           committingTeamSide: foulingTeam,
-          playerLabel: selectionTooltipLabel(foul?.foul_by || null),
-          oppositionPlayerLabel: selectionTooltipLabel(foul?.foul_on || foul?.foul_on_or_forced_by || null),
-          fouledByLabel: selectionTooltipLabel(foul?.foul_by || null),
+          playerLabel: foulByMeta?.label || '',
+          oppositionPlayerLabel: foulOnMeta?.label || '',
+          fouledByLabel: foulByMeta?.label || '',
+          fouledOnLabel: foulOnMeta?.label || '',
+          foulOnTeamSide: foulOnMeta?.teamSide || normalizeTeamSideRef(foul?.foul_on || foul?.foul_on_or_forced_by) || '',
           foulType,
+          foulById: foulByMeta?.id || '',
+          foulOnId: foulOnMeta?.id || '',
+          playerInvolvementIds: uniquePlayerIds(foulByMeta, foulOnMeta),
           isTechnicalFoul: technicalFoul,
           isOffensiveFoul: offensiveFoul,
           outcome: deriveOutcome(stat, extra) || 'foul',
@@ -1665,10 +1716,56 @@ function buildDefensiveActions(stats, options = {}) {
         continue;
       }
 
+      if (stat.stat_type === 'shot') {
+        const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
+        const blockedBy = normalizePlayerRef(extra?.shot?.blocked_by);
+        const savedBy = normalizePlayerRef(extra?.shot?.saved_by);
+        const recoveredBy = normalizePlayerRef(extra?.shot?.recovered_by);
+        const outcome = String(extra?.shot?.outcome || '').toLowerCase();
+        const blockSaveType = outcome === 'blocked' ? 'block' : outcome === 'saved' ? 'save' : '';
+        if (blockSaveType) {
+          const blockedByMeta = playerMeta(blockedBy);
+          const savedByMeta = playerMeta(savedBy);
+          const recoveredByMeta = playerMeta(recoveredBy);
+          const creditSide =
+            blockedBy?.team_side
+            || savedBy?.team_side
+            || recoveredBy?.team_side
+            || oppositeTeamSide(shooterSide);
+          const filterTags = ['block_save'];
+          if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') filterTags.push('pressure');
+          addTeamAction(creditSide, 'Block / Save', resolveCoordinate(stat, 'event'), {
+            frameTeamSide: shooterSide,
+            primaryCategory: 'block_save',
+            actionCategory: 'block_save',
+            filterTags,
+            metricIncluded: true,
+            actingTeamSide: shooterSide,
+            committingTeamSide: shooterSide,
+            playerLabel: selectionTooltipLabel(blockedBy || savedBy || recoveredBy || null),
+            oppositionPlayerLabel: selectionTooltipLabel(extra?.shot?.player || null),
+            blockedByLabel: blockedByMeta?.label || '',
+            savedByLabel: savedByMeta?.label || '',
+            shotRecoveredByLabel: recoveredByMeta?.label || '',
+            blockedById: blockedByMeta?.id || '',
+            savedById: savedByMeta?.id || '',
+            shotRecoveredById: recoveredByMeta?.id || '',
+            playerInvolvementIds: uniquePlayerIds(blockedByMeta, savedByMeta, recoveredByMeta),
+            pressure: String(extra?.shot?.pressure || '').toLowerCase() === 'high' ? 'high' : '',
+            blockSaveType: blockSaveType === 'block' ? 'Block' : 'Save',
+            outcome: deriveOutcome(stat, extra) || 'shot',
+          });
+          addPlayerAction(stat, blockedBy, 'Shot Block', stat?.x_position, stat?.y_position);
+          addPlayerAction(stat, savedBy, 'Shot Save', stat?.x_position, stat?.y_position);
+          continue;
+        }
+      }
+
       if (stat.stat_type === 'carry') {
         const carrierSide = extra?.carry?.carrier?.team_side || stat?.team_side;
         if (String(extra?.carry?.pressure_on_carrier || '').toLowerCase() === 'high') {
           const defendingSide = oppositeTeamSide(carrierSide);
+          const defenderMeta = playerMeta(extra?.carry?.defender);
           addTeamAction(defendingSide, 'High Pressure', resolveCoordinate(stat, 'event'), {
             frameTeamSide: carrierSide,
             primaryCategory: 'pressure',
@@ -1677,9 +1774,11 @@ function buildDefensiveActions(stats, options = {}) {
             metricIncluded: true,
             actingTeamSide: carrierSide,
             committingTeamSide: carrierSide,
-            playerLabel: selectionTooltipLabel(extra?.carry?.defender || null),
+            playerLabel: defenderMeta?.label || '',
             oppositionPlayerLabel: selectionTooltipLabel(extra?.carry?.carrier || null),
-            defenderLabel: selectionTooltipLabel(extra?.carry?.defender || null),
+            defenderLabel: defenderMeta?.label || '',
+            defenderId: defenderMeta?.id || '',
+            playerInvolvementIds: uniquePlayerIds(defenderMeta),
             pressure: 'high',
             outcome: deriveOutcome(stat, extra) || 'carry',
           });
@@ -1691,6 +1790,7 @@ function buildDefensiveActions(stats, options = {}) {
       if (stat.stat_type === 'pass') {
         const passerSide = extra?.pass?.passer?.team_side || stat?.team_side;
         if (String(extra?.pass?.pressure_on_passer || '').toLowerCase() === 'high') {
+          const defenderMeta = playerMeta(extra?.pass?.defender);
           addTeamAction(oppositeTeamSide(passerSide), 'High Pressure', resolveCoordinate(stat, 'event'), {
             frameTeamSide: passerSide,
             primaryCategory: 'pressure',
@@ -1699,9 +1799,11 @@ function buildDefensiveActions(stats, options = {}) {
             metricIncluded: true,
             actingTeamSide: passerSide,
             committingTeamSide: passerSide,
-            playerLabel: selectionTooltipLabel(extra?.pass?.defender || null),
+            playerLabel: defenderMeta?.label || '',
             oppositionPlayerLabel: selectionTooltipLabel(extra?.pass?.passer || null),
-            defenderLabel: selectionTooltipLabel(extra?.pass?.defender || null),
+            defenderLabel: defenderMeta?.label || '',
+            defenderId: defenderMeta?.id || '',
+            playerInvolvementIds: uniquePlayerIds(defenderMeta),
             pressure: 'high',
             outcome: deriveOutcome(stat, extra) || 'pass',
           });
@@ -1712,6 +1814,7 @@ function buildDefensiveActions(stats, options = {}) {
       if (stat.stat_type === 'shot') {
         const shooterSide = extra?.shot?.player?.team_side || stat?.team_side;
         if (String(extra?.shot?.pressure || '').toLowerCase() === 'high') {
+          const defenderMeta = playerMeta(extra?.shot?.defender);
           addTeamAction(oppositeTeamSide(shooterSide), 'High Pressure', resolveCoordinate(stat, 'event'), {
             frameTeamSide: shooterSide,
             primaryCategory: 'pressure',
@@ -1720,9 +1823,11 @@ function buildDefensiveActions(stats, options = {}) {
             metricIncluded: true,
             actingTeamSide: shooterSide,
             committingTeamSide: shooterSide,
-            playerLabel: selectionTooltipLabel(extra?.shot?.defender || null),
+            playerLabel: defenderMeta?.label || '',
             oppositionPlayerLabel: selectionTooltipLabel(extra?.shot?.player || null),
-            defenderLabel: selectionTooltipLabel(extra?.shot?.defender || null),
+            defenderLabel: defenderMeta?.label || '',
+            defenderId: defenderMeta?.id || '',
+            playerInvolvementIds: uniquePlayerIds(defenderMeta),
             pressure: 'high',
             outcome: deriveOutcome(stat, extra) || 'shot',
           });
@@ -3453,6 +3558,7 @@ export {
   groupByPossession,
   possessionHasOpp45Entry,
   derivePossessionOutcome,
+  selectionTooltipLabel,
   selectionKey,
   normalizePlayerRef,
   getPrimaryActorSelection,

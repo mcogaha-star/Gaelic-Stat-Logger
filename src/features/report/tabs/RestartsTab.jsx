@@ -17,6 +17,7 @@ import {
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
   getNextBallActionStat,
+  getShotExpectedPointsValue,
   inferRestartWinnerSide,
   getMatchTimeS,
   getProgressiveMeters,
@@ -107,14 +108,6 @@ function getKickoutSideLabel(stat) {
   return toTitleCase(shotSideFromY(stat?.end_y_position) || shotSideFromY(stat?.y_position) || '');
 }
 
-function getShotXpValue(stat) {
-  const extra = safeParseJSON(stat?.extra_data || '{}', {});
-  const shot = extra?.shot || {};
-  const xpRaw = shot?.xp?.value ?? shot?.expected_points ?? shot?.expectedPoints ?? shot?.xp ?? shot?.xP ?? null;
-  const xp = Number(xpRaw);
-  return Number.isFinite(xp) ? xp : 0;
-}
-
 function getKickoutValueGroupingLabel(stat, groupingMode) {
   if (groupingMode === 'side') {
     const side = String(getKickoutSideLabel(stat) || '').toLowerCase();
@@ -140,18 +133,45 @@ function getKickoutValueGroupingLabel(stat, groupingMode) {
   return 'All Kickouts';
 }
 
-function getKickoutChainFirstShot(kickoutStat, orderedStats, statIndexById) {
+const MAX_KICKOUT_VALUE_POSSESSIONS = 3;
+
+function getKickoutChainValueTotals(kickoutStat, orderedStats, statIndexById) {
   const startIndex = statIndexById.get(kickoutStat?.id);
-  if (!Number.isInteger(startIndex)) return null;
+  if (!Number.isInteger(startIndex)) return { xpTotal: 0, pppTotal: 0 };
+  const possessionKeys = [];
+  const seenPossessions = new Set();
+  const kickingTeam = safeParseJSON(kickoutStat?.extra_data || '{}', {})?.kickout?.team_side || kickoutStat?.team_side;
   for (let i = startIndex + 1; i < orderedStats.length; i += 1) {
     const stat = orderedStats[i];
     if (!stat) continue;
     const statType = String(stat?.stat_type || '');
-    if (statType === 'shot') return stat;
-    if (statType === 'kickout' || statType === 'throw_in' || statType === 'period_end') return null;
-    if (isDeadBallGapStart(stat)) return null;
+    if (statType === 'kickout' || statType === 'period_end') break;
+
+    const possessionId = Number(stat?.possession_id);
+    const possessionSide = stat?.possession_team_side;
+    const possessionKey = Number.isFinite(possessionId) && (possessionSide === 'home' || possessionSide === 'away')
+      ? `${possessionSide}-${possessionId}`
+      : null;
+
+    if (possessionKey && !seenPossessions.has(possessionKey)) {
+      if (possessionKeys.length >= MAX_KICKOUT_VALUE_POSSESSIONS) break;
+      seenPossessions.add(possessionKey);
+      possessionKeys.push(possessionKey);
+    }
+
+    if (statType !== 'shot') continue;
+    if (possessionKey && !seenPossessions.has(possessionKey)) continue;
+    if (shouldExcludeFromTotals(stat)) continue;
+    const shotTeam = stat?.team_side;
+    const sign = shotTeam === kickingTeam ? 1 : shotTeam === 'home' || shotTeam === 'away' ? -1 : 0;
+    const shotExtra = safeParseJSON(stat?.extra_data || '{}', {});
+    const outcome = shotExtra?.shot?.outcome;
+    return {
+      xpTotal: sign * getShotExpectedPointsValue(stat),
+      pppTotal: sign * (shotOutcomeGroup(outcome) === 'score' ? shotPointsForOutcome(outcome) : 0),
+    };
   }
-  return null;
+  return { xpTotal: 0, pppTotal: 0 };
 }
 
 function buildKickoutValueRows({ kickouts, groupingMode, orderedStats, statIndexById }) {
@@ -172,15 +192,10 @@ function buildKickoutValueRows({ kickouts, groupingMode, orderedStats, statIndex
     if (groupingMode !== 'all' && !groupOrder.includes(group)) return;
     const bucket = buckets.get(group) || { group, n: 0, xpTotal: 0, pppTotal: 0 };
     bucket.n += 1;
-    const firstShot = getKickoutChainFirstShot(kickout, orderedStats, statIndexById);
-    if (firstShot?.stat_type === 'shot') {
-      const shotTeam = firstShot?.team_side;
-      const sign = shotTeam === kickingTeam ? 1 : shotTeam === 'home' || shotTeam === 'away' ? -1 : 0;
-      const shotExtra = safeParseJSON(firstShot?.extra_data || '{}', {});
-      const outcome = shotExtra?.shot?.outcome;
-      bucket.xpTotal += sign * getShotXpValue(firstShot);
-      bucket.pppTotal += sign * (shotOutcomeGroup(outcome) === 'score' ? shotPointsForOutcome(outcome) : 0);
-    }
+    // Cap kickout value to the kickout possession plus at most the next two linked possessions.
+    const chainValue = getKickoutChainValueTotals(kickout, orderedStats, statIndexById);
+    bucket.xpTotal += Number(chainValue?.xpTotal || 0);
+    bucket.pppTotal += Number(chainValue?.pppTotal || 0);
     buckets.set(group, bucket);
   });
 
@@ -189,8 +204,8 @@ function buildKickoutValueRows({ kickouts, groupingMode, orderedStats, statIndex
     .filter((row) => groupingMode !== 'all' || row.group === 'All Kickouts')
     .map((row) => ({
       ...row,
-      netXpPerPoss: row.n ? row.xpTotal / row.n : 0,
-      netPppPerPoss: row.n ? row.pppTotal / row.n : 0,
+      netXPPerKickout: row.n ? row.xpTotal / row.n : 0,
+      netPointsPerKickout: row.n ? row.pppTotal / row.n : 0,
     }));
 }
 
@@ -1793,10 +1808,7 @@ function RestartsTab({
             <Card className={RESTART_PANE_CLASS}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="font-semibold text-slate-900">Kickout Value</div>
-                    <div className="text-xs text-slate-500">First-shot value signed relative to the kicking team, shown per kickout chain.</div>
-                  </div>
+                  <div className="font-semibold text-slate-900">Kickout Value</div>
                   <div className="inline-flex rounded-xl bg-slate-100 p-1">
                     {KICKOUT_VALUE_GROUPING_OPTIONS.map((option) => (
                       <Button
@@ -1825,8 +1837,8 @@ function RestartsTab({
                             <TableRow>
                               <TableHead>Group</TableHead>
                               <TableHead className="text-right">Number</TableHead>
-                              <TableHead className="text-right">Net xPPP</TableHead>
-                              <TableHead className="text-right">Net PPP</TableHead>
+                              <TableHead className="text-right">Net xP / KO</TableHead>
+                              <TableHead className="text-right">Net Pts / KO</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -1834,8 +1846,8 @@ function RestartsTab({
                               <TableRow key={`${panel.side}-${row.group}`}>
                                 <TableCell className="font-medium">{row.group}</TableCell>
                                 <TableCell className="text-right tabular-nums">{row.n}</TableCell>
-                                <TableCell className="text-right tabular-nums">{row.netXpPerPoss.toFixed(2)}</TableCell>
-                                <TableCell className="text-right tabular-nums">{row.netPppPerPoss.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{row.netXPPerKickout.toFixed(2)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{row.netPointsPerKickout.toFixed(2)}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>

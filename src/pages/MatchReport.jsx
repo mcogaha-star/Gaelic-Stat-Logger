@@ -75,6 +75,7 @@ import {
   serializeThirdPartyRowsToCsv,
   writeThirdPartyXpIssues,
 } from '@/lib/thirdPartyXp';
+import { createSeededRng, hashSimulationSeed, simulateFullMatchFromShots } from '@/lib/winProbability';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -99,6 +100,43 @@ function getSectionBoundaryLabel(half) {
 function safeShotArcFilePart(value, fallback = 'team') {
   const text = String(value || fallback).trim().toLowerCase();
   return (text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || fallback).slice(0, 80);
+}
+
+function getImportedShotXpValue(stat, overrideValue = NaN) {
+  if (Number.isFinite(Number(overrideValue))) return Number(overrideValue);
+  const extra = safeParseJSON(stat?.extra_data || '{}', {});
+  const xp = Number(extra?.shot?.xp?.value ?? extra?.shot?.xp ?? NaN);
+  return Number.isFinite(xp) ? xp : NaN;
+}
+
+function buildStoredShotWinProbabilitySim(shotRecords = [], xpOverrides = new Map()) {
+  const simulationShots = (Array.isArray(shotRecords) ? shotRecords : [])
+    .map((record) => {
+      const stat = record?.stat || null;
+      const xp = getImportedShotXpValue(stat, xpOverrides.get(record?.id));
+      if (!Number.isFinite(xp)) return null;
+      return {
+        key: record?.id || `${record?.teamSide || 'home'}-${record?.shotTypeKey || 'point'}-${xp}`,
+        team_side: record?.teamSide === 'away' ? 'away' : 'home',
+        shotType: record?.shotTypeKey || 'point',
+        xp,
+      };
+    })
+    .filter(Boolean);
+
+  if (!simulationShots.length) return null;
+
+  const seed = hashSimulationSeed({
+    source: 'third_party_import',
+    shots: simulationShots.map((shot) => [shot.key, shot.team_side, shot.shotType, Number(shot.xp).toFixed(4)]),
+  });
+  return {
+    ...simulateFullMatchFromShots(simulationShots, 10000, createSeededRng(seed)),
+    shotCount: simulationShots.length,
+    seed,
+    source: 'third_party_import',
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 function buildSectionDisplayLayout(stats, match, imputedTimeById) {
@@ -593,8 +631,21 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         updateLocalShot: (id, patch) => db.entities.StatEntry.update(id, patch),
         updateServerShot: (serverStatId, patch) => updateServerStat(serverStatId, patch),
       });
+      const xpOverrides = new Map(
+        (summary.updates || []).map((update) => {
+          const extra = safeParseJSON(update?.patch?.extra_data || '{}', {});
+          return [update?.id, Number(extra?.shot?.xp?.value ?? NaN)];
+        }),
+      );
+      const storedShotWinProbabilitySim = buildStoredShotWinProbabilitySim(shotRecords, xpOverrides);
+      if (storedShotWinProbabilitySim) {
+        await db.entities.Match.update(match.id, {
+          shot_win_probability_sim: JSON.stringify(storedShotWinProbabilitySim),
+        });
+      }
 
       writeThirdPartyXpIssues(matchId, summary.issues);
+      await queryClient.invalidateQueries({ queryKey: ['match', matchId] });
       await queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
       await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
       toast.success(`xP import complete: ${formatThirdPartyXpImportSummary(summary)}`);
@@ -1629,6 +1680,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             <ScoringTab
               stats={filteredForScoring}
               simStats={filteredForScoringWp}
+              match={match}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               playerOptions={playerOptions}

@@ -92,7 +92,7 @@ export default function OverviewTab({
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            <Card className={`h-full ${paneClassName}`}>
+            <Card className={`h-full lg:order-2 ${paneClassName}`}>
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
                 <div className="font-semibold text-slate-900">Score Timeline</div>
                 {scoreTimeline.points.length <= 1 ? (
@@ -160,7 +160,7 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+            <Card className="h-full lg:order-1 border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
                 <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
                   <div className="absolute inset-y-0 left-0 w-2" style={teamBandStyle(homeTeam?.color || '#22c55e', 'left')} />

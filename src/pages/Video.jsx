@@ -82,6 +82,7 @@ export default function Video() {
   const matchId = params.get('matchId') || params.get('id') || '';
   const reviewMode = params.get('review') === '1';
   const reelId = params.get('reelId') || '';
+  const selectionKey = params.get('selectionKey') || '';
 
   const channelRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -129,14 +130,24 @@ export default function Video() {
     queryFn: () => db.entities.VideoNote.filter({ match_id: matchId }),
     enabled: reviewMode && !!matchId,
   });
+  const reviewSelectionClips = useMemo(() => {
+    if (!reviewMode || !selectionKey) return [];
+    try {
+      const raw = window.sessionStorage.getItem(`gstl_video_selection:${selectionKey}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [reviewMode, selectionKey]);
   const reviewClips = useMemo(
-    () => (reviewClipsRaw || []).slice().sort((a, b) => {
+    () => (selectionKey ? reviewSelectionClips : (reviewClipsRaw || [])).slice().sort((a, b) => {
       const aOrder = Number(a?.order_index);
       const bOrder = Number(b?.order_index);
       if (Number.isFinite(aOrder) && Number.isFinite(bOrder) && aOrder !== bOrder) return aOrder - bOrder;
       return Number(a?.start_time || 0) - Number(b?.start_time || 0);
     }),
-    [reviewClipsRaw]
+    [selectionKey, reviewSelectionClips, reviewClipsRaw]
   );
   const currentClip = reviewMode ? (reviewClips[currentClipIndex] || null) : null;
 
@@ -611,7 +622,7 @@ export default function Video() {
       <div className="flex items-baseline gap-2">
         <div className="font-semibold">{reviewMode ? 'Review Player' : 'Video'}</div>
         <div className="text-xs text-slate-500">
-          {reviewMode ? (reviewReel?.name || 'Highlight Reel') : `Match ${matchId ? matchId.slice(0, 8) : ''}`}
+          {reviewMode ? (selectionKey ? 'Current Selection' : (reviewReel?.name || 'Highlight Reel')) : `Match ${matchId ? matchId.slice(0, 8) : ''}`}
         </div>
       </div>
       <div className="flex items-center gap-2">

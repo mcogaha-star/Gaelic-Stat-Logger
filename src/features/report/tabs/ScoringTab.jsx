@@ -18,6 +18,7 @@ import {
   getFieldTiltContribution,
   getMatchTimeS,
   getProgressiveMeters,
+  getShotContextType,
   getScoringZoneEntry,
   isAttackPossession,
   isBroughtBackAdvantageStat,
@@ -449,12 +450,13 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
   );
 }
 
-function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
+function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const scoringAttackTypeFilter = String(attackType || 'any');
   const [shotMapMode, setShotMapMode] = useState('all');
   const [detailedSituationOpen, setDetailedSituationOpen] = useState(false);
+  const [playerShootingTypeFilter, setPlayerShootingTypeFilter] = useState('all');
   const playerLookup = useMemo(() => {
     const byId = new Map();
     const bySideNumber = new Map();
@@ -570,6 +572,7 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
         xp: Number.isFinite(xp) ? xp : NaN,
         isFromPlay: sit === 'play',
         isPlacedBall: sit && sit !== 'play',
+        contextType: getShotContextType(s),
         playerLabel,
         playerId: playerSel?.id || rosterPlayer?.id || null,
         playerKey: `${s.team_side === 'away' ? 'away' : 'home'}|${String(playerSel?.id || rosterPlayer?.id || playerLabel || 'NA')}`,
@@ -905,9 +908,15 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
     })
   ), [situationLabelMap, situationOrder]);
 
+  const playerShootingShots = useMemo(() => {
+    if (playerShootingTypeFilter === 'play') return filteredShots.filter((shot) => shot.contextType === 'play');
+    if (playerShootingTypeFilter === 'deadball') return filteredShots.filter((shot) => shot.contextType === 'deadball');
+    return filteredShots;
+  }, [filteredShots, playerShootingTypeFilter]);
+
   const playerSummary = useMemo(() => {
     const rows = new Map();
-    for (const s of filteredShots) {
+    for (const s of playerShootingShots) {
       if (teamMode !== 'both' && s.team_side !== teamMode) continue;
       const key = s.playerKey || `${s.team_side}|${s.playerLabel || 'NA'}`;
       const cur = rows.get(key) || {
@@ -952,7 +961,7 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
     }));
     out.sort((a, b) => b.points - a.points);
     return out;
-  }, [filteredShots, teamMode]);
+  }, [playerShootingShots, teamMode]);
   const [playerSort, setPlayerSort] = useState({ key: 'points', dir: 'desc' });
   const [showAllPlayerShooting, setShowAllPlayerShooting] = useState(false);
   const playerColumns = useMemo(() => ([
@@ -987,6 +996,15 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
         xp: shot.xp,
       }))
   ), [simShots, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter]);
+  const storedWinProbabilitySim = useMemo(() => {
+    try {
+      const raw = match?.shot_win_probability_sim;
+      if (!raw) return null;
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      return null;
+    }
+  }, [match?.shot_win_probability_sim]);
   const winProbabilitySeed = useMemo(
     () => hashSimulationSeed({
       teamMode,
@@ -1000,13 +1018,15 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
     }),
     [teamMode, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter, simulationShots]
   );
-  const winProbabilitySim = useMemo(() => (
-    simulateFullMatchFromShots(
+  const winProbabilitySim = useMemo(() => {
+    if (storedWinProbabilitySim) return null;
+    return simulateFullMatchFromShots(
       simulationShots,
       10000,
       createSeededRng(winProbabilitySeed),
-    )
-  ), [simulationShots, winProbabilitySeed]);
+    );
+  }, [simulationShots, winProbabilitySeed, storedWinProbabilitySim]);
+  const displayedWinProbabilitySim = storedWinProbabilitySim || winProbabilitySim;
 
   return (
     <div className="space-y-4">
@@ -1040,7 +1060,7 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
         <div className="report-companion-grid">
           <WinProbabilityBar
             title="xP win probability"
-            sim={winProbabilitySim}
+            sim={displayedWinProbabilitySim}
             homeTeam={homeTeam}
             awayTeam={awayTeam}
             homeColor={homeTeam?.color}
@@ -1214,17 +1234,32 @@ function ScoringTab({ stats, simStats = null, homeTeam, awayTeam, playerOptions 
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold text-slate-900">Player Shooting</div>
-                  {sortedPlayerSummary.length > 8 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-[108px] px-2 text-xs"
-                      onClick={() => setShowAllPlayerShooting((current) => !current)}
-                    >
-                      {showAllPlayerShooting ? 'Show Top 8' : 'Expand Table'}
-                    </Button>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-slate-600">Type</Label>
+                      <Select value={playerShootingTypeFilter} onValueChange={setPlayerShootingTypeFilter}>
+                        <SelectTrigger className="h-8 w-[116px] text-xs">
+                          <SelectValue placeholder="All" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="play">Play</SelectItem>
+                          <SelectItem value="deadball">Deadball</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {sortedPlayerSummary.length > 8 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-[108px] px-2 text-xs"
+                        onClick={() => setShowAllPlayerShooting((current) => !current)}
+                      >
+                        {showAllPlayerShooting ? 'Show Top 8' : 'Expand Table'}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 <Table className="table-fixed w-full">
                   <colgroup>

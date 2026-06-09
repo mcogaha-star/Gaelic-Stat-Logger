@@ -4,9 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
-import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis, ResponsiveContainer, Sankey } from 'recharts';
+import { Tooltip, ResponsiveContainer, Sankey } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
 import {
   PITCH_W,
@@ -33,7 +31,6 @@ import {
   formatMMSS,
   formatPct,
   sortRows,
-  SortableTableHead,
   MultiSelect,
   MatchTimeRangeSlider,
   groupByPossession,
@@ -60,6 +57,7 @@ import {
   shotSideFromY,
   shotZoneFromDistance,
   applyNonTeamReportFilters,
+  selectionTooltipLabel,
 } from '../shared';
 
 const DEFENSE_PANE_CLASS = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
@@ -72,7 +70,7 @@ const DEFENSE_SANKEY_TYPE_ORDER = ['Tackle', 'Group Tackle', 'Interception', 'Fo
 const DEFENSE_SANKEY_ZONE_ORDER = ['Def', 'Mid', 'Att'];
 const DEFENSE_SANKEY_HIDDEN_LAYER3_SINK = '__defense_layer3_sink__';
 const DEFENSE_SANKEY_LAYER_ORDER = {
-  2: ['Shot', 'TO Lost'],
+  2: ['Shot', 'TO Lost', 'Half End', 'No Shot / Other'],
   3: ['Score', 'Miss', DEFENSE_SANKEY_HIDDEN_LAYER3_SINK],
 };
 const DEFENSE_OUTCOME_TO_SHOT_RESULT = {
@@ -83,13 +81,6 @@ const DEFENSE_OUTCOME_TO_SHOT_RESULT = {
   Saved: 'Miss',
   Post: 'Miss',
 };
-const DEFENSE_TURNOVER_TYPE_PALETTE = ['#2563eb', '#0f766e', '#7c3aed', '#d97706', '#dc2626', '#64748b', '#16a34a', '#db2777'];
-const DEFENSE_ZONE_BREAKDOWN_SERIES = [
-  { key: 'Def', color: '#2563eb' },
-  { key: 'Mid', color: '#f59e0b' },
-  { key: 'Att', color: '#dc2626' },
-  { key: 'Unknown', color: '#94a3b8' },
-];
 
 function getShotXpValue(stat) {
   const extra = safeParseJSON(stat?.extra_data || '{}', {});
@@ -245,11 +236,15 @@ function buildDefenseSankeyData({ turnovers, teamSide, groupingMode, possessionG
     const possessionEvents = possessionGroups.get(String(stat?.id || '')) || [];
     const groupedOutcome = derivePossessionOutcome(possessionEvents, teamSide);
 
-    let layer2 = 'TO Lost';
+    let layer2 = 'No Shot / Other';
     let layer3 = null;
     if (DEFENSE_OUTCOME_TO_SHOT_RESULT[groupedOutcome]) {
       layer2 = 'Shot';
       layer3 = DEFENSE_OUTCOME_TO_SHOT_RESULT[groupedOutcome];
+    } else if (groupedOutcome === 'Turnover') {
+      layer2 = 'TO Lost';
+    } else if (groupedOutcome === 'Half End') {
+      layer2 = 'Half End';
     }
 
     const layer1Key = addNode(1, groupName);
@@ -512,17 +507,20 @@ function DefenseSankeyTooltip({ active, payload }) {
 function DefensiveActionLegend() {
   const items = [
     { label: 'Turnover Won', category: 'turnover' },
+    { label: 'Block / Save', category: 'block_save' },
     { label: 'Foul', category: 'foul' },
     { label: 'High Pressure', category: 'pressure' },
   ];
   const renderGlyph = (category) => {
-    if (category === 'turnover') return <div className="h-3 w-3 rotate-45 rounded-[2px] border border-slate-700 bg-slate-700" />;
-    if (category === 'foul') return <div className="h-3 w-3 rounded-[2px] border border-slate-700 bg-slate-700" />;
+    if (category === 'turnover') return <div className="h-3 w-3 rotate-45 border border-slate-700 bg-slate-700" />;
+    if (false && category === 'turnover') return <div className="inline-flex h-3 w-3 items-center justify-center text-[10px] leading-none text-slate-700">?</div>;
+    if (category === 'block_save') return <div className="h-3 w-3 rounded-[2px] border border-slate-700 bg-slate-700" />;
+    if (category === 'foul' || category === 'technical_foul') return <div className="h-0 w-0 border-l-[7px] border-r-[7px] border-b-[12px] border-l-transparent border-r-transparent border-b-slate-700" />;
     return <div className="h-3 w-3 rounded-full border border-slate-700 bg-slate-700" />;
   };
   return (
     <div className="flex flex-wrap gap-3 text-[11px] text-slate-700">
-      {items.map((item) => (
+      {items.filter((item) => item.category !== 'technical_foul').map((item) => (
         <div key={item.label} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
           {renderGlyph(item.category)}
           <div className="leading-tight">{item.label}</div>
@@ -541,6 +539,7 @@ function formatDefenseTeamLabel(side, homeTeamName, awayTeamName) {
 function formatDefenseActionCategoryLabel(action) {
   const primaryCategory = action?.primaryCategory || action?.actionCategory;
   if (primaryCategory === 'turnover') return 'Turnover Won';
+  if (primaryCategory === 'block_save') return 'Block / Save';
   if (primaryCategory === 'pressure') return 'High Pressure';
   if (primaryCategory === 'technical_foul' || primaryCategory === 'offensive_foul' || action?.isTechnicalFoul || action?.isOffensiveFoul) return 'Technical/Offensive Foul';
   return 'Foul';
@@ -553,24 +552,141 @@ function formatDefenseClock(stat, match, imputedTimeById) {
   return Number.isFinite(raw) ? formatMMSS(raw) : 'NA';
 }
 
+function getDisplayZoneLabel(x) {
+  const xx = Number(x);
+  if (!Number.isFinite(xx)) return 'Unknown';
+  if (xx < PITCH_W / 3) return 'Defensive Third';
+  if (xx < (2 * PITCH_W) / 3) return 'Middle Third';
+  return 'Attacking Third';
+}
+
+function getTeamRelativeDisplayZoneLabel(x, teamSide) {
+  const xx = Number(x);
+  if (!Number.isFinite(xx)) return 'Unknown';
+  const relativeX = teamSide === 'away' ? (PITCH_W - xx) : xx;
+  if (relativeX < PITCH_W / 3) return 'Defensive Third';
+  if (relativeX < (2 * PITCH_W) / 3) return 'Middle Third';
+  return 'Attacking Third';
+}
+
+function isMeaningfulPlayerLabel(label) {
+  const value = String(label || '').trim();
+  if (!value) return false;
+  if (!/[A-Za-z0-9]/.test(value)) return false;
+  if (String(value).startsWith('legacy:')) return false;
+  if (/^demo-[a-z0-9-]+-player-[a-f0-9-]+$/i.test(value)) return false;
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)) return false;
+  if (/^(home|away)(\s+team)?$/i.test(value)) return false;
+  if (!value.startsWith('#') && !/\s/.test(value)) return false;
+  return true;
+}
+
+function formatPlayerOptionLabel(player) {
+  return [player?.number != null && player?.number !== '' ? `#${player.number}` : '', String(player?.name || '').trim()]
+    .filter(Boolean)
+    .join(' ')
+    || player?.label
+    || (player?.id != null ? String(player.id) : '');
+}
+
+function formatTeamSideFallbackLabel(teamSide, homeTeamName, awayTeamName) {
+  if (teamSide === 'home') return homeTeamName || 'Home Team';
+  if (teamSide === 'away') return awayTeamName || 'Away Team';
+  return '';
+}
+
+function firstMeaningfulValue(...values) {
+  for (const value of values) {
+    if (isMeaningfulPlayerLabel(value)) return String(value).trim();
+  }
+  return '';
+}
+
+function parsePlayerLabelParts(label) {
+  const value = String(label || '').trim();
+  const match = value.match(/^#(\d+)\s*(.*)$/);
+  if (!match) return { number: Number.POSITIVE_INFINITY, name: value };
+  return {
+    number: Number(match[1]),
+    name: String(match[2] || '').trim(),
+  };
+}
+
+function sortPlayerOptionRows(options) {
+  const teamRank = { home: 0, away: 1 };
+  return options.slice().sort((a, b) => {
+    const teamCmp = (teamRank[a?.teamSide] ?? 9) - (teamRank[b?.teamSide] ?? 9);
+    if (teamCmp !== 0) return teamCmp;
+    const aParts = parsePlayerLabelParts(a?.label);
+    const bParts = parsePlayerLabelParts(b?.label);
+    if (aParts.number !== bParts.number) return aParts.number - bParts.number;
+    const nameCmp = String(aParts.name || '').localeCompare(String(bParts.name || ''), undefined, { sensitivity: 'base' });
+    if (nameCmp !== 0) return nameCmp;
+    return String(a?.label || '').localeCompare(String(b?.label || ''), undefined, { sensitivity: 'base' });
+  });
+}
+
+function finalizePlayerOptions(options) {
+  return sortPlayerOptionRows(
+    (Array.isArray(options) ? options : []).filter((option) => isMeaningfulPlayerLabel(option?.label))
+  ).map(({ value, label }) => ({ value, label }));
+}
+
 function buildDefenseTooltipText(action, homeTeamName, awayTeamName, match, imputedTimeById) {
+  const extra = safeParseJSON(action?.stat?.extra_data || '{}', {});
   const lines = [];
-  lines.push(`Team: ${formatDefenseTeamLabel(action?.teamSide, homeTeamName, awayTeamName)}`);
-  lines.push(`Half: ${toTitleCase(action?.half || 'NA')}`);
-  lines.push(`Time: ${formatDefenseClock(action?.stat, match, imputedTimeById)}`);
-  lines.push(`Action: ${formatDefenseActionCategoryLabel(action)}`);
-  lines.push(`Type: ${toTitleCase(action?.turnoverType || action?.foulType || action?.pressure || 'NA')}`);
-  if (action?.primaryCategory === 'pressure') lines.push(`Defender: ${action?.defenderLabel || 'NA'}`);
+  const addLine = (label, value) => {
+    const text = String(value || '').trim();
+    if (!text || text === 'NA' || text === '???' || text === '????????' || text === '?' || text === '-') return;
+    lines.push(`${label}: ${text}`);
+  };
+  const foulOnTeamSide = action?.foulOnTeamSide || extra?.foul?.foul_on?.team_side || extra?.foul?.foul_on_or_forced_by?.team_side || '';
+  const lostByTeamSide = action?.lostByTeamSide || extra?.turnover?.lost_by?.team_side || '';
+  const forcedByTeamSide = action?.forcedByTeamSide || extra?.turnover?.forced_by?.team_side || '';
+  const recoveredByTeamSide = action?.recoveredByTeamSide || extra?.turnover?.recovered_by?.team_side || '';
+  const forcedByRaw = selectionTooltipLabel(extra?.turnover?.forced_by);
+  const recoveredByRaw = selectionTooltipLabel(extra?.turnover?.recovered_by);
+  const lostByRaw = selectionTooltipLabel(extra?.turnover?.lost_by);
+  const foulByRaw = selectionTooltipLabel(extra?.foul?.foul_by);
+  const foulOnRaw = selectionTooltipLabel(extra?.foul?.foul_on || extra?.foul?.foul_on_or_forced_by);
+  const defenderRaw = selectionTooltipLabel(extra?.pass?.defender || extra?.carry?.defender || extra?.shot?.defender);
+  const blockSavedByRaw = selectionTooltipLabel(extra?.shot?.blocked_by || extra?.shot?.saved_by);
+  const shotRecoveredByRaw = selectionTooltipLabel(extra?.shot?.recovered_by);
+
+  addLine('Team', formatDefenseTeamLabel(action?.teamSide, homeTeamName, awayTeamName));
+  addLine('Half', toTitleCase(action?.half || 'NA'));
+  addLine('Action', formatDefenseActionCategoryLabel(action));
+  if (action?.primaryCategory === 'pressure') addLine('Type', toTitleCase(String(action?.sourceType || '').toLowerCase() || 'NA'));
+  else if (action?.primaryCategory === 'block_save') addLine('Type', action?.blockSaveType || '');
+  else if (action?.primaryCategory === 'turnover') addLine('Type', toTitleCase(action?.turnoverType || 'NA'));
+  else addLine('Type', toTitleCase(action?.foulType || 'NA'));
+
   if (action?.primaryCategory === 'turnover') {
-    lines.push(`Forced By: ${action?.forcedByLabel || 'None'}`);
-    lines.push(`Recovered By: ${action?.recoveredByLabel || 'None'}`);
-    lines.push(`Lost By: ${action?.lostByLabel || 'NA'}`);
+    addLine('Forced By', firstMeaningfulValue(forcedByRaw, action?.forcedByLabel, formatTeamSideFallbackLabel(forcedByTeamSide, homeTeamName, awayTeamName)));
+    addLine('Recovered By', firstMeaningfulValue(recoveredByRaw, action?.recoveredByLabel, formatTeamSideFallbackLabel(recoveredByTeamSide, homeTeamName, awayTeamName)));
+    addLine('Lost By', firstMeaningfulValue(lostByRaw, action?.lostByLabel, formatTeamSideFallbackLabel(lostByTeamSide, homeTeamName, awayTeamName)));
+    addLine('Unforced', action?.unforced ? 'Yes' : 'No');
+    if (normalizeFoulType(action?.turnoverType || '') === 'foul' || action?.foulType) addLine('Foul Type', toTitleCase(action?.foulType || ''));
   }
-  if (action?.primaryCategory !== 'pressure' && action?.primaryCategory !== 'turnover') {
-    lines.push(`Fouled By: ${action?.fouledByLabel || 'NA'}`);
+  if (action?.primaryCategory === 'block_save') {
+    addLine(action?.blockSaveType === 'Save' ? 'Saved By' : 'Blocked By', firstMeaningfulValue(
+      blockSavedByRaw,
+      action?.blockSaveType === 'Save' ? action?.savedByLabel : action?.blockedByLabel,
+      formatTeamSideFallbackLabel(action?.teamSide, homeTeamName, awayTeamName)
+    ));
+    addLine('Recovered By', firstMeaningfulValue(shotRecoveredByRaw, action?.shotRecoveredByLabel, formatTeamSideFallbackLabel(action?.teamSide, homeTeamName, awayTeamName)));
   }
-  if (Number.isFinite(Number(action?.stat?.play_id))) lines.push(`Play: ${Number(action.stat.play_id)}`);
-  if (Number.isFinite(Number(action?.stat?.possession_id))) lines.push(`Poss: ${Number(action.stat.possession_id)}`);
+  if (action?.primaryCategory === 'pressure') {
+    addLine('Defender', firstMeaningfulValue(defenderRaw, action?.defenderLabel, formatTeamSideFallbackLabel(action?.teamSide, homeTeamName, awayTeamName)));
+  }
+  if (action?.primaryCategory === 'foul' || action?.primaryCategory === 'technical_foul' || action?.primaryCategory === 'offensive_foul') {
+    addLine('Foul By', firstMeaningfulValue(foulByRaw, action?.fouledByLabel, formatTeamSideFallbackLabel(action?.committingTeamSide, homeTeamName, awayTeamName)));
+    addLine('Foul On', firstMeaningfulValue(foulOnRaw, action?.oppositionPlayerLabel, action?.fouledOnLabel, formatTeamSideFallbackLabel(foulOnTeamSide, homeTeamName, awayTeamName)));
+    addLine('Card', toTitleCase(action?.stat?.card || extra?.foul?.card || 'None'));
+  }
+  addLine('Time', formatDefenseClock(action?.stat, match, imputedTimeById));
+  if (Number.isFinite(Number(action?.stat?.play_id))) addLine('Play', Number(action.stat.play_id));
+  if (Number.isFinite(Number(action?.stat?.possession_id))) addLine('Poss', Number(action.stat.possession_id));
   return lines.join('\n');
 }
 
@@ -613,12 +729,12 @@ function DefensiveActionMap({
             fill={color}
             stroke="#0f172a"
             strokeWidth={0.25}
-            opacity="0.92"
+            opacity="0.94"
           />
         </g>
       );
     }
-    if (category === 'foul' || category === 'technical_foul' || category === 'offensive_foul') {
+    if (category === 'block_save') {
       return (
         <g key={action.key} {...commonProps}>
           <title>{tip}</title>
@@ -631,7 +747,20 @@ function DefensiveActionMap({
             fill={color}
             stroke="#0f172a"
             strokeWidth={0.25}
-            strokeDasharray={technical || action?.isOffensiveFoul ? '1 0.8' : undefined}
+            opacity="0.95"
+          />
+        </g>
+      );
+    }
+    if (category === 'foul' || category === 'technical_foul' || category === 'offensive_foul') {
+      return (
+        <g key={action.key} {...commonProps}>
+          <title>{tip}</title>
+          <polygon
+            points={`${x},${y - (size * 1.45)} ${x + (size * 1.3)},${y + (size * 1.1)} ${x - (size * 1.3)},${y + (size * 1.1)}`}
+            fill={technical || action?.isOffensiveFoul ? '#ffffff' : color}
+            stroke="#0f172a"
+            strokeWidth={0.25}
             opacity="0.95"
           />
         </g>
@@ -670,7 +799,6 @@ function DefensiveActionMap({
         )}
       </FullscreenMapShell>
       <DefensiveActionLegend />
-      <div className="text-[11px] text-slate-500">Colours show team; shapes show defensive action category.</div>
     </div>
   );
 }
@@ -680,14 +808,6 @@ function DefenseTab({
   homeTeam,
   awayTeam,
   reportFilters,
-  eventCategory,
-  setEventCategory,
-  turnoverResult,
-  setTurnoverResult,
-  turnoverTypes,
-  setTurnoverTypes,
-  defTypes,
-  setDefTypes,
   onOpenVideoAt,
 }) {
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul', 'pass', 'carry', 'shot'] }), [reportFilters]);
@@ -698,11 +818,23 @@ function DefenseTab({
   const [defMapHalves, setDefMapHalves] = useState(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
   const [defMapTimeMin, setDefMapTimeMin] = useState(String(reportFilters?.timeMin ?? ''));
   const [defMapTimeMax, setDefMapTimeMax] = useState(String(reportFilters?.timeMax ?? ''));
+  const [defMapZone, setDefMapZone] = useState('all');
+  const [defMapPlayerId, setDefMapPlayerId] = useState('all');
+  const [defMapAction, setDefMapAction] = useState('all');
+  const [defMapPressureType, setDefMapPressureType] = useState('all');
+  const [defMapPressureDefenderId, setDefMapPressureDefenderId] = useState('all');
+  const [defMapFoulType, setDefMapFoulType] = useState('all');
+  const [defMapFoulById, setDefMapFoulById] = useState('all');
+  const [defMapTurnoverType, setDefMapTurnoverType] = useState('all');
+  const [defMapForcedById, setDefMapForcedById] = useState('all');
+  const [defMapRecoveredById, setDefMapRecoveredById] = useState('all');
+  const [defMapLostById, setDefMapLostById] = useState('all');
+  const [defMapBlockSaveType, setDefMapBlockSaveType] = useState('all');
+  const [defMapBlockSavedById, setDefMapBlockSavedById] = useState('all');
+  const [defMapBlockRecoveredById, setDefMapBlockRecoveredById] = useState('all');
   const [defenseSankeyGrouping, setDefenseSankeyGrouping] = useState('all');
   const [defenseSankeyTeam, setDefenseSankeyTeam] = useState(String(reportFilters?.team || '') === 'away' ? 'away' : 'home');
   const [selectedDefenseSankeyNodeKeys, setSelectedDefenseSankeyNodeKeys] = useState({ home: null, away: null });
-  const [turnoverBreakdownType, setTurnoverBreakdownType] = useState('');
-  const [turnoverBreakdownOpen, setTurnoverBreakdownOpen] = useState(false);
 
   const turnovers = useMemo(() => base.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [base]);
   const calcTurnovers = useMemo(() => calcBase.filter((s) => s?.stat_type === 'turnover' || (safeParseJSON(s?.extra_data || '{}', {})?.turnover)), [calcBase]);
@@ -855,10 +987,11 @@ function DefenseTab({
       return {
         won,
         unforcedLost,
-        avgFirstContactHeight,
+        firstContactHeight: avgFirstContactHeight,
         pointsFrom,
         xpFrom,
         defActionCount,
+        defActionsPerPoss: oppPossessionCount ? defActionCount / oppPossessionCount : NaN,
         ppda: defActionCount ? oppCompletedPasses / defActionCount : NaN,
         turnoverWonPer10Poss: oppPossessionCount ? (won / oppPossessionCount) * 10 : NaN,
         shotsConcededPer10Poss: oppPossessionCount ? (shotsConceded / oppPossessionCount) * 10 : NaN,
@@ -869,9 +1002,104 @@ function DefenseTab({
     };
     return { home: calc('home'), away: calc('away') };
   }, [calcTurnovers, calcBase, defensiveActions, fouls, turnoverWonPossessionsByTurnoverId, scorableFreeRows, reportFilters?.match, reportFilters?.imputedTimeById]);
-  const defActionMapActions = useMemo(() => defensiveActions.teamActions
+  const playerLabelById = useMemo(() => {
+    const map = new Map();
+    defensiveActions.playerActions.forEach((action) => {
+      const player = action?.player;
+      if (!player?.id) return;
+      const label = formatPlayerOptionLabel(player);
+      if (isMeaningfulPlayerLabel(label)) {
+        map.set(String(player.id), label);
+      }
+    });
+    return map;
+  }, [defensiveActions]);
+  const resolvedDefensiveTeamActions = useMemo(() => defensiveActions.teamActions.map((action) => ({
+    ...action,
+    forcedByLabel: isMeaningfulPlayerLabel(action?.forcedByLabel) ? action.forcedByLabel : (playerLabelById.get(String(action?.forcedById || '')) || ''),
+    recoveredByLabel: isMeaningfulPlayerLabel(action?.recoveredByLabel) ? action.recoveredByLabel : (playerLabelById.get(String(action?.recoveredById || '')) || ''),
+    lostByLabel: isMeaningfulPlayerLabel(action?.lostByLabel) ? action.lostByLabel : (playerLabelById.get(String(action?.lostById || '')) || ''),
+    fouledByLabel: isMeaningfulPlayerLabel(action?.fouledByLabel) ? action.fouledByLabel : (playerLabelById.get(String(action?.foulById || '')) || ''),
+    fouledOnLabel: isMeaningfulPlayerLabel(action?.fouledOnLabel) ? action.fouledOnLabel : (playerLabelById.get(String(action?.foulOnId || '')) || ''),
+    defenderLabel: isMeaningfulPlayerLabel(action?.defenderLabel) ? action.defenderLabel : (playerLabelById.get(String(action?.defenderId || '')) || ''),
+    blockedByLabel: isMeaningfulPlayerLabel(action?.blockedByLabel) ? action.blockedByLabel : (playerLabelById.get(String(action?.blockedById || '')) || ''),
+    savedByLabel: isMeaningfulPlayerLabel(action?.savedByLabel) ? action.savedByLabel : (playerLabelById.get(String(action?.savedById || '')) || ''),
+    shotRecoveredByLabel: isMeaningfulPlayerLabel(action?.shotRecoveredByLabel) ? action.shotRecoveredByLabel : (playerLabelById.get(String(action?.shotRecoveredById || '')) || ''),
+  })), [defensiveActions, playerLabelById]);
+  const playerOptionMetaById = useMemo(() => {
+    const map = new Map();
+    const upsert = (id, label, teamSide) => {
+      if (!id || !isMeaningfulPlayerLabel(label)) return;
+      const key = String(id);
+      if (!map.has(key)) {
+        map.set(key, { value: key, label: String(label).trim(), teamSide });
+      }
+    };
+    defensiveActions.playerActions.forEach((action) => {
+      const player = action?.player;
+      if (!player?.id) return;
+      upsert(player.id, formatPlayerOptionLabel(player), player.team_side);
+    });
+    resolvedDefensiveTeamActions.forEach((action) => {
+      upsert(action?.forcedById, action?.forcedByLabel, action?.teamSide);
+      upsert(action?.recoveredById, action?.recoveredByLabel, action?.teamSide);
+      upsert(action?.foulById, action?.fouledByLabel, action?.committingTeamSide || action?.teamSide);
+      upsert(action?.foulOnId, action?.fouledOnLabel, action?.foulOnTeamSide || action?.turnoverLostBy || action?.actingTeamSide);
+      upsert(action?.defenderId, action?.defenderLabel, action?.teamSide);
+      upsert(action?.blockedById, action?.blockedByLabel, action?.teamSide);
+      upsert(action?.savedById, action?.savedByLabel, action?.teamSide);
+      upsert(action?.shotRecoveredById, action?.shotRecoveredByLabel, action?.teamSide);
+      upsert(action?.lostById, action?.lostByLabel, action?.lostByTeamSide || action?.turnoverLostBy || action?.actingTeamSide);
+    });
+    return map;
+  }, [defensiveActions, resolvedDefensiveTeamActions]);
+  const playerFilterOptions = useMemo(() => {
+    return finalizePlayerOptions(Array.from(playerOptionMetaById.values()));
+  }, [playerOptionMetaById]);
+
+  const turnoverTypeOptions = useMemo(() => Array.from(new Set(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('turnover'))
+    .map((action) => String(action?.turnoverType || '').trim())
+    .filter(Boolean))).sort((a, b) => a.localeCompare(b)), [resolvedDefensiveTeamActions]);
+  const foulTypeOptions = useMemo(() => Array.from(new Set(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('foul'))
+    .map((action) => String(action?.foulType || '').trim())
+    .filter(Boolean))).sort((a, b) => a.localeCompare(b)), [resolvedDefensiveTeamActions]);
+  const pressureDefenderOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => (action?.primaryCategory || action?.actionCategory) === 'pressure' && action?.defenderId)
+    .map((action) => [String(action.defenderId), playerOptionMetaById.get(String(action.defenderId)) || { value: String(action.defenderId), label: action.defenderLabel || String(action.defenderId), teamSide: action.teamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const foulByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('foul') && action?.foulById)
+    .map((action) => [String(action.foulById), playerOptionMetaById.get(String(action.foulById)) || { value: String(action.foulById), label: action.fouledByLabel || String(action.foulById), teamSide: action.committingTeamSide || action.teamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const forcedByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('turnover') && action?.forcedById)
+    .map((action) => [String(action.forcedById), playerOptionMetaById.get(String(action.forcedById)) || { value: String(action.forcedById), label: action.forcedByLabel || String(action.forcedById), teamSide: action.teamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const recoveredByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('turnover') && action?.recoveredById)
+    .map((action) => [String(action.recoveredById), playerOptionMetaById.get(String(action.recoveredById)) || { value: String(action.recoveredById), label: action.recoveredByLabel || String(action.recoveredById), teamSide: action.teamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const lostByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('turnover') && action?.lostById)
+    .map((action) => [String(action.lostById), playerOptionMetaById.get(String(action.lostById)) || { value: String(action.lostById), label: action.lostByLabel || String(action.lostById), teamSide: action.lostByTeamSide || action.turnoverLostBy || action.actingTeamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const blockSavedByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('block_save'))
+    .flatMap((action) => ([
+      action?.blockedById ? [String(action.blockedById), playerOptionMetaById.get(String(action.blockedById)) || { value: String(action.blockedById), label: action.blockedByLabel || String(action.blockedById), teamSide: action.teamSide }] : null,
+      action?.savedById ? [String(action.savedById), playerOptionMetaById.get(String(action.savedById)) || { value: String(action.savedById), label: action.savedByLabel || String(action.savedById), teamSide: action.teamSide }] : null,
+    ]).filter(Boolean))).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+  const blockRecoveredByOptions = useMemo(() => finalizePlayerOptions(Array.from(new Map(resolvedDefensiveTeamActions
+    .filter((action) => Array.isArray(action.filterTags) && action.filterTags.includes('block_save') && action?.shotRecoveredById)
+    .map((action) => [String(action.shotRecoveredById), playerOptionMetaById.get(String(action.shotRecoveredById)) || { value: String(action.shotRecoveredById), label: action.shotRecoveredByLabel || String(action.shotRecoveredById), teamSide: action.teamSide }])).values()))
+  , [resolvedDefensiveTeamActions, playerOptionMetaById]);
+
+  const actionTagByValue = { turnover: 'turnover', block_save: 'block_save', foul: 'foul', pressure: 'pressure' };
+  const defActionMapActions = useMemo(() => resolvedDefensiveTeamActions
     .filter((action) => defMapTeam === 'both' || (action.colorTeamSide || action.teamSide) === defMapTeam)
-    .filter((action) => !defTypes.length || defTypes.some((tag) => Array.isArray(action.filterTags) && action.filterTags.includes(tag)))
     .filter((action) => !defMapHalves.length || defMapHalves.includes(String(action?.stat?.half || '')))
     .filter((action) => {
       if (defMapTimeMin === '' && defMapTimeMax === '') return true;
@@ -882,41 +1110,118 @@ function DefenseTab({
       if (minS != null && mt < minS) return false;
       if (maxS != null && mt > maxS) return false;
       return true;
-    }), [defensiveActions, defMapTeam, defTypes, defMapHalves, defMapTimeMin, defMapTimeMax, reportFilters?.match, reportFilters?.imputedTimeById]);
+    })
+    .filter((action) => defMapZone === 'all' || getTeamRelativeDisplayZoneLabel(action?.displayX, action?.teamSide) === defMapZone)
+    .filter((action) => defMapPlayerId === 'all' || (Array.isArray(action?.playerInvolvementIds) && action.playerInvolvementIds.includes(defMapPlayerId)))
+    .filter((action) => defMapAction === 'all' || (Array.isArray(action?.filterTags) && action.filterTags.includes(actionTagByValue[defMapAction])))
+    .filter((action) => {
+      if (defMapAction === 'pressure') {
+        if (defMapPressureType !== 'all') {
+          const sourceType = String(action?.sourceType || '').toLowerCase();
+          if (sourceType !== defMapPressureType) return false;
+        }
+        if (defMapPressureDefenderId !== 'all' && action?.defenderId !== defMapPressureDefenderId) return false;
+      }
+      if (defMapAction === 'foul') {
+        if (defMapFoulType !== 'all' && String(action?.foulType || '') !== defMapFoulType) return false;
+        if (defMapFoulById !== 'all' && action?.foulById !== defMapFoulById) return false;
+      }
+      if (defMapAction === 'turnover') {
+        if (defMapTurnoverType !== 'all' && String(action?.turnoverType || '') !== defMapTurnoverType) return false;
+        if (defMapForcedById !== 'all' && action?.forcedById !== defMapForcedById) return false;
+        if (defMapRecoveredById !== 'all' && action?.recoveredById !== defMapRecoveredById) return false;
+        if (defMapLostById !== 'all' && action?.lostById !== defMapLostById) return false;
+      }
+      if (defMapAction === 'block_save') {
+        if (defMapBlockSaveType !== 'all' && String(action?.blockSaveType || '').toLowerCase() !== defMapBlockSaveType) return false;
+        if (defMapBlockSavedById !== 'all' && action?.blockedById !== defMapBlockSavedById && action?.savedById !== defMapBlockSavedById) return false;
+        if (defMapBlockRecoveredById !== 'all' && action?.shotRecoveredById !== defMapBlockRecoveredById) return false;
+      }
+      return true;
+    }), [
+      resolvedDefensiveTeamActions, defMapTeam, defMapHalves, defMapTimeMin, defMapTimeMax, reportFilters?.match, reportFilters?.imputedTimeById,
+      defMapZone, defMapPlayerId, defMapAction, defMapPressureType, defMapPressureDefenderId, defMapFoulType, defMapFoulById,
+      defMapTurnoverType, defMapForcedById, defMapRecoveredById, defMapLostById, defMapBlockSaveType, defMapBlockSavedById, defMapBlockRecoveredById
+    ]);
 
-  const typeRows = useMemo(() => {
+  const playerDefenseRows = useMemo(() => {
     const rows = new Map();
-    for (const s of calcTurnovers) {
-      const c = classifyTurnover(s);
-      if (!teamRelevant(c, teamMode)) continue;
-      const typ = toTitleCase(c.typ || 'Unknown');
-      const cur = rows.get(typ) || { type: typ, home: 0, away: 0, won: 0, lost: 0 };
-      if (c.rec === 'home') cur.home += 1;
-      if (c.rec === 'away') cur.away += 1;
-      if (c.rec && (teamMode === 'both' || c.rec === teamMode)) cur.won += 1;
-      if (c.lost && (teamMode === 'both' || c.lost === teamMode)) cur.lost += 1;
-      rows.set(typ, cur);
-    }
-    return Array.from(rows.values()).sort((a, b) => String(a.type).localeCompare(String(b.type)));
-  }, [calcTurnovers, teamMode]);
+    const ensure = (id, label, teamSide) => {
+      if (!id) return null;
+      const key = String(id);
+      if (!rows.has(key)) {
+        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set() });
+      }
+      return rows.get(key);
+    };
+    const bumpAction = (row, statId) => {
+      if (!row) return;
+      const key = String(statId || '');
+      if (row._seenActions.has(key)) return;
+      row._seenActions.add(key);
+      row.defensiveActions += 1;
+    };
+
+    defensiveActions.playerActions.forEach((action) => {
+      const player = action?.player;
+      if (!player?.id) return;
+      const label = [player?.number != null && player?.number !== '' ? `#${player.number}` : '', String(player?.name || '').trim()]
+        .filter(Boolean)
+        .join(' ')
+        || player?.label
+        || String(player.id);
+      ensure(player.id, label, player.team_side);
+    });
+
+    resolvedDefensiveTeamActions.forEach((action) => {
+      const statId = action?.statId || action?.stat?.id;
+      const metricIncluded = !!action?.metricIncluded;
+      const forcedRow = ensure(action?.forcedById, action?.forcedByLabel, action?.teamSide);
+      const recoveredRow = ensure(action?.recoveredById, action?.recoveredByLabel, action?.teamSide);
+      const foulRow = ensure(action?.foulById, action?.fouledByLabel, action?.committingTeamSide || action?.teamSide);
+      const defenderRow = ensure(action?.defenderId, action?.defenderLabel, action?.teamSide);
+      const blockedRow = ensure(action?.blockedById, action?.blockedByLabel, action?.teamSide);
+      const savedRow = ensure(action?.savedById, action?.savedByLabel, action?.teamSide);
+
+      if ((action?.primaryCategory || action?.actionCategory) === 'turnover') {
+        if (forcedRow) forcedRow.toForced += 1;
+        if (recoveredRow) recoveredRow.toRecovered += 1;
+      }
+      if (Array.isArray(action?.filterTags) && action.filterTags.includes('foul') && foulRow) {
+        foulRow.fouls += 1;
+      }
+      if (metricIncluded) {
+        [forcedRow, recoveredRow, foulRow, defenderRow, blockedRow, savedRow].forEach((row) => bumpAction(row, statId));
+      }
+    });
+
+    return Array.from(rows.values())
+      .filter((row) => isMeaningfulPlayerLabel(row?.player))
+      .map((row) => ({ ...row, teamLabel: row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') }))
+      .sort((a, b) => b.defensiveActions - a.defensiveActions || b.toForced - a.toForced || String(a.player).localeCompare(String(b.player)));
+  }, [defensiveActions, resolvedDefensiveTeamActions, homeTeam, awayTeam]);
+
+  const [playerDefenseSort, setPlayerDefenseSort] = useState({ key: 'defensiveActions', dir: 'desc' });
+  const playerDefenseColumns = useMemo(() => ([
+    { key: 'player', label: 'Player', sortValue: (r) => r.player },
+    { key: 'teamLabel', label: 'Team', sortValue: (r) => r.teamLabel },
+    { key: 'toForced', label: 'TO Forced', sortValue: (r) => r.toForced },
+    { key: 'toRecovered', label: 'TO Recovered', sortValue: (r) => r.toRecovered },
+    { key: 'defensiveActions', label: 'Defensive Actions', sortValue: (r) => r.defensiveActions },
+    { key: 'fouls', label: 'Fouls', sortValue: (r) => r.fouls },
+  ]), []);
+  const togglePlayerDefenseSort = (key) => setPlayerDefenseSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' || key === 'teamLabel' ? 'asc' : 'desc' });
+  const [showAllPlayerDefenseRows, setShowAllPlayerDefenseRows] = useState(false);
+  const sortedPlayerDefenseRows = useMemo(
+    () => {
+      const sorted = sortRows(playerDefenseRows, playerDefenseSort, playerDefenseColumns, 'player');
+      return showAllPlayerDefenseRows ? sorted : sorted.slice(0, 8);
+    },
+    [playerDefenseRows, playerDefenseSort, playerDefenseColumns, showAllPlayerDefenseRows]
+  );
 
   const possessionGroups = turnoverWonPossessionsByTurnoverId;
-  const defenseReasonOptions = useMemo(() => ([
-    { value: 'turnover', label: 'Turnover Won' },
-    { value: 'foul', label: 'Foul' },
-    { value: 'pressure', label: 'High Pressure' },
-  ]), []);
-
-  const filteredTurnovers = useMemo(() => turnovers.filter((s) => {
-    const c = classifyTurnover(s);
-    if (!teamRelevant(c, teamMode)) return false;
-    if (turnoverResult === 'won' && c.rec !== teamMode && teamMode !== 'both') return false;
-    if (turnoverResult === 'lost' && c.lost !== teamMode && teamMode !== 'both') return false;
-    if (turnoverResult === 'won' && teamMode === 'both' && !c.rec) return false;
-    if (turnoverResult === 'lost' && teamMode === 'both' && !c.lost) return false;
-    if (turnoverTypes.length && !turnoverTypes.includes(normalizeFoulType(String(c.typ || '')))) return false;
-    return true;
-  }), [turnovers, turnoverResult, turnoverTypes, teamMode]);
+  const filteredTurnovers = turnovers;
   const defenseSankeyBaseByTeam = useMemo(() => ({
     home: buildDefenseSankeyData({ turnovers: filteredTurnovers, teamSide: 'home', groupingMode: defenseSankeyGrouping, possessionGroups, classifyTurnover, match: reportFilters?.match }),
     away: buildDefenseSankeyData({ turnovers: filteredTurnovers, teamSide: 'away', groupingMode: defenseSankeyGrouping, possessionGroups, classifyTurnover, match: reportFilters?.match }),
@@ -953,248 +1258,34 @@ function DefenseTab({
     return acc;
   }, {})), [defenseSankeyBaseByTeam, defenseSankeyHighlightByTeam, selectedDefenseSankeyNodeKeys]);
 
-  const [typeSort, setTypeSort] = useState({ key: teamMode === 'both' ? 'home' : 'won', dir: 'desc' });
-  const typeColumns = useMemo(() => ([
-    { key: 'type', label: 'Type', sortValue: (r) => r.type },
-    { key: 'home', label: homeTeam?.name || 'Home', sortValue: (r) => r.home },
-    { key: 'away', label: awayTeam?.name || 'Away', sortValue: (r) => r.away },
-    { key: 'count', label: 'Count', sortValue: (r) => r.won + r.lost },
-  ]), [homeTeam, awayTeam]);
-  const sortedTypeRows = useMemo(() => sortRows(typeRows, typeSort, typeColumns, 'type'), [typeRows, typeSort, typeColumns]);
-  const toggleTypeSort = (key) => setTypeSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'type' ? 'asc' : 'desc' });
   useEffect(() => {
     setSelectedDefenseSankeyNodeKeys({ home: null, away: null });
   }, [defenseSankeyGrouping]);
-  const turnoverWonBreakdownChartRows = useMemo(() => ([
-    {
-      team: homeTeam?.name || 'Home',
-      ...Object.fromEntries(sortedTypeRows.map((row) => [row.type, row.home])),
-    },
-    {
-      team: awayTeam?.name || 'Away',
-      ...Object.fromEntries(sortedTypeRows.map((row) => [row.type, row.away])),
-    },
-  ]), [sortedTypeRows, homeTeam, awayTeam]);
-  const turnoverTypeStackConfig = useMemo(() => {
-    return sortedTypeRows.reduce((acc, row, index) => {
-      acc[row.type] = { label: row.type, color: DEFENSE_TURNOVER_TYPE_PALETTE[index % DEFENSE_TURNOVER_TYPE_PALETTE.length] };
-      return acc;
-    }, {});
-  }, [sortedTypeRows]);
-  const openTurnoverBreakdown = (type) => {
-    if (!type) return;
-    setTurnoverBreakdownType(type);
-    setTurnoverBreakdownOpen(true);
-  };
-  const turnoverZoneBreakdownRows = useMemo(() => {
-    if (!turnoverBreakdownType) return [];
-    const counts = {
-      home: { Def: 0, Mid: 0, Att: 0, Unknown: 0 },
-      away: { Def: 0, Mid: 0, Att: 0, Unknown: 0 },
-    };
-    calcTurnovers.forEach((stat) => {
-      const classification = classifyTurnover(stat);
-      const wonBy = classification.rec;
-      if (wonBy !== 'home' && wonBy !== 'away') return;
-      const typeLabel = toTitleCase(normalizeFoulType(String(classification.typ || 'unknown')));
-      if (typeLabel !== turnoverBreakdownType) return;
-      const zone = getTurnoverZoneLabel(stat, wonBy, reportFilters?.match, turnoverWonPossessionsByTurnoverId);
-      const zoneKey = DEFENSE_SANKEY_ZONE_ORDER.includes(zone) ? zone : 'Unknown';
-      counts[wonBy][zoneKey] += 1;
-    });
-    return [
-      { team: homeTeam?.name || 'Home', side: 'home', ...counts.home },
-      { team: awayTeam?.name || 'Away', side: 'away', ...counts.away },
-    ];
-  }, [turnoverBreakdownType, calcTurnovers, homeTeam, awayTeam, reportFilters?.match, turnoverWonPossessionsByTurnoverId]);
-  const turnoverZoneBreakdownSeries = useMemo(
-    () => DEFENSE_ZONE_BREAKDOWN_SERIES.filter((series) => turnoverZoneBreakdownRows.some((row) => Number(row?.[series.key] || 0) > 0)),
-    [turnoverZoneBreakdownRows]
-  );
 
   return (
     <div className="space-y-4">
-        <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 items-start">
-          <ComparisonMetricsCard
-            title="Defense Metrics"
-            homeTeam={homeTeam}
-            awayTeam={awayTeam}
-            teamMode={teamMode}
-            cardClassName="w-full"
-            metricColWidth="140px"
-            rows={[
-              { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
-              { label: 'Unforced TO Lost', home: kpis.home.unforcedLost, away: kpis.away.unforcedLost },
-              { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
-              { label: 'Avg First Contact Height', home: Number.isFinite(kpis.home.avgFirstContactHeight) ? kpis.home.avgFirstContactHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgFirstContactHeight) ? kpis.away.avgFirstContactHeight.toFixed(1) : 'NA' },
-              { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
-              { label: 'TO Won / 10 Poss', home: Number.isFinite(kpis.home.turnoverWonPer10Poss) ? kpis.home.turnoverWonPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverWonPer10Poss) ? kpis.away.turnoverWonPer10Poss.toFixed(2) : 'NA' },
-              { label: 'Shots Conceded / 10 Poss', home: Number.isFinite(kpis.home.shotsConcededPer10Poss) ? kpis.home.shotsConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.shotsConcededPer10Poss) ? kpis.away.shotsConcededPer10Poss.toFixed(2) : 'NA' },
-              { label: 'xP Conceded / 10 Poss', home: Number.isFinite(kpis.home.xpConcededPer10Poss) ? kpis.home.xpConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpConcededPer10Poss) ? kpis.away.xpConcededPer10Poss.toFixed(2) : 'NA' },
-              { label: 'Fouls Conceded', home: kpis.home.foulConceded, away: kpis.away.foulConceded },
-              { label: 'Scorable Frees Conceded', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
-              { label: 'Points From Regains', home: kpis.home.pointsFrom, away: kpis.away.pointsFrom },
-              { label: 'xP From Regains', home: kpis.home.xpFrom.toFixed(2), away: kpis.away.xpFrom.toFixed(2) },
-            ]}
-          />
-          <Card className={DEFENSE_PANE_CLASS}>
-            <CardContent className="p-4 space-y-4">
-              <div className="min-h-[42px] flex items-start">
-                <div className="pt-0.5 font-semibold text-slate-900">Turnovers Won Breakdown</div>
-              </div>
-              <div className="flex min-h-[40px] flex-wrap gap-2 text-[11px]">
-                {sortedTypeRows.map((row) => (
-                  <button
-                    key={row.type}
-                    type="button"
-                    onClick={() => openTurnoverBreakdown(row.type)}
-                    className="inline-flex h-8 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                  >
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: turnoverTypeStackConfig[row.type]?.color }} />
-                    <span>{row.type}</span>
-                  </button>
-                ))}
-              </div>
-              {turnoverWonBreakdownChartRows.length ? (
-                <ChartContainer id="defense-turnover-type-breakdown" className="h-[280px] w-full flex-1" config={turnoverTypeStackConfig}>
-                  <BarChart data={turnoverWonBreakdownChartRows} margin={{ top: 12, right: 16, left: 0, bottom: 6 }} barCategoryGap={28}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis dataKey="team" className="text-xs" />
-                    <YAxis allowDecimals={false} width={34} className="text-xs" />
-                    <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (!active || !payload?.length) return null;
-                        return (
-                          <div className="rounded-md border bg-white px-3 py-2 text-[13px] shadow-sm">
-                            <div className="mb-2 font-semibold text-slate-900">{label}</div>
-                            <div className="space-y-1">
-                              {payload.map((entry) => (
-                                <div key={entry.dataKey} className="flex justify-between gap-4">
-                                  <span>{entry.name}</span>
-                                  <span className="font-mono">{entry.value ?? 0}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-                    {sortedTypeRows.map((row) => (
-                      <Bar
-                        key={row.type}
-                        dataKey={row.type}
-                        stackId="a"
-                        fill={turnoverTypeStackConfig[row.type]?.color}
-                        onClick={() => openTurnoverBreakdown(row.type)}
-                        className="cursor-pointer"
-                      />
-                    ))}
-                  </BarChart>
-                </ChartContainer>
-              ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
-                  No turnovers won available for current filters.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className={DEFENSE_PANE_CLASS}>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-slate-900">Defensive Action Map</div>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  setDefMapTeam(String(reportFilters?.team || 'both'));
-                  setDefMapHalves(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
-                  setDefMapTimeMin(String(reportFilters?.timeMin ?? ''));
-                  setDefMapTimeMax(String(reportFilters?.timeMax ?? ''));
-                  setDefTypes([]);
-                }}
-              >
-                Reset Filters
-              </Button>
-            </div>
-            <div className="grid lg:grid-cols-[minmax(0,1.8fr)_320px] gap-4 items-start">
-              <div>
-                {defActionMapActions.length ? (
-                  <DefensiveActionMap
-                    actions={defActionMapActions}
-                    homeColor={homeTeam?.color}
-                    awayColor={awayTeam?.color}
-                    homeTeamName={homeTeam?.name}
-                    awayTeamName={awayTeam?.name}
-                    match={reportFilters?.match}
-                    imputedTimeById={reportFilters?.imputedTimeById}
-                    onOpenVideoAt={onOpenVideoAt}
-                  />
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
-                    No defensive actions available for current filters.
-                  </div>
-                )}
-              </div>
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Team</Label>
-                    <Select value={defMapTeam} onValueChange={setDefMapTeam}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-1">
-                    <MultiSelect
-                      label="Half"
-                      placeholder="All"
-                      values={defMapHalves}
-                      onChange={setDefMapHalves}
-                      options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
-                    />
-                  </div>
-                  <MatchTimeRangeSlider
-                    className="col-span-2"
-                    timeMin={defMapTimeMin}
-                    timeMax={defMapTimeMax}
-                    match={reportFilters?.match}
-                    stats={stats}
-                    imputedTimeById={reportFilters?.imputedTimeById}
-                    compact
-                    onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
-                      setDefMapTimeMin(nextMin);
-                      setDefMapTimeMax(nextMax);
-                    }}
-                  />
-                  <div className="col-span-2">
-                    <MultiSelect
-                      label="Defensive Action"
-                      placeholder="All"
-                      values={defTypes}
-                      onChange={setDefTypes}
-                      options={defenseReasonOptions}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 items-stretch">
+        <ComparisonMetricsCard
+          title="Defense Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          cardClassName="w-full h-full"
+          metricColWidth="150px"
+          rows={[
+            { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
+            { label: 'Unforced TO Lost', home: kpis.home.unforcedLost, away: kpis.away.unforcedLost },
+            { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
+            { label: 'Def Actions / Poss', home: Number.isFinite(kpis.home.defActionsPerPoss) ? kpis.home.defActionsPerPoss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.defActionsPerPoss) ? kpis.away.defActionsPerPoss.toFixed(2) : 'NA' },
+            { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
+            { label: 'Fouls Conceded', home: kpis.home.foulConceded, away: kpis.away.foulConceded },
+            { label: 'Scorable\u00A0Frees\u00A0Conceded', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
+          ]}
+        />
         <Card className={DEFENSE_PANE_CLASS}>
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="font-semibold text-slate-900">Turnover Flow</div>
-                <div className="text-xs text-slate-500">Turnovers won into possession outcome, then shot result where applicable.</div>
-              </div>
+              <div className="font-semibold text-slate-900">Turnover Flow</div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex rounded-xl bg-slate-100 p-1">
                   <Button
@@ -1232,58 +1323,364 @@ function DefenseTab({
                 </div>
               </div>
             </div>
-            <div className="grid gap-4">
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-3">
-                <div className="font-semibold text-slate-900">{defenseSankeyTeam === 'home' ? (homeTeam?.name || 'Home') : (awayTeam?.name || 'Away')}</div>
-                {defenseSankeyRenderByTeam[defenseSankeyTeam]?.totalTurnovers > 0 && defenseSankeyRenderByTeam[defenseSankeyTeam]?.links?.length > 0 ? (
-                  <div className="h-[360px] w-full overflow-visible" onClick={() => setSelectedDefenseSankeyNodeKeys((current) => ({ ...current, [defenseSankeyTeam]: null }))}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <Sankey
-                        data={defenseSankeyRenderByTeam[defenseSankeyTeam]}
-                        nodePadding={26}
-                        nodeWidth={18}
-                        margin={{ top: 16, right: 100, bottom: 16, left: 120 }}
-                        linkCurvature={0.45}
-                        sort={false}
-                        node={DefenseSankeyNode}
-                        link={DefenseSankeyLink}
-                      >
-                        <Tooltip content={DefenseSankeyTooltip} />
-                      </Sankey>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
-                    No turnover flow available for current filters.
-                  </div>
-                )}
-              </div>
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-3">
+              <div className="font-semibold text-slate-900">{defenseSankeyTeam === 'home' ? (homeTeam?.name || 'Home') : (awayTeam?.name || 'Away')}</div>
+              {defenseSankeyRenderByTeam[defenseSankeyTeam]?.totalTurnovers > 0 && defenseSankeyRenderByTeam[defenseSankeyTeam]?.links?.length > 0 ? (
+                <div className="h-[360px] w-full overflow-visible" onClick={() => setSelectedDefenseSankeyNodeKeys((current) => ({ ...current, [defenseSankeyTeam]: null }))}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <Sankey
+                      data={defenseSankeyRenderByTeam[defenseSankeyTeam]}
+                      nodePadding={26}
+                      nodeWidth={18}
+                      margin={{ top: 16, right: 100, bottom: 16, left: 120 }}
+                      linkCurvature={0.45}
+                      sort={false}
+                      node={DefenseSankeyNode}
+                      link={DefenseSankeyLink}
+                    >
+                      <Tooltip content={DefenseSankeyTooltip} />
+                    </Sankey>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
+                  No turnover flow available for current filters.
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
-        <Dialog open={turnoverBreakdownOpen} onOpenChange={setTurnoverBreakdownOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>{turnoverBreakdownType || 'Turnover'} Zone Won Breakdown</DialogTitle>
-            </DialogHeader>
-            {turnoverZoneBreakdownRows.length && turnoverZoneBreakdownSeries.length ? (
-              <ChartContainer id="defense-turnover-zone-breakdown" className="h-[320px] w-full" config={{}}>
-                <BarChart data={turnoverZoneBreakdownRows} margin={{ top: 12, right: 16, left: 0, bottom: 6 }} barCategoryGap={28}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="team" className="text-xs" />
-                  <YAxis allowDecimals={false} width={34} className="text-xs" />
-                  <Tooltip content={<ChartTooltipContent />} />
-                  <Legend verticalAlign="bottom" align="center" wrapperStyle={{ paddingTop: 8 }} />
-                  {turnoverZoneBreakdownSeries.map((series) => (
-                    <Bar key={series.key} dataKey={series.key} stackId="a" fill={series.color} />
+      </div>
+
+      <Card className={DEFENSE_PANE_CLASS}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold text-slate-900">Defensive Action Map</div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setDefMapTeam(String(reportFilters?.team || 'both'));
+                setDefMapHalves(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
+                setDefMapTimeMin(String(reportFilters?.timeMin ?? ''));
+                setDefMapTimeMax(String(reportFilters?.timeMax ?? ''));
+                setDefMapZone('all');
+                setDefMapPlayerId('all');
+                setDefMapAction('all');
+                setDefMapPressureType('all');
+                setDefMapPressureDefenderId('all');
+                setDefMapFoulType('all');
+                setDefMapFoulById('all');
+                setDefMapTurnoverType('all');
+                setDefMapForcedById('all');
+                setDefMapRecoveredById('all');
+                setDefMapLostById('all');
+                setDefMapBlockSaveType('all');
+                setDefMapBlockSavedById('all');
+                setDefMapBlockRecoveredById('all');
+              }}
+            >
+              Reset Filters
+            </Button>
+          </div>
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+            <div>
+              {defActionMapActions.length ? (
+                <DefensiveActionMap
+                  actions={defActionMapActions}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  homeTeamName={homeTeam?.name}
+                  awayTeamName={awayTeam?.name}
+                  match={reportFilters?.match}
+                  imputedTimeById={reportFilters?.imputedTimeById}
+                  onOpenVideoAt={onOpenVideoAt}
+                />
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
+                  No defensive actions available for current filters.
+                </div>
+              )}
+            </div>
+            <div className="space-y-3">
+              <div className="grid gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Team</Label>
+                    <Select value={defMapTeam} onValueChange={setDefMapTeam}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
+                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <MultiSelect
+                    label="Half"
+                    placeholder="All"
+                    values={defMapHalves}
+                    onChange={setDefMapHalves}
+                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                  />
+                </div>
+                <MatchTimeRangeSlider
+                  timeMin={defMapTimeMin}
+                  timeMax={defMapTimeMax}
+                  match={reportFilters?.match}
+                  stats={stats}
+                  imputedTimeById={reportFilters?.imputedTimeById}
+                  compact
+                  onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
+                    setDefMapTimeMin(nextMin);
+                    setDefMapTimeMax(nextMax);
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Zone</Label>
+                    <Select value={defMapZone} onValueChange={setDefMapZone}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="Defensive Third">Defensive Third</SelectItem>
+                        <SelectItem value="Middle Third">Middle Third</SelectItem>
+                        <SelectItem value="Attacking Third">Attacking Third</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Player</Label>
+                    <Select value={defMapPlayerId} onValueChange={setDefMapPlayerId}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {playerFilterOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Defensive Action</Label>
+                  <Select value={defMapAction} onValueChange={setDefMapAction}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="turnover">Turnover Won</SelectItem>
+                      <SelectItem value="block_save">Block / Save</SelectItem>
+                      <SelectItem value="foul">Foul</SelectItem>
+                      <SelectItem value="pressure">High Pressure</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {defMapAction === 'pressure' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">High Pressure Type</Label>
+                      <Select value={defMapPressureType} onValueChange={setDefMapPressureType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="pass">Pass</SelectItem>
+                          <SelectItem value="carry">Carry</SelectItem>
+                          <SelectItem value="shot">Shot</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Defender</Label>
+                      <Select value={defMapPressureDefenderId} onValueChange={setDefMapPressureDefenderId}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {pressureDefenderOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {defMapAction === 'foul' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Foul Type</Label>
+                      <Select value={defMapFoulType} onValueChange={setDefMapFoulType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {foulTypeOptions.map((value) => <SelectItem key={value} value={value}>{toTitleCase(value)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Foul By</Label>
+                      <Select value={defMapFoulById} onValueChange={setDefMapFoulById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {foulByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {defMapAction === 'turnover' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Turnover Type</Label>
+                      <Select value={defMapTurnoverType} onValueChange={setDefMapTurnoverType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {turnoverTypeOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Forced By</Label>
+                      <Select value={defMapForcedById} onValueChange={setDefMapForcedById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {forcedByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Recovered By</Label>
+                      <Select value={defMapRecoveredById} onValueChange={setDefMapRecoveredById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {recoveredByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Lost By</Label>
+                      <Select value={defMapLostById} onValueChange={setDefMapLostById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {lostByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {defMapAction === 'block_save' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Block/Save Type</Label>
+                      <Select value={defMapBlockSaveType} onValueChange={setDefMapBlockSaveType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="block">Block</SelectItem>
+                          <SelectItem value="save">Save</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Blocked/Saved By</Label>
+                      <Select value={defMapBlockSavedById} onValueChange={setDefMapBlockSavedById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {blockSavedByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Recovered By</Label>
+                      <Select value={defMapBlockRecoveredById} onValueChange={setDefMapBlockRecoveredById}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {blockRecoveredByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 items-stretch">
+        <ComparisonMetricsCard
+          title="Secondary Defense Metrics"
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          teamMode={teamMode}
+          cardClassName="w-full"
+          metricColWidth="160px"
+          rows={[
+            { label: 'First Contact Height', home: Number.isFinite(kpis.home.firstContactHeight) ? kpis.home.firstContactHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.firstContactHeight) ? kpis.away.firstContactHeight.toFixed(1) : 'NA' },
+            { label: 'TO Won / 10 Opp Poss', home: Number.isFinite(kpis.home.turnoverWonPer10Poss) ? kpis.home.turnoverWonPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverWonPer10Poss) ? kpis.away.turnoverWonPer10Poss.toFixed(2) : 'NA' },
+            { label: 'Shots\u00A0Conceded\u00A0/\u00A010\u00A0Poss', home: Number.isFinite(kpis.home.shotsConcededPer10Poss) ? kpis.home.shotsConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.shotsConcededPer10Poss) ? kpis.away.shotsConcededPer10Poss.toFixed(2) : 'NA' },
+            { label: 'xP Conceded / 10 Poss', home: Number.isFinite(kpis.home.xpConcededPer10Poss) ? kpis.home.xpConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpConcededPer10Poss) ? kpis.away.xpConcededPer10Poss.toFixed(2) : 'NA' },
+            { label: 'Regain Points', home: kpis.home.pointsFrom, away: kpis.away.pointsFrom },
+            { label: 'Regain xP', home: Number.isFinite(kpis.home.xpFrom) ? kpis.home.xpFrom.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpFrom) ? kpis.away.xpFrom.toFixed(2) : 'NA' },
+          ]}
+        />
+        <Card className={`${DEFENSE_PANE_CLASS} h-full`}>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold text-slate-900">Player Defensive Table</div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 min-w-[120px] px-3 text-xs"
+                onClick={() => setShowAllPlayerDefenseRows((current) => !current)}
+              >
+                {showAllPlayerDefenseRows ? 'Show Top 8' : 'Expand Table'}
+              </Button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                    {playerDefenseColumns.map((column) => (
+                      <TableHead key={column.key} className={column.key === 'player' || column.key === 'teamLabel' ? 'text-left' : 'text-center'}>
+                        <button
+                          type="button"
+                          className={`inline-flex w-full items-center gap-1 font-medium ${column.key === 'player' || column.key === 'teamLabel' ? 'justify-start text-left' : 'justify-center text-center'}`}
+                          onClick={() => togglePlayerDefenseSort(column.key)}
+                        >
+                          <span>{column.label}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {playerDefenseSort.key === column.key ? (playerDefenseSort.dir === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </button>
+                      </TableHead>
+                    ))}
+                    </TableRow>
+                  </TableHeader>
+                <TableBody>
+                  {sortedPlayerDefenseRows.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">{row.player || '—'}</TableCell>
+                      <TableCell>{row.teamLabel || '—'}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.toForced}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.toRecovered}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.defensiveActions}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.fouls}</TableCell>
+                    </TableRow>
                   ))}
-                </BarChart>
-              </ChartContainer>
-            ) : (
-              <div className="text-sm text-slate-500">No zone breakdown available for this turnover type.</div>
-            )}
-          </DialogContent>
-        </Dialog>
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

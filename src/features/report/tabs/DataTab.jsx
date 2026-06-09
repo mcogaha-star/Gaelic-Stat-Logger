@@ -2031,6 +2031,23 @@ function DataTab({
     window.open(url, `gstl_video_review_${reelId}`, 'popup=yes,width=1280,height=840');
   };
 
+  const openReviewPlayerForSelection = (clips = []) => {
+    const list = Array.isArray(clips) ? clips.filter(Boolean) : [];
+    if (!list.length) {
+      toast.error('Select clips first to review the current selection');
+      return;
+    }
+    const selectionKey = `selection-${matchId}-${Date.now()}`;
+    try {
+      window.sessionStorage.setItem(`gstl_video_selection:${selectionKey}`, JSON.stringify(list));
+    } catch {
+      toast.error('Could not open the current selection review');
+      return;
+    }
+    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&selectionKey=${encodeURIComponent(selectionKey)}`)}`;
+    window.open(url, `gstl_video_review_selection_${selectionKey}`, 'popup=yes,width=1280,height=840');
+  };
+
   const openPossessionVisualise = (possession) => {
     setVizStats(Array.isArray(possession?.stats) ? possession.stats : []);
     setVizTitle(`Possession #${possession?.possessionId || 'NA'} - ${possession?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`);
@@ -2445,6 +2462,12 @@ function DataTab({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('view-reels'); }}>
                   View Highlights
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!currentSelectedClipRefs.length}
+                  onClick={() => openReviewPlayerForSelection(currentSelectedClipRefs)}
+                >
+                  View Current Selection
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('edit-picker'); }}>
                   Edit Existing Highlights
