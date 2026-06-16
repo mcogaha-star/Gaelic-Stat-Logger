@@ -2,7 +2,7 @@ import React from 'react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { MultiSelect, PitchViz, toTitleCase } from '../shared';
+import { MultiSelect, PitchViz, TeamMultiSelect, toTitleCase } from '../shared';
 
 export default function VisualiserTab({
   filteredForViz,
@@ -40,17 +40,12 @@ export default function VisualiserTab({
       />
       <div className="space-y-4 rounded-r-xl border border-slate-200 border-l-0 bg-white p-4 sticky top-4">
         <div className="font-semibold text-slate-900">Visualiser Filters</div>
-        <div className="space-y-1">
-          <Label className="text-xs text-slate-600">Team</Label>
-          <Select value={vizTeam} onValueChange={setVizTeam}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="both">Both</SelectItem>
-              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <TeamMultiSelect
+          value={vizTeam}
+          onValueChange={setVizTeam}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+        />
         <MultiSelect label="Action" values={vizActions} onChange={setVizActions} options={['shot', 'kickout', 'pass', 'carry', 'turnover', 'foul', 'throw_in'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
         <MultiSelect label="Half" values={vizHalves} onChange={setVizHalves} options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
         <MultiSelect label="Set Defence" placeholder="Any" values={vizCounters} onChange={setVizCounters} options={[{ value: 'defence_set_yes', label: 'Yes' }, { value: 'defence_set_no', label: 'No' }]} />

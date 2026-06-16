@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -10,7 +11,7 @@ import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig, prettyShortcut } from '@/lib/shortcuts';
 import { useAuth } from '@/lib/AuthContext';
-import { getAuthorInitials } from '@/lib/videoWorkflow';
+import { getAuthorInitials, MIN_HIGHLIGHT_POST_ACTION_SECONDS } from '@/lib/videoWorkflow';
 
 const CHANNEL_NAME = 'gstl_video';
 
@@ -83,6 +84,8 @@ export default function Video() {
   const reviewMode = params.get('review') === '1';
   const reelId = params.get('reelId') || '';
   const selectionKey = params.get('selectionKey') || '';
+  const [activeReelId, setActiveReelId] = useState(reelId);
+  const [activeSelectionKey, setActiveSelectionKey] = useState(selectionKey);
 
   const channelRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -91,6 +94,7 @@ export default function Video() {
   const intervalRef = useRef(null);
   const reviewRootRef = useRef(null);
   const completedClipRef = useRef('');
+  const hasUnsavedNotesRef = useRef(false);
 
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' | 'local'
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -102,7 +106,8 @@ export default function Video() {
   const [currentClipIndex, setCurrentClipIndex] = useState(0);
   const [autoplayEnabled, setAutoplayEnabled] = useState(true);
   const [showClipList, setShowClipList] = useState(true);
-  const [showNotes, setShowNotes] = useState(true);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
   const [publicNoteDraft, setPublicNoteDraft] = useState('');
   const [privateNoteDraft, setPrivateNoteDraft] = useState('');
   const [noteVisibilityTab, setNoteVisibilityTab] = useState('public');
@@ -116,43 +121,75 @@ export default function Video() {
     [settingsRecords]
   );
   const { data: reviewReel = null } = useQuery({
-    queryKey: ['review-reel', reelId],
-    queryFn: () => db.entities.HighlightReel.get(reelId),
-    enabled: reviewMode && !!reelId,
+    queryKey: ['review-reel', activeReelId],
+    queryFn: () => db.entities.HighlightReel.get(activeReelId),
+    enabled: reviewMode && !!activeReelId,
   });
   const { data: reviewClipsRaw = [] } = useQuery({
-    queryKey: ['review-clips', reelId],
-    queryFn: () => db.entities.HighlightReelClip.filter({ reel_id: reelId }),
-    enabled: reviewMode && !!reelId,
+    queryKey: ['review-clips', activeReelId],
+    queryFn: () => db.entities.HighlightReelClip.filter({ reel_id: activeReelId }),
+    enabled: reviewMode && !!activeReelId,
   });
   const { data: reviewNotes = [] } = useQuery({
     queryKey: ['review-notes', matchId],
     queryFn: () => db.entities.VideoNote.filter({ match_id: matchId }),
     enabled: reviewMode && !!matchId,
   });
-  const reviewSelectionClips = useMemo(() => {
-    if (!reviewMode || !selectionKey) return [];
+  const { data: reviewStats = [] } = useQuery({
+    queryKey: ['review-stats', matchId],
+    queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
+    enabled: reviewMode && !!matchId,
+  });
+  const reviewSelectionPayload = useMemo(() => {
+    if (!reviewMode || !activeSelectionKey) return { clips: [], sourceLabel: 'Selection' };
     try {
-      const raw = window.sessionStorage.getItem(`gstl_video_selection:${selectionKey}`);
+      const raw = window.sessionStorage.getItem(`gstl_video_selection:${activeSelectionKey}`)
+        || window.localStorage.getItem(`gstl_video_selection:${activeSelectionKey}`);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      if (Array.isArray(parsed)) return { clips: parsed, sourceLabel: 'Selection' };
+      if (parsed && typeof parsed === 'object') {
+        return {
+          clips: Array.isArray(parsed.clips) ? parsed.clips : [],
+          sourceLabel: String(parsed.sourceLabel || 'Selection'),
+        };
+      }
+      return { clips: [], sourceLabel: 'Selection' };
     } catch {
-      return [];
+      return { clips: [], sourceLabel: 'Selection' };
     }
-  }, [reviewMode, selectionKey]);
+  }, [reviewMode, activeSelectionKey]);
+  const reviewSelectionClips = reviewSelectionPayload.clips;
+  const reviewSourceLabel = activeSelectionKey
+    ? reviewSelectionPayload.sourceLabel
+    : `Highlight reel${reviewReel?.name ? ` - ${reviewReel.name}` : ''}`;
   const reviewClips = useMemo(
-    () => (selectionKey ? reviewSelectionClips : (reviewClipsRaw || [])).slice().sort((a, b) => {
+    () => (activeSelectionKey ? reviewSelectionClips : (reviewClipsRaw || [])).slice().sort((a, b) => {
       const aOrder = Number(a?.order_index);
       const bOrder = Number(b?.order_index);
       if (Number.isFinite(aOrder) && Number.isFinite(bOrder) && aOrder !== bOrder) return aOrder - bOrder;
       return Number(a?.start_time || 0) - Number(b?.start_time || 0);
     }),
-    [selectionKey, reviewSelectionClips, reviewClipsRaw]
+    [activeSelectionKey, reviewSelectionClips, reviewClipsRaw]
   );
   const currentClip = reviewMode ? (reviewClips[currentClipIndex] || null) : null;
+  const hasValidVideoSource = sourceType === 'local'
+    ? !!localVideoRef.current?.src
+    : !!extractYouTubeId(youtubeUrl);
+  const reviewStatTimeById = useMemo(
+    () => new Map((Array.isArray(reviewStats) ? reviewStats : []).map((stat) => [String(stat?.id || ''), Number(stat?.time_s)])),
+    [reviewStats],
+  );
 
   const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
   const canCloseWindow = typeof window !== 'undefined' && !!window.opener;
+
+  useEffect(() => {
+    setActiveReelId(reelId);
+  }, [reelId]);
+
+  useEffect(() => {
+    setActiveSelectionKey(selectionKey);
+  }, [selectionKey]);
 
   const enterPiP = async () => {
     try {
@@ -186,6 +223,20 @@ export default function Video() {
     }
     window.location.href = createPageUrl(`MatchStats?id=${matchId}`);
   };
+
+  const switchReviewQueue = useCallback(({ nextSelectionKey = '', nextReelId = '' } = {}) => {
+    if (!reviewMode) return;
+    if (hasUnsavedNotesRef.current) {
+      const proceed = window.confirm('You have unsaved notes. Switch video anyway? Unsaved changes may be lost.');
+      if (!proceed) return;
+    }
+    completedClipRef.current = '';
+    setCurrentClipIndex(0);
+    setShowNotes(false);
+    setShowOptions(false);
+    setActiveSelectionKey(nextSelectionKey || '');
+    setActiveReelId(nextReelId || '');
+  }, [reviewMode]);
 
   const seekRelative = (deltaS) => {
     const delta = Number(deltaS);
@@ -330,6 +381,14 @@ export default function Video() {
     const onMsg = (e) => {
       const msg = e?.data;
       if (!msg || msg.matchId !== matchId) return;
+      if (reviewMode && msg.type === 'SET_REVIEW_SELECTION') {
+        switchReviewQueue({ nextSelectionKey: String(msg?.selectionKey || ''), nextReelId: '' });
+        return;
+      }
+      if (reviewMode && msg.type === 'SET_REVIEW_REEL') {
+        switchReviewQueue({ nextSelectionKey: '', nextReelId: String(msg?.reelId || '') });
+        return;
+      }
       if (msg.type === 'REQUEST_TIME') {
         ch.postMessage({ matchId, type: 'TIME_UPDATE', time_s: timeS, playing, ready });
       }
@@ -365,7 +424,7 @@ export default function Video() {
       ch.removeEventListener('message', onMsg);
       ch.close();
     };
-  }, [matchId, timeS, playing, ready, sourceType]);
+  }, [matchId, timeS, playing, ready, sourceType, reviewMode, switchReviewQueue]);
 
   // Broadcast time updates at ~5Hz when ready.
   useEffect(() => {
@@ -493,7 +552,18 @@ export default function Video() {
   useEffect(() => {
     if (!reviewMode || !currentClip || !ready) return;
     const clipId = String(currentClip.id || currentClip.source_ref || currentClipIndex);
-    const clipEnd = Number(currentClip.end_time);
+    const actionTimeFromClip = Number(currentClip?.action_time);
+    const actionTimeFromStat = reviewStatTimeById.get(String(currentClip?.source_ref || ''));
+    const actionTime = Number.isFinite(actionTimeFromClip)
+      ? actionTimeFromClip
+      : (Number.isFinite(actionTimeFromStat) ? actionTimeFromStat : NaN);
+    const minEndFromAction = Number.isFinite(actionTime)
+      ? actionTime + MIN_HIGHLIGHT_POST_ACTION_SECONDS
+      : NaN;
+    const clipEnd = Math.max(
+      Number(currentClip.end_time) || 0,
+      Number.isFinite(minEndFromAction) ? minEndFromAction : 0,
+    );
     if (!Number.isFinite(clipEnd)) return;
     if (timeS < clipEnd - 0.05) {
       completedClipRef.current = '';
@@ -507,7 +577,7 @@ export default function Video() {
     }
     pausePlayback();
     seekToAbsolute(clipEnd);
-  }, [reviewMode, currentClip, ready, timeS, autoplayEnabled, currentClipIndex, reviewClips.length]);
+  }, [reviewMode, currentClip, ready, timeS, autoplayEnabled, currentClipIndex, reviewClips.length, reviewStatTimeById]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -588,6 +658,17 @@ export default function Video() {
     setNoteVisibilityTab(currentClipPublicNote?.text ? 'public' : 'private');
   }, [currentClipPublicNote?.id, currentClipPrivateNote?.id, currentClip?.id]);
 
+  const hasUnsavedNotes = useMemo(() => {
+    const currentPublic = String(currentClipPublicNote?.text || '').trim();
+    const currentPrivate = String(currentClipPrivateNote?.text || '').trim();
+    return currentPublic !== String(publicNoteDraft || '').trim()
+      || currentPrivate !== String(privateNoteDraft || '').trim();
+  }, [currentClipPublicNote?.text, currentClipPrivateNote?.text, publicNoteDraft, privateNoteDraft]);
+
+  useEffect(() => {
+    hasUnsavedNotesRef.current = hasUnsavedNotes;
+  }, [hasUnsavedNotes]);
+
   const saveCurrentClipNotes = async () => {
     if (!currentClip?.source_type || !currentClip?.source_ref || !matchId) return;
     const nextInitials = getAuthorInitials(user);
@@ -617,14 +698,45 @@ export default function Video() {
     toast.success('Notes saved');
   };
 
+  const saveCurrentReviewClipsAsReel = async () => {
+    if (!reviewMode || !matchId) return;
+    const clips = Array.isArray(reviewClips) ? reviewClips.filter(Boolean) : [];
+    if (!clips.length) {
+      toast.error('No clips are available to save.');
+      return;
+    }
+    const name = window.prompt('Highlight reel name');
+    if (!name || !String(name).trim()) return;
+    const reelType = String(clips[0]?.reel_type || 'play');
+    const created = await db.entities.HighlightReel.create({
+      match_id: matchId,
+      reel_type: reelType,
+      name: String(name).trim(),
+      clip_count: clips.length,
+    });
+    for (let index = 0; index < clips.length; index += 1) {
+      const clip = clips[index];
+      await db.entities.HighlightReelClip.create({
+        ...clip,
+        reel_id: created.id,
+        order_index: index,
+      });
+    }
+    await queryClient.invalidateQueries({ queryKey: ['review-reel', created.id] });
+    await queryClient.invalidateQueries({ queryKey: ['review-clips', created.id] });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
+    await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
+    toast.success('Highlight reel saved');
+  };
+
   const header = (
     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-      <div className="flex items-baseline gap-2">
-        <div className="font-semibold">{reviewMode ? 'Review Player' : 'Video'}</div>
-        <div className="text-xs text-slate-500">
-          {reviewMode ? (selectionKey ? 'Current Selection' : (reviewReel?.name || 'Highlight Reel')) : `Match ${matchId ? matchId.slice(0, 8) : ''}`}
+        <div className="flex items-baseline gap-2">
+          <div className="font-semibold">{reviewMode ? 'Review Player' : 'Video'}</div>
+          <div className="text-xs text-slate-500">
+          {reviewMode ? reviewSourceLabel : `Match ${matchId ? matchId.slice(0, 8) : ''}`}
+          </div>
         </div>
-      </div>
       <div className="flex items-center gap-2">
         <div className="font-mono text-sm">{formatTimeMMSS(timeS)}</div>
         <div className="hidden md:block text-[11px] text-slate-500">
@@ -721,7 +833,7 @@ export default function Video() {
       />
       {fileName ? <div className="text-xs text-slate-500">Loaded: {fileName}</div> : <div className="text-xs text-slate-500">Select a file (local-only).</div>}
       <div className="text-xs text-slate-500">
-        Tip: use the <span className="font-semibold">PiP</span> button in the header to keep the video above the logger while you click the pitch.
+        Tip: use the <span className="font-semibold">PiP</span> control in player options to keep the video above the logger while you click the pitch.
       </div>
     </div>
   );
@@ -740,100 +852,170 @@ export default function Video() {
 
   if (reviewMode) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        {header}
-        <div ref={reviewRootRef} className="mx-auto max-w-7xl px-4 py-4">
-          <div className={`grid gap-4 ${showClipList ? 'lg:grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+      <div ref={reviewRootRef} className="h-screen overflow-hidden bg-slate-100">
+        <div className="mx-auto flex h-full max-w-[1600px] flex-col p-3 sm:p-4">
+          <div className={`grid min-h-0 flex-1 gap-3 ${showClipList ? 'lg:grid-cols-[300px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
             {showClipList ? (
-              <div className="rounded-xl border bg-white shadow-sm">
-                <div className="border-b px-3 py-2 text-sm font-semibold text-slate-900">Clips</div>
-                <div className="max-h-[78vh] overflow-y-auto p-2">
+              <aside className="min-h-0 overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+                  <div className="text-sm font-semibold text-slate-900">Clips</div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={currentClipIndex <= 0} onClick={() => jumpToClip(currentClipIndex - 1, { autoplay: true })}>Prev</Button>
+                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={currentClipIndex >= reviewClips.length - 1} onClick={() => jumpToClip(currentClipIndex + 1, { autoplay: true })}>Next</Button>
+                  </div>
+                </div>
+                <div className="h-full overflow-y-auto p-2">
                   {reviewClips.map((clip, index) => (
                     <button
                       key={clip.id || `${clip.source_ref}-${index}`}
                       type="button"
-                      className={`mb-2 w-full rounded-lg border px-3 py-2 text-left text-sm ${index === currentClipIndex ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+                      className={`mb-2 w-full rounded-xl border px-3 py-2 text-left text-sm transition ${index === currentClipIndex ? 'border-slate-900 bg-slate-900 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50'}`}
                       onClick={() => jumpToClip(index, { autoplay: true })}
                     >
                       <div className="font-medium">{clip.label || `Clip ${index + 1}`}</div>
-                      <div className={`text-xs ${index === currentClipIndex ? 'text-slate-200' : 'text-slate-500'}`}>
+                      <div className={`mt-1 text-xs ${index === currentClipIndex ? 'text-slate-200' : 'text-slate-500'}`}>
                         {formatTimeMMSS(Number(clip.start_time))} - {formatTimeMMSS(Number(clip.end_time))}
                       </div>
                     </button>
                   ))}
                 </div>
-              </div>
+              </aside>
             ) : null}
-            <div className="space-y-4">
-              {sourcePicker}
-              <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
-                {sourceSetup}
-                {playerSurface}
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-8" disabled={currentClipIndex <= 0} onClick={() => jumpToClip(currentClipIndex - 1, { autoplay: true })}>Previous Clip</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" disabled={currentClipIndex >= reviewClips.length - 1} onClick={() => jumpToClip(currentClipIndex + 1, { autoplay: true })}>Next Clip</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={togglePlayPause}>Play / Pause</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(-3)}>-3s</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => seekRelative(3)}>+3s</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={requestReviewFullscreen}>Fullscreen</Button>
+
+            <section className="flex min-h-0 flex-col rounded-2xl border border-slate-300 bg-white p-3 shadow-sm sm:p-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
+                  {hasValidVideoSource ? (
+                    sourceType === 'youtube' ? (
+                      <div className="aspect-video bg-black">
+                        <div ref={ytContainerRef} className="h-full w-full" />
+                      </div>
+                    ) : (
+                      <video ref={localVideoRef} className="aspect-video w-full bg-black" controls />
+                    )
+                  ) : (
+                    <div className="flex aspect-video items-center justify-center bg-slate-950 px-6 text-center text-slate-200">
+                      <div className="space-y-3">
+                        <div className="text-base font-semibold">Load a video source to review clips.</div>
+                        <div className="text-sm text-slate-300">Open Options to add a YouTube link or load a local file.</div>
+                        <Button type="button" variant="outline" className="border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => setShowOptions(true)}>
+                          Open Options
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
-                  <div className="flex items-center gap-2">
+
+                <div className="flex flex-wrap items-center justify-start gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
                     <span>Autoplay</span>
                     <Switch checked={autoplayEnabled} onCheckedChange={setAutoplayEnabled} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span>Show Clip List</span>
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
+                    <span>Clip List</span>
                     <Switch checked={showClipList} onCheckedChange={setShowClipList} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span>Show Notes</span>
-                    <Switch checked={showNotes} onCheckedChange={setShowNotes} />
-                  </div>
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => setShowNotes(true)}>
+                    Notes{currentClipPublicNote?.text || currentClipPrivateNote?.text ? ' *' : ''}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={saveCurrentReviewClipsAsReel}>
+                    Save as Highlight Reel
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => setShowOptions(true)}>
+                    Options
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={handleCloseOrBack}>
+                    {canCloseWindow ? 'Close' : 'Back to Match'}
+                  </Button>
                 </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <Dialog open={showNotes} onOpenChange={setShowNotes}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Clip Notes</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="text-sm text-slate-600">{currentClip?.label || 'No clip selected'}</div>
+              <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                <Button type="button" variant={noteVisibilityTab === 'public' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('public')}>Public</Button>
+                <Button type="button" variant={noteVisibilityTab === 'private' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('private')}>Private</Button>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900">
+                  <span>{noteVisibilityTab === 'public' ? 'Public' : 'Private'}</span>
+                  {noteVisibilityTab === 'public' && currentClipPublicNote?.author_initials ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px]">{currentClipPublicNote.author_initials}</span> : null}
+                </div>
+                <Textarea
+                  value={noteVisibilityTab === 'public' ? publicNoteDraft : privateNoteDraft}
+                  onChange={(e) => noteVisibilityTab === 'public' ? setPublicNoteDraft(e.target.value) : setPrivateNoteDraft(e.target.value)}
+                  rows={8}
+                  placeholder={noteVisibilityTab === 'public' ? 'Shared with the match' : 'Private to your copy'}
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setShowNotes(false)}>Close</Button>
+                <Button type="button" disabled={!currentClip} onClick={saveCurrentClipNotes}>Save Notes</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showOptions} onOpenChange={setShowOptions}>
+          <DialogContent className="sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Options</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-5">
+              <section className="space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Video Source</div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant={sourceType === 'youtube' ? 'default' : 'outline'} className="h-8" onClick={() => setSourceType('youtube')}>YouTube</Button>
+                  <Button type="button" size="sm" variant={sourceType === 'local' ? 'default' : 'outline'} className="h-8" onClick={() => setSourceType('local')}>Local File</Button>
+                </div>
+                {sourceSetup}
+              </section>
+              <section className="space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Clip Settings</div>
+                <div className="text-xs text-slate-500">Clip timing and post-action dwell are taken from the saved review cut-up.</div>
+              </section>
+              <section className="space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Video Settings</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={requestReviewFullscreen}>Fullscreen</Button>
+                  {sourceType === 'local' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={!pipSupported || !ready}
+                      onClick={enterPiP}
+                      title={pipSupported ? 'Keeps the video above the logger while you click around' : 'Picture-in-Picture not supported'}
+                    >
+                      {pipActive ? 'PiP On' : 'PiP'}
+                    </Button>
+                  ) : null}
+                </div>
+              </section>
+              <section className="space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Keyboard Shortcuts</div>
                 <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Space Play/Pause</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">← -3s</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">→ +3s</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">↑ Previous</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">↓ Next</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Left Arrow -3s</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Right Arrow +3s</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Up Arrow Previous</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Down Arrow Next</span>
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">L Clip List</span>
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">N Notes</span>
                 </div>
-              </div>
-                {showNotes ? (
-                  <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
-                    <div className="text-sm font-semibold text-slate-900">Notes</div>
-                    <div className="space-y-3">
-                      <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                        <Button type="button" variant={noteVisibilityTab === 'public' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('public')}>
-                          Public
-                        </Button>
-                        <Button type="button" variant={noteVisibilityTab === 'private' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setNoteVisibilityTab('private')}>
-                          Private
-                        </Button>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                        <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900">
-                          <span>{noteVisibilityTab === 'public' ? 'Public' : 'Private'}</span>
-                          {noteVisibilityTab === 'public' && currentClipPublicNote?.author_initials ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px]">{currentClipPublicNote.author_initials}</span> : null}
-                        </div>
-                        <Textarea
-                          value={noteVisibilityTab === 'public' ? publicNoteDraft : privateNoteDraft}
-                          onChange={(e) => noteVisibilityTab === 'public' ? setPublicNoteDraft(e.target.value) : setPrivateNoteDraft(e.target.value)}
-                          rows={7}
-                          placeholder={noteVisibilityTab === 'public' ? 'Shared with the match' : 'Private to your copy'}
-                        />
-                      </div>
-                    </div>
-                  <div className="flex items-center justify-end">
-                    <Button type="button" disabled={!currentClip} onClick={saveCurrentClipNotes}>Save Notes</Button>
-                  </div>
-                </div>
-              ) : null}
+              </section>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -861,3 +1043,4 @@ export default function Video() {
     </div>
   );
 }
+

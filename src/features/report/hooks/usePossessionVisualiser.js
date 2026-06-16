@@ -1,10 +1,24 @@
-import { useState } from 'react';
-import { createPageUrl } from '@/utils';
+import { useMemo, useState } from 'react';
+import {
+  createPossessionClipRef,
+  createTimestampClipRef,
+  formatTimeMMSS,
+  getVideoClipSettings,
+  openReportVideoSelection,
+} from '@/lib/videoWorkflow';
 
-export function usePossessionVisualiser({ matchId, preRollSeconds = 5 }) {
+export function usePossessionVisualiser({ match = null, matchId, homeTeam = null, awayTeam = null, preRollSeconds = 5 }) {
   const [sharedVizOpen, setSharedVizOpen] = useState(false);
   const [sharedVizTitle, setSharedVizTitle] = useState('');
   const [sharedVizStats, setSharedVizStats] = useState([]);
+  const resolvedMatchId = match?.id || matchId || '';
+  const clipSettings = useMemo(() => {
+    const base = getVideoClipSettings(match);
+    return {
+      ...base,
+      play_preroll_s: Number.isFinite(Number(preRollSeconds)) ? Math.max(0, Number(preRollSeconds)) : base.play_preroll_s,
+    };
+  }, [match, preRollSeconds]);
 
   const openPossessionVisualiser = ({ title, stats }) => {
     setSharedVizStats(Array.isArray(stats) ? stats : []);
@@ -13,20 +27,24 @@ export function usePossessionVisualiser({ matchId, preRollSeconds = 5 }) {
   };
 
   const openSharedVideoAt = (timeS) => {
-    const t = Number(timeS);
-    if (!matchId || !Number.isFinite(t)) return;
-    const seekTo = Math.max(0, Math.floor(t - preRollSeconds));
-    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
-    window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
-    try {
-      const ch = new BroadcastChannel('gstl_video');
-      const msg = { matchId, type: 'SEEK_TO', time_s: seekTo };
-      ch.postMessage(msg);
-      setTimeout(() => ch.postMessage(msg), 350);
-      setTimeout(() => { ch.postMessage(msg); ch.close(); }, 900);
-    } catch {
-      // ignore
-    }
+    const clip = createTimestampClipRef({
+      matchId: resolvedMatchId,
+      timeS,
+      label: `Event - ${formatTimeMMSS(Number(timeS))}`,
+      clipSettings,
+    });
+    if (!clip) return;
+    openReportVideoSelection(resolvedMatchId, [clip], {
+      sourceLabel: 'Event - 1 clip',
+    });
+  };
+
+  const openSharedVideoPossession = (possession) => {
+    const clip = createPossessionClipRef(possession, match, homeTeam, awayTeam, clipSettings);
+    if (!clip) return;
+    openReportVideoSelection(resolvedMatchId, [clip], {
+      sourceLabel: 'Possession - 1 clip',
+    });
   };
 
   return {
@@ -36,9 +54,9 @@ export function usePossessionVisualiser({ matchId, preRollSeconds = 5 }) {
     sharedVizStats,
     openPossessionVisualiser,
     openSharedVideoAt,
+    openSharedVideoPossession,
     preRollSeconds,
   };
 }
 
 export default usePossessionVisualiser;
-

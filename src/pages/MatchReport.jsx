@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, Copy, Share2, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown, Copy, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +11,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import {
@@ -47,6 +57,7 @@ import {
   MatchTimeRangeSlider,
   PitchViz,
   MultiSelect,
+  TeamMultiSelect,
   toTitleCase,
   formatExtraValue,
   normalizePlayerRef,
@@ -89,12 +100,35 @@ const db = globalThis.__B44_DB__ || {
 };
 
 const MATCH_SECTION_ORDER = ['first', 'second', 'et_first', 'et_second'];
+const REPORT_TAB_OPTIONS = [
+  { value: 'summary', label: 'Overview' },
+  { value: 'scoring', label: 'Shooting' },
+  { value: 'possessions', label: 'Possessions' },
+  { value: 'build_up', label: 'Build-Up' },
+  { value: 'kickouts', label: 'Restarts' },
+  { value: 'defense', label: 'Defense' },
+  { value: 'players_ana', label: 'Players' },
+  { value: 'video', label: 'Video' },
+];
 
 function getSectionBoundaryLabel(half) {
   if (half === 'first') return 'HT';
   if (half === 'second') return 'FT';
   if (half === 'et_first') return 'ET HT';
   return '';
+}
+
+function countMeaningfulSelect(value, ignored = ['all', 'any', 'both']) {
+  if (value == null) return 0;
+  return ignored.includes(String(value)) ? 0 : 1;
+}
+
+function countMeaningfulArray(values = []) {
+  return Array.isArray(values) ? values.length : 0;
+}
+
+function buildFilterButtonLabel(count) {
+  return count > 0 ? `Filters (${count})` : 'Filters';
 }
 
 function safeShotArcFilePart(value, fallback = 'team') {
@@ -150,7 +184,9 @@ function buildSectionDisplayLayout(stats, match, imputedTimeById) {
       .map((stat) => getNormalizedTimeS(stat, imputedTimeById))
       .filter(Number.isFinite);
     const lastLiveOrLoggedTime = times.length ? Math.max(...times) : 0;
-    const boundaryTime = periodEndTimes.length ? Math.max(...periodEndTimes) : lastLiveOrLoggedTime;
+    const boundaryTime = periodEndTimes.length
+      ? Math.max(Math.max(...periodEndTimes), lastLiveOrLoggedTime)
+      : lastLiveOrLoggedTime;
     return {
       half,
       rows,
@@ -779,6 +815,89 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [restartWonByFilter, setRestartWonByFilter] = useState([]);
   const [restartLengthFilter, setRestartLengthFilter] = useState([]);
   const [restartSideFilter, setRestartSideFilter] = useState([]);
+  const showStickyFiltersButton = showTopFiltersButton && activeTab !== 'summary' && activeTab !== 'video';
+  const activeTopFilterCount = useMemo(() => {
+    const baseCount =
+      countMeaningfulSelect(reportFilters.team)
+      + countMeaningfulArray(reportFilters.halves)
+      + countMeaningfulArray(reportFilters.playerIds)
+      + countMeaningfulArray(reportFilters.actionTypes)
+      + countMeaningfulArray(reportFilters.outcomes)
+      + countMeaningfulSelect(reportFilters.timeMin, [''])
+      + countMeaningfulSelect(reportFilters.timeMax, ['']);
+
+    if (activeTab === 'scoring') {
+      return baseCount
+        + countMeaningfulArray(scoringShotType)
+        + countMeaningfulArray(scoringSituation)
+        + countMeaningfulArray(scoringPressure)
+        + countMeaningfulArray(scoringMethod)
+        + countMeaningfulSelect(scoringAttackType);
+    }
+    if (activeTab === 'possessions') {
+      return baseCount
+        + countMeaningfulArray(possessionsOutcomeFilter)
+        + countMeaningfulArray(possessionsOriginFilter)
+        + countMeaningfulArray(possessionsStartZoneFilter)
+        + countMeaningfulSelect(possessionsAttackTypeFilter);
+    }
+    if (activeTab === 'build_up') {
+      return baseCount
+        + countMeaningfulArray(buildEventTypes)
+        + countMeaningfulArray(buildPressure)
+        + countMeaningfulArray(buildOutcome)
+        + (buildProgressiveOnly ? 1 : 0);
+    }
+    if (activeTab === 'kickouts') {
+      return baseCount
+        + countMeaningfulArray(restartTargetFilter)
+        + countMeaningfulArray(restartWonByFilter)
+        + countMeaningfulArray(restartLengthFilter)
+        + countMeaningfulArray(restartSideFilter);
+    }
+    if (activeTab === 'defense') {
+      return baseCount
+        + countMeaningfulSelect(defenseTurnoverResult)
+        + countMeaningfulArray(defenseTurnoverTypes)
+        + countMeaningfulArray(defenseDefTypes)
+        + countMeaningfulSelect(defenseEventCategory);
+    }
+    if (activeTab === 'players_ana') {
+      return baseCount + countMeaningfulSelect(playersFocusPlayerId);
+    }
+    return baseCount;
+  }, [
+    activeTab,
+    reportFilters.team,
+    reportFilters.halves,
+    reportFilters.playerIds,
+    reportFilters.actionTypes,
+    reportFilters.outcomes,
+    reportFilters.timeMin,
+    reportFilters.timeMax,
+    scoringShotType,
+    scoringSituation,
+    scoringPressure,
+    scoringMethod,
+    scoringAttackType,
+    possessionsOutcomeFilter,
+    possessionsOriginFilter,
+    possessionsStartZoneFilter,
+    possessionsAttackTypeFilter,
+    buildEventTypes,
+    buildPressure,
+    buildOutcome,
+    buildProgressiveOnly,
+    restartTargetFilter,
+    restartWonByFilter,
+    restartLengthFilter,
+    restartSideFilter,
+    defenseTurnoverResult,
+    defenseTurnoverTypes,
+    defenseDefTypes,
+    defenseEventCategory,
+    playersFocusPlayerId,
+  ]);
 
   useEffect(() => {
     if (activeTab === 'data') setActiveTab('video');
@@ -867,8 +986,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     sharedVizStats,
     openPossessionVisualiser,
     openSharedVideoAt,
+    openSharedVideoPossession,
     preRollSeconds: SHARED_VIZ_PRE_ROLL_S,
-  } = usePossessionVisualiser({ matchId });
+  } = usePossessionVisualiser({ match, matchId, homeTeam, awayTeam });
 
   const summary = useMemo(() => {
     const empty = {
@@ -1222,7 +1342,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     const axisMax = Math.max(5 * 60, displayLayout.axisMax);
     const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
 
-    const rows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
+    const minuteRows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
       const minuteMark = minuteIndex * 60;
       const windowStart = Math.max(displayLayout.getSectionStartForDisplayTime(minuteMark), minuteMark - 5 * 60);
       const windowStats = withTime.filter((entry) => entry.displayTime > windowStart && entry.displayTime <= minuteMark);
@@ -1298,6 +1418,34 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       };
     });
 
+    const boundaryRows = (displayLayout.boundaryMarkers || []).map((marker) => ({
+      x: Number(marker.x),
+      minute: Number(marker.x) / 60,
+      label: displayLayout.formatTick(Number(marker.x)),
+      home: 50,
+      away: 50,
+      home_pts: 0,
+      away_pts: 0,
+      home_poss_time: 0,
+      away_poss_time: 0,
+      home_to_won: 0,
+      away_to_won: 0,
+      home_ko_won: 0,
+      away_ko_won: 0,
+      home_shots: 0,
+      away_shots: 0,
+      isBoundaryReset: true,
+    }));
+
+    const rows = [...minuteRows, ...boundaryRows]
+      .sort((a, b) => Number(a.x) - Number(b.x))
+      .filter((row, index, list) => {
+        if (index === 0) return true;
+        const prev = list[index - 1];
+        if (Math.abs(Number(prev.x) - Number(row.x)) > 0.001) return true;
+        return !!row.isBoundaryReset;
+      });
+
     return {
       mode: 'rolling',
       rows,
@@ -1327,142 +1475,249 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     );
   }
 
+  const canManageReport = !readOnly;
+  const activeTabLabel = REPORT_TAB_OPTIONS.find((option) => option.value === activeTab)?.label || 'Overview';
+  const filterButtonLabel = buildFilterButtonLabel(activeTopFilterCount);
+  const formattedHeaderDate = match?.date ? String(match.date) : '';
+  const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link to={createPageUrl(`MatchStats?id=${matchId}`)}>
-              <Button variant="ghost" size="sm" className="gap-2">
-                <ArrowLeft className="w-4 h-4" /> Back
-              </Button>
-            </Link>
-            <div className="min-w-0">
-              <div className="font-semibold text-slate-900 truncate">
-                {homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}
+    <div className="min-h-screen bg-slate-100/70">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <div className="border-b border-slate-200/90 bg-white shadow-sm">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center justify-between gap-3 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <Link to={createPageUrl(`MatchStats?id=${matchId}`)}>
+                  <Button variant="outline" size="sm" className={`gap-2 ${navControlClassName}`}>
+                    <ArrowLeft className="w-4 h-4" /> Back
+                  </Button>
+                </Link>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-slate-900 sm:text-base">
+                    {homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}
+                  </div>
+                  <div className="truncate text-xs text-slate-500">
+                    {formattedHeaderDate}{match?.venue ? ` - ${match.venue}` : ''}
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-slate-500 truncate">
-                {match?.date || ''}{match?.venue ? ` - ${match.venue}` : ''}
-              </div>
+              {canManageReport ? (
+                <div className="flex items-center gap-2">
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} aria-label="Open report management menu">
+                        Manage
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem onSelect={() => setDataOpen(true)}>
+                        <BarChart3 className="h-4 w-4" />
+                        Manage Data
+                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>ShotArc</DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-44">
+                          <DropdownMenuItem onSelect={handleShotArcExport}>Export</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={handleShotArcImportClick}>Import</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={toggleShotArcInfo}>Game Info</DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      {!readOnly ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => setShareOpen(true)}>
+                            <Share2 className="h-4 w-4" />
+                            Share
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="outline" size="sm">
-                  ShotArc
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 p-2">
-                <div className="flex flex-col gap-1">
-                  <Button type="button" variant="ghost" className="justify-start" onClick={handleShotArcExport}>Export</Button>
-                  <Button type="button" variant="ghost" className="justify-start" onClick={handleShotArcImportClick}>Import</Button>
-                  <Button type="button" variant="ghost" className="justify-start" onClick={toggleShotArcInfo}>Game Info</Button>
-                </div>
-                {shotArcInfoOpen && (
-                  <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-                    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                      <div className="font-semibold text-slate-700">Code</div>
-                      <div className="text-slate-900">{match?.code || 'NA'}</div>
-                      <div className="font-semibold text-slate-700">Venue</div>
-                      <div className="text-slate-900">{match?.venue || 'NA'}</div>
-                      <div className="font-semibold text-slate-700">Teams</div>
-                      <div className="text-slate-900">{homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}</div>
-                      <div className="font-semibold text-slate-700">Date</div>
-                      <div className="text-slate-900">{match?.date || 'NA'}</div>
-                      <div className="font-semibold text-slate-700">Wind Dir</div>
-                      <div className="text-slate-900">{match?.wind_direction || 'NA'}</div>
-                      <div className="font-semibold text-slate-700">Wind Speed</div>
-                      <div className="text-slate-900">{match?.wind_speed || 'NA'}</div>
-                    </div>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-            <input
-              ref={shotArcImportInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={handleShotArcImportChange}
-            />
-            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setDataOpen(true)}>
-              <BarChart3 className="w-4 h-4" /> Data
-            </Button>
-            {!readOnly && (
-              <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setShareOpen(true)}>
-                <Share2 className="w-4 h-4" /> Share
-              </Button>
-            )}
-          </div>
         </div>
-      </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-5">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <TabsList>
-              <TabsTrigger value="summary">Overview</TabsTrigger>
-              <TabsTrigger value="scoring">Shooting</TabsTrigger>
-              <TabsTrigger value="possessions">Possessions</TabsTrigger>
-              <TabsTrigger value="build_up">Build-Up</TabsTrigger>
-              <TabsTrigger value="kickouts">Restarts</TabsTrigger>
-              <TabsTrigger value="defense">Defense</TabsTrigger>
-              <TabsTrigger value="players_ana">Players</TabsTrigger>
-              <TabsTrigger value="video">Video</TabsTrigger>
-            </TabsList>
-            {activeTab === 'summary' && (
-              <div className="w-[150px] ml-auto">
-                <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                  <SelectTrigger className="h-9 border-slate-200 bg-white/90 text-xs font-semibold text-slate-900 shadow-sm">
-                    <SelectValue placeholder="All Halves" />
+        <div className="sticky top-0 z-40 border-b-2 border-slate-300 bg-white/95 shadow-[0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/92">
+          <div className="max-w-7xl mx-auto px-4 py-1.5">
+            <div className="flex min-h-10 items-center justify-between gap-3">
+              <div className="hidden min-w-0 flex-1 md:block">
+                <TabsList className="min-h-10 flex-wrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
+                  {REPORT_TAB_OPTIONS.map((option) => (
+                    <TabsTrigger
+                      key={option.value}
+                      value={option.value}
+                      className="h-8 rounded-lg px-3.5 text-sm font-semibold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
+                    >
+                      {option.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+              <div className="min-w-0 flex-1 md:hidden">
+                <Select value={activeTab} onValueChange={setActiveTab}>
+                  <SelectTrigger className="h-9 border-slate-200 bg-white text-xs font-semibold text-slate-900 shadow-sm" aria-label="Select report tab">
+                    <SelectValue placeholder={activeTabLabel} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Halves</SelectItem>
-                    <SelectItem value="first">1st Half</SelectItem>
-                    <SelectItem value="second">2nd Half</SelectItem>
+                    {REPORT_TAB_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-            {showTopFiltersButton && activeTab !== 'summary' && activeTab !== 'video' && (
-              <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="ml-auto gap-2">
-                    <SlidersHorizontal className="h-4 w-4" />
-                    Filters
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-[320px] max-w-[90vw] max-h-[80vh] overflow-y-auto p-4">
-                  <div className="space-y-4">
-                    {activeTab === 'scoring' && (
-                      <>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showAction={false} />
-                        <details className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                          <summary className="cursor-pointer list-none text-xs font-semibold text-slate-700">
-                            Advanced Filters
-                          </summary>
-                          <div className="mt-3 space-y-3">
-                            <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+              <div className={`ml-auto ${activeTab === 'video' ? 'w-auto max-w-full' : 'w-[120px] sm:w-auto sm:min-w-[124px]'}`}>
+                {activeTab === 'summary' ? (
+                  <Select value={overviewHalf} onValueChange={setOverviewHalf}>
+                    <SelectTrigger className={navControlClassName} aria-label="Select overview half">
+                      <SelectValue placeholder="All Halves" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Halves</SelectItem>
+                      <SelectItem value="first">1st Half</SelectItem>
+                      <SelectItem value="second">2nd Half</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : null}
+                {activeTab === 'video' ? (
+                  <div
+                    id="report-video-nav-controls"
+                    className="flex max-w-full flex-wrap items-center justify-end gap-2"
+                    aria-label="Video tab controls"
+                  />
+                ) : null}
+                {showStickyFiltersButton ? (
+                  <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" size="sm" className={`w-full gap-2 sm:w-[132px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                          <span className="truncate">Filters</span>
+                        </span>
+                        <span className={`inline-flex min-w-[2.5rem] justify-end tabular-nums ${activeTopFilterCount > 0 ? 'text-current' : 'invisible'}`}>
+                          ({activeTopFilterCount || 0})
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-[320px] max-w-[90vw] overflow-hidden border-slate-200/90 bg-white p-4 shadow-lg">
+                      <div className="max-h-[calc(80vh-2rem)] space-y-3 overflow-y-auto pr-1">
+                        {activeTab === 'scoring' && (
+                          <>
+                            <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showAction={false} />
+                            <details className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                              <summary className="cursor-pointer list-none text-xs font-semibold text-slate-700">
+                                Advanced Filters
+                              </summary>
+                              <div className="mt-3 space-y-3">
+                                <MultiSelect label="Shot Type" placeholder="All" values={scoringShotType} onChange={setScoringShotType} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
+                                <MultiSelect
+                                  label="Situation"
+                                  placeholder="All"
+                                  values={scoringSituation}
+                                  onChange={setScoringSituation}
+                                  options={[
+                                    { value: 'play', label: 'Play' },
+                                    { value: 'free_ground', label: 'Free From Ground' },
+                                    { value: 'free_hands', label: 'Free From Hands' },
+                                    { value: '45', label: '45' },
+                                    { value: 'penalty', label: 'Penalty' },
+                                    { value: 'mark', label: 'Mark' },
+                                  ]}
+                                />
+                                <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                                <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Attack Type</Label>
+                                  <Select value={scoringAttackType} onValueChange={setScoringAttackType}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="any">Any</SelectItem>
+                                      <SelectItem value="attack_type_set">Set</SelectItem>
+                                      <SelectItem value="attack_type_transition">Transition</SelectItem>
+                                      <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            </details>
+                          </>
+                        )}
+                        {activeTab === 'possessions' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Possessions Filters</div>
+                            <TeamMultiSelect
+                              value={reportFilters.team}
+                              onValueChange={reportFilters.setTeam}
+                              homeTeam={homeTeam}
+                              awayTeam={awayTeam}
+                            />
                             <MultiSelect
-                              label="Situation"
+                              label="Half"
                               placeholder="All"
-                              values={scoringSituation}
-                              onChange={setScoringSituation}
+                              values={reportFilters.halves}
+                              onChange={reportFilters.setHalves}
                               options={[
-                                { value: 'play', label: 'Play' },
-                                { value: 'free_ground', label: 'Free From Ground' },
-                                { value: 'free_hands', label: 'Free From Hands' },
-                                { value: '45', label: '45' },
-                                { value: 'penalty', label: 'Penalty' },
-                                { value: 'mark', label: 'Mark' },
+                                { value: 'first', label: 'First' },
+                                { value: 'second', label: 'Second' },
+                                { value: 'et_first', label: 'ET1' },
+                                { value: 'et_second', label: 'ET2' },
                               ]}
                             />
-                            <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                            <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                            <MatchTimeRangeSlider
+                              timeMin={reportFilters.timeMin}
+                              timeMax={reportFilters.timeMax}
+                              match={reportFilters.match}
+                              stats={reportFilters.allStats}
+                              imputedTimeById={reportFilters.imputedTimeById}
+                              onChange={({ timeMin, timeMax }) => {
+                                reportFilters.setTimeMin(timeMin);
+                                reportFilters.setTimeMax(timeMax);
+                              }}
+                            />
+                            <MultiSelect
+                              label="Outcome"
+                              placeholder="All"
+                              values={possessionsOutcomeFilter}
+                              onChange={setPossessionsOutcomeFilter}
+                              options={[
+                                { value: 'Score', label: 'Score' },
+                                { value: 'Missed Shot', label: 'Missed Shot' },
+                                { value: 'Turnover', label: 'Turnover' },
+                                { value: 'Half End', label: 'Half End' },
+                              ]}
+                            />
+                            <MultiSelect
+                              label="Origin"
+                              placeholder="All"
+                              values={possessionsOriginFilter}
+                              onChange={setPossessionsOriginFilter}
+                              options={[
+                                { value: 'Turnover Won', label: 'Turnover Won' },
+                                { value: 'Own KO Won', label: 'Own KO Won' },
+                                { value: 'Opp KO Won', label: 'Opp KO Won' },
+                                { value: 'Throw In Won', label: 'Throw In Won' },
+                                { value: 'Shot Missed (Live Ball)', label: 'Shot Missed (Live Ball)' },
+                              ]}
+                            />
+                            <MultiSelect
+                              label="Start Zone"
+                              placeholder="All"
+                              values={possessionsStartZoneFilter}
+                              onChange={setPossessionsStartZoneFilter}
+                              options={[
+                                { value: 'Defensive Third', label: 'Defensive Third' },
+                                { value: 'Middle Third', label: 'Middle Third' },
+                                { value: 'Attacking Third', label: 'Attacking Third' },
+                              ]}
+                            />
                             <div className="space-y-1">
                               <Label className="text-xs text-slate-600">Attack Type</Label>
-                              <Select value={scoringAttackType} onValueChange={setScoringAttackType}>
+                              <Select value={possessionsAttackTypeFilter} onValueChange={setPossessionsAttackTypeFilter}>
                                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="any">Any</SelectItem>
@@ -1472,197 +1727,134 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                                 </SelectContent>
                               </Select>
                             </div>
-                          </div>
-                        </details>
-                      </>
-                    )}
-                    {activeTab === 'possessions' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Possessions Filters</div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Team</Label>
-                          <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="both">Both</SelectItem>
-                              <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                              <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          </>
+                        )}
+                        {activeTab === 'build_up' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Build-Up Filters</div>
+                            <ReportFiltersFields
+                              reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }}
+                              playerOptions={playerOptions}
+                              homeTeam={homeTeam}
+                              awayTeam={awayTeam}
+                              showPlayer={false}
+                              showOutcome={false}
+                              actionLabel="Pass / Carry"
+                              timeBeforeAction
+                            />
+                          </>
+                        )}
+                        {activeTab === 'kickouts' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Restarts Filters</div>
+                            <ReportFiltersFields
+                              reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }}
+                              playerOptions={playerOptions}
+                              homeTeam={homeTeam}
+                              awayTeam={awayTeam}
+                              showPlayer={false}
+                              showAction={false}
+                              showOutcome={false}
+                              timeBeforeAction
+                            />
+                            <MultiSelect
+                              label="Target"
+                              placeholder="All"
+                              values={restartTargetFilter}
+                              onChange={setRestartTargetFilter}
+                              options={restartTargetOptions}
+                            />
+                            <MultiSelect
+                              label="Won By"
+                              placeholder="All"
+                              values={restartWonByFilter}
+                              onChange={setRestartWonByFilter}
+                              options={restartWonByOptions}
+                            />
+                            <MultiSelect
+                              label="Distance"
+                              placeholder="All"
+                              values={restartLengthFilter}
+                              onChange={setRestartLengthFilter}
+                              options={[
+                                { value: 'short', label: 'Short' },
+                                { value: 'long', label: 'Long' },
+                              ]}
+                            />
+                            <MultiSelect
+                              label="Direction"
+                              placeholder="All"
+                              values={restartSideFilter}
+                              onChange={setRestartSideFilter}
+                              options={[
+                                { value: 'left', label: 'Left' },
+                                { value: 'centre', label: 'Centre' },
+                                { value: 'right', label: 'Right' },
+                              ]}
+                            />
+                          </>
+                        )}
+                        {activeTab === 'defense' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Defense Filters</div>
+                            <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['turnover', 'def_pressure', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showOutcome={false} timeBeforeAction />
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-600">Turnover Result</Label>
+                              <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="both">Both</SelectItem>
+                                  <SelectItem value="won">Won</SelectItem>
+                                  <SelectItem value="lost">Lost</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        )}
+                        {activeTab === 'players_ana' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Players Filters</div>
+                            <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showPlayer={false} showAction={false} showOutcome={false} timeBeforeAction />
+                          </>
+                        )}
+                        {activeTab === 'video' && (
+                          <>
+                            <div className="font-semibold text-slate-900">Video Filters</div>
+                            <ReportFiltersFields
+                              reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }}
+                              playerOptions={playerOptions}
+                              homeTeam={homeTeam}
+                              awayTeam={awayTeam}
+                              showAction={false}
+                              showOutcome={false}
+                              timeBeforeAction
+                            />
+                          </>
+                        )}
+                        <div className="border-t pt-3">
+                          <Button type="button" variant="outline" className="w-full" onClick={resetAllFilters}>
+                            Reset All Filters
+                          </Button>
                         </div>
-                        <MultiSelect
-                          label="Half"
-                          placeholder="All"
-                          values={reportFilters.halves}
-                          onChange={reportFilters.setHalves}
-                          options={[
-                            { value: 'first', label: 'First' },
-                            { value: 'second', label: 'Second' },
-                            { value: 'et_first', label: 'ET1' },
-                            { value: 'et_second', label: 'ET2' },
-                          ]}
-                        />
-                        <MatchTimeRangeSlider
-                          timeMin={reportFilters.timeMin}
-                          timeMax={reportFilters.timeMax}
-                          match={reportFilters.match}
-                          stats={reportFilters.allStats}
-                          imputedTimeById={reportFilters.imputedTimeById}
-                          onChange={({ timeMin, timeMax }) => {
-                            reportFilters.setTimeMin(timeMin);
-                            reportFilters.setTimeMax(timeMax);
-                          }}
-                        />
-                        <MultiSelect
-                          label="Outcome"
-                          placeholder="All"
-                          values={possessionsOutcomeFilter}
-                          onChange={setPossessionsOutcomeFilter}
-                          options={[
-                            { value: 'Score', label: 'Score' },
-                            { value: 'Missed Shot', label: 'Missed Shot' },
-                            { value: 'Turnover', label: 'Turnover' },
-                            { value: 'Half End', label: 'Half End' },
-                          ]}
-                        />
-                        <MultiSelect
-                          label="Origin"
-                          placeholder="All"
-                          values={possessionsOriginFilter}
-                          onChange={setPossessionsOriginFilter}
-                          options={[
-                            { value: 'Turnover Won', label: 'Turnover Won' },
-                            { value: 'Own KO Won', label: 'Own KO Won' },
-                            { value: 'Opp KO Won', label: 'Opp KO Won' },
-                            { value: 'Throw In Won', label: 'Throw In Won' },
-                            { value: 'Shot Missed (Live Ball)', label: 'Shot Missed (Live Ball)' },
-                          ]}
-                        />
-                        <MultiSelect
-                          label="Start Zone"
-                          placeholder="All"
-                          values={possessionsStartZoneFilter}
-                          onChange={setPossessionsStartZoneFilter}
-                          options={[
-                            { value: 'Defensive Third', label: 'Defensive Third' },
-                            { value: 'Middle Third', label: 'Middle Third' },
-                            { value: 'Attacking Third', label: 'Attacking Third' },
-                          ]}
-                        />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Attack Type</Label>
-                          <Select value={possessionsAttackTypeFilter} onValueChange={setPossessionsAttackTypeFilter}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="any">Any</SelectItem>
-                              <SelectItem value="attack_type_set">Set</SelectItem>
-                              <SelectItem value="attack_type_transition">Transition</SelectItem>
-                              <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
-                    {activeTab === 'build_up' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Build-Up Filters</div>
-                        <ReportFiltersFields
-                          reportFilters={{ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }}
-                          playerOptions={playerOptions}
-                          homeTeam={homeTeam}
-                          awayTeam={awayTeam}
-                          showPlayer={false}
-                          showOutcome={false}
-                          actionLabel="Pass / Carry"
-                          timeBeforeAction
-                        />
-                      </>
-                    )}
-                    {activeTab === 'kickouts' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Restarts Filters</div>
-                        <ReportFiltersFields
-                          reportFilters={{ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }}
-                          playerOptions={playerOptions}
-                          homeTeam={homeTeam}
-                          awayTeam={awayTeam}
-                          showPlayer={false}
-                          showAction={false}
-                          showOutcome={false}
-                          timeBeforeAction
-                        />
-                        <MultiSelect
-                          label="Target"
-                          placeholder="All"
-                          values={restartTargetFilter}
-                          onChange={setRestartTargetFilter}
-                          options={restartTargetOptions}
-                        />
-                        <MultiSelect
-                          label="Won By"
-                          placeholder="All"
-                          values={restartWonByFilter}
-                          onChange={setRestartWonByFilter}
-                          options={restartWonByOptions}
-                        />
-                        <MultiSelect
-                          label="Distance"
-                          placeholder="All"
-                          values={restartLengthFilter}
-                          onChange={setRestartLengthFilter}
-                          options={[
-                            { value: 'short', label: 'Short' },
-                            { value: 'long', label: 'Long' },
-                          ]}
-                        />
-                        <MultiSelect
-                          label="Direction"
-                          placeholder="All"
-                          values={restartSideFilter}
-                          onChange={setRestartSideFilter}
-                          options={[
-                            { value: 'left', label: 'Left' },
-                            { value: 'centre', label: 'Centre' },
-                            { value: 'right', label: 'Right' },
-                          ]}
-                        />
-                      </>
-                    )}
-                    {activeTab === 'defense' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Defense Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['turnover', 'def_pressure', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showOutcome={false} timeBeforeAction />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Turnover Result</Label>
-                          <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="both">Both</SelectItem>
-                              <SelectItem value="won">Won</SelectItem>
-                              <SelectItem value="lost">Lost</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
-                    {activeTab === 'players_ana' && (
-                      <>
-                        <div className="font-semibold text-slate-900">Players Filters</div>
-                        <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['shot', 'pass', 'carry', 'turnover', 'foul', 'kickout', 'throw_in'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showPlayer={false} showAction={false} showOutcome={false} timeBeforeAction />
-                      </>
-                    )}
-                    <div className="border-t pt-3">
-                      <Button type="button" variant="outline" className="w-full" onClick={resetAllFilters}>
-                        Reset All Filters
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+              </div>
+            </div>
           </div>
+        </div>
 
-          <TabsContent value="summary">
+        <input
+          ref={shotArcImportInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={handleShotArcImportChange}
+        />
+
+        <main className="max-w-7xl mx-auto px-4 py-3">
+          <TabsContent value="summary" className="mt-2">
             <OverviewTab
               homeTeam={homeTeam}
               awayTeam={awayTeam}
@@ -1676,7 +1868,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="scoring">
+          <TabsContent value="scoring" className="mt-2">
             <ScoringTab
               stats={filteredForScoring}
               simStats={filteredForScoringWp}
@@ -1698,7 +1890,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="possessions">
+          <TabsContent value="possessions" className="mt-2">
             <PossessionsTab
               stats={stats}
               homeTeam={homeTeam}
@@ -1706,6 +1898,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               playerOptions={playerOptions}
               reportFilters={reportFilters}
               onOpenVideoAt={openSharedVideoAt}
+              onOpenVideoPossession={openSharedVideoPossession}
               outcomeFilter={possessionsOutcomeFilter}
               originFilter={possessionsOriginFilter}
               startZoneFilter={possessionsStartZoneFilter}
@@ -1726,7 +1919,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="build_up">
+          <TabsContent value="build_up" className="mt-2">
             <BuildUpTab
               stats={filteredForReport}
               homeTeam={homeTeam}
@@ -1751,7 +1944,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="kickouts">
+          <TabsContent value="kickouts" className="mt-2">
             <RestartsTab
               stats={stats}
               homeTeam={homeTeam}
@@ -1766,7 +1959,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="defense">
+          <TabsContent value="defense" className="mt-2">
             <DefenseTab
               stats={stats}
               homeTeam={homeTeam}
@@ -1784,7 +1977,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="players_ana">
+          <TabsContent value="players_ana" className="mt-2">
             <PlayersAnalyticsTab
               stats={stats}
               homeTeam={homeTeam}
@@ -1797,7 +1990,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             />
           </TabsContent>
 
-          <TabsContent value="video">
+          <TabsContent value="video" className="mt-2">
             <DataTab
               matchId={matchId}
               match={match}
@@ -1811,15 +2004,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               sharedVideoNotes={sharedData.videoNotes}
               readOnly={readOnly}
               mode="video"
+              videoNavPortalTargetId="report-video-nav-controls"
             />
           </TabsContent>
-        </Tabs>
-      </main>
+        </main>
+      </Tabs>
 
       <Dialog open={dataOpen} onOpenChange={setDataOpen}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle>Data</DialogTitle>
+            <DialogTitle>Manage Data</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
             <DataTab
@@ -1836,6 +2030,30 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               readOnly={readOnly}
               mode="data"
             />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shotArcInfoOpen} onOpenChange={setShotArcInfoOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>ShotArc Game Info</DialogTitle>
+          </DialogHeader>
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+              <div className="font-semibold text-slate-700">Code</div>
+              <div className="text-slate-900">{match?.code || 'NA'}</div>
+              <div className="font-semibold text-slate-700">Venue</div>
+              <div className="text-slate-900">{match?.venue || 'NA'}</div>
+              <div className="font-semibold text-slate-700">Teams</div>
+              <div className="text-slate-900">{homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}</div>
+              <div className="font-semibold text-slate-700">Date</div>
+              <div className="text-slate-900">{match?.date || 'NA'}</div>
+              <div className="font-semibold text-slate-700">Wind Dir</div>
+              <div className="text-slate-900">{match?.wind_direction || 'NA'}</div>
+              <div className="font-semibold text-slate-700">Wind Speed</div>
+              <div className="text-slate-900">{match?.wind_speed || 'NA'}</div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

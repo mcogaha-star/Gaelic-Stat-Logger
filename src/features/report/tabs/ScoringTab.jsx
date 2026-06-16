@@ -61,7 +61,7 @@ import {
   attackTypeStateKey,
 } from '../shared';
 
-const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+const paneClassName = 'report-pane';
 
 function normalizeShootingSituation(value) {
   const raw = String(value || '').trim().toLowerCase();

@@ -53,6 +53,7 @@ import {
   normalizePlayerRef,
   ComparisonMetricsCard,
   MultiSelect,
+  TeamMultiSelect,
   MatchTimeRangeSlider,
   RangeSliderField,
   DirectionBadge,
@@ -399,7 +400,7 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
       ];
 
   return (
-    <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+    <Card className="report-pane">
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -553,7 +554,7 @@ function TeamPassSonarCard({ title, zones, defaultZone = 'Overall' }) {
       : { zone: activeZone, total: 0, buckets: [] });
 
   return (
-    <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+    <Card className="report-pane h-full">
       <CardContent className="flex h-full flex-col p-4 space-y-2.5">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="flex-1">
@@ -572,9 +573,6 @@ function TeamPassSonarCard({ title, zones, defaultZone = 'Overall' }) {
               {option.label}
             </Button>
           ))}
-        </div>
-        <div className="min-h-[28px] text-center text-[11px] leading-4 text-slate-500">
-          Red = more handpass-heavy, blue = more kickpass-heavy, purple = balanced mix.
         </div>
       </CardContent>
     </Card>
@@ -603,7 +601,7 @@ function BuildUpTab({
   setPnHalf,
   onOpenVideoAt,
 }) {
-  const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
+  const paneClassName = 'report-pane';
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
@@ -640,14 +638,14 @@ function BuildUpTab({
   const calcFiltered = useMemo(() => filtered.filter((s) => !shouldExcludeFromTotals(s)), [filtered]);
   const mapBase = useMemo(() => applyNonTeamReportFilters(stats, {
     halves: mapHalves,
-    playerIds: mapPlayerIds,
+    playerIds: [],
     actionTypes: [],
     outcomes: [],
     timeMin: mapTimeMin,
     timeMax: mapTimeMax,
     match: reportFilters?.match,
     imputedTimeById: reportFilters?.imputedTimeById,
-  }), [stats, mapHalves, mapPlayerIds, mapTimeMin, mapTimeMax, reportFilters?.match, reportFilters?.imputedTimeById]);
+  }), [stats, mapHalves, mapTimeMin, mapTimeMax, reportFilters?.match, reportFilters?.imputedTimeById]);
   const mapDistanceMaxBound = useMemo(() => {
     const distances = mapBase
       .filter((s) => s && (s.stat_type === 'pass' || s.stat_type === 'carry'))
@@ -662,6 +660,18 @@ function BuildUpTab({
     if (mapTeam !== 'both' && s.team_side !== mapTeam) return false;
     if (mapEventTypes.length && !mapEventTypes.includes(s.stat_type)) return false;
     const extra = safeParseJSON(s.extra_data || '{}', {});
+    if (mapPlayerIds.length) {
+      const selectedIds = new Set(mapPlayerIds.map((id) => String(id)));
+      const primary = normalizePlayerRef(getPrimaryActorSelection(s, extra));
+      const recipient = s.stat_type === 'pass'
+        ? normalizePlayerRef(getRecipientSelectionForBuildUp(s, extra))
+        : null;
+      const matchesSelectedPlayer = (
+        (primary && selectedIds.has(String(primary.id)))
+        || (recipient && selectedIds.has(String(recipient.id)))
+      );
+      if (!matchesSelectedPlayer) return false;
+    }
     const p = s.stat_type === 'pass' ? extra?.pass?.pressure_on_passer : extra?.carry?.pressure_on_carrier;
     const o = deriveOutcome(s, extra);
     if (mapPressure.length && !mapPressure.includes(String(p || ''))) return false;
@@ -691,7 +701,7 @@ function BuildUpTab({
       if (!recipient || !mapRecipientIds.includes(String(recipient.id))) return false;
     }
     return true;
-  }), [mapBase, mapTeam, mapEventTypes, mapPressure, mapOutcome, mapProgressiveFilter, mapDistanceMin, mapDistanceMax, mapDistanceMaxBound, mapOriginZones, mapEndZones, mapAccuracy, mapSetDefence, mapRecipientIds]);
+  }), [mapBase, mapTeam, mapPlayerIds, mapEventTypes, mapPressure, mapOutcome, mapProgressiveFilter, mapDistanceMin, mapDistanceMax, mapDistanceMaxBound, mapOriginZones, mapEndZones, mapAccuracy, mapSetDefence, mapRecipientIds]);
 
   const kpis = useMemo(() => {
     const eventLength = (stat) => {
@@ -1006,17 +1016,12 @@ function BuildUpTab({
                   </div>
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Team</Label>
-                        <Select value={mapTeam} onValueChange={setMapTeam}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="both">Both</SelectItem>
-                            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <TeamMultiSelect
+                        value={mapTeam}
+                        onValueChange={setMapTeam}
+                        homeTeam={homeTeam}
+                        awayTeam={awayTeam}
+                      />
                       <div className="col-span-1">
                         <MultiSelect
                           label="Half"
@@ -1213,14 +1218,16 @@ function BuildUpTab({
                 <div className="grid lg:grid-cols-[180px_minmax(0,1fr)] gap-4 items-start">
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Network Team</Label>
-                      <Select value={teamMode === 'both' ? pnSide : teamMode} onValueChange={setPnSide}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                          <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <MultiSelect
+                        label="Network Team"
+                        values={[teamMode === 'both' ? pnSide : teamMode]}
+                        onChange={(values) => setPnSide(values[0] || pnSide)}
+                        options={[
+                          { value: 'home', label: homeTeam?.name || 'Home' },
+                          { value: 'away', label: awayTeam?.name || 'Away' },
+                        ]}
+                        singleSelect
+                      />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>

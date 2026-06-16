@@ -144,6 +144,30 @@ button:focus-visible {
 }
 
 @layer base {
+  html {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
+  html body[data-scroll-locked] {
+    overflow-y: scroll !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+    --removed-body-scroll-bar-size: 0px !important;
+  }
+
+  html body[data-scroll-locked] .right-scroll-bar-position {
+    right: 0 !important;
+  }
+
+  html body[data-scroll-locked] .width-before-scroll-bar {
+    margin-right: 0 !important;
+  }
+
+  html body[data-scroll-locked] .with-scroll-bars-hidden {
+    padding-right: 0 !important;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
@@ -153,6 +177,22 @@ button:focus-visible {
 }
 
 @layer components {
+  .report-panel {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-sm;
+  }
+
+  .report-pane {
+    @apply rounded-2xl border border-slate-300/80 bg-gradient-to-br from-slate-50 via-white to-white shadow-[0_10px_24px_rgba(15,23,42,0.05)];
+  }
+
+  .report-panel-muted {
+    @apply rounded-2xl border border-slate-200/90 bg-slate-50/80 shadow-sm;
+  }
+
+  .report-section-title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+
   .report-metric-split {
     display: grid;
     gap: 1rem;

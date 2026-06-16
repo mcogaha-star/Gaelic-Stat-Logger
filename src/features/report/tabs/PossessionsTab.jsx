@@ -441,8 +441,8 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
   );
 }
 
-function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, onOpenVideoAt, attackTypeFilter = 'any', setAttackTypeFilter, outcomeFilter = [], originFilter = [], startZoneFilter = [] }) {
-  const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, onOpenVideoAt, onOpenVideoPossession, attackTypeFilter = 'any', setAttackTypeFilter, outcomeFilter = [], originFilter = [], startZoneFilter = [] }) {
+  const paneClassName = 'report-pane';
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
     { k: 'Missed Shot', c: '#eab308' },
@@ -1600,9 +1600,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                                   size="sm"
                                   className="h-7 px-2 text-xs"
                                   title={`Open video at ${formatMMSS(p.videoStartTime)}`}
-                                  onClick={() => onOpenVideoAt?.(p.videoStartTime)}
+                                  onClick={() => {
+                                    if (typeof onOpenVideoPossession === 'function') {
+                                      onOpenVideoPossession(p);
+                                      return;
+                                    }
+                                    onOpenVideoAt?.(p.videoStartTime);
+                                  }}
                                 >
-                                  Open Video
+                                  Video
                                 </Button>
                               ) : null}
                               <Button

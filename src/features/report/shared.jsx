@@ -506,7 +506,7 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
   const metricCol = metricColWidth;
 
   return (
-    <Card className={`border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md ${cardClassName}`.trim()}>
+    <Card className={`report-pane ${cardClassName}`.trim()}>
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
@@ -800,7 +800,20 @@ function statMatchesActionType(stat, actionType) {
   return false;
 }
 
-function MultiSelect({ label, options, values, onChange, placeholder = 'All', className = '', triggerClassName = '', labelClassName = '', singleSelect = false }) {
+function MultiSelect({
+  label,
+  options,
+  values,
+  onChange,
+  placeholder = 'All',
+  className = '',
+  triggerClassName = '',
+  labelClassName = '',
+  singleSelect = false,
+  summaryFormatter = null,
+  clearActionLabel = 'Clear',
+  showSelectAll = !singleSelect,
+}) {
   const valuesSet = useMemo(() => new Set(Array.isArray(values) ? values : []), [values]);
 
   const toggle = (v) => {
@@ -814,15 +827,17 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
     onChange(Array.from(next));
   };
 
-  const summaryText = (() => {
-    if (!valuesSet.size) return placeholder;
-    if (valuesSet.size === 1) {
-      const only = Array.from(valuesSet)[0];
-      const match = options.find((o) => String(o.value) === String(only));
-      return match?.label || String(only);
-    }
-    return `${valuesSet.size} Selected`;
-  })();
+  const summaryText = summaryFormatter
+    ? summaryFormatter({ options, placeholder, values: Array.from(valuesSet), valuesSet })
+    : (() => {
+        if (!valuesSet.size) return placeholder;
+        if (valuesSet.size === 1) {
+          const only = Array.from(valuesSet)[0];
+          const match = options.find((o) => String(o.value) === String(only));
+          return match?.label || String(only);
+        }
+        return `${valuesSet.size} Selected`;
+      })();
 
   return (
     <div className={'space-y-1 ' + className}>
@@ -853,9 +868,9 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
           </div>
           <div className="pt-2 flex items-center justify-between gap-2">
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange([])}>
-              Clear
+              {clearActionLabel}
             </Button>
-            {!singleSelect ? (
+            {showSelectAll && !singleSelect ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -870,6 +885,63 @@ function MultiSelect({ label, options, values, onChange, placeholder = 'All', cl
         </PopoverContent>
       </Popover>
     </div>
+  );
+}
+
+function TeamMultiSelect({
+  label = 'Team',
+  value = 'both',
+  onValueChange,
+  homeTeam,
+  awayTeam,
+  className = '',
+  triggerClassName = '',
+  labelClassName = '',
+}) {
+  const options = useMemo(() => ([
+    { value: 'home', label: homeTeam?.name || 'Home' },
+    { value: 'away', label: awayTeam?.name || 'Away' },
+  ]), [awayTeam?.name, homeTeam?.name]);
+
+  const values = useMemo(() => {
+    if (value === 'home') return ['home'];
+    if (value === 'away') return ['away'];
+    return ['home', 'away'];
+  }, [value]);
+
+  return (
+    <MultiSelect
+      label={label}
+      placeholder="Both"
+      values={values}
+      onChange={(nextValues) => {
+        const nextSet = new Set(nextValues);
+        if (nextSet.has('home') && nextSet.has('away')) {
+          onValueChange('both');
+          return;
+        }
+        if (nextSet.has('home')) {
+          onValueChange('home');
+          return;
+        }
+        if (nextSet.has('away')) {
+          onValueChange('away');
+          return;
+        }
+        onValueChange('both');
+      }}
+      options={options}
+      className={className}
+      triggerClassName={triggerClassName}
+      labelClassName={labelClassName}
+      clearActionLabel="Both"
+      showSelectAll={false}
+      summaryFormatter={({ options: teamOptions, valuesSet }) => {
+        if (!valuesSet.size || (valuesSet.has('home') && valuesSet.has('away'))) return 'Both';
+        const only = valuesSet.has('home') ? 'home' : 'away';
+        return teamOptions.find((option) => option.value === only)?.label || 'Both';
+      }}
+    />
   );
 }
 
@@ -2339,7 +2411,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`flex h-full w-full flex-col rounded-2xl border-2 border-slate-400 bg-slate-50/70 p-3 shadow-sm ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>
@@ -3052,17 +3124,12 @@ function ReportFiltersFields({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label className="text-xs text-slate-600">Team</Label>
-        <Select value={reportFilters.team} onValueChange={reportFilters.setTeam}>
-          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="both">Both</SelectItem>
-            <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-            <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <TeamMultiSelect
+        value={reportFilters.team}
+        onValueChange={reportFilters.setTeam}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+      />
 
       <MultiSelect
         label="Half"
@@ -3552,6 +3619,7 @@ export {
   deriveOutcome,
   statMatchesActionType,
   MultiSelect,
+  TeamMultiSelect,
   collectPlayerIds,
   collectPlayerSelectionKeys,
   sortKeyForTime,

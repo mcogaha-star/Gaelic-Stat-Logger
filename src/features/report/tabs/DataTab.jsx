@@ -3,8 +3,9 @@
 };
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Download, FileJson, ListVideo, PencilLine, Plus, StickyNote } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, FileJson, ListVideo, PencilLine, Plus, StickyNote } from 'lucide-react';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -28,8 +29,11 @@ import {
   buildClipSignature,
   createPlayClipRef,
   createPossessionClipRef,
+  createTimestampClipRef,
   getAuthorInitials,
+  openReportVideoReel,
   getVideoClipSettings,
+  openReportVideoSelection,
   parsePresetPayload,
   reorderClipList,
   serializeClipSettings,
@@ -45,6 +49,7 @@ import {
   collectPlayerIds,
   PitchViz,
   MultiSelect,
+  TeamMultiSelect,
   MatchTimeRangeSlider,
   RangeSliderField,
   statMatchesDisplayTimeRange,
@@ -93,6 +98,14 @@ function formatSelectionLabel(selection) {
   }
   if (selection.kind === 'team') return selection.team_side === 'away' ? 'Away Team' : 'Home Team';
   return '';
+}
+
+function getVideoModeLabel(mode) {
+  return mode === 'possession' ? 'Possessions' : 'Events';
+}
+
+function getVideoReelTypeLabel(mode) {
+  return mode === 'possession' ? 'Possessions' : 'Events';
 }
 
 function normalizeShotType(value) {
@@ -455,6 +468,7 @@ function DataTab({
   sharedVideoNotes = [],
   readOnly = false,
   mode = 'data',
+  videoNavPortalTargetId = '',
 }) {
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
   const isVideoMode = mode === 'video';
@@ -518,9 +532,10 @@ function DataTab({
   const [videoPossessionOriginFilter, setVideoPossessionOriginFilter] = useState([]);
   const [videoPossessionStartZoneFilter, setVideoPossessionStartZoneFilter] = useState([]);
   const [videoPossessionAttackTypeFilter, setVideoPossessionAttackTypeFilter] = useState([]);
+  const [videoFiltersCollapsed, setVideoFiltersCollapsed] = useState(false);
   const [highlightMenuAction, setHighlightMenuAction] = useState('');
-  const [manualSelectionEnabled, setManualSelectionEnabled] = useState(false);
-  const [selectedVideoClipKeys, setSelectedVideoClipKeys] = useState([]);
+  const [selectedVideoPlayKeys, setSelectedVideoPlayKeys] = useState([]);
+  const [selectedVideoPossessionKeys, setSelectedVideoPossessionKeys] = useState([]);
   const [reelNameDraft, setReelNameDraft] = useState('');
   const [selectedReelId, setSelectedReelId] = useState('');
   const [editingReelId, setEditingReelId] = useState('');
@@ -604,23 +619,14 @@ function DataTab({
     setClipSettingsDraft(getVideoClipSettings(match));
   }, [match?.video_clip_settings]);
 
-  useEffect(() => {
-    setSelectedVideoClipKeys([]);
-  }, [videoBrowseMode, manualSelectionEnabled]);
-
-  const openHighlightSelectionFlow = (action) => {
-    if (action === 'create-reel') setReelNameDraft('');
-    if (action === 'add-to-reel') setSelectedReelId('');
-    setSelectedVideoClipKeys([]);
-    setManualSelectionEnabled(true);
-    setHighlightMenuAction(action);
-  };
-
-  const closeHighlightSelectionFlow = () => {
+  const closeHighlightMenuAction = () => {
     setHighlightMenuAction('');
-    setManualSelectionEnabled(false);
-    setSelectedVideoClipKeys([]);
   };
+
+  const videoNavPortalTarget = useMemo(() => {
+    if (!isVideoMode || !videoNavPortalTargetId || typeof document === 'undefined') return null;
+    return document.getElementById(videoNavPortalTargetId);
+  }, [isVideoMode, videoNavPortalTargetId]);
 
   const persistMutation = useMutation({
     mutationFn: async (updates) => {
@@ -685,23 +691,16 @@ function DataTab({
     },
   });
 
-  const openVideoAt = (timeS) => {
-    const t = Number(timeS);
-    if (!matchId || !Number.isFinite(t)) return;
-    const seekTo = Math.max(0, Math.floor(t - VIDEO_PRE_ROLL_S));
-    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}`)}`;
-    window.open(url, 'gstl_video', 'popup=yes,width=1100,height=650');
-    try {
-      const ch = new BroadcastChannel('gstl_video');
-      const msg = { matchId, type: 'SEEK_TO', time_s: seekTo };
-      ch.postMessage(msg);
-      setTimeout(() => ch.postMessage(msg), 350);
-      setTimeout(() => {
-        ch.postMessage(msg);
-        ch.close();
-      }, 900);
-    } catch {
-      // ignore
+  const openVideoAt = (timeS, label = 'Event') => {
+    const clip = createTimestampClipRef({
+      matchId,
+      timeS,
+      label,
+      clipSettings: clipSettingsDraft,
+    });
+    if (!clip) return;
+    if (!openReportVideoSelection(matchId, [clip], { sourceLabel: `${label} · 1 clip` })) {
+      toast.error('Could not open video');
     }
   };
 
@@ -1217,14 +1216,8 @@ function DataTab({
     { key: 'select', label: '', width: '44px', sortable: false },
     { key: 'actions', label: 'Actions', width: '220px', sortable: false },
   ]), []);
-  const visibleVideoPlayColumns = useMemo(
-    () => (manualSelectionEnabled ? videoPlayColumns : videoPlayColumns.filter((column) => column.key !== 'select')),
-    [manualSelectionEnabled, videoPlayColumns]
-  );
-  const visibleVideoPossessionColumns = useMemo(
-    () => (manualSelectionEnabled ? videoPossessionColumns : videoPossessionColumns.filter((column) => column.key !== 'select')),
-    [manualSelectionEnabled, videoPossessionColumns]
-  );
+  const visibleVideoPlayColumns = videoPlayColumns;
+  const visibleVideoPossessionColumns = videoPossessionColumns;
   const sortedVideoPossessionRows = useMemo(
     () => sortRows(videoPossessionRows, videoPossessionSort, videoPossessionColumns, 'key'),
     [videoPossessionRows, videoPossessionSort, videoPossessionColumns]
@@ -1553,15 +1546,155 @@ function DataTab({
     () => sortedVideoPossessionRows.map((row) => createPossessionClipRef(row, match, homeTeam, awayTeam, clipSettingsDraft)).filter(Boolean),
     [sortedVideoPossessionRows, match, homeTeam, awayTeam, clipSettingsDraft]
   );
+  const playClipCandidatesByRef = useMemo(
+    () => new Map(playClipCandidates.map((clip) => [String(clip.source_ref), clip])),
+    [playClipCandidates]
+  );
+  const possessionClipCandidatesByRef = useMemo(
+    () => new Map(possessionClipCandidates.map((clip) => [String(clip.source_ref), clip])),
+    [possessionClipCandidates]
+  );
   const currentClipCandidates = videoBrowseMode === 'play' ? playClipCandidates : possessionClipCandidates;
   const clipCandidatesByRef = useMemo(
     () => new Map(currentClipCandidates.map((clip) => [String(clip.source_ref), clip])),
     [currentClipCandidates]
   );
-  const currentSelectedClipRefs = useMemo(
-    () => selectedVideoClipKeys.map((key) => clipCandidatesByRef.get(String(key))).filter(Boolean),
-    [selectedVideoClipKeys, clipCandidatesByRef]
+  const visiblePlayKeys = useMemo(
+    () => videoVisiblePlayRows.map((row) => String(row.id)),
+    [videoVisiblePlayRows]
   );
+  const visiblePossessionKeys = useMemo(
+    () => videoVisiblePossessionRows.map((row) => String(row.key)),
+    [videoVisiblePossessionRows]
+  );
+  const filteredPlayKeySet = useMemo(
+    () => new Set(sortedVideoPlayTableRows.map((row) => String(row.id))),
+    [sortedVideoPlayTableRows]
+  );
+  const filteredPossessionKeySet = useMemo(
+    () => new Set(sortedVideoPossessionRows.map((row) => String(row.key))),
+    [sortedVideoPossessionRows]
+  );
+  useEffect(() => {
+    setSelectedVideoPlayKeys((current) => current.filter((key) => filteredPlayKeySet.has(String(key))));
+  }, [filteredPlayKeySet]);
+  useEffect(() => {
+    setSelectedVideoPossessionKeys((current) => current.filter((key) => filteredPossessionKeySet.has(String(key))));
+  }, [filteredPossessionKeySet]);
+  const currentSelectedKeys = videoBrowseMode === 'play' ? selectedVideoPlayKeys : selectedVideoPossessionKeys;
+  const currentSelectedClipRefs = useMemo(
+    () => currentSelectedKeys.map((key) => clipCandidatesByRef.get(String(key))).filter(Boolean),
+    [currentSelectedKeys, clipCandidatesByRef]
+  );
+  const currentSelectedCount = currentSelectedKeys.length;
+  const visibleCurrentKeys = videoBrowseMode === 'play' ? visiblePlayKeys : visiblePossessionKeys;
+  const allVisibleSelected = visibleCurrentKeys.length > 0 && visibleCurrentKeys.every((key) => currentSelectedKeys.includes(String(key)));
+  const currentClipSourceMode = currentSelectedCount > 0 ? 'selected' : 'filtered';
+  const currentClipSourceLabel = currentSelectedCount > 0 ? 'Selection' : 'Current filters';
+  const setCurrentSelectionKeys = (updater) => {
+    if (videoBrowseMode === 'play') setSelectedVideoPlayKeys(updater);
+    else setSelectedVideoPossessionKeys(updater);
+  };
+  const clearCurrentSelection = () => {
+    if (videoBrowseMode === 'play') setSelectedVideoPlayKeys([]);
+    else setSelectedVideoPossessionKeys([]);
+  };
+  function toggleVisibleSelection(checked) {
+    const nextVisible = visibleCurrentKeys.map((key) => String(key));
+    setCurrentSelectionKeys((current) => {
+      const currentSet = new Set((Array.isArray(current) ? current : []).map((key) => String(key)));
+      if (checked) {
+        nextVisible.forEach((key) => currentSet.add(key));
+      } else {
+        nextVisible.forEach((key) => currentSet.delete(key));
+      }
+      return Array.from(currentSet);
+    });
+  }
+  function openSaveHighlightDialog() {
+    if (!currentClipCandidates.length) {
+      toast.error('No video rows match the current filters.');
+      return;
+    }
+    setReelNameDraft('');
+    setHighlightMenuAction('save-reel');
+  }
+  function openAddSelectionToReelDialog() {
+    if (!currentSelectedCount) {
+      toast.error('Select rows first to add them to a reel.');
+      return;
+    }
+    setSelectedReelId('');
+    setHighlightMenuAction('add-to-reel');
+  }
+  const videoNavControls = useMemo(() => {
+    if (!isVideoMode) return null;
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="inline-flex">
+          <Button
+            type="button"
+            variant={videoBrowseMode === 'play' ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 px-3 text-xs sm:px-4"
+            onClick={() => setVideoBrowseMode('play')}
+          >
+            Events
+          </Button>
+          <Button
+            type="button"
+            variant={videoBrowseMode === 'possession' ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 px-3 text-xs sm:px-4"
+            onClick={() => setVideoBrowseMode('possession')}
+          >
+            Possessions
+          </Button>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 px-3 text-xs sm:px-4"
+          onClick={handleWatchCurrentVideoSet}
+          disabled={!currentClipCandidates.length}
+          aria-label="Watch selected rows, or current filtered rows if nothing is selected"
+          title={!currentClipCandidates.length ? 'No video rows match the current filters.' : 'Watch selected rows, or current filtered rows if nothing is selected.'}
+        >
+          Watch
+        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs sm:px-4">
+              <ListVideo className="mr-2 h-4 w-4" />
+              Options
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={8} className="z-[70] w-60">
+            <DropdownMenuItem onClick={() => setHighlightMenuAction('view-reels')}>
+              Saved Highlights
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={openSaveHighlightDialog} disabled={!currentClipCandidates.length}>
+              Save Highlight Reel
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setHighlightMenuAction('edit-picker')}>
+              Edit Highlight Reels
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!currentSelectedCount}
+              onClick={openAddSelectionToReelDialog}
+            >
+              Add Selection to Reel
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setHighlightMenuAction('clip-settings')}>
+              Video Settings
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }, [currentClipCandidates.length, currentSelectedCount, handleWatchCurrentVideoSet, isVideoMode, openAddSelectionToReelDialog, openSaveHighlightDialog, videoBrowseMode]);
   const createCandidateClips = (selectionMode = 'filtered') => {
     const source = selectionMode === 'selected' ? currentSelectedClipRefs : currentClipCandidates;
     const seen = new Set();
@@ -1578,6 +1711,31 @@ function DataTab({
       seen.add(signature);
       return true;
     });
+  };
+
+  const openVideoForPlayRow = (row) => {
+    const fallbackTime = Number(row?.stat?.time_s);
+    const clip = playClipCandidatesByRef.get(String(row?.id))
+      || createTimestampClipRef({
+        matchId,
+        timeS: fallbackTime,
+        label: row?.action || 'Event',
+        sourceRef: row?.id,
+        playId: row?.stat?.play_id,
+        possessionId: row?.stat?.possession_id,
+        clipSettings: clipSettingsDraft,
+      });
+    if (!clip || !openReportVideoSelection(matchId, [clip], { sourceLabel: 'Event · 1 clip' })) {
+      toast.error('Could not open video');
+    }
+  };
+
+  const openVideoForPossessionRow = (row) => {
+    const clip = possessionClipCandidatesByRef.get(String(row?.key))
+      || createPossessionClipRef(row, match, homeTeam, awayTeam, clipSettingsDraft);
+    if (!clip || !openReportVideoSelection(matchId, [clip], { sourceLabel: 'Possession · 1 clip' })) {
+      toast.error('Could not open video');
+    }
   };
   const selectedTargetNotes = useMemo(() => {
     if (!noteTarget) return { publicNote: null, privateNote: null };
@@ -1962,7 +2120,7 @@ function DataTab({
     await queryClient.invalidateQueries({ queryKey: ['highlight-reels', matchId] });
     await queryClient.invalidateQueries({ queryKey: ['highlight-reel-clips', matchId] });
     setReelNameDraft('');
-    closeHighlightSelectionFlow();
+    closeHighlightMenuAction();
     toast.success('Highlight reel created');
   };
 
@@ -1978,7 +2136,7 @@ function DataTab({
     }
     await mergeClipsIntoReel(selectedReelId, clips);
     setSelectedReelId('');
-    closeHighlightSelectionFlow();
+    closeHighlightMenuAction();
   };
 
   const openReelEditor = (reelId) => {
@@ -2027,26 +2185,32 @@ function DataTab({
   };
 
   const openReviewPlayerForReel = (reelId) => {
-    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&reelId=${encodeURIComponent(reelId)}`)}`;
-    window.open(url, `gstl_video_review_${reelId}`, 'popup=yes,width=1280,height=840');
+    if (!openReportVideoReel(matchId, reelId)) {
+      toast.error('Could not open the review player');
+    }
   };
 
-  const openReviewPlayerForSelection = (clips = []) => {
+  function openReviewPlayerForClipSet(clips = [], { sourceLabel = 'Selection' } = {}) {
     const list = Array.isArray(clips) ? clips.filter(Boolean) : [];
     if (!list.length) {
-      toast.error('Select clips first to review the current selection');
+      toast.error('No video rows match the current filters.');
       return;
     }
-    const selectionKey = `selection-${matchId}-${Date.now()}`;
-    try {
-      window.sessionStorage.setItem(`gstl_video_selection:${selectionKey}`, JSON.stringify(list));
-    } catch {
-      toast.error('Could not open the current selection review');
+    if (!openReportVideoSelection(matchId, list, { sourceLabel })) {
+      toast.error('Could not open the current video set');
+    }
+  }
+
+  function handleWatchCurrentVideoSet() {
+    const clips = createCandidateClips(currentClipSourceMode);
+    if (!clips.length) {
+      toast.error('No video rows match the current filters.');
       return;
     }
-    const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&selectionKey=${encodeURIComponent(selectionKey)}`)}`;
-    window.open(url, `gstl_video_review_selection_${selectionKey}`, 'popup=yes,width=1280,height=840');
-  };
+    openReviewPlayerForClipSet(clips, {
+      sourceLabel: `${currentClipSourceLabel} · ${clips.length} clips`,
+    });
+  }
 
   const openPossessionVisualise = (possession) => {
     setVizStats(Array.isArray(possession?.stats) ? possession.stats : []);
@@ -2444,77 +2608,46 @@ function DataTab({
   if (isVideoMode) {
     return (
       <div className="space-y-4">
-        <div className="-mt-[54px] flex items-center justify-end gap-2 flex-wrap">
-            <div className="inline-flex rounded-xl bg-slate-100 p-1 shadow-sm">
-              <Button type="button" variant={videoBrowseMode === 'play' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('play')}>Play</Button>
-              <Button type="button" variant={videoBrowseMode === 'possession' ? 'default' : 'outline'} size="sm" className="h-9 px-4 text-sm" onClick={() => setVideoBrowseMode('possession')}>Possession</Button>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm">
-                  <ListVideo className="mr-2 h-4 w-4" />
-                  Highlight Reel
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-60">
-                <DropdownMenuItem onClick={() => openHighlightSelectionFlow('create-reel')}>
-                  Create Highlight Reel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('view-reels'); }}>
-                  View Highlights
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!currentSelectedClipRefs.length}
-                  onClick={() => openReviewPlayerForSelection(currentSelectedClipRefs)}
-                >
-                  View Current Selection
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('edit-picker'); }}>
-                  Edit Existing Highlights
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openHighlightSelectionFlow('add-to-reel')}>
-                  Add to Existing Highlight
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('clip-settings'); }}>
-                  Clip Settings
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
-        <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold text-slate-900">Filters</div>
-              </div>
+        {videoNavPortalTarget ? createPortal(videoNavControls, videoNavPortalTarget) : null}
+        <Card className="report-pane">
+          <CardContent className={videoFiltersCollapsed ? 'px-4 py-2.5' : 'p-4 space-y-4'}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold text-slate-900">Filters</div>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => { setManualSelectionEnabled(false); setSelectedVideoClipKeys([]); setHighlightMenuAction('presets'); }}>
-                  Presets
-                </Button>
-                <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => videoBrowseMode === 'play' ? resetVideoPlayFilters() : resetVideoPossessionFilters()}>
-                  Reset Filters
+                {!videoFiltersCollapsed ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => setHighlightMenuAction('presets')}>
+                      Presets
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" className="h-9 px-4 text-sm" onClick={() => videoBrowseMode === 'play' ? resetVideoPlayFilters() : resetVideoPossessionFilters()}>
+                      Reset Filters
+                    </Button>
+                  </>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                  onClick={() => setVideoFiltersCollapsed((current) => !current)}
+                  aria-label={videoFiltersCollapsed ? 'Expand filters' : 'Collapse filters'}
+                >
+                  {videoFiltersCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
 
-            {videoBrowseMode === 'play' ? (
+            {!videoFiltersCollapsed ? (videoBrowseMode === 'play' ? (
               <div className="space-y-3">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.55fr)] lg:items-stretch">
-                  <MultiSelect
-                    label="Team"
-                    placeholder="Both"
-                    values={[team]}
-                    onChange={(values) => setTeam(values[0] || 'both')}
-                    options={[
-                      { value: 'both', label: 'Both' },
-                      { value: 'home', label: homeTeam?.name || 'Home' },
-                      { value: 'away', label: awayTeam?.name || 'Away' },
-                    ]}
+                  <TeamMultiSelect
+                    value={team}
+                    onValueChange={setTeam}
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
                     className={VIDEO_MULTISELECT_CLASS}
                     triggerClassName={`${VIDEO_CONTROL_CLASS} font-normal leading-none`}
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
-                    singleSelect
                   />
                   <MultiSelect
                     label="Player"
@@ -2680,20 +2813,14 @@ function DataTab({
             ) : (
               <div className="space-y-3">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,0.82fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.05fr)_minmax(0,1.5fr)] lg:items-stretch">
-                  <MultiSelect
-                    label="Team"
-                    placeholder="Both"
-                    values={[videoPossessionTeam]}
-                    onChange={(values) => setVideoPossessionTeam(values[0] || 'both')}
-                    options={[
-                      { value: 'both', label: 'Both' },
-                      { value: 'home', label: homeTeam?.name || 'Home' },
-                      { value: 'away', label: awayTeam?.name || 'Away' },
-                    ]}
+                  <TeamMultiSelect
+                    value={videoPossessionTeam}
+                    onValueChange={setVideoPossessionTeam}
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
                     className={VIDEO_MULTISELECT_CLASS}
                     triggerClassName={VIDEO_CONTROL_CLASS}
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
-                    singleSelect
                   />
                   <MultiSelect
                     label="Half"
@@ -2723,68 +2850,32 @@ function DataTab({
                   />
                 </div>
               </div>
-            )}
+            )) : null}
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+        <Card className="report-pane">
           <CardContent className="p-4 space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="font-semibold text-slate-900">{videoBrowseMode === 'play' ? 'Play Workspace' : 'Possession Workspace'}</div>
+                <div className="font-semibold text-slate-900">{videoBrowseMode === 'play' ? 'Events Workspace' : 'Possessions Workspace'}</div>
                 <div className="text-xs text-slate-500">
                   {videoBrowseMode === 'play'
                     ? `Showing ${Math.min(videoVisiblePlayRows.length, sortedVideoPlayTableRows.length)} of ${sortedVideoPlayTableRows.length} event rows.`
                     : `Showing ${Math.min(videoVisiblePossessionRows.length, sortedVideoPossessionRows.length)} of ${sortedVideoPossessionRows.length} possessions.`}
                 </div>
               </div>
-              <div className="flex min-h-[32px] flex-wrap items-center justify-end gap-2 lg:min-w-[360px]">
-                {manualSelectionEnabled ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
-                    <span className="font-semibold text-slate-900">
-                      {highlightMenuAction === 'add-to-reel' ? 'Selection mode: add clips' : 'Selection mode: create reel'}
-                    </span>
-                    <span>{selectedVideoClipKeys.length} selected</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={() => setSelectedVideoClipKeys((videoBrowseMode === 'play' ? videoVisiblePlayRows : videoVisiblePossessionRows).map((row) => String(videoBrowseMode === 'play' ? row.id : row.key)))}
-                    >
-                      Select Visible
-                    </Button>
-                    {currentClipCandidates.length <= 50 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[11px]"
-                        onClick={() => setSelectedVideoClipKeys(currentClipCandidates.map((clip) => String(clip.source_ref)))}
-                      >
-                        Select All
+              <div className="flex min-h-[32px] flex-wrap items-center justify-end gap-2 lg:min-w-[520px]">
+                <div className="flex h-8 min-w-[120px] items-center justify-end gap-1.5 text-xs text-slate-600">
+                  {currentSelectedCount ? (
+                    <>
+                      <span>{currentSelectedCount} selected</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={clearCurrentSelection}>
+                        Clear
                       </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={() => setSelectedVideoClipKeys([])}
-                    >
-                      Clear
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={closeHighlightSelectionFlow}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : null}
+                    </>
+                  ) : null}
+                </div>
                 <div className="inline-flex rounded-xl bg-slate-100 p-1">
                   <Button type="button" variant={videoViewMode === 'table' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('table')}>Table</Button>
                   <Button type="button" variant={videoViewMode === 'pitch' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('pitch')}>Pitch</Button>
@@ -2853,7 +2944,7 @@ function DataTab({
                             Notes
                           </Button>
                           {!isLiveMode && Number.isFinite(Number(selectedVideoPlayRow.stat?.time_s)) ? (
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(Number(selectedVideoPlayRow.stat.time_s))}>Video</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoForPlayRow(selectedVideoPlayRow)}>Video</Button>
                           ) : null}
                           <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => {
                             setVizStats([selectedVideoPlayRow.stat]);
@@ -2884,7 +2975,7 @@ function DataTab({
                             Notes
                           </Button>
                           {!isLiveMode && Number.isFinite(selectedVideoPossessionRow.videoStartTime) ? (
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoAt(selectedVideoPossessionRow.videoStartTime)}>Video</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openVideoForPossessionRow(selectedVideoPossessionRow)}>Video</Button>
                           ) : null}
                           <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openPossessionVisualise(selectedVideoPossessionRow)}>Visualise</Button>
                         </div>
@@ -2906,13 +2997,23 @@ function DataTab({
                       <TableHeader>
                         <TableRow>
                           {visibleVideoPlayColumns.map((column) => (
-                            <SortableTableHead
-                              key={column.key}
-                              column={column}
-                              sortState={videoPlaySort}
-                              onToggle={toggleVideoPlaySort}
-                              className={column.key === 'actions' ? 'text-center' : undefined}
-                            />
+                            column.key === 'select' ? (
+                              <TableHead key={column.key} className="text-center">
+                                <Checkbox
+                                  checked={allVisibleSelected}
+                                  onCheckedChange={(checked) => toggleVisibleSelection(!!checked)}
+                                  aria-label={allVisibleSelected ? 'Deselect all visible event rows' : 'Select all visible event rows'}
+                                />
+                              </TableHead>
+                            ) : (
+                              <SortableTableHead
+                                key={column.key}
+                                column={column}
+                                sortState={videoPlaySort}
+                                onToggle={toggleVideoPlaySort}
+                                className={column.key === 'actions' ? 'text-center' : undefined}
+                              />
+                            )
                           ))}
                         </TableRow>
                       </TableHeader>
@@ -2940,18 +3041,17 @@ function DataTab({
                               <TableCell className="truncate text-xs">{row.action}</TableCell>
                               <TableCell className="truncate text-xs">{row.outcome}</TableCell>
                               <TableCell className="truncate text-xs">{row.secondaryPlayer}</TableCell>
-                              {manualSelectionEnabled ? (
-                                <TableCell className="text-center">
-                                  <Checkbox
-                                    checked={selectedVideoClipKeys.includes(String(row.id))}
-                                    onCheckedChange={(checked) => {
-                                      const key = String(row.id);
-                                      setSelectedVideoClipKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                </TableCell>
-                              ) : null}
+                              <TableCell className="text-center">
+                                <Checkbox
+                                  checked={selectedVideoPlayKeys.includes(String(row.id))}
+                                  onCheckedChange={(checked) => {
+                                    const key = String(row.id);
+                                    setSelectedVideoPlayKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={`Select event row ${row.play ?? 'NA'}`}
+                                />
+                              </TableCell>
                               <TableCell className="whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-2">
                                   <Button
@@ -2967,7 +3067,7 @@ function DataTab({
                                     Notes
                                   </Button>
                                   {!isLiveMode ? (
-                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} onClick={(e) => { e.stopPropagation(); hasTime && openVideoAt(t); }}>
+                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!hasTime} onClick={(e) => { e.stopPropagation(); hasTime && openVideoForPlayRow(row); }}>
                                       Video
                                     </Button>
                                   ) : null}
@@ -3007,13 +3107,23 @@ function DataTab({
                       <TableHeader>
                         <TableRow>
                           {visibleVideoPossessionColumns.map((column) => (
-                            <SortableTableHead
-                              key={column.key}
-                              column={column}
-                              sortState={videoPossessionSort}
-                              onToggle={toggleVideoPossessionSort}
-                              className={column.key === 'actions' ? 'text-center' : undefined}
-                            />
+                            column.key === 'select' ? (
+                              <TableHead key={column.key} className="text-center">
+                                <Checkbox
+                                  checked={allVisibleSelected}
+                                  onCheckedChange={(checked) => toggleVisibleSelection(!!checked)}
+                                  aria-label={allVisibleSelected ? 'Deselect all visible possession rows' : 'Select all visible possession rows'}
+                                />
+                              </TableHead>
+                            ) : (
+                              <SortableTableHead
+                                key={column.key}
+                                column={column}
+                                sortState={videoPossessionSort}
+                                onToggle={toggleVideoPossessionSort}
+                                className={column.key === 'actions' ? 'text-center' : undefined}
+                              />
+                            )
                           ))}
                         </TableRow>
                       </TableHeader>
@@ -3038,25 +3148,24 @@ function DataTab({
                               <TableCell className="text-xs whitespace-nowrap">{Number.isFinite(row.duration) ? `${row.duration.toFixed(1)}s` : 'NA'}</TableCell>
                               <TableCell className="truncate text-xs">{row.originLabel || 'NA'}</TableCell>
                               <TableCell className="truncate text-xs">{row.groupedOutcome || 'NA'}</TableCell>
-                              {manualSelectionEnabled ? (
-                                <TableCell className="text-center">
-                                  <Checkbox
-                                    checked={selectedVideoClipKeys.includes(String(row.key))}
-                                    onCheckedChange={(checked) => {
-                                      const key = String(row.key);
-                                      setSelectedVideoClipKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                </TableCell>
-                              ) : null}
+                              <TableCell className="text-center">
+                                <Checkbox
+                                  checked={selectedVideoPossessionKeys.includes(String(row.key))}
+                                  onCheckedChange={(checked) => {
+                                    const key = String(row.key);
+                                    setSelectedVideoPossessionKeys((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={`Select possession row ${row.possessionId ?? 'NA'}`}
+                                />
+                              </TableCell>
                               <TableCell className="whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-2">
                                   <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openNotesForTarget({ type: 'possession', id: row.key, label: `Possession ${row.possessionId}` }); }}>
                                     Notes
                                   </Button>
                                   {!isLiveMode && Number.isFinite(row.videoStartTime) ? (
-                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openVideoAt(row.videoStartTime); }}>
+                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openVideoForPossessionRow(row); }}>
                                       Video
                                     </Button>
                                   ) : null}
@@ -3150,10 +3259,10 @@ function DataTab({
           </DialogContent>
         </Dialog>
 
-        <Dialog open={highlightMenuAction === 'create-reel'} onOpenChange={(open) => open ? openHighlightSelectionFlow('create-reel') : closeHighlightSelectionFlow()}>
+        <Dialog open={highlightMenuAction === 'save-reel'} onOpenChange={(open) => setHighlightMenuAction(open ? 'save-reel' : '')}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Create {videoBrowseMode === 'play' ? 'Play' : 'Possession'} Highlight Reel</DialogTitle>
+              <DialogTitle>Save Highlight Reel</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -3161,22 +3270,20 @@ function DataTab({
                 <Input value={reelNameDraft} onChange={(e) => setReelNameDraft(e.target.value)} placeholder="e.g. First Half Scores" />
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                <div>{currentClipCandidates.length} clips available from the current filtered subset.</div>
-                <div className="mt-1">{selectedVideoClipKeys.length} clips selected with row ticks.</div>
-                <div className="mt-1 text-xs text-slate-500">Selection mode is active in the workspace. Tick the clips you want to include, then confirm below.</div>
+                <div>Source: {currentClipSourceLabel} · {createCandidateClips(currentClipSourceMode).length} clips</div>
+                <div className="mt-1 text-xs text-slate-500">This saves the same clip list that Watch would open right now.</div>
               </div>
             </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => createHighlightReel('filtered')}>Create From Filtered Subset</Button>
-              <Button type="button" disabled={!selectedVideoClipKeys.length} onClick={() => createHighlightReel('selected')}>Create From Selection{selectedVideoClipKeys.length ? ` (${selectedVideoClipKeys.length})` : ''}</Button>
+            <DialogFooter>
+              <Button type="button" onClick={() => createHighlightReel(currentClipSourceMode)}>Save Highlight Reel</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        <Dialog open={highlightMenuAction === 'add-to-reel'} onOpenChange={(open) => open ? openHighlightSelectionFlow('add-to-reel') : closeHighlightSelectionFlow()}>
+        <Dialog open={highlightMenuAction === 'add-to-reel'} onOpenChange={(open) => setHighlightMenuAction(open ? 'add-to-reel' : '')}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Add To Existing Highlight</DialogTitle>
+              <DialogTitle>Add Selection to Reel</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -3191,14 +3298,12 @@ function DataTab({
                 </Select>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                <div>{currentClipCandidates.length} filtered clip references are available.</div>
-                <div className="mt-1">{selectedVideoClipKeys.length} clip references selected with row ticks.</div>
-                <div className="mt-1 text-xs text-slate-500">Selection mode is active in the workspace. Tick the clips you want to add, then confirm below.</div>
+                <div>{currentSelectedCount} selected clips will be added.</div>
+                <div className="mt-1 text-xs text-slate-500">Only currently selected rows can be added with this action.</div>
               </div>
             </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => addSelectionToExistingReel('filtered')}>Add Filtered Subset</Button>
-              <Button type="button" disabled={!selectedVideoClipKeys.length} onClick={() => addSelectionToExistingReel('selected')}>Add Selection{selectedVideoClipKeys.length ? ` (${selectedVideoClipKeys.length})` : ''}</Button>
+            <DialogFooter>
+              <Button type="button" disabled={!currentSelectedCount} onClick={() => addSelectionToExistingReel('selected')}>Add Selection{currentSelectedCount ? ` (${currentSelectedCount})` : ''}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -3206,14 +3311,14 @@ function DataTab({
         <Dialog open={highlightMenuAction === 'edit-picker'} onOpenChange={(open) => setHighlightMenuAction(open ? 'edit-picker' : '')}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Edit Existing Highlights</DialogTitle>
+              <DialogTitle>Edit Highlight Reels</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               {(highlightReels || []).filter((reel) => reel?.match_id === matchId).map((reel) => (
                 <div key={reel.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                   <div>
                     <div className="font-medium text-slate-900">{reel.name}</div>
-                    <div className="text-xs text-slate-500">{toTitleCase(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
+                    <div className="text-xs text-slate-500">{getVideoReelTypeLabel(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
                   </div>
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => openReviewPlayerForReel(reel.id)}>Review</Button>
@@ -3247,16 +3352,16 @@ function DataTab({
         <Dialog open={highlightMenuAction === 'view-reels'} onOpenChange={(open) => setHighlightMenuAction(open ? 'view-reels' : '')}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>View Highlights</DialogTitle>
+              <DialogTitle>Saved Highlights</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               {(highlightReels || []).filter((reel) => reel?.match_id === matchId).map((reel) => (
                 <div key={reel.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                   <div>
                     <div className="font-medium text-slate-900">{reel.name}</div>
-                    <div className="text-xs text-slate-500">{toTitleCase(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
+                    <div className="text-xs text-slate-500">{getVideoReelTypeLabel(reel.reel_type)} reel · {(reelClipsByReelId.get(String(reel.id)) || []).length} clips</div>
                   </div>
-                  <Button type="button" onClick={() => openReviewPlayerForReel(reel.id)}>View Highlight</Button>
+                  <Button type="button" onClick={() => openReviewPlayerForReel(reel.id)}>Watch</Button>
                 </div>
               ))}
             </div>
@@ -3363,7 +3468,7 @@ function DataTab({
                   <div key={preset.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                     <div>
                       <div className="font-medium text-slate-900">{preset.name}</div>
-                      <div className="text-xs text-slate-500">{toTitleCase(preset.mode)} preset</div>
+                      <div className="text-xs text-slate-500">{getVideoModeLabel(preset.mode)} preset</div>
                     </div>
                     <div className="flex gap-2">
                       <Button type="button" variant="outline" size="sm" onClick={() => { applyPresetRecord(preset); setHighlightMenuAction(''); }}>Apply</Button>
@@ -3382,15 +3487,15 @@ function DataTab({
         <Dialog open={highlightMenuAction === 'clip-settings'} onOpenChange={(open) => setHighlightMenuAction(open ? 'clip-settings' : '')}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Clip Settings</DialogTitle>
+              <DialogTitle>Video Settings</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4">
               <div className="space-y-2">
-                <Label>Play preroll (seconds)</Label>
+                <Label>Event preroll (seconds)</Label>
                 <Input value={clipSettingsDraft.play_preroll_s} onChange={(e) => setClipSettingsDraft((current) => ({ ...current, play_preroll_s: Number(e.target.value || 0) }))} />
               </div>
               <div className="space-y-2">
-                <Label>Play fallback post-roll (seconds)</Label>
+                <Label>Event fallback post-roll (seconds)</Label>
                 <Input value={clipSettingsDraft.play_fallback_postroll_s} onChange={(e) => setClipSettingsDraft((current) => ({ ...current, play_fallback_postroll_s: Number(e.target.value || 0) }))} />
               </div>
               <div className="space-y-2">
@@ -3463,17 +3568,12 @@ function DataTab({
         <CardContent className="p-4">
           <div className="font-semibold text-slate-900 mb-3">Filters</div>
           <div className="grid lg:grid-cols-6 gap-3 items-end">
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Team</Label>
-              <Select value={team} onValueChange={setTeam}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both">Both</SelectItem>
-                  <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                  <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <TeamMultiSelect
+              value={team}
+              onValueChange={setTeam}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+            />
             <MultiSelect
               label="Action"
               values={actions}

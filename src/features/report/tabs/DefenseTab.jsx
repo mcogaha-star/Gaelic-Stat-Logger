@@ -32,6 +32,7 @@ import {
   formatPct,
   sortRows,
   MultiSelect,
+  TeamMultiSelect,
   MatchTimeRangeSlider,
   groupByPossession,
   derivePossessionOutcome,
@@ -60,7 +61,7 @@ import {
   selectionTooltipLabel,
 } from '../shared';
 
-const DEFENSE_PANE_CLASS = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
+const DEFENSE_PANE_CLASS = 'report-pane';
 const DEFENSE_SANKEY_GROUPING_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'type', label: 'Type' },
@@ -1406,17 +1407,12 @@ function DefenseTab({
             <div className="space-y-3">
               <div className="grid gap-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Team</Label>
-                    <Select value={defMapTeam} onValueChange={setDefMapTeam}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="home">{homeTeam?.name || 'Home'}</SelectItem>
-                        <SelectItem value="away">{awayTeam?.name || 'Away'}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <TeamMultiSelect
+                    value={defMapTeam}
+                    onValueChange={setDefMapTeam}
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
+                  />
                   <MultiSelect
                     label="Half"
                     placeholder="All"
