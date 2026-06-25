@@ -99,7 +99,7 @@ export default function MatchHeader({
                         {seasonStatsUrl && (
                             <Link to={seasonStatsUrl}>
                                 <Button variant="outline" size="sm" className="gap-2 h-7">
-                                    <BarChart3 className="w-4 h-4" /> Season
+                                    <BarChart3 className="w-4 h-4" /> Season Stats
                                 </Button>
                             </Link>
                         )}

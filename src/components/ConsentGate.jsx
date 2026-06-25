@@ -100,8 +100,9 @@ export default function ConsentGate({ children }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-slate-700">
-            Gaelic stats tracker has the ability to view and use statistical data that is logged in research and model tuning.
-            Team/player names sync in account-private identity tables, while stat rows use private IDs and jersey-number fallbacks. Please click accept to proceed.
+            Accept to use the private GaeliQ workspace for logging, reports, sharing, and account sync. Team and player
+            names sync in account-private identity tables, while stat rows use private IDs and jersey-number fallbacks.
+            Read-only shared stats can still be viewed without accepting this agreement.
           </p>
           <div className="flex items-center justify-between gap-3">
             <Link to={createPageUrl('Privacy')} className="text-sm text-slate-600 underline">
@@ -118,7 +119,7 @@ export default function ConsentGate({ children }) {
                 recordConsentOnServer({ accepted: true }).catch(() => {});
               }}
             >
-              Accept
+              Accept and continue
             </Button>
           </div>
         </CardContent>

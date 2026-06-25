@@ -1,3 +1,4 @@
+import React from 'react'
 import './App.css'
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -5,12 +6,13 @@ import { queryClientInstance } from '@/lib/query-client'
 import VisualEditAgent from '@/lib/VisualEditAgent'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { HashRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ConsentGate from '@/components/ConsentGate';
 import SchemaGate from '@/components/SchemaGate';
+import { consumePostLoginRedirect } from '@/lib/postLoginRedirect';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -21,10 +23,19 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   : <>{children}</>;
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isAuthenticated, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const path = location?.pathname || '/';
   const isPublicRoute = path === '/Login' || path === '/Privacy' || path === '/StatShare';
+
+  React.useEffect(() => {
+    if (isLoadingPublicSettings || isLoadingAuth || !isAuthenticated) return;
+    if (path !== '/' && path !== '/Login') return;
+    const pendingRedirect = consumePostLoginRedirect();
+    if (!pendingRedirect) return;
+    navigate(pendingRedirect, { replace: true });
+  }, [isAuthenticated, isLoadingAuth, isLoadingPublicSettings, navigate, path]);
 
   // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {

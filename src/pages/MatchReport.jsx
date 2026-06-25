@@ -87,6 +87,7 @@ import {
 import { createSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { buildEffectiveMatchupStints, buildMatchupPeriodMaxSeconds } from '@/lib/defendingAllowed';
 import { useAuth } from '@/lib/AuthContext';
+import { setPostLoginRedirect } from '@/lib/postLoginRedirect';
 import {
   applyXpImportToShots,
   buildThirdPartyShotExportRows,
@@ -1745,7 +1746,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex items-center justify-between gap-3 py-3">
               <div className="flex min-w-0 items-center gap-3">
-                <Link to={createPageUrl(`MatchStats?id=${matchId}`)}>
+                <Link to={createPageUrl('Home')}>
                   <Button variant="outline" size="sm" className={`gap-2 ${navControlClassName}`}>
                     <ArrowLeft className="w-4 h-4" /> Back
                   </Button>
@@ -1796,6 +1797,19 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </div>
+              ) : readOnly && !isAuthenticated && statShareCode ? (
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={`${createPageUrl('Login')}?next=${encodeURIComponent(createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`))}`}
+                    onClick={() => {
+                      setPostLoginRedirect(createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`));
+                    }}
+                  >
+                    <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`}>
+                      Log in
+                    </Button>
+                  </Link>
                 </div>
               ) : null}
             </div>
