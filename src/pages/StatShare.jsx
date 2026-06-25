@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import MatchReport from '@/pages/MatchReport';
 import { fetchSharedMatchSnapshotByCode } from '@/lib/sharedMatchCopies';
 import { createPageUrl } from '@/utils';
+import { useAuth } from '@/lib/AuthContext';
 
 function parsePayload(snapshot) {
   const raw = snapshot?.payload;
@@ -21,9 +22,11 @@ function parsePayload(snapshot) {
 }
 
 export default function StatShare() {
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
+  const backUrl = isAuthenticated ? createPageUrl('Home') : createPageUrl('Login');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stat-share', code],
@@ -43,8 +46,8 @@ export default function StatShare() {
               <Activity className="w-6 h-6 text-white" />
             </div>
             <div className="text-slate-900 font-semibold">No stat share code provided</div>
-            <Link to={createPageUrl('Login')}>
-              <Button>Back to Login</Button>
+            <Link to={backUrl}>
+              <Button>{isAuthenticated ? 'Back to Home' : 'Back to Login'}</Button>
             </Link>
           </CardContent>
         </Card>
@@ -72,8 +75,8 @@ export default function StatShare() {
             <div className="text-sm text-slate-600">
               The code may be invalid, expired, or not yet published.
             </div>
-            <Link to={createPageUrl('Login')}>
-              <Button className="gap-2"><ArrowLeft className="w-4 h-4" /> Back to Login</Button>
+            <Link to={backUrl}>
+              <Button className="gap-2"><ArrowLeft className="w-4 h-4" /> {isAuthenticated ? 'Back to Home' : 'Back to Login'}</Button>
             </Link>
           </CardContent>
         </Card>

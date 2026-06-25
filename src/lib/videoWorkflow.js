@@ -29,6 +29,27 @@ export const MIN_HIGHLIGHT_POST_ACTION_SECONDS = 7;
 export const REVIEW_PLAYER_WINDOW_NAME = 'gstl_video_review';
 const REVIEW_PLAYER_CHANNEL = 'gstl_video';
 
+function broadcastReviewMessage(message, delays = [0, 180, 500, 1100]) {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
+  const channel = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
+  delays.forEach((delay) => {
+    window.setTimeout(() => {
+      try {
+        channel.postMessage(message);
+      } catch {
+        // ignore
+      }
+    }, delay);
+  });
+  window.setTimeout(() => {
+    try {
+      channel.close();
+    } catch {
+      // ignore
+    }
+  }, Math.max(...delays, 0) + 500);
+}
+
 export function getVideoClipSettings(match) {
   const parsed = parseJsonMaybe(match?.video_clip_settings, {});
   return {
@@ -172,20 +193,14 @@ export function openReportVideoSelection(matchId, clips = [], { sourceLabel = 'S
   }
   const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&selectionKey=${encodeURIComponent(selectionKey)}`)}`;
   const existing = window.__gstlReviewPlayerWindow;
+  const message = { matchId, type: 'SET_REVIEW_SELECTION', selectionKey };
   if (existing && !existing.closed) {
     try { existing.focus(); } catch { /* ignore */ }
-    try {
-      const ch = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
-      const msg = { matchId, type: 'SET_REVIEW_SELECTION', selectionKey };
-      ch.postMessage(msg);
-      setTimeout(() => ch.postMessage(msg), 120);
-      setTimeout(() => ch.close(), 500);
-    } catch {
-      // ignore and fall through to returning true; existing player may already have navigated path state
-    }
+    broadcastReviewMessage(message);
     return true;
   }
   window.__gstlReviewPlayerWindow = window.open(url, REVIEW_PLAYER_WINDOW_NAME, 'popup=yes,width=1280,height=840');
+  broadcastReviewMessage(message, [320, 900, 1600]);
   return true;
 }
 
@@ -193,20 +208,14 @@ export function openReportVideoReel(matchId, reelId) {
   if (!matchId || !reelId || typeof window === 'undefined') return false;
   const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&reelId=${encodeURIComponent(reelId)}`)}`;
   const existing = window.__gstlReviewPlayerWindow;
+  const message = { matchId, type: 'SET_REVIEW_REEL', reelId: String(reelId) };
   if (existing && !existing.closed) {
     try { existing.focus(); } catch { /* ignore */ }
-    try {
-      const ch = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
-      const msg = { matchId, type: 'SET_REVIEW_REEL', reelId: String(reelId) };
-      ch.postMessage(msg);
-      setTimeout(() => ch.postMessage(msg), 120);
-      setTimeout(() => ch.close(), 500);
-    } catch {
-      // ignore
-    }
+    broadcastReviewMessage(message);
     return true;
   }
   window.__gstlReviewPlayerWindow = window.open(url, REVIEW_PLAYER_WINDOW_NAME, 'popup=yes,width=1280,height=840');
+  broadcastReviewMessage(message, [320, 900, 1600]);
   return true;
 }
 

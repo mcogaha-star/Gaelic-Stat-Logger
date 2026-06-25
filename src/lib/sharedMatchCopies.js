@@ -155,6 +155,7 @@ export async function createSharedMatchSnapshot({
   sharedFromCode = null,
   shareType = 'game_copy',
 } = {}) {
+  if (!isSupabaseConfigured || !supabase) return { ok: false, reason: 'Sharing is not available on this deployment.' };
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!match?.id) return { ok: false, reason: 'missing_match' };
@@ -240,6 +241,7 @@ export async function createSharedMatchSnapshot({
 }
 
 export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = true, allowedTypes = [] } = {}) {
+  if (!isSupabaseConfigured || !supabase) return { ok: false, reason: 'Shared stats are not available on this deployment.' };
   const user = await requireAuthUser();
   if (requireAuth && !user) return { ok: false, reason: 'not_authenticated' };
   if (!String(shareCode || '').trim()) return { ok: false, reason: 'missing_share_code' };
@@ -258,6 +260,7 @@ export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = 
 }
 
 export async function importSharedMatchSnapshot({ db, snapshotRow }) {
+  if (!isSupabaseConfigured || !supabase) return { ok: false, reason: 'Game share import is not available on this deployment.' };
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!db?.entities || !snapshotRow?.payload) return { ok: false, reason: 'invalid_snapshot' };

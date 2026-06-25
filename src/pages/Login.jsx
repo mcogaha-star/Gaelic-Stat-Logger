@@ -69,6 +69,10 @@ export default function Login() {
   };
 
   const openSharedStats = () => {
+    if (!isSupabaseConfigured) {
+      toast.error('Shared stats are not available on this deployment.');
+      return;
+    }
     const code = String(statShareCode || '').trim().toUpperCase();
     if (!code) {
       toast.error('Enter a stat share code');
@@ -78,7 +82,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.12),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(30,41,59,0.14),_transparent_30%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.12),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(0,0,0,0.10),_transparent_32%),linear-gradient(135deg,_rgba(239,68,68,0.08)_0%,_rgba(15,23,42,0.08)_100%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-10">
         <div className="w-full space-y-8">
           <div className="max-w-3xl space-y-2">
@@ -151,7 +155,7 @@ export default function Login() {
               </CardContent>
             </Card>
 
-            <Card className="border-slate-200 bg-white/92 shadow-sm backdrop-blur">
+            <Card className="border-slate-200 bg-white/95 shadow-sm backdrop-blur">
               <CardHeader className="space-y-3 pb-3">
                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
                   <ShieldCheck className="h-3.5 w-3.5" />

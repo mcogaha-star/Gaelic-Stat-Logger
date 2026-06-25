@@ -1562,46 +1562,60 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
     const axisMax = Math.max(5 * 60, displayLayout.axisMax);
     const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
+    const momentumDecayBins = [
+      { startOffset: 0, endOffset: 60, weight: 0.30 },
+      { startOffset: 60, endOffset: 120, weight: 0.25 },
+      { startOffset: 120, endOffset: 180, weight: 0.20 },
+      { startOffset: 180, endOffset: 240, weight: 0.15 },
+      { startOffset: 240, endOffset: 300, weight: 0.10 },
+    ];
 
     const minuteRows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
       const minuteMark = minuteIndex * 60;
-      const windowStart = Math.max(displayLayout.getSectionStartForDisplayTime(minuteMark), minuteMark - 5 * 60);
-      const windowStats = withTime.filter((entry) => entry.displayTime > windowStart && entry.displayTime <= minuteMark);
       const statsBySide = {
         home: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
         away: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
       };
 
-      for (const interval of liveIntervals) {
-        const overlap = Math.max(0, Math.min(interval.end, minuteMark) - Math.max(interval.start, windowStart));
-        if (overlap > 0 && (interval.side === 'home' || interval.side === 'away')) {
-          statsBySide[interval.side].possSeconds += overlap;
-        }
-      }
+      for (const bin of momentumDecayBins) {
+        const rawBinStart = minuteMark - bin.endOffset;
+        const rawBinEnd = minuteMark - bin.startOffset;
+        const binStart = Math.max(displayLayout.getSectionStartForDisplayTime(minuteMark), rawBinStart);
+        const binEnd = Math.min(minuteMark, rawBinEnd);
+        if (!(binEnd > binStart)) continue;
 
-      for (const { stat } of windowStats) {
-        if (stat.stat_type === 'shot' && !shouldExcludeFromTotals(stat)) {
-          const ex = safeParseJSON(stat.extra_data || '{}', {});
-          const o = ex?.shot?.outcome;
-          const add = shotPointsForOutcome(o);
-          if (stat.team_side === 'home') {
-            statsBySide.home.shots += 1;
-            statsBySide.home.pts += add;
-          }
-          if (stat.team_side === 'away') {
-            statsBySide.away.shots += 1;
-            statsBySide.away.pts += add;
+        for (const interval of liveIntervals) {
+          const overlap = Math.max(0, Math.min(interval.end, binEnd) - Math.max(interval.start, binStart));
+          if (overlap > 0 && (interval.side === 'home' || interval.side === 'away')) {
+            statsBySide[interval.side].possSeconds += overlap * bin.weight;
           }
         }
 
-        if (!shouldExcludeFromTotals(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
-          const wonSide = turnoverWonSide(stat);
-          if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].toWon += 1;
-        }
+        const binStats = withTime.filter((entry) => entry.displayTime > binStart && entry.displayTime <= binEnd);
+        for (const { stat } of binStats) {
+          if (stat.stat_type === 'shot' && !shouldExcludeFromTotals(stat)) {
+            const ex = safeParseJSON(stat.extra_data || '{}', {});
+            const o = ex?.shot?.outcome;
+            const add = shotPointsForOutcome(o);
+            if (stat.team_side === 'home') {
+              statsBySide.home.shots += bin.weight;
+              statsBySide.home.pts += add * bin.weight;
+            }
+            if (stat.team_side === 'away') {
+              statsBySide.away.shots += bin.weight;
+              statsBySide.away.pts += add * bin.weight;
+            }
+          }
 
-        if (stat.stat_type === 'kickout') {
-          const wonSide = inferRestartWinnerSide(stat, nextStatById.get(stat?.id));
-          if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].kickoutsWon += 1;
+          if (!shouldExcludeFromTotals(stat) && (stat.stat_type === 'turnover' || safeParseJSON(stat?.extra_data || '{}', {})?.turnover)) {
+            const wonSide = turnoverWonSide(stat);
+            if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].toWon += bin.weight;
+          }
+
+          if (stat.stat_type === 'kickout') {
+            const wonSide = inferRestartWinnerSide(stat, nextStatById.get(stat?.id));
+            if (wonSide === 'home' || wonSide === 'away') statsBySide[wonSide].kickoutsWon += bin.weight;
+          }
         }
       }
 
