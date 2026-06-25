@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
-import { Activity, ChevronRight, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { setPostLoginRedirect, consumePostLoginRedirect } from '@/lib/postLoginRedirect';
 
 export default function Login() {
@@ -81,19 +81,12 @@ export default function Login() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.12),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(30,41,59,0.14),_transparent_30%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-10">
         <div className="w-full space-y-8">
-          <div className="max-w-3xl space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-              <Activity className="h-3.5 w-3.5" />
-              Welcome to GaeliQ
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-                Access your workspace or open a shared report
+          <div className="max-w-3xl space-y-2">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">
+                <span>Gael</span><span className="text-red-600">iQ</span>
               </h1>
-              <p className="max-w-2xl text-base text-slate-600 sm:text-lg">
-                Sign in to log matches, review reports, sync private data, and manage video workflows. Or open a shared
-                stats report instantly in read-only mode.
-              </p>
+              <p className="mt-1 text-slate-500">Sign in to your workspace or open a shared report.</p>
             </div>
           </div>
 
@@ -107,7 +100,7 @@ export default function Login() {
                 <div className="space-y-2">
                   <CardTitle className="text-2xl text-slate-950">Sign in to GaeliQ</CardTitle>
                   <p className="max-w-xl text-sm leading-6 text-slate-600">
-                    Unlock logging, reports, season views, syncing, imports, video review, and account settings.
+                    Logging, reports, syncing, imports, video review, and account settings.
                   </p>
                 </div>
               </CardHeader>
@@ -155,20 +148,6 @@ export default function Login() {
                   ) : null}
                 </div>
 
-                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-3">
-                  <div>
-                    <div className="font-semibold text-slate-900">Logging</div>
-                    <div>Live workflows, stat entry, and match setup.</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-900">Reports</div>
-                    <div>Tabs, players, comparison, and season review.</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-900">Sync & Share</div>
-                    <div>Private sync, game copy import, and shared reports.</div>
-                  </div>
-                </div>
               </CardContent>
             </Card>
 
@@ -181,8 +160,7 @@ export default function Login() {
                 <div className="space-y-2">
                   <CardTitle className="text-2xl text-slate-950">View Shared Stats</CardTitle>
                   <p className="text-sm leading-6 text-slate-600">
-                    Open a shared report without signing in. Shared stats are read-only and do not give access to the
-                    Home screen, logging, sync, or settings.
+                    Open a read-only shared report without signing in.
                   </p>
                 </div>
               </CardHeader>
@@ -198,25 +176,14 @@ export default function Login() {
                 <Button className="h-11 w-full bg-slate-900 text-base hover:bg-slate-800" onClick={openSharedStats}>
                   Open Shared Stats
                 </Button>
-
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
-                  Use this path when someone shares a report code with you and you only need to review the stats.
-                </div>
               </CardContent>
             </Card>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-            <div>Privacy agreement is only required when using the private GaeliQ workspace.</div>
-            <div className="flex items-center gap-4">
-              <Link to={createPageUrl('Privacy')} className="inline-flex items-center gap-1 underline underline-offset-4">
-                Privacy details
-              </Link>
-              <span className="inline-flex items-center gap-1">
-                Shared reports stay read-only
-                <ChevronRight className="h-3.5 w-3.5" />
-              </span>
-            </div>
+          <div className="flex justify-end text-sm text-slate-500">
+            <Link to={createPageUrl('Privacy')} className="inline-flex items-center gap-1 underline underline-offset-4">
+              Privacy details
+            </Link>
           </div>
         </div>
       </div>
