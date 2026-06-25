@@ -74,6 +74,31 @@ create unique index if not exists private_players_user_local_player_id_uniq
 
 create index if not exists private_players_team_ref_idx on public.private_players(team_ref);
 
+create table if not exists public.private_matchup_stints (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  match_id uuid not null references public.matches(id) on delete cascade,
+  local_matchup_stint_id text null,
+  defender_player_ref uuid null references public.private_players(id) on delete set null,
+  defender_team_side text null check (defender_team_side in ('home','away')),
+  attacker_player_ref uuid null references public.private_players(id) on delete set null,
+  attacker_team_side text null check (attacker_team_side in ('home','away')),
+  period_key text not null check (period_key in ('first','second','et_first','et_second')),
+  start_time_s double precision not null,
+  end_time_s double precision not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz null
+);
+
+create unique index if not exists private_matchup_stints_user_local_id_uniq
+  on public.private_matchup_stints(user_id, local_matchup_stint_id)
+  where local_matchup_stint_id is not null;
+
+create index if not exists private_matchup_stints_match_id_idx on public.private_matchup_stints(match_id);
+create index if not exists private_matchup_stints_defender_idx on public.private_matchup_stints(defender_player_ref);
+create index if not exists private_matchup_stints_attacker_idx on public.private_matchup_stints(attacker_player_ref);
+
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'matches_home_team_ref_fkey') then
@@ -162,6 +187,7 @@ alter table public.matches enable row level security;
 alter table public.stat_entries enable row level security;
 alter table public.private_teams enable row level security;
 alter table public.private_players enable row level security;
+alter table public.private_matchup_stints enable row level security;
 alter table public.user_consents enable row level security;
 
 -- RLS policies: only the authenticated user can access their own rows
@@ -225,6 +251,22 @@ create policy private_players_insert_own on public.private_players
 
 drop policy if exists private_players_update_own on public.private_players;
 create policy private_players_update_own on public.private_players
+  for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists private_matchup_stints_select_own on public.private_matchup_stints;
+create policy private_matchup_stints_select_own on public.private_matchup_stints
+  for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists private_matchup_stints_insert_own on public.private_matchup_stints;
+create policy private_matchup_stints_insert_own on public.private_matchup_stints
+  for insert to authenticated
+  with check (user_id = auth.uid());
+
+drop policy if exists private_matchup_stints_update_own on public.private_matchup_stints;
+create policy private_matchup_stints_update_own on public.private_matchup_stints
   for update to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());

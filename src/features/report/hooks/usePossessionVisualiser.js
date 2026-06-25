@@ -47,6 +47,12 @@ export function usePossessionVisualiser({ match = null, matchId, homeTeam = null
     });
   };
 
+  const openSharedVideoSelection = (clips, { sourceLabel = 'Selection' } = {}) => {
+    const list = Array.isArray(clips) ? clips.filter(Boolean) : [];
+    if (!resolvedMatchId || !list.length) return false;
+    return openReportVideoSelection(resolvedMatchId, list, { sourceLabel });
+  };
+
   return {
     sharedVizOpen,
     setSharedVizOpen,
@@ -54,6 +60,7 @@ export function usePossessionVisualiser({ match = null, matchId, homeTeam = null
     sharedVizStats,
     openPossessionVisualiser,
     openSharedVideoAt,
+    openSharedVideoSelection,
     openSharedVideoPossession,
     preRollSeconds,
   };

@@ -67,6 +67,46 @@ function clampMinZero(value) {
   return Number.isFinite(num) ? Math.max(0, num) : 0;
 }
 
+function lowerConfidenceLocal(current = 'high', next = 'medium') {
+  const rank = { low: 0, medium: 1, high: 2 };
+  const currentRank = rank[current] ?? rank.high;
+  const nextRank = rank[next] ?? rank.high;
+  return nextRank < currentRank ? next : current;
+}
+
+function normalizeIdLocal(value) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function uniqueIdListLocal(values = []) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => normalizeIdLocal(value)).filter(Boolean)));
+}
+
+function isValidFullLineupLocal(values = []) {
+  return uniqueIdListLocal(values).length === 15;
+}
+
+function lineupsEqualLocal(left = [], right = []) {
+  const leftIds = uniqueIdListLocal(left);
+  const rightIds = uniqueIdListLocal(right);
+  if (leftIds.length !== rightIds.length) return false;
+  const rightSet = new Set(rightIds);
+  return leftIds.every((id) => rightSet.has(id));
+}
+
+function getRawLoggedTimeSLocal(stat) {
+  const normalized = safeNumber(stat?.normalized_time_s);
+  if (normalized != null) return Math.max(0, normalized);
+  const raw = safeNumber(stat?.time_s);
+  return raw != null ? Math.max(0, raw) : null;
+}
+
+function getStatLoggedTimeSLocal(stat) {
+  const direct = getRawLoggedTimeSLocal(stat);
+  return direct != null ? direct : 0;
+}
+
 function buildPlayerIdentityMaps(playerOptions = []) {
   const byId = new Map();
   const byTeamNumber = new Map();
@@ -159,28 +199,329 @@ function buildPlayerSeed(match, playerOptions = []) {
   const playerMaps = buildPlayerIdentityMaps(playerOptions);
 
   for (const player of Array.isArray(playerOptions) ? playerOptions : []) addSeed(player, player?.team_side);
-  const homeStarters = safeParseIdList(match?.home_starters || match?.home_on_field);
-  const awayStarters = safeParseIdList(match?.away_starters || match?.away_on_field);
+  const homeStarters = safeParseIdList(match?.home_starters);
+  const awayStarters = safeParseIdList(match?.away_starters);
+  const homeOnField = safeParseIdList(match?.home_on_field);
+  const awayOnField = safeParseIdList(match?.away_on_field);
   for (const id of homeStarters) addSeed({ id, team_side: 'home' }, 'home');
   for (const id of awayStarters) addSeed({ id, team_side: 'away' }, 'away');
+  for (const id of homeOnField) addSeed({ id, team_side: 'home' }, 'home');
+  for (const id of awayOnField) addSeed({ id, team_side: 'away' }, 'away');
 
   return { seeds, playerMaps };
 }
 
-function extractSubstitutionInfo(stat, playerMaps) {
+function getSelectionCandidateSidesLocal(selection, playerMaps, { idsOnly = false } = {}) {
+  const sides = [];
+  const id = normalizeIdLocal(selection?.id);
+  if (id) {
+    for (const teamSide of ['home', 'away']) {
+      if (playerMaps.byId.has(`${teamSide}|${id}`)) sides.push(teamSide);
+    }
+    if (sides.length || idsOnly) return uniqueIdListLocal(sides);
+  }
+  if (idsOnly) return [];
+
+  const number = selection?.number != null ? String(selection.number).trim() : '';
+  if (number) {
+    for (const teamSide of ['home', 'away']) {
+      if (playerMaps.byTeamNumber.has(`${teamSide}|${number}`)) sides.push(teamSide);
+    }
+  }
+
+  const name = String(selection?.name || '').trim().toLowerCase();
+  if (name) {
+    for (const teamSide of ['home', 'away']) {
+      if (playerMaps.byTeamName.has(`${teamSide}|${name}`)) sides.push(teamSide);
+    }
+  }
+
+  return uniqueIdListLocal(sides);
+}
+
+function resolveSelectionAcrossTeamsLocal(selection, playerMaps, preferredTeamSide = null) {
+  if (!selection || typeof selection !== 'object') return null;
+  const preferred = normalizeTeamSideLocal(preferredTeamSide);
+  if (preferred) {
+    const preferredMatch = normalizeSelectionToPlayerLocal({ ...selection, team_side: preferred }, playerMaps, preferred);
+    if (preferredMatch) return preferredMatch;
+  }
+
+  const idSides = getSelectionCandidateSidesLocal(selection, playerMaps, { idsOnly: true });
+  if (idSides.length === 1) {
+    const teamSide = idSides[0];
+    return normalizeSelectionToPlayerLocal({ ...selection, team_side: teamSide }, playerMaps, teamSide);
+  }
+  if (idSides.length > 1) return null;
+
+  const candidateSides = getSelectionCandidateSidesLocal(selection, playerMaps);
+  if (candidateSides.length === 1) {
+    const teamSide = candidateSides[0];
+    return normalizeSelectionToPlayerLocal({ ...selection, team_side: teamSide }, playerMaps, teamSide);
+  }
+  return null;
+}
+
+function compareSubstitutionChronologicalLocal(a, b) {
+  const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
+  const pa = periodOrder[a?.periodKey] ?? 99;
+  const pb = periodOrder[b?.periodKey] ?? 99;
+  if (pa !== pb) return pa - pb;
+  if (a.timeMinutes !== b.timeMinutes) return a.timeMinutes - b.timeMinutes;
+  const playA = a.playId ?? -1;
+  const playB = b.playId ?? -1;
+  if (playA !== playB) return playA - playB;
+  return String(a.statId || '').localeCompare(String(b.statId || ''));
+}
+
+function compareSubstitutionReverseLocal(a, b) {
+  return compareSubstitutionChronologicalLocal(b, a);
+}
+
+function buildSubstitutionTimeSById(stats = []) {
+  const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
+  const grouped = new Map();
+  for (const stat of Array.isArray(stats) ? stats : []) {
+    const half = getStatPeriodKey(stat);
+    if (!half) continue;
+    if (!grouped.has(half)) grouped.set(half, []);
+    grouped.get(half).push(stat);
+  }
+
+  const out = new Map();
+  for (const rows of grouped.values()) {
+    rows.sort((a, b) => {
+      const pa = periodOrder[getStatPeriodKey(a)] ?? 99;
+      const pb = periodOrder[getStatPeriodKey(b)] ?? 99;
+      if (pa !== pb) return pa - pb;
+      const playA = safeNumber(a?.play_id) ?? -1;
+      const playB = safeNumber(b?.play_id) ?? -1;
+      if (playA !== playB) return playA - playB;
+      const ta = getRawLoggedTimeSLocal(a);
+      const tb = getRawLoggedTimeSLocal(b);
+      if (ta != null && tb != null && ta !== tb) return ta - tb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+
+    const prevKnown = new Array(rows.length).fill(null);
+    const nextKnown = new Array(rows.length).fill(null);
+    let lastKnown = null;
+    for (let i = 0; i < rows.length; i += 1) {
+      const currentTime = getRawLoggedTimeSLocal(rows[i]);
+      if (currentTime != null) lastKnown = currentTime;
+      prevKnown[i] = lastKnown;
+    }
+
+    lastKnown = null;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const currentTime = getRawLoggedTimeSLocal(rows[i]);
+      if (currentTime != null) lastKnown = currentTime;
+      nextKnown[i] = lastKnown;
+    }
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const stat = rows[i];
+      if (String(stat?.stat_type || '') !== 'substitution' || !stat?.id) continue;
+      const direct = getRawLoggedTimeSLocal(stat);
+      if (direct != null) {
+        out.set(stat.id, direct);
+        continue;
+      }
+
+      const prev = prevKnown[i];
+      const next = nextKnown[i];
+      let inferred = 0;
+      if (prev != null && next != null && next >= prev) inferred = (prev + next) / 2;
+      else if (prev != null) inferred = prev;
+      else if (next != null) inferred = next;
+      out.set(stat.id, inferred);
+    }
+  }
+
+  return out;
+}
+
+function assessLineupPathLocal(startIds = [], substitutions = [], teamSide = null) {
+  const normalizedTeamSide = normalizeTeamSideLocal(teamSide);
+  const lineup = new Set(uniqueIdListLocal(startIds));
+  const issues = [];
+  for (const sub of Array.isArray(substitutions) ? substitutions.slice().sort(compareSubstitutionChronologicalLocal) : []) {
+    if (sub?.teamSide !== normalizedTeamSide) continue;
+    const offId = normalizeIdLocal(sub?.playerOff?.id);
+    const onId = normalizeIdLocal(sub?.playerOn?.id);
+    if (offId && !lineup.has(offId)) issues.push(`off_missing:${sub.statId || ''}`);
+    if (onId && lineup.has(onId)) issues.push(`on_existing:${sub.statId || ''}`);
+    if (offId) lineup.delete(offId);
+    if (onId) lineup.add(onId);
+  }
+  return {
+    finalIds: Array.from(lineup),
+    issues,
+  };
+}
+
+function deriveOpeningLineupFromFinalSnapshotLocal(finalIds = [], substitutions = [], teamSide = null) {
+  const normalizedTeamSide = normalizeTeamSideLocal(teamSide);
+  const lineup = new Set(uniqueIdListLocal(finalIds));
+  for (const sub of Array.isArray(substitutions) ? substitutions.slice().sort(compareSubstitutionReverseLocal) : []) {
+    if (sub?.teamSide !== normalizedTeamSide) continue;
+    const offId = normalizeIdLocal(sub?.playerOff?.id);
+    const onId = normalizeIdLocal(sub?.playerOn?.id);
+    if (onId) lineup.delete(onId);
+    if (offId) lineup.add(offId);
+  }
+  return Array.from(lineup);
+}
+
+function resolveOpeningLineupIdsLocal({
+  teamSide = null,
+  explicitStarterIds = [],
+  finalOnFieldIds = [],
+  substitutions = [],
+} = {}) {
+  const explicitIds = uniqueIdListLocal(explicitStarterIds);
+  const finalIds = uniqueIdListLocal(finalOnFieldIds);
+  const explicitValid = isValidFullLineupLocal(explicitIds);
+  const finalValid = isValidFullLineupLocal(finalIds);
+  const derivedIds = finalValid ? deriveOpeningLineupFromFinalSnapshotLocal(finalIds, substitutions, teamSide) : [];
+  const derivedValid = isValidFullLineupLocal(derivedIds);
+  const explicitAssessment = explicitValid ? assessLineupPathLocal(explicitIds, substitutions, teamSide) : null;
+  const derivedAssessment = derivedValid ? assessLineupPathLocal(derivedIds, substitutions, teamSide) : null;
+  const explicitGraphConsistent = explicitAssessment ? explicitAssessment.issues.length === 0 : false;
+  const derivedGraphConsistent = derivedAssessment ? derivedAssessment.issues.length === 0 : false;
+  const explicitReconciles = explicitValid && finalValid
+    ? lineupsEqualLocal(explicitAssessment?.finalIds || [], finalIds)
+    : false;
+  const derivedReconciles = derivedValid && finalValid
+    ? lineupsEqualLocal(derivedAssessment?.finalIds || [], finalIds)
+    : false;
+
+  if (explicitValid && explicitGraphConsistent && (!finalValid || explicitReconciles)) {
+    return { ids: explicitIds, source: 'explicit_starters', confidence: 'high' };
+  }
+
+  if (derivedValid && derivedGraphConsistent && (!finalValid || derivedReconciles)) {
+    return {
+      ids: derivedIds,
+      source: 'reverse_final_snapshot',
+      confidence: 'medium',
+      warning: explicitValid
+        ? `Explicit starters could not be used for ${teamSide} because they were inconsistent with the substitution graph. Rebuilt the opening lineup from final on-pitch plus substitutions.`
+        : `Rebuilt opening lineup for ${teamSide} from final on-pitch plus substitutions.`,
+    };
+  }
+
+  if (derivedValid) {
+    return {
+      ids: derivedIds,
+      source: 'reverse_final_snapshot',
+      confidence: finalValid ? 'medium' : 'low',
+      warning: explicitValid
+        ? `Used reverse-rebuilt opening lineup for ${teamSide} because explicit starters were not reliable.`
+        : `Rebuilt opening lineup for ${teamSide} from final on-pitch plus substitutions.`,
+    };
+  }
+
+  if (explicitValid) {
+    return {
+      ids: explicitIds,
+      source: 'explicit_starters_fallback',
+      confidence: 'medium',
+      warning: `Used explicit starters as a fallback for ${teamSide}; final on-pitch reconstruction could not be completed.`,
+    };
+  }
+
+  if (finalValid) {
+    return {
+      ids: finalIds,
+      source: 'final_snapshot_fallback',
+      confidence: 'low',
+      warning: `Used the final on-pitch snapshot as a best-effort starting lineup for ${teamSide}; no reconcilable starters were available.`,
+    };
+  }
+
+  return {
+    ids: explicitIds.length ? explicitIds : finalIds,
+    source: 'best_effort',
+    confidence: 'low',
+    warning: `Could not build a full opening lineup for ${teamSide}; minutes are best effort.`,
+  };
+}
+
+function extractSubstitutionInfo(stat, playerMaps, substitutionTimeSById = null) {
   if (String(stat?.stat_type || '') !== 'substitution') return null;
   const extra = safeParseExtraObject(stat);
-  const normalizedTeamSide = normalizeTeamSideLocal(stat?.team_side);
-  const playerOff = normalizeSelectionToPlayerLocal({ id: extra?.sub_out_id || null, team_side: normalizedTeamSide }, playerMaps, normalizedTeamSide);
-  const playerOn = normalizeSelectionToPlayerLocal({ id: extra?.sub_in_id || null, team_side: normalizedTeamSide }, playerMaps, normalizedTeamSide);
+  const rawTeamSide = normalizeTeamSideLocal(stat?.team_side);
+  const playerOffSelection = {
+    id: extra?.sub_out_id || extra?.player_off_id || null,
+    number: stat?.player_number ?? extra?.sub_out_number ?? null,
+    name: stat?.player_name || extra?.sub_out_name || '',
+    team_side: rawTeamSide,
+  };
+  const playerOnSelection = {
+    id: extra?.sub_in_id || extra?.player_on_id || null,
+    number: stat?.recipient_number ?? extra?.sub_in_number ?? null,
+    name: stat?.recipient_name || extra?.sub_in_name || '',
+    team_side: rawTeamSide,
+  };
+
+  let playerOff = rawTeamSide
+    ? normalizeSelectionToPlayerLocal(playerOffSelection, playerMaps, rawTeamSide)
+    : null;
+  let playerOn = rawTeamSide
+    ? normalizeSelectionToPlayerLocal(playerOnSelection, playerMaps, rawTeamSide)
+    : null;
+
+  if (!playerOff) playerOff = resolveSelectionAcrossTeamsLocal(playerOffSelection, playerMaps, rawTeamSide);
+  if (!playerOn) playerOn = resolveSelectionAcrossTeamsLocal(playerOnSelection, playerMaps, rawTeamSide);
+
+  const offSide = normalizeTeamSideLocal(playerOff?.team_side);
+  const onSide = normalizeTeamSideLocal(playerOn?.team_side);
+  let resolvedTeamSide = rawTeamSide || offSide || onSide || null;
+  let teamSideSource = rawTeamSide ? 'stat' : offSide ? 'sub_out' : onSide ? 'sub_in' : 'unresolved';
+
+  if (offSide && onSide && offSide !== onSide) {
+    resolvedTeamSide = null;
+    teamSideSource = 'conflict';
+  }
+
+  if (!playerOff && resolvedTeamSide) {
+    playerOff = normalizeSelectionToPlayerLocal({ ...playerOffSelection, team_side: resolvedTeamSide }, playerMaps, resolvedTeamSide);
+  }
+  if (!playerOn && resolvedTeamSide) {
+    playerOn = normalizeSelectionToPlayerLocal({ ...playerOnSelection, team_side: resolvedTeamSide }, playerMaps, resolvedTeamSide);
+  }
+
+  const inferredTimeS = Number.isFinite(Number(substitutionTimeSById?.get?.(stat?.id)))
+    ? Number(substitutionTimeSById.get(stat.id))
+    : getStatLoggedTimeSLocal(stat);
+  const timeSource = safeNumber(stat?.normalized_time_s) != null
+    ? 'normalized_time_s'
+    : safeNumber(stat?.time_s) != null
+      ? 'time_s'
+      : Number.isFinite(Number(substitutionTimeSById?.get?.(stat?.id)))
+        ? 'inferred_adjacent'
+        : 'missing';
+  const issues = [];
+  if (!resolvedTeamSide) issues.push('team_side_unresolved');
+  if (teamSideSource === 'conflict') issues.push('team_side_conflict');
+  if (!playerOff?.id) issues.push('sub_out_unresolved');
+  if (!playerOn?.id) issues.push('sub_in_unresolved');
+
   return {
-    teamSide: normalizedTeamSide,
+    periodKey: getStatPeriodKey(stat),
+    teamSide: resolvedTeamSide,
+    rawTeamSide,
+    teamSideSource,
     playerOff,
     playerOn,
-    timeMinutes: clampMinZero((safeNumber(stat?.normalized_time_s) || 0) / 60),
+    timeMinutes: clampMinZero(inferredTimeS / 60),
+    timeSeconds: inferredTimeS,
+    timeSource,
     playId: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
     statId: stat?.id || null,
     temporary: !!extra?.temporary,
+    issues,
   };
 }
 
@@ -394,29 +735,79 @@ export function buildPlayerTimeAndPossessionStats({
   const periodInfo = getPeriodActualLengthInfo(match, stats);
   const periodOrder = ['first', 'second', 'et_first', 'et_second'];
   const sortedStats = sortStatsForStints(stats);
-
-  const homeStarterIds = safeParseIdList(match?.home_starters).length
-    ? safeParseIdList(match?.home_starters)
-    : safeParseIdList(match?.home_on_field);
-  const awayStarterIds = safeParseIdList(match?.away_starters).length
-    ? safeParseIdList(match?.away_starters)
-    : safeParseIdList(match?.away_on_field);
-
-  const onPitchBySide = {
-    home: new Set(homeStarterIds),
-    away: new Set(awayStarterIds),
-  };
-
-  const addWarning = (message, playerKey = null) => {
+  const substitutionTimeSById = buildSubstitutionTimeSById(stats);
+  const teamConfidenceBySide = { home: 'high', away: 'high' };
+  const addWarning = (message, playerKey = null, teamSide = null, confidence = null) => {
     warnings.push(message);
     if (playerKey && players[playerKey]) players[playerKey].warnings.push(message);
+    const normalizedTeamSide = normalizeTeamSideLocal(teamSide);
+    if (normalizedTeamSide && confidence) {
+      teamConfidenceBySide[normalizedTeamSide] = lowerConfidenceLocal(teamConfidenceBySide[normalizedTeamSide], confidence);
+    }
   };
 
-  for (const starterId of homeStarterIds) {
+  const normalizedSubs = sortedStats
+    .filter((stat) => String(stat?.stat_type || '') === 'substitution')
+    .map((stat) => extractSubstitutionInfo(stat, playerMaps, substitutionTimeSById))
+    .filter(Boolean)
+    .sort(compareSubstitutionChronologicalLocal);
+
+  for (const sub of normalizedSubs) {
+    const teamSide = normalizeTeamSideLocal(sub.teamSide);
+    if (sub.teamSideSource === 'conflict') {
+      addWarning(`Substitution ${sub.statId || ''} could not be resolved because the incoming and outgoing players map to different teams.`, null, null, 'low');
+      continue;
+    }
+    if (!teamSide) {
+      addWarning(`Substitution ${sub.statId || ''} has no resolvable team side.`, null, null, 'low');
+      continue;
+    }
+    if (sub.timeSource !== 'normalized_time_s') {
+      addWarning(`Substitution ${sub.statId || ''} used ${sub.timeSource} timing for ${teamSide}.`, null, teamSide, 'medium');
+    }
+    if (!sub.playerOff?.id) addWarning(`Substitution ${sub.statId || ''} outgoing player could not be resolved for ${teamSide}.`, null, teamSide, 'medium');
+    if (!sub.playerOn?.id) addWarning(`Substitution ${sub.statId || ''} incoming player could not be resolved for ${teamSide}.`, null, teamSide, 'medium');
+  }
+
+  const explicitStarterIdsBySide = {
+    home: safeParseIdList(match?.home_starters),
+    away: safeParseIdList(match?.away_starters),
+  };
+  const finalOnFieldIdsBySide = {
+    home: safeParseIdList(match?.home_on_field),
+    away: safeParseIdList(match?.away_on_field),
+  };
+  const openingLineupBySide = {
+    home: resolveOpeningLineupIdsLocal({
+      teamSide: 'home',
+      explicitStarterIds: explicitStarterIdsBySide.home,
+      finalOnFieldIds: finalOnFieldIdsBySide.home,
+      substitutions: normalizedSubs,
+    }),
+    away: resolveOpeningLineupIdsLocal({
+      teamSide: 'away',
+      explicitStarterIds: explicitStarterIdsBySide.away,
+      finalOnFieldIds: finalOnFieldIdsBySide.away,
+      substitutions: normalizedSubs,
+    }),
+  };
+
+  for (const teamSide of ['home', 'away']) {
+    const lineupResolution = openingLineupBySide[teamSide];
+    if (lineupResolution?.warning) addWarning(lineupResolution.warning, null, teamSide, lineupResolution.confidence);
+    teamConfidenceBySide[teamSide] = lowerConfidenceLocal(teamConfidenceBySide[teamSide], lineupResolution?.confidence || 'high');
+  }
+
+  const onPitchBySide = {
+    home: new Set(uniqueIdListLocal(openingLineupBySide.home?.ids || [])),
+    away: new Set(uniqueIdListLocal(openingLineupBySide.away?.ids || [])),
+  };
+
+  for (const starterId of onPitchBySide.home) {
     const row = ensurePlayerRecord({ id: starterId, team_side: 'home' }, 'home');
     if (row) row.started = true;
   }
-  for (const starterId of awayStarterIds) {
+  for (const starterId of onPitchBySide.away) {
     const row = ensurePlayerRecord({ id: starterId, team_side: 'away' }, 'away');
     if (row) row.started = true;
   }
@@ -431,7 +822,9 @@ export function buildPlayerTimeAndPossessionStats({
       hasData: periodKey === 'first' || periodKey === 'second',
     };
     if ((periodKey === 'et_first' || periodKey === 'et_second') && !info.hasData) continue;
+
     const periodEndMinute = clampMinZero(info.actualLoggedPeriodLengthMinutes);
+    const periodScaleFactor = Number.isFinite(info.scaleFactor) && info.scaleFactor > 0 ? info.scaleFactor : 1;
     const sourceLabel = periodKey === 'first'
       ? 'starter'
       : periodKey.startsWith('et_')
@@ -443,36 +836,31 @@ export function buildPlayerTimeAndPossessionStats({
       for (const playerId of onPitchBySide[teamSide]) {
         const row = ensurePlayerRecord({ id: playerId, team_side: teamSide }, teamSide);
         if (!row) {
-          addWarning(`Unable to resolve ${teamSide} on-pitch player ${playerId} at start of ${periodKey}.`);
+          addWarning(`Unable to resolve ${teamSide} on-pitch player ${playerId} at start of ${periodKey}.`, null, teamSide, 'medium');
           continue;
         }
         openStints.set(row.playerKey, {
           playerKey: row.playerKey,
           startLoggedMinute: 0,
-          source: sourceLabel,
+          source: periodKey === 'first'
+            ? (openingLineupBySide[teamSide]?.source || sourceLabel)
+            : sourceLabel,
           teamSide,
         });
       }
     }
 
-    const periodSubs = sortedStats
-      .filter((stat) => getStatPeriodKey(stat) === periodKey && String(stat?.stat_type || '') === 'substitution')
-      .map((stat) => extractSubstitutionInfo(stat, playerMaps))
-      .filter(Boolean)
-      .sort((a, b) => {
-        if (a.timeMinutes !== b.timeMinutes) return a.timeMinutes - b.timeMinutes;
-        const playA = a.playId ?? -1;
-        const playB = b.playId ?? -1;
-        if (playA !== playB) return playA - playB;
-        return String(a.statId || '').localeCompare(String(b.statId || ''));
-      });
+    const periodSubs = normalizedSubs
+      .filter((sub) => sub.periodKey === periodKey)
+      .slice()
+      .sort(compareSubstitutionChronologicalLocal);
 
     const closeStint = (playerKey, endMinute) => {
       const row = players[playerKey];
       const open = openStints.get(playerKey);
       if (!row || !open) return;
       const loggedDurationMinutes = Math.max(0, endMinute - open.startLoggedMinute);
-      const scaledDurationMinutes = loggedDurationMinutes * (Number.isFinite(info.scaleFactor) && info.scaleFactor > 0 ? info.scaleFactor : 1);
+      const scaledDurationMinutes = loggedDurationMinutes * periodScaleFactor;
       row.stints.push({
         playerKey,
         playerId: row.playerId,
@@ -483,7 +871,7 @@ export function buildPlayerTimeAndPossessionStats({
         startLoggedMinute: open.startLoggedMinute,
         endLoggedMinute: endMinute,
         loggedDurationMinutes,
-        scaleFactor: info.scaleFactor,
+        scaleFactor: periodScaleFactor,
         scaledDurationMinutes,
         source: open.source,
         confidence: info.confidence,
@@ -494,40 +882,64 @@ export function buildPlayerTimeAndPossessionStats({
     for (const sub of periodSubs) {
       const teamSide = sub.teamSide;
       if (teamSide !== 'home' && teamSide !== 'away') {
-        addWarning(`Substitution ${sub.statId || ''} has no team side in ${periodKey}.`);
+        addWarning(`Substitution ${sub.statId || ''} has no team side in ${periodKey}.`, null, null, 'low');
         continue;
       }
-      if (sub.playerOff) {
+
+      const offId = normalizeIdLocal(sub?.playerOff?.id);
+      const onId = normalizeIdLocal(sub?.playerOn?.id);
+
+      if (sub.playerOff && offId) {
         const offRow = ensurePlayerRecord(sub.playerOff, teamSide);
         const offKey = offRow?.playerKey;
-        if (!offKey) addWarning(`Substitution ${sub.statId || ''} player_off could not be resolved.`, null);
-        if (offKey && !onPitchBySide[teamSide].has(offRow.playerId || sub.playerOff.id)) {
-          addWarning(`Sub player_off not currently on pitch for ${offRow.playerName || offKey} in ${periodKey}.`, offKey);
+        if (!offKey) addWarning(`Substitution ${sub.statId || ''} player_off could not be resolved.`, null, teamSide, 'medium');
+        if (offKey && !onPitchBySide[teamSide].has(offId)) {
+          addWarning(`Sub player_off not currently on pitch for ${offRow.playerName || offKey} in ${periodKey}.`, offKey, teamSide, 'medium');
         }
-        if (offKey) {
-          closeStint(offKey, sub.timeMinutes);
-          if (offRow.playerId) onPitchBySide[teamSide].delete(String(offRow.playerId));
-        }
+        if (offKey) closeStint(offKey, sub.timeMinutes);
+        else addWarning(`Unable to close a stint for outgoing player in substitution ${sub.statId || ''} during ${periodKey}.`, null, teamSide, 'medium');
+        onPitchBySide[teamSide].delete(offId);
+      } else if (!offId) {
+        addWarning(`Substitution ${sub.statId || ''} did not provide a resolvable outgoing player for ${teamSide}.`, null, teamSide, 'medium');
       }
-      if (sub.playerOn) {
+
+      if (sub.playerOn && onId) {
         const onRow = ensurePlayerRecord(sub.playerOn, teamSide);
         const onKey = onRow?.playerKey;
-        if (!onKey) addWarning(`Substitution ${sub.statId || ''} player_on could not be resolved.`, null);
+        if (!onKey) addWarning(`Substitution ${sub.statId || ''} player_on could not be resolved.`, null, teamSide, 'medium');
         if (onKey) {
-          if (onRow.playerId) onPitchBySide[teamSide].add(String(onRow.playerId));
-          openStints.set(onKey, {
-            playerKey: onKey,
-            startLoggedMinute: sub.timeMinutes,
-            source: 'sub_on',
-            teamSide,
-          });
+          const alreadyOnPitch = onPitchBySide[teamSide].has(onId);
+          if (alreadyOnPitch) {
+            addWarning(`Sub player_on already marked on pitch for ${onRow.playerName || onKey} in ${periodKey}.`, onKey, teamSide, 'medium');
+          }
+          if (!alreadyOnPitch) {
+            onPitchBySide[teamSide].add(onId);
+            openStints.set(onKey, {
+              playerKey: onKey,
+              startLoggedMinute: sub.timeMinutes,
+              source: 'sub_on',
+              teamSide,
+            });
+          }
         }
+      } else if (!onId) {
+        addWarning(`Substitution ${sub.statId || ''} did not provide a resolvable incoming player for ${teamSide}.`, null, teamSide, 'medium');
       }
-      if (onPitchBySide[teamSide].size > 15) addWarning(`More than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`);
-      if (onPitchBySide[teamSide].size < 15) addWarning(`Fewer than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`);
+
+      if (onPitchBySide[teamSide].size > 15) addWarning(`More than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`, null, teamSide, 'low');
+      if (onPitchBySide[teamSide].size < 15) addWarning(`Fewer than expected players on pitch for ${teamSide} after substitution ${sub.statId || ''}.`, null, teamSide, 'low');
     }
 
     for (const [playerKey] of openStints.entries()) closeStint(playerKey, periodEndMinute);
+  }
+
+  for (const teamSide of ['home', 'away']) {
+    const expectedFinalIds = uniqueIdListLocal(finalOnFieldIdsBySide[teamSide]);
+    if (!isValidFullLineupLocal(expectedFinalIds)) continue;
+    const actualFinalIds = Array.from(onPitchBySide[teamSide]);
+    if (!lineupsEqualLocal(actualFinalIds, expectedFinalIds)) {
+      addWarning(`Final on-pitch lineup mismatch for ${teamSide}; reconstructed lineup did not match the stored final snapshot.`, null, teamSide, 'low');
+    }
   }
 
   const blackCardsByPlayer = new Map();
@@ -563,6 +975,7 @@ export function buildPlayerTimeAndPossessionStats({
   for (const row of Object.values(players)) {
     row.minutesPlayedRawLogged = row.stints.reduce((sum, stint) => sum + (Number(stint.loggedDurationMinutes) || 0), 0);
     row.minutesPlayedScaledBeforeCards = row.stints.reduce((sum, stint) => sum + (Number(stint.scaledDurationMinutes) || 0), 0);
+    row.confidence = lowerConfidenceLocal(row.confidence, teamConfidenceBySide[row.teamSide] || 'high');
     row.blackCards = blackCardsByPlayer.get(row.playerKey) || 0;
     row.blackCardMinutesSubtracted = row.blackCards * 10;
     row.minutesPlayed = Math.max(0, row.minutesPlayedScaledBeforeCards - row.blackCardMinutesSubtracted);

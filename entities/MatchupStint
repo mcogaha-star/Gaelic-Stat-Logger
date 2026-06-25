@@ -1,0 +1,60 @@
+{
+  "name": "MatchupStint",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string"
+    },
+    "server_match_id": {
+      "type": "string"
+    },
+    "server_matchup_stint_id": {
+      "type": "string"
+    },
+    "defender_player_id": {
+      "type": "string"
+    },
+    "defender_team_side": {
+      "type": "string",
+      "enum": [
+        "home",
+        "away"
+      ]
+    },
+    "attacker_player_id": {
+      "type": "string"
+    },
+    "attacker_team_side": {
+      "type": "string",
+      "enum": [
+        "home",
+        "away"
+      ]
+    },
+    "period_key": {
+      "type": "string",
+      "enum": [
+        "first",
+        "second",
+        "et_first",
+        "et_second"
+      ]
+    },
+    "start_time_s": {
+      "type": "number"
+    },
+    "end_time_s": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "match_id",
+    "defender_player_id",
+    "defender_team_side",
+    "attacker_player_id",
+    "attacker_team_side",
+    "period_key",
+    "start_time_s",
+    "end_time_s"
+  ]
+}

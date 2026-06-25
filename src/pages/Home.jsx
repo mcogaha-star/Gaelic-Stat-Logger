@@ -22,14 +22,13 @@ import {
     ensureServerMatch,
     fetchPrivatePlayers,
     fetchPrivateTeams,
-    fetchServerMatches,
-    fetchServerStatsForMatch,
     generatePublicMatchId,
     restoreExtraDataFromPrivateRefs,
     softDeleteServerMatch,
     upsertPrivatePlayerFromLocal,
     upsertPrivateTeamFromLocal,
 } from '@/lib/serverSync';
+import { hydrateServerAccountData as hydrateServerAccountDataShared } from '@/lib/accountSync';
 import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { deriveMatchLengthMinutes, getSetDefenceValue, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { useAuth } from '@/lib/AuthContext';
@@ -234,120 +233,7 @@ async function syncPrivateIdentityForTeams({ homeTeam, awayTeam, players }) {
 }
 
 async function hydrateServerAccountData({ localMatches, localStats, localTeams, localPlayers }) {
-    const identity = await hydratePrivateTeamsAndPlayers({ localTeams, localPlayers });
-    const serverMatchesResult = await fetchServerMatches({ limit: 150 });
-    if (!serverMatchesResult.ok) {
-        if (serverMatchesResult.reason === 'not_authenticated') return { importedMatches: 0, importedStats: 0, skipped: true };
-        throw new Error(serverMatchesResult.reason || 'Failed to fetch server matches');
-    }
-
-    const localByPublicId = new Map((localMatches || []).filter((m) => m?.public_match_id).map((m) => [m.public_match_id, m]));
-    const localByServerId = new Map((localMatches || []).filter((m) => m?.server_match_id).map((m) => [m.server_match_id, m]));
-    const localServerStatIds = new Set((localStats || []).map((s) => s?.server_stat_id).filter(Boolean));
-    let importedMatches = 0;
-    let importedStats = 0;
-
-    for (const serverMatch of (serverMatchesResult.matches || [])) {
-        const publicMatchId = serverMatch?.public_match_id || '';
-        let localMatch =
-            (serverMatch?.id ? localByServerId.get(serverMatch.id) : null)
-            || (publicMatchId ? localByPublicId.get(publicMatchId) : null);
-
-        if (!localMatch) {
-            const homeTeam = serverMatch?.home_team_ref ? identity.teamByServerId.get(serverMatch.home_team_ref) : null;
-            const awayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
-            const fallbackHomeTeam = homeTeam || await createImportedTeam('home', serverMatch);
-            const fallbackAwayTeam = awayTeam || await createImportedTeam('away', serverMatch);
-            const homeSheet = buildImportedMatchSheet(
-                Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackHomeTeam.id)
-            );
-            const awaySheet = buildImportedMatchSheet(
-                Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackAwayTeam.id)
-            );
-            localMatch = await db.entities.Match.create({
-                home_team_id: fallbackHomeTeam.id,
-                away_team_id: fallbackAwayTeam.id,
-                date: serverMatch?.match_date || new Date().toISOString().slice(0, 10),
-                venue: '',
-                competition: 'Synced from account',
-                level: serverMatch?.level || 'Other',
-                code: serverMatch?.code || 'GAA',
-                mode: serverMatch?.mode || 'analysis',
-                match_length_minutes: Number.isFinite(Number(serverMatch?.match_length_minutes)) ? Number(serverMatch.match_length_minutes) : deriveMatchLengthMinutes(serverMatch || {}),
-                wind_speed: serverMatch?.wind_speed ?? '',
-                wind_direction: serverMatch?.wind_direction ?? '',
-                public_match_id: publicMatchId || generatePublicMatchId(),
-                server_match_id: serverMatch?.id || null,
-                is_synced_import: true,
-                home_starters: JSON.stringify(homeSheet.starters),
-                away_starters: JSON.stringify(awaySheet.starters),
-                home_subs: JSON.stringify(homeSheet.subs),
-                away_subs: JSON.stringify(awaySheet.subs),
-                home_on_field: JSON.stringify(homeSheet.on_field),
-                away_on_field: JSON.stringify(awaySheet.on_field),
-            });
-            importedMatches += 1;
-            if (publicMatchId) localByPublicId.set(publicMatchId, localMatch);
-            if (serverMatch?.id) localByServerId.set(serverMatch.id, localMatch);
-        } else if (serverMatch?.id && !localMatch.server_match_id) {
-            await db.entities.Match.update(localMatch.id, { server_match_id: serverMatch.id });
-            localMatch = { ...localMatch, server_match_id: serverMatch.id };
-            localByServerId.set(serverMatch.id, localMatch);
-        }
-
-        if (localMatch) {
-            const localHomeTeam = serverMatch?.home_team_ref ? identity.teamByServerId.get(serverMatch.home_team_ref) : null;
-            const localAwayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
-            if (localHomeTeam?.id && localAwayTeam?.id) {
-                const homeSheet = buildImportedMatchSheet(
-                    Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localHomeTeam.id)
-                );
-                const awaySheet = buildImportedMatchSheet(
-                    Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localAwayTeam.id)
-                );
-                const needsRosterBackfill =
-                    parseIdList(localMatch.home_starters).length === 0
-                    && parseIdList(localMatch.away_starters).length === 0
-                    && (homeSheet.starters.length > 0 || awaySheet.starters.length > 0);
-                if (needsRosterBackfill) {
-                    const rosterPatch = {
-                        home_team_id: localHomeTeam.id,
-                        away_team_id: localAwayTeam.id,
-                        home_starters: JSON.stringify(homeSheet.starters),
-                        away_starters: JSON.stringify(awaySheet.starters),
-                        home_subs: JSON.stringify(homeSheet.subs),
-                        away_subs: JSON.stringify(awaySheet.subs),
-                        home_on_field: JSON.stringify(homeSheet.on_field),
-                        away_on_field: JSON.stringify(awaySheet.on_field),
-                    };
-                    await db.entities.Match.update(localMatch.id, rosterPatch);
-                    localMatch = { ...localMatch, ...rosterPatch };
-                }
-            }
-        }
-
-        const serverStatsResult = await fetchServerStatsForMatch({
-            serverMatchId: serverMatch?.id,
-            publicMatchId,
-            limit: 10000,
-        });
-        if (!serverStatsResult.ok) continue;
-
-        for (const serverStat of (serverStatsResult.stats || [])) {
-            if (serverStat?.id && localServerStatIds.has(serverStat.id)) continue;
-            const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id, identity.playerByServerId));
-            if (serverStat?.id) localServerStatIds.add(serverStat.id);
-            if (created?.id) importedStats += 1;
-        }
-    }
-
-    return {
-        importedMatches,
-        importedStats,
-        importedTeams: identity.importedTeams || 0,
-        importedPlayers: identity.importedPlayers || 0,
-        skipped: false,
-    };
+    return hydrateServerAccountDataShared(db, { localMatches, localStats, localTeams, localPlayers });
 }
 
 export default function Home() {

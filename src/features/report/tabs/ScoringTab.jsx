@@ -1236,17 +1236,17 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                   <div className="font-semibold text-slate-900">Player Shooting</div>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-2">
-                      <Label className="text-xs text-slate-600">Type</Label>
-                      <Select value={playerShootingTypeFilter} onValueChange={setPlayerShootingTypeFilter}>
-                        <SelectTrigger className="h-8 w-[116px] text-xs">
-                          <SelectValue placeholder="All" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          <SelectItem value="play">Play</SelectItem>
-                          <SelectItem value="deadball">Deadball</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label htmlFor="player-shooting-type-filter" className="text-xs text-slate-600">Type</Label>
+                      <select
+                        id="player-shooting-type-filter"
+                        value={playerShootingTypeFilter}
+                        onChange={(event) => setPlayerShootingTypeFilter(event.target.value)}
+                        className="h-8 w-[116px] rounded-md border border-input bg-transparent px-3 py-1 text-xs text-slate-900 shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="all">All</option>
+                        <option value="play">Play</option>
+                        <option value="deadball">Deadball</option>
+                      </select>
                     </div>
                     {sortedPlayerSummary.length > 8 ? (
                       <Button

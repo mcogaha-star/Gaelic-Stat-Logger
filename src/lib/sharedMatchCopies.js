@@ -3,6 +3,7 @@ import {
   ensureServerMatch,
   generatePublicMatchId,
   insertServerStat,
+  upsertPrivateMatchupStintFromLocal,
   upsertPrivatePlayerFromLocal,
   upsertPrivateTeamFromLocal,
 } from '@/lib/serverSync';
@@ -119,6 +120,7 @@ export function buildShareableMatchPayload({
   awayTeam,
   players = [],
   stats = [],
+  matchupStints = [],
   highlightReels = [],
   highlightReelClips = [],
   publicVideoNotes = [],
@@ -132,6 +134,7 @@ export function buildShareableMatchPayload({
     teams: [homeTeam, awayTeam].filter(Boolean).map((team) => cloneWithoutIdentity(team, { keepIds: true })),
     players: (players || []).filter(Boolean).map((player) => cloneWithoutIdentity(player, { keepIds: true })),
     stats: normalizedStats.map((stat) => cloneWithoutIdentity(stat, { keepIds: true })),
+    matchup_stints: (matchupStints || []).filter(Boolean).map((stint) => cloneWithoutIdentity(stint, { keepIds: true })),
     highlight_reels: (highlightReels || []).filter(Boolean).map((reel) => cloneWithoutIdentity(reel, { keepIds: true })),
     highlight_reel_clips: (highlightReelClips || []).filter(Boolean).map((clip) => cloneWithoutIdentity(clip, { keepIds: true })),
     video_notes: (publicVideoNotes || []).filter(Boolean).map((note) => cloneWithoutIdentity(note, { keepIds: true })),
@@ -144,6 +147,7 @@ export async function createSharedMatchSnapshot({
   awayTeam,
   players = [],
   stats = [],
+  matchupStints = [],
   highlightReels = [],
   highlightReelClips = [],
   publicVideoNotes = [],
@@ -163,6 +167,7 @@ export async function createSharedMatchSnapshot({
     awayTeam,
     players,
     stats,
+    matchupStints,
     highlightReels,
     highlightReelClips,
     publicVideoNotes,
@@ -263,6 +268,7 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
   const sourceTeams = Array.isArray(payload?.teams) ? payload.teams : [];
   const sourcePlayers = Array.isArray(payload?.players) ? payload.players : [];
   const sourceStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const sourceMatchupStints = Array.isArray(payload?.matchup_stints) ? payload.matchup_stints : [];
   const sourceHighlightReels = Array.isArray(payload?.highlight_reels) ? payload.highlight_reels : [];
   const sourceHighlightReelClips = Array.isArray(payload?.highlight_reel_clips) ? payload.highlight_reel_clips : [];
   const sourceVideoNotes = Array.isArray(payload?.video_notes) ? payload.video_notes : [];
@@ -362,6 +368,20 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
     importedStats.push(created);
   }
 
+  const createdMatchupStints = [];
+  for (const stint of sourceMatchupStints) {
+    const created = await db.entities.MatchupStint.create({
+      ...stint,
+      id: undefined,
+      match_id: createdMatch.id,
+      server_match_id: null,
+      server_matchup_stint_id: null,
+      defender_player_id: playerIdMap.get(stint?.defender_player_id) || null,
+      attacker_player_id: playerIdMap.get(stint?.attacker_player_id) || null,
+    });
+    if (created?.id) createdMatchupStints.push(created);
+  }
+
   const reelIdMap = new Map();
   for (const reel of sourceHighlightReels) {
     const createdReel = await db.entities.HighlightReel.create({
@@ -439,6 +459,18 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
         await db.entities.StatEntry.update(stat.id, { server_stat_id: statRes.id });
       }
     }
+    for (const matchupStint of createdMatchupStints) {
+      const synced = await upsertPrivateMatchupStintFromLocal(matchupStint, {
+        serverMatchId: matchServer.id,
+        playerRefByLocalId,
+      });
+      if (synced?.ok && synced?.id) {
+        await db.entities.MatchupStint.update(matchupStint.id, {
+          server_match_id: matchServer.id,
+          server_matchup_stint_id: synced.id,
+        });
+      }
+    }
   }
 
   const sharedAgain = await createSharedMatchSnapshot({
@@ -450,6 +482,7 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
       return [...home, ...away];
     }),
     stats: await db.entities.StatEntry.filter({ match_id: createdMatch.id }),
+    matchupStints: await db.entities.MatchupStint.filter({ match_id: createdMatch.id }),
     highlightReels: await db.entities.HighlightReel.filter({ match_id: createdMatch.id }),
     highlightReelClips: await db.entities.HighlightReelClip.filter({ match_id: createdMatch.id }),
     publicVideoNotes: await db.entities.VideoNote.filter({ match_id: createdMatch.id, visibility: 'public' }),

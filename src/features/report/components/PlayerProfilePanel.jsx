@@ -13,6 +13,7 @@ export default function PlayerProfilePanel({
   homeTeam = null,
   awayTeam = null,
   rawStats = [],
+  matchupStints = [],
   selectedPlayer = null,
   readOnly = false,
 }) {
@@ -57,6 +58,9 @@ export default function PlayerProfilePanel({
         awayTeam={awayTeam}
         playerOptions={[selectedPlayer]}
         reportFilters={{ team: 'both', halves: [], playerIds: [], actionTypes: [], outcomes: [] }}
+        match={match}
+        matchupStints={matchupStints}
+        readOnly={readOnly}
         lockPlayerValue={lockPlayerValue}
         singlePlayerOnly
       />

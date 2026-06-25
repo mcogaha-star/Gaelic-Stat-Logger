@@ -3634,6 +3634,7 @@ export {
   isDirectTouchAction,
   deriveCounterAttackState,
   deriveAttackTypeState,
+  inferRestartTeamSide,
   inferPossessionStartSource,
   getPossessionStartZone,
   isGoalkeeperPlayer,

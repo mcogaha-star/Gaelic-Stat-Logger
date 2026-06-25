@@ -1,16 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, ChevronDown, Copy, Share2, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown, Copy, Menu, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +34,7 @@ import {
   buildLegacyDefenceSetRepairs,
   buildLegacyDefensiveContactDeletes,
   buildStatModelRepairs,
+  buildPlayerTimeAndPossessionStats,
   deriveMatchLengthMinutes,
   inferRestartWinnerSide,
   isDeadBallGapStart,
@@ -71,11 +71,21 @@ import OverviewTab from '@/features/report/tabs/OverviewTab';
 import PlayersAnalyticsTab from '@/features/report/tabs/PlayersAnalyticsTab';
 import DataTab from '@/features/report/tabs/DataTab';
 import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
+import MatchupEditorDialog from '@/features/report/components/MatchupEditorDialog';
 import useFilteredReportStats from '@/features/report/hooks/useFilteredReportStats';
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
 import useReportFilterState from '@/features/report/hooks/useReportFilterState';
-import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
+import {
+  ensureServerMatch,
+  softDeletePrivateMatchupStint,
+  softDeleteServerStat,
+  updateServerStat,
+  upsertPrivateMatchupStintFromLocal,
+  upsertPrivatePlayerFromLocal,
+  upsertPrivateTeamFromLocal,
+} from '@/lib/serverSync';
 import { createSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
+import { buildEffectiveMatchupStints, buildMatchupPeriodMaxSeconds } from '@/lib/defendingAllowed';
 import { useAuth } from '@/lib/AuthContext';
 import {
   applyXpImportToShots,
@@ -134,6 +144,61 @@ function buildFilterButtonLabel(count) {
 function safeShotArcFilePart(value, fallback = 'team') {
   const text = String(value || fallback).trim().toLowerCase();
   return (text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || fallback).slice(0, 80);
+}
+
+function clampColorChannel(value) {
+  return Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+}
+
+function parseHexColor(value) {
+  const text = String(value || '').trim().replace('#', '');
+  if (!text) return null;
+  const normalized = text.length === 3
+    ? text.split('').map((char) => `${char}${char}`).join('')
+    : text;
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+  const parsed = Number.parseInt(normalized, 16);
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  };
+}
+
+function mixRgb(a, b, ratio = 0.5) {
+  const t = Math.max(0, Math.min(1, Number(ratio) || 0));
+  return {
+    r: clampColorChannel((a?.r || 0) + (((b?.r || 0) - (a?.r || 0)) * t)),
+    g: clampColorChannel((a?.g || 0) + (((b?.g || 0) - (a?.g || 0)) * t)),
+    b: clampColorChannel((a?.b || 0) + (((b?.b || 0) - (a?.b || 0)) * t)),
+  };
+}
+
+function getRgbLuminance(rgb) {
+  if (!rgb) return 0;
+  const linear = [rgb.r, rgb.g, rgb.b].map((channel) => {
+    const scaled = channel / 255;
+    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  });
+  return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
+}
+
+function rgbaString(rgb, alpha = 1) {
+  const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+  return `rgba(${clampColorChannel(rgb?.r)}, ${clampColorChannel(rgb?.g)}, ${clampColorChannel(rgb?.b)}, ${safeAlpha})`;
+}
+
+function createAmbientTeamColor(input, fallbackHex) {
+  const fallback = parseHexColor(fallbackHex) || { r: 100, g: 116, b: 139 };
+  let base = parseHexColor(input) || fallback;
+  base = mixRgb(base, { r: 226, g: 232, b: 240 }, 0.16);
+  const luminance = getRgbLuminance(base);
+  if (luminance > 0.76) {
+    base = mixRgb(base, { r: 71, g: 85, b: 105 }, 0.26);
+  } else if (luminance < 0.14) {
+    base = mixRgb(base, { r: 241, g: 245, b: 249 }, 0.24);
+  }
+  return base;
 }
 
 function getImportedShotXpValue(stat, overrideValue = NaN) {
@@ -283,6 +348,7 @@ function getSharedPayloadData(sharedPayload) {
   const teams = Array.isArray(payload?.teams) ? payload.teams : [];
   const players = Array.isArray(payload?.players) ? payload.players : [];
   const rawStats = Array.isArray(payload?.stats) ? payload.stats : [];
+  const matchupStints = Array.isArray(payload?.matchup_stints) ? payload.matchup_stints : [];
   const highlightReels = Array.isArray(payload?.highlight_reels) ? payload.highlight_reels : [];
   const highlightReelClips = Array.isArray(payload?.highlight_reel_clips) ? payload.highlight_reel_clips : [];
   const videoNotes = Array.isArray(payload?.video_notes) ? payload.video_notes : [];
@@ -290,7 +356,7 @@ function getSharedPayloadData(sharedPayload) {
   const awayTeam = teams.find((team) => team?.id === match?.away_team_id) || teams[1] || null;
   const homePlayers = players.filter((player) => player?.team_id === homeTeam?.id);
   const awayPlayers = players.filter((player) => player?.team_id === awayTeam?.id);
-  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats, highlightReels, highlightReelClips, videoNotes };
+  return { match, homeTeam, awayTeam, homePlayers, awayPlayers, rawStats, matchupStints, highlightReels, highlightReelClips, videoNotes };
 }
 
 function formatRestartFilterPlayerLabel(player) {
@@ -333,6 +399,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [dataOpen, setDataOpen] = useState(false);
   const [playerProfileOpen, setPlayerProfileOpen] = useState(false);
   const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
+  const [matchupEditorState, setMatchupEditorState] = useState({ open: false, defenderKey: null });
   const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
   const shotArcImportInputRef = useRef(null);
 
@@ -373,6 +440,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const { data: rawStats = [] } = useQuery({
     queryKey: ['stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
+    enabled: !!matchId && !isSharedView,
+  });
+  const { data: matchupStintRows = [] } = useQuery({
+    queryKey: ['matchup-stints', matchId],
+    queryFn: () => db.entities.MatchupStint.filter({ match_id: matchId }),
     enabled: !!matchId && !isSharedView,
   });
   useEffect(() => {
@@ -595,7 +667,27 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   }, [effectiveHomePlayers, effectiveAwayPlayers]);
   const allPlayersForShare = useMemo(() => [...(effectiveHomePlayers || []), ...(effectiveAwayPlayers || [])], [effectiveHomePlayers, effectiveAwayPlayers]);
   const thirdPartyShotTeams = useMemo(() => ({ homeTeam, awayTeam }), [homeTeam, awayTeam]);
+  const playerTimeAndPossessionStats = useMemo(
+    () => buildPlayerTimeAndPossessionStats({ match, stats, playerOptions, homeTeam, awayTeam }),
+    [awayTeam, homeTeam, match, playerOptions, stats],
+  );
+  const matchupPeriodMaxSecondsByKey = useMemo(
+    () => buildMatchupPeriodMaxSeconds({ stats, match, imputedTimeById }),
+    [imputedTimeById, match, stats],
+  );
+  const effectiveMatchupStints = useMemo(() => {
+    if (isSharedView) return sharedData.matchupStints || [];
+    return buildEffectiveMatchupStints({
+      match,
+      stats,
+      matchupStints: matchupStintRows,
+      playerOptions,
+      playerTimeAndPossessionStats,
+      imputedTimeById,
+    });
+  }, [imputedTimeById, isSharedView, match, matchupStintRows, playerOptions, playerTimeAndPossessionStats, sharedData.matchupStints, stats]);
   const rawStatsForPlayerProfile = isSharedView ? (sharedData.rawStats || []) : rawStats;
+  const matchupStintsForPlayerProfile = effectiveMatchupStints;
   const selectedPlayerProfileOption = useMemo(() => {
     if (!selectedPlayerProfile?.id || !selectedPlayerProfile?.team) return null;
     return playerOptions.find((player) => (
@@ -603,6 +695,131 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       && String(player.team_side) === String(selectedPlayerProfile.team)
     )) || null;
   }, [playerOptions, selectedPlayerProfile]);
+  const openMatchupEditor = (defenderKey = null) => {
+    if (readOnly) return;
+    setMatchupEditorState({ open: true, defenderKey: defenderKey || null });
+  };
+  const closeMatchupEditor = (open) => {
+    if (open) return;
+    setMatchupEditorState({ open: false, defenderKey: null });
+  };
+
+  const ensureMatchupSyncIdentity = async () => {
+    if (!match || readOnly || !isAuthenticated) return { serverMatchId: match?.server_match_id || null, playerRefByLocalId: {} };
+    const currentHomeTeam = homeTeam?.id ? (await db.entities.Team.get(homeTeam.id)) || homeTeam : homeTeam;
+    const currentAwayTeam = awayTeam?.id ? (await db.entities.Team.get(awayTeam.id)) || awayTeam : awayTeam;
+    const homeSync = currentHomeTeam ? await upsertPrivateTeamFromLocal(currentHomeTeam) : null;
+    const awaySync = currentAwayTeam ? await upsertPrivateTeamFromLocal(currentAwayTeam) : null;
+    if (currentHomeTeam?.id && homeSync?.ok && homeSync?.id && currentHomeTeam?.server_team_id !== homeSync.id) {
+      await db.entities.Team.update(currentHomeTeam.id, { server_team_id: homeSync.id });
+    }
+    if (currentAwayTeam?.id && awaySync?.ok && awaySync?.id && currentAwayTeam?.server_team_id !== awaySync.id) {
+      await db.entities.Team.update(currentAwayTeam.id, { server_team_id: awaySync.id });
+    }
+
+    const playerRefByLocalId = {};
+    for (const player of allPlayersForShare) {
+      const localPlayer = player?.id ? (await db.entities.Player.get(player.id)) || player : player;
+      const teamServerId = String(localPlayer?.team_id || '') === String(currentHomeTeam?.id || '')
+        ? (homeSync?.id || currentHomeTeam?.server_team_id || null)
+        : (awaySync?.id || currentAwayTeam?.server_team_id || null);
+      const synced = await upsertPrivatePlayerFromLocal(localPlayer, { teamServerId });
+      if (synced?.ok && synced?.id && localPlayer?.id) {
+        playerRefByLocalId[localPlayer.id] = synced.id;
+        if (localPlayer.server_player_id !== synced.id || localPlayer.server_team_id !== teamServerId) {
+          await db.entities.Player.update(localPlayer.id, {
+            server_player_id: synced.id,
+            server_team_id: teamServerId,
+          });
+        }
+      }
+    }
+
+    const currentMatch = match?.id ? (await db.entities.Match.get(match.id)) || match : match;
+    const ensured = await ensureServerMatch({
+      publicMatchId: currentMatch.public_match_id,
+      matchDate: currentMatch.date,
+      code: currentMatch.code || 'GAA',
+      level: currentMatch.level || 'Other',
+      windSpeed: currentMatch.wind_speed === '' ? null : currentMatch.wind_speed,
+      windDirection: currentMatch.wind_direction === '' ? null : currentMatch.wind_direction,
+      mode: currentMatch.mode || 'analysis',
+      matchLengthMinutes: currentMatch.match_length_minutes,
+      homeTeamRef: homeSync?.id || currentHomeTeam?.server_team_id || null,
+      awayTeamRef: awaySync?.id || currentAwayTeam?.server_team_id || null,
+    });
+    const serverMatchId = ensured?.ok ? ensured.id : currentMatch?.server_match_id || null;
+    if (serverMatchId && currentMatch?.id && currentMatch.server_match_id !== serverMatchId) {
+      await db.entities.Match.update(currentMatch.id, { server_match_id: serverMatchId });
+    }
+    return { serverMatchId, playerRefByLocalId };
+  };
+
+  const handleCreateMatchupStint = async (payload) => {
+    if (!match?.id || readOnly) return;
+    const created = await db.entities.MatchupStint.create({
+      ...payload,
+      match_id: match.id,
+      server_match_id: match.server_match_id || null,
+      server_matchup_stint_id: null,
+    });
+    try {
+      if (isAuthenticated) {
+        const { serverMatchId, playerRefByLocalId } = await ensureMatchupSyncIdentity();
+        const synced = await upsertPrivateMatchupStintFromLocal(created, { serverMatchId, playerRefByLocalId });
+        if (synced?.ok && synced?.id) {
+          await db.entities.MatchupStint.update(created.id, {
+            server_match_id: serverMatchId,
+            server_matchup_stint_id: synced.id,
+          });
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+    } catch (error) {
+      toast.error(error?.message || 'Failed to save matchup stint');
+    }
+  };
+
+  const handleUpdateMatchupStint = async (stintId, payload) => {
+    if (!stintId || readOnly) return;
+    const current = await db.entities.MatchupStint.get(stintId);
+    if (!current?.id) return;
+    await db.entities.MatchupStint.update(stintId, {
+      ...payload,
+      server_match_id: current.server_match_id || match?.server_match_id || null,
+    });
+    try {
+      if (isAuthenticated) {
+        const refreshed = (await db.entities.MatchupStint.get(stintId)) || { ...current, ...payload };
+        const { serverMatchId, playerRefByLocalId } = await ensureMatchupSyncIdentity();
+        const synced = await upsertPrivateMatchupStintFromLocal(refreshed, { serverMatchId, playerRefByLocalId });
+        if (synced?.ok && synced?.id) {
+          await db.entities.MatchupStint.update(stintId, {
+            server_match_id: serverMatchId,
+            server_matchup_stint_id: synced.id,
+          });
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+    } catch (error) {
+      toast.error(error?.message || 'Failed to update matchup stint');
+    }
+  };
+
+  const handleDeleteMatchupStint = async (stintId) => {
+    if (!stintId || readOnly) return;
+    const current = await db.entities.MatchupStint.get(stintId);
+    if (!current?.id) return;
+    await db.entities.MatchupStint.delete(stintId);
+    try {
+      if (isAuthenticated && current.server_matchup_stint_id) {
+        await softDeletePrivateMatchupStint(current.server_matchup_stint_id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+    } catch (error) {
+      toast.error(error?.message || 'Failed to delete matchup stint');
+    }
+  };
   const handleShotArcExport = () => {
     if (!match) {
       toast.error('Match data is not ready yet');
@@ -718,6 +935,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         awayTeam,
         players: allPlayersForShare,
         stats,
+        matchupStints: effectiveMatchupStints,
         highlightReels,
         highlightReelClips,
         publicVideoNotes,
@@ -811,6 +1029,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     resetAllFilters,
   } = reportState;
 
+  const [mobileTabsOpen, setMobileTabsOpen] = useState(false);
   const [restartTargetFilter, setRestartTargetFilter] = useState([]);
   const [restartWonByFilter, setRestartWonByFilter] = useState([]);
   const [restartLengthFilter, setRestartLengthFilter] = useState([]);
@@ -986,6 +1205,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     sharedVizStats,
     openPossessionVisualiser,
     openSharedVideoAt,
+    openSharedVideoSelection,
     openSharedVideoPossession,
     preRollSeconds: SHARED_VIZ_PRE_ROLL_S,
   } = usePossessionVisualiser({ match, matchId, homeTeam, awayTeam });
@@ -1457,6 +1677,33 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     };
   }, [overviewStats, match, imputedTimeById]);
 
+  const reportAmbient = useMemo(() => {
+    const homeAmbient = createAmbientTeamColor(homeTeam?.color, '#3b82f6');
+    const awayAmbient = createAmbientTeamColor(awayTeam?.color, '#ef4444');
+    const blendAmbient = mixRgb(homeAmbient, awayAmbient, 0.5);
+    return {
+      shell: { backgroundColor: '#eef2f8' },
+      baseWash: {
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(243,246,251,0.58) 42%, rgba(236,241,247,0.76) 100%)',
+      },
+      homeField: {
+        background: `radial-gradient(ellipse at 18% 26%, ${rgbaString(homeAmbient, 0.38)} 0%, ${rgbaString(homeAmbient, 0.26)} 26%, ${rgbaString(homeAmbient, 0.16)} 48%, transparent 72%)`,
+      },
+      awayField: {
+        background: `radial-gradient(ellipse at 82% 24%, ${rgbaString(awayAmbient, 0.34)} 0%, ${rgbaString(awayAmbient, 0.24)} 28%, ${rgbaString(awayAmbient, 0.14)} 50%, transparent 74%)`,
+      },
+      verticalPresence: {
+        background: `linear-gradient(90deg, ${rgbaString(homeAmbient, 0.1)} 0%, ${rgbaString(homeAmbient, 0.06)} 26%, ${rgbaString(blendAmbient, 0.04)} 50%, ${rgbaString(awayAmbient, 0.06)} 74%, ${rgbaString(awayAmbient, 0.1)} 100%)`,
+      },
+      centerBlend: {
+        background: `radial-gradient(ellipse at center, ${rgbaString(blendAmbient, 0.26)} 0%, ${rgbaString(blendAmbient, 0.16)} 34%, ${rgbaString(blendAmbient, 0.08)} 56%, transparent 78%)`,
+      },
+      veil: {
+        background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%)',
+      },
+    };
+  }, [homeTeam?.color, awayTeam?.color]);
+
   if (!matchId) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -1476,13 +1723,23 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   }
 
   const canManageReport = !readOnly;
-  const activeTabLabel = REPORT_TAB_OPTIONS.find((option) => option.value === activeTab)?.label || 'Overview';
   const filterButtonLabel = buildFilterButtonLabel(activeTopFilterCount);
   const formattedHeaderDate = match?.date ? String(match.date) : '';
-  const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
+  const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
+  const isPlayersAnalyticsTab = activeTab === 'players_ana';
 
   return (
-    <div className="min-h-screen bg-slate-100/70">
+    <div className="relative min-h-screen" style={reportAmbient.shell}>
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0" style={reportAmbient.baseWash} />
+        <div className="absolute inset-y-0 -left-[12%] w-[72%] blur-3xl" style={reportAmbient.homeField} />
+        <div className="absolute inset-y-0 -right-[12%] w-[72%] blur-3xl" style={reportAmbient.awayField} />
+        <div className="absolute inset-0" style={reportAmbient.verticalPresence} />
+        <div className="absolute inset-y-0 left-1/2 w-[82%] -translate-x-1/2 blur-3xl" style={reportAmbient.centerBlend} />
+        <div className="absolute inset-0" style={reportAmbient.veil} />
+      </div>
+
+      <div className="relative z-10">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="border-b border-slate-200/90 bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4">
@@ -1516,6 +1773,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                         <BarChart3 className="h-4 w-4" />
                         Manage Data
                       </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openMatchupEditor()}>
+                        <BarChart3 className="h-4 w-4" />
+                        Assign Matchups
+                      </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>ShotArc</DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-44">
@@ -1541,11 +1802,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           </div>
         </div>
 
-        <div className="sticky top-0 z-40 border-b-2 border-slate-300 bg-white/95 shadow-[0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/92">
+        <div className="sticky top-0 z-[70] isolate border-b-2 border-slate-300 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]">
           <div className="max-w-7xl mx-auto px-4 py-1.5">
             <div className="flex min-h-10 items-center justify-between gap-3">
-              <div className="hidden min-w-0 flex-1 md:block">
-                <TabsList className="min-h-10 flex-wrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
+              <div className="hidden min-w-0 flex-1 xl:block">
+                <TabsList className="min-h-10 flex-nowrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
                   {REPORT_TAB_OPTIONS.map((option) => (
                     <TabsTrigger
                       key={option.value}
@@ -1557,32 +1818,35 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   ))}
                 </TabsList>
               </div>
-              <div className="min-w-0 flex-1 md:hidden">
-                <Select value={activeTab} onValueChange={setActiveTab}>
-                  <SelectTrigger className="h-9 border-slate-200 bg-white text-xs font-semibold text-slate-900 shadow-sm" aria-label="Select report tab">
-                    <SelectValue placeholder={activeTabLabel} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REPORT_TAB_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="min-w-0 flex-1 xl:hidden">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-full border-slate-200 bg-white px-3 shadow-sm"
+                  aria-label="Open report tabs"
+                  onClick={() => setMobileTabsOpen(true)}
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
               </div>
-              <div className={`ml-auto ${activeTab === 'video' ? 'w-auto max-w-full' : 'w-[120px] sm:w-auto sm:min-w-[124px]'}`}>
+              <div className={`ml-auto flex max-w-full items-center justify-end gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-auto'}`}>
                 {activeTab === 'summary' ? (
-                  <Select value={overviewHalf} onValueChange={setOverviewHalf}>
-                    <SelectTrigger className={navControlClassName} aria-label="Select overview half">
-                      <SelectValue placeholder="All Halves" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Halves</SelectItem>
-                      <SelectItem value="first">1st Half</SelectItem>
-                      <SelectItem value="second">2nd Half</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <MultiSelect
+                    label="Overview Half"
+                    labelClassName="sr-only"
+                    className="space-y-0"
+                    triggerClassName={navControlClassName}
+                    placeholder="All Halves"
+                    values={overviewHalf === 'all' ? [] : [overviewHalf]}
+                    onChange={(nextValues) => setOverviewHalf(nextValues[0] || 'all')}
+                    options={[
+                      { value: 'first', label: '1st Half' },
+                      { value: 'second', label: '2nd Half' },
+                    ]}
+                    singleSelect
+                    clearActionLabel="All Halves"
+                  />
                 ) : null}
                 {activeTab === 'video' ? (
                   <div
@@ -1591,18 +1855,31 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     aria-label="Video tab controls"
                   />
                 ) : null}
+                  {activeTab === 'players_ana' ? (
+                    <div
+                      id="report-players-nav-controls"
+                      className="flex max-w-full flex-nowrap items-center justify-end gap-1.5"
+                      aria-label="Players tab controls"
+                    />
+                  ) : null}
                 {showStickyFiltersButton ? (
                   <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                     <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" size="sm" className={`w-full gap-2 sm:w-[132px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
-                        <span className="flex min-w-0 items-center gap-2">
-                          <SlidersHorizontal className="h-4 w-4 shrink-0" />
-                          <span className="truncate">Filters</span>
-                        </span>
-                        <span className={`inline-flex min-w-[2.5rem] justify-end tabular-nums ${activeTopFilterCount > 0 ? 'text-current' : 'invisible'}`}>
-                          ({activeTopFilterCount || 0})
-                        </span>
-                      </Button>
+                      {isPlayersAnalyticsTab ? (
+                        <Button type="button" variant="outline" size="sm" className={`w-full gap-1 sm:w-auto sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
+                          <span className="truncate">{activeTopFilterCount > 0 ? `Filters (${activeTopFilterCount})` : 'Filters'}</span>
+                        </Button>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" className={`w-full gap-1.5 sm:w-[116px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                            <span className="truncate">Filters</span>
+                          </span>
+                          <span className={`inline-flex min-w-[2rem] justify-end tabular-nums ${activeTopFilterCount > 0 ? 'text-current' : 'invisible'}`}>
+                            ({activeTopFilterCount || 0})
+                          </span>
+                        </Button>
+                      )}
                     </PopoverTrigger>
                     <PopoverContent align="end" className="w-[320px] max-w-[90vw] overflow-hidden border-slate-200/90 bg-white p-4 shadow-lg">
                       <div className="max-h-[calc(80vh-2rem)] space-y-3 overflow-y-auto pr-1">
@@ -1631,18 +1908,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                                 />
                                 <MultiSelect label="Pressure" placeholder="All" values={scoringPressure} onChange={setScoringPressure} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
                                 <MultiSelect label="Method" placeholder="All" values={scoringMethod} onChange={setScoringMethod} options={['left', 'right', 'hand'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-slate-600">Attack Type</Label>
-                                  <Select value={scoringAttackType} onValueChange={setScoringAttackType}>
-                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="any">Any</SelectItem>
-                                      <SelectItem value="attack_type_set">Set</SelectItem>
-                                      <SelectItem value="attack_type_transition">Transition</SelectItem>
-                                      <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
+                                <MultiSelect
+                                  label="Attack Type"
+                                  placeholder="Any"
+                                  values={scoringAttackType === 'any' ? [] : [scoringAttackType]}
+                                  onChange={(nextValues) => setScoringAttackType(nextValues[0] || 'any')}
+                                  options={[
+                                    { value: 'attack_type_set', label: 'Set' },
+                                    { value: 'attack_type_transition', label: 'Transition' },
+                                    { value: 'attack_type_transition_to_set', label: 'Transition->Set' },
+                                  ]}
+                                  singleSelect
+                                  clearActionLabel="Any"
+                                  triggerClassName="h-8 text-xs"
+                                />
                               </div>
                             </details>
                           </>
@@ -1715,18 +1994,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                                 { value: 'Attacking Third', label: 'Attacking Third' },
                               ]}
                             />
-                            <div className="space-y-1">
-                              <Label className="text-xs text-slate-600">Attack Type</Label>
-                              <Select value={possessionsAttackTypeFilter} onValueChange={setPossessionsAttackTypeFilter}>
-                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="any">Any</SelectItem>
-                                  <SelectItem value="attack_type_set">Set</SelectItem>
-                                  <SelectItem value="attack_type_transition">Transition</SelectItem>
-                                  <SelectItem value="attack_type_transition_to_set">Transition-&gt;Set</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
+                            <MultiSelect
+                              label="Attack Type"
+                              placeholder="Any"
+                              values={possessionsAttackTypeFilter === 'any' ? [] : [possessionsAttackTypeFilter]}
+                              onChange={(nextValues) => setPossessionsAttackTypeFilter(nextValues[0] || 'any')}
+                              options={[
+                                { value: 'attack_type_set', label: 'Set' },
+                                { value: 'attack_type_transition', label: 'Transition' },
+                                { value: 'attack_type_transition_to_set', label: 'Transition->Set' },
+                              ]}
+                              singleSelect
+                              clearActionLabel="Any"
+                              triggerClassName="h-8 text-xs"
+                            />
                           </>
                         )}
                         {activeTab === 'build_up' && (
@@ -1798,17 +2079,19 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                           <>
                             <div className="font-semibold text-slate-900">Defense Filters</div>
                             <ReportFiltersFields reportFilters={{ ...reportFilters, allowedActionTypes: ['turnover', 'def_pressure', 'foul'] }} playerOptions={playerOptions} homeTeam={homeTeam} awayTeam={awayTeam} showOutcome={false} timeBeforeAction />
-                            <div className="space-y-1">
-                              <Label className="text-xs text-slate-600">Turnover Result</Label>
-                              <Select value={defenseTurnoverResult} onValueChange={setDefenseTurnoverResult}>
-                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="both">Both</SelectItem>
-                                  <SelectItem value="won">Won</SelectItem>
-                                  <SelectItem value="lost">Lost</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
+                            <MultiSelect
+                              label="Turnover Result"
+                              placeholder="Both"
+                              values={defenseTurnoverResult === 'both' ? [] : [defenseTurnoverResult]}
+                              onChange={(nextValues) => setDefenseTurnoverResult(nextValues[0] || 'both')}
+                              options={[
+                                { value: 'won', label: 'Won' },
+                                { value: 'lost', label: 'Lost' },
+                              ]}
+                              singleSelect
+                              clearActionLabel="Both"
+                              triggerClassName="h-8 text-xs"
+                            />
                           </>
                         )}
                         {activeTab === 'players_ana' && (
@@ -1844,6 +2127,33 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             </div>
           </div>
         </div>
+
+        <Sheet open={mobileTabsOpen} onOpenChange={setMobileTabsOpen} modal={false}>
+          <SheetContent side="left" className="w-[280px] border-slate-200 bg-white px-4 py-5 sm:max-w-[280px]">
+            <SheetHeader className="mb-4 pr-8">
+              <SheetTitle>Report Tabs</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-2">
+              {REPORT_TAB_OPTIONS.map((option) => {
+                const isActive = option.value === activeTab;
+                return (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    variant={isActive ? 'default' : 'ghost'}
+                    className="w-full justify-start rounded-xl px-3 text-sm"
+                    onClick={() => {
+                      setActiveTab(option.value);
+                      setMobileTabsOpen(false);
+                    }}
+                  >
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <input
           ref={shotArcImportInputRef}
@@ -1984,9 +2294,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               awayTeam={awayTeam}
               playerOptions={playerOptions}
               reportFilters={reportFilters}
+              match={match}
+              matchupStints={effectiveMatchupStints}
+              playerTimeAndPossessionStats={playerTimeAndPossessionStats}
+              readOnly={readOnly}
               onPlayerSelect={openPlayerProfile}
+              onOpenVideoAt={openSharedVideoAt}
+              onOpenVideoSelection={openSharedVideoSelection}
+              onOpenMatchupEditor={openMatchupEditor}
               focusPlayerId={playersFocusPlayerId}
               setFocusPlayerId={setPlayersFocusPlayerId}
+              playersNavPortalTargetId="report-players-nav-controls"
             />
           </TabsContent>
 
@@ -2009,8 +2327,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           </TabsContent>
         </main>
       </Tabs>
+      </div>
 
-      <Dialog open={dataOpen} onOpenChange={setDataOpen}>
+      <Dialog open={dataOpen} onOpenChange={setDataOpen} modal={false}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>Manage Data</DialogTitle>
@@ -2034,7 +2353,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={shotArcInfoOpen} onOpenChange={setShotArcInfoOpen}>
+      <Dialog open={shotArcInfoOpen} onOpenChange={setShotArcInfoOpen} modal={false}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>ShotArc Game Info</DialogTitle>
@@ -2058,7 +2377,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen}>
+      <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen} modal={false}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>Player Match Profile</DialogTitle>
@@ -2071,6 +2390,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               homePlayers={effectiveHomePlayers}
               awayPlayers={effectiveAwayPlayers}
               rawStats={rawStatsForPlayerProfile}
+              matchupStints={matchupStintsForPlayerProfile}
               selectedPlayer={selectedPlayerProfileOption}
               readOnly={readOnly}
             />
@@ -2078,7 +2398,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+      <MatchupEditorDialog
+        open={matchupEditorState.open}
+        onOpenChange={closeMatchupEditor}
+        match={match}
+        playerOptions={playerOptions}
+        matchupStints={effectiveMatchupStints}
+        periodMaxSecondsByKey={matchupPeriodMaxSecondsByKey}
+        defaultDefenderKey={matchupEditorState.defenderKey}
+        onCreateMatchupStint={handleCreateMatchupStint}
+        onUpdateMatchupStint={handleUpdateMatchupStint}
+        onDeleteMatchupStint={handleDeleteMatchupStint}
+      />
+
+      <Dialog open={shareOpen} onOpenChange={setShareOpen} modal={false}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Share Match</DialogTitle>
@@ -2118,7 +2451,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen}>
+      <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen} modal={false}>
         <DialogContent className="sm:max-w-4xl p-4">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">

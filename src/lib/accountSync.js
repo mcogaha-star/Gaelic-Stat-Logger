@@ -1,4 +1,5 @@
 import {
+  fetchPrivateMatchupStints,
   fetchPrivatePlayers,
   fetchPrivateTeams,
   fetchServerMatches,
@@ -158,6 +159,7 @@ async function hydratePrivateTeamsAndPlayers(db, { localTeams, localPlayers }) {
 
 export async function hydrateServerAccountData(db, { localMatches = [], localStats = [], localTeams = [], localPlayers = [] } = {}) {
   const identity = await hydratePrivateTeamsAndPlayers(db, { localTeams, localPlayers });
+  const localMatchupStints = await db.entities.MatchupStint.filter({});
   const serverMatchesResult = await fetchServerMatches({ limit: 150 });
   if (!serverMatchesResult.ok) {
     if (serverMatchesResult.reason === 'not_authenticated') return { importedMatches: 0, importedStats: 0, skipped: true };
@@ -167,8 +169,10 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
   const localByPublicId = new Map((localMatches || []).filter((m) => m?.public_match_id).map((m) => [m.public_match_id, m]));
   const localByServerId = new Map((localMatches || []).filter((m) => m?.server_match_id).map((m) => [m.server_match_id, m]));
   const localServerStatIds = new Set((localStats || []).map((s) => s?.server_stat_id).filter(Boolean));
+  const localMatchupByServerId = new Map((localMatchupStints || []).filter((row) => row?.server_matchup_stint_id).map((row) => [row.server_matchup_stint_id, row]));
   let importedMatches = 0;
   let importedStats = 0;
+  let importedMatchupStints = 0;
 
   for (const serverMatch of (serverMatchesResult.matches || [])) {
     const publicMatchId = serverMatch?.public_match_id || '';
@@ -265,11 +269,41 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
       if (serverStat?.id) localServerStatIds.add(serverStat.id);
       if (created?.id) importedStats += 1;
     }
+
+    const serverMatchupResult = await fetchPrivateMatchupStints({ serverMatchId: serverMatch?.id, limit: 5000 });
+    if (!serverMatchupResult.ok) continue;
+
+    for (const serverMatchup of (serverMatchupResult.matchupStints || [])) {
+      const defender = serverMatchup?.defender_player_ref ? identity.playerByServerId.get(serverMatchup.defender_player_ref) : null;
+      const attacker = serverMatchup?.attacker_player_ref ? identity.playerByServerId.get(serverMatchup.attacker_player_ref) : null;
+      if (!defender?.id || !attacker?.id) continue;
+      let localMatchup = serverMatchup?.id ? localMatchupByServerId.get(serverMatchup.id) : null;
+      const patch = {
+        match_id: localMatch.id,
+        server_match_id: serverMatch?.id || null,
+        server_matchup_stint_id: serverMatchup?.id || null,
+        defender_player_id: defender.id,
+        defender_team_side: serverMatchup?.defender_team_side || defender.team_side || null,
+        attacker_player_id: attacker.id,
+        attacker_team_side: serverMatchup?.attacker_team_side || attacker.team_side || null,
+        period_key: serverMatchup?.period_key || 'first',
+        start_time_s: Number(serverMatchup?.start_time_s) || 0,
+        end_time_s: Number(serverMatchup?.end_time_s) || 0,
+      };
+      if (localMatchup?.id) {
+        await db.entities.MatchupStint.update(localMatchup.id, patch);
+      } else {
+        localMatchup = await db.entities.MatchupStint.create(patch);
+        importedMatchupStints += 1;
+      }
+      if (serverMatchup?.id && localMatchup?.id) localMatchupByServerId.set(serverMatchup.id, { ...localMatchup, ...patch });
+    }
   }
 
   return {
     importedMatches,
     importedStats,
+    importedMatchupStints,
     importedTeams: identity.importedTeams || 0,
     importedPlayers: identity.importedPlayers || 0,
     skipped: false,

@@ -171,6 +171,29 @@ export async function fetchPrivatePlayers({ limit = 3000 } = {}) {
   return { ok: true, players: (data || []).filter((row) => !row?.deleted_at) };
 }
 
+export async function fetchPrivateMatchupStints({ serverMatchId = null, limit = 10000 } = {}) {
+  const user = await requireAuthUser();
+  if (!user) return { ok: false, reason: 'not_authenticated', matchupStints: [] };
+  let query = supabase
+    .from('private_matchup_stints')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(limit);
+  if (serverMatchId) query = query.eq('match_id', serverMatchId);
+  const { data, error } = await query;
+  if (error) return { ok: false, reason: error.message, matchupStints: [] };
+  const matchupStints = (data || []).filter((row) => !row?.deleted_at);
+  matchupStints.sort((a, b) => {
+    const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
+    const periodDiff = (periodOrder[a?.period_key] ?? 99) - (periodOrder[b?.period_key] ?? 99);
+    if (periodDiff !== 0) return periodDiff;
+    const startDiff = Number(a?.start_time_s || 0) - Number(b?.start_time_s || 0);
+    if (startDiff !== 0) return startDiff;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+  return { ok: true, matchupStints };
+}
+
 export async function upsertPrivateTeamFromLocal(team) {
   const user = await requireAuthUser();
   if (!user || !team) return { ok: false, reason: user ? 'missing_team' : 'not_authenticated' };
@@ -302,6 +325,73 @@ export async function upsertPrivatePlayerFromLocal(player, { teamServerId = null
   return { ok: true, id: data?.id, player: data };
 }
 
+export async function upsertPrivateMatchupStintFromLocal(
+  matchupStint,
+  { serverMatchId = null, playerRefByLocalId = {} } = {},
+) {
+  const user = await requireAuthUser();
+  if (!user || !matchupStint) return { ok: false, reason: user ? 'missing_matchup_stint' : 'not_authenticated' };
+  const payload = {
+    user_id: user.id,
+    match_id: serverMatchId || matchupStint.server_match_id || null,
+    local_matchup_stint_id: matchupStint.id || null,
+    defender_player_ref: playerRefByLocalId[matchupStint.defender_player_id] || null,
+    defender_team_side: matchupStint.defender_team_side || null,
+    attacker_player_ref: playerRefByLocalId[matchupStint.attacker_player_id] || null,
+    attacker_team_side: matchupStint.attacker_team_side || null,
+    period_key: matchupStint.period_key || null,
+    start_time_s: Number(matchupStint.start_time_s),
+    end_time_s: Number(matchupStint.end_time_s),
+    updated_at: new Date().toISOString(),
+    deleted_at: null,
+  };
+
+  if (!payload.match_id) return { ok: false, reason: 'missing_match_reference' };
+
+  const selectCols = 'id,match_id,local_matchup_stint_id,defender_player_ref,defender_team_side,attacker_player_ref,attacker_team_side,period_key,start_time_s,end_time_s';
+
+  if (matchupStint.server_matchup_stint_id) {
+    const { data, error } = await supabase
+      .from('private_matchup_stints')
+      .update(payload)
+      .eq('id', matchupStint.server_matchup_stint_id)
+      .eq('user_id', user.id)
+      .select(selectCols)
+      .maybeSingle();
+    if (!error && data?.id) return { ok: true, id: data.id, matchupStint: data };
+    if (error && !isMissingOptionalSchema(error, /private_matchup_stints|local_matchup_stint_id|defender_player_ref|attacker_player_ref|period_key/i)) {
+      return { ok: false, reason: error.message };
+    }
+  }
+
+  if (matchupStint.id) {
+    const { data: existing } = await supabase
+      .from('private_matchup_stints')
+      .select(selectCols)
+      .eq('user_id', user.id)
+      .eq('local_matchup_stint_id', matchupStint.id)
+      .maybeSingle();
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('private_matchup_stints')
+        .update(payload)
+        .eq('id', existing.id)
+        .eq('user_id', user.id)
+        .select(selectCols)
+        .maybeSingle();
+      if (!error && data?.id) return { ok: true, id: data.id, matchupStint: data };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('private_matchup_stints')
+    .insert({ ...payload, created_at: new Date().toISOString() })
+    .select(selectCols)
+    .maybeSingle();
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true, id: data?.id, matchupStint: data };
+}
+
 export async function softDeletePrivateTeam(serverTeamId) {
   const user = await requireAuthUser();
   if (!user || !serverTeamId) return { ok: false, reason: user ? 'missing_team_reference' : 'not_authenticated' };
@@ -321,6 +411,18 @@ export async function softDeletePrivatePlayer(serverPlayerId) {
     .from('private_players')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', serverPlayerId)
+    .eq('user_id', user.id);
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true };
+}
+
+export async function softDeletePrivateMatchupStint(serverMatchupStintId) {
+  const user = await requireAuthUser();
+  if (!user || !serverMatchupStintId) return { ok: false, reason: user ? 'missing_matchup_reference' : 'not_authenticated' };
+  const { error } = await supabase
+    .from('private_matchup_stints')
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', serverMatchupStintId)
     .eq('user_id', user.id);
   if (error) return { ok: false, reason: error.message };
   return { ok: true };
