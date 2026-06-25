@@ -90,7 +90,7 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+          <div className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
             <Card className="border-slate-200 bg-white/95 shadow-sm backdrop-blur">
               <CardHeader className="space-y-3 pb-3">
                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
