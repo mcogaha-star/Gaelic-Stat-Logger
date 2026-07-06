@@ -51,6 +51,7 @@ import {
   normalizePlayerRef,
   ComparisonMetricsCard,
   PitchViz,
+  ReportInfoTitle,
   AttackChannelPitch,
   PassNetwork,
   ShotMap,
@@ -288,6 +289,7 @@ function CategoryComparisonTable({ title, categories, categoryKey, categoryLabel
 function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }) {
   const homeFill = homeColor || '#f97316';
   const awayFill = awayColor || '#7f1d3a';
+  const chartTitleKey = typeof title === 'string' ? title : 'pressure-vs-conversion';
   const faded = (hex, alpha) => {
     if (!String(hex || '').startsWith('#')) return hex;
     const raw = String(hex).slice(1);
@@ -303,9 +305,9 @@ function PressureConversionChart({ title, data, homeColor, awayColor, teamMode }
   return (
     <Card className={paneClassName}>
       <CardContent className="p-4 space-y-3">
-        <div className="font-semibold text-slate-900">{title}</div>
+        {React.isValidElement(title) ? title : <div className="font-semibold text-slate-900">{title}</div>}
         <ChartContainer
-          id={`pressure-conv-${title.replace(/\s+/g, '-').toLowerCase()}`}
+          id={`pressure-conv-${chartTitleKey.replace(/\s+/g, '-').toLowerCase()}`}
           className="h-[336px] w-full"
           config={{
             home_scored: { label: 'Home Scored', color: homeFill },
@@ -399,7 +401,7 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
   return (
     <Card className={paneClassName}>
       <CardContent className="px-4 pt-3 pb-2 space-y-0.5">
-        <div className="font-semibold text-slate-900">{title}</div>
+        {React.isValidElement(title) ? title : <div className="font-semibold text-slate-900">{title}</div>}
         {sim ? (
           <div className="space-y-0">
             <div className="flex items-center justify-between gap-3 pb-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -450,9 +452,10 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
   );
 }
 
-function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, playerOptions = [], reportFilters, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
+function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, playerOptions = [], reportFilters, isLiveMode = false, showXpData = true, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
+  const showXp = !isLiveMode || showXpData;
   const scoringAttackTypeFilter = String(attackType || 'any');
   const [shotMapMode, setShotMapMode] = useState('all');
   const [detailedSituationOpen, setDetailedSituationOpen] = useState(false);
@@ -968,15 +971,17 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'shots', label: 'Shots', sortValue: (r) => r.shots },
     { key: 'points', label: 'Points', sortValue: (r) => r.points },
-    { key: 'xp', label: 'xP', sortValue: (r) => r.xp },
-    { key: 'xpPts', label: 'Pts-XP', sortValue: (r) => r.xpPts },
+    ...(showXp ? [
+      { key: 'xp', label: 'xP', sortValue: (r) => r.xp },
+      { key: 'xpPts', label: 'Pts-XP', sortValue: (r) => r.xpPts },
+    ] : []),
     { key: 'pps', label: 'Pts/Shot', sortValue: (r) => r.pps },
-    { key: 'xps', label: 'xP/Shot', sortValue: (r) => r.xps },
+    ...(showXp ? [{ key: 'xps', label: 'xP/Shot', sortValue: (r) => r.xps }] : []),
     { key: 'avgDist', label: 'Avg Dist', sortValue: (r) => r.avgDist },
     { key: 'pointAtt', label: '1 Point', sortValue: (r) => r.pointAtt },
     { key: 'twoAtt', label: '2 Point', sortValue: (r) => r.twoAtt },
     { key: 'goalAtt', label: 'Goal', sortValue: (r) => r.goalAtt },
-  ]), []);
+  ]), [showXp]);
   const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
   const simulationShots = useMemo(() => (
@@ -1044,30 +1049,32 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
               away: `${kpis.away.goals}:${kpis.away.points1 + (kpis.away.points2 * 2)} (${kpis.away.totalPts})`,
               strong: true,
             },
-            { label: 'Expected Points', home: kpis.home.xpCount ? kpis.home.totalXp.toFixed(2) : 'N/A', away: kpis.away.xpCount ? kpis.away.totalXp.toFixed(2) : 'N/A' },
+            ...(showXp ? [{ label: 'Expected Points', infoHelpId: 'shooting_expected_points', home: kpis.home.xpCount ? kpis.home.totalXp.toFixed(2) : 'N/A', away: kpis.away.xpCount ? kpis.away.totalXp.toFixed(2) : 'N/A' }] : []),
             {
               label: 'Shots',
               home: `${kpis.home.scoresN}/${kpis.home.shotsN} (${formatPct(kpis.home.conv)})`,
               away: `${kpis.away.scoresN}/${kpis.away.shotsN} (${formatPct(kpis.away.conv)})`,
             },
-            { label: 'Points Per Shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
-            { label: 'XP / Shot', home: Number.isFinite(kpis.home.xpShot) ? kpis.home.xpShot.toFixed(2) : 'N/A', away: Number.isFinite(kpis.away.xpShot) ? kpis.away.xpShot.toFixed(2) : 'N/A' },
+            { label: 'Points Per Shot', infoHelpId: 'shooting_points_per_shot', home: Number.isFinite(kpis.home.pps) ? kpis.home.pps.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.pps) ? kpis.away.pps.toFixed(2) : 'NA' },
+            ...(showXp ? [{ label: 'XP / Shot', infoHelpId: 'shooting_xp_per_shot', home: Number.isFinite(kpis.home.xpShot) ? kpis.home.xpShot.toFixed(2) : 'N/A', away: Number.isFinite(kpis.away.xpShot) ? kpis.away.xpShot.toFixed(2) : 'N/A' }] : []),
             { label: 'Average Shot Distance', home: Number.isFinite(kpis.home.avgDist) ? kpis.home.avgDist.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgDist) ? kpis.away.avgDist.toFixed(1) : 'NA' },
-            { label: 'Low Pressure Shots', home: kpis.home.lowPressureShots, away: kpis.away.lowPressureShots },
+            { label: 'Low Pressure Shots', infoHelpId: 'shooting_low_pressure_shots', home: kpis.home.lowPressureShots, away: kpis.away.lowPressureShots },
             { label: 'Shots Short', home: kpis.home.shortN, away: kpis.away.shortN },
           ]}
         />
         <div className="report-companion-grid">
-          <WinProbabilityBar
-            title="xP win probability"
-            sim={displayedWinProbabilitySim}
-            homeTeam={homeTeam}
-            awayTeam={awayTeam}
-            homeColor={homeTeam?.color}
-            awayColor={awayTeam?.color}
-          />
+          {showXp ? (
+            <WinProbabilityBar
+              title={<ReportInfoTitle title="xP win probability" helpId="shooting_win_probability" />}
+              sim={displayedWinProbabilitySim}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              homeColor={homeTeam?.color}
+              awayColor={awayTeam?.color}
+            />
+          ) : null}
           <PressureConversionChart
-            title="Pressure vs Conversion"
+            title={<ReportInfoTitle title="Pressure vs Conversion" helpId="shooting_pressure_conversion" />}
             data={teamMode === 'both' ? pressureSummary.both : (teamMode === 'away' ? pressureSummary.away : pressureSummary.home)}
             homeColor={homeTeam?.color}
             awayColor={awayTeam?.color}
@@ -1106,7 +1113,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                   ]}
                 />
               ) : (
@@ -1118,7 +1125,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                   ]}
                 />
               )}
@@ -1138,7 +1145,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                   ]}
                 />
               ) : (
@@ -1151,7 +1158,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                     { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                     { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                     { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                    { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                    ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                   ]}
                 />
               )}
@@ -1211,7 +1218,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                       { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                       { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                       { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                      { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                      ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                     ]}
                   />
                 ) : (
@@ -1223,7 +1230,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                       { key: 'attempts', label: 'Attempts', align: 'right', render: (r) => r.attempts },
                       { key: 'conv', label: 'Conv %', align: 'right', render: (r) => formatPct(r.conv) },
                       { key: 'pps', label: 'Pts/Shot', align: 'right', render: (r) => Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA' },
-                      { key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' },
+                      ...(showXp ? [{ key: 'xps', label: 'xP/Shot', align: 'right', render: (r) => Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA' }] : []),
                     ]}
                   />
                 )}
@@ -1266,10 +1273,10 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                     <col style={{ width: '230px' }} />
                     <col style={{ width: '74px' }} />
                     <col style={{ width: '74px' }} />
-                    <col style={{ width: '82px' }} />
-                    <col style={{ width: '90px' }} />
+                    {showXp ? <col style={{ width: '82px' }} /> : null}
+                    {showXp ? <col style={{ width: '90px' }} /> : null}
                     <col style={{ width: '92px' }} />
-                    <col style={{ width: '92px' }} />
+                    {showXp ? <col style={{ width: '92px' }} /> : null}
                     <col style={{ width: '90px' }} />
                     <col style={{ width: '86px' }} />
                     <col style={{ width: '86px' }} />
@@ -1296,10 +1303,10 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                         <TableCell className="px-3 py-2.5 text-left align-middle font-medium">{r.player}</TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.shots}</TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.points}</TableCell>
-                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xp) ? r.xp.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums" style={ptsXpCellStyle(r.xpPts)}>{Number.isFinite(r.xpPts) ? r.xpPts.toFixed(2) : 'NA'}</TableCell>
+                        {showXp ? <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xp) ? r.xp.toFixed(2) : 'NA'}</TableCell> : null}
+                        {showXp ? <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums" style={ptsXpCellStyle(r.xpPts)}>{Number.isFinite(r.xpPts) ? r.xpPts.toFixed(2) : 'NA'}</TableCell> : null}
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.pps) ? r.pps.toFixed(2) : 'NA'}</TableCell>
-                        <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA'}</TableCell>
+                        {showXp ? <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.xps) ? r.xps.toFixed(2) : 'NA'}</TableCell> : null}
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{Number.isFinite(r.avgDist) ? r.avgDist.toFixed(1) : 'NA'}</TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.pointMade}/{r.pointAtt}</TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-2.5 text-center align-middle tabular-nums">{r.twoMade}/{r.twoAtt}</TableCell>

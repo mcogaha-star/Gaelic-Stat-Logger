@@ -52,6 +52,7 @@ import {
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
+  ReportInfoTitle,
   MultiSelect,
   TeamMultiSelect,
   MatchTimeRangeSlider,
@@ -139,6 +140,12 @@ const BUILD_UP_HEATMAP_MODES = [
   { key: 'hand_kick', label: 'Hand : Kick', subtitle: 'Handpass vs kickpass balance by zone' },
   { key: 'pass_carry', label: 'Pass : Carry', subtitle: 'Pass vs carry balance by zone' },
 ];
+
+function getBuildUpHeatmapModeHelpId(mode) {
+  if (mode === 'hand_kick') return 'build_up_heatmap_hand_kick';
+  if (mode === 'pass_carry') return 'build_up_heatmap_pass_carry';
+  return 'build_up_heatmap_activity';
+}
 
 function getHeatmapZoneIndex(x, y, cols, rows) {
   const xx = Number(x);
@@ -402,9 +409,9 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
   return (
     <Card className="report-pane">
       <CardContent className="p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="font-semibold text-slate-900">Build-Up Heatmap</div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <ReportInfoTitle title="Build-Up Heatmap" helpId={getBuildUpHeatmapModeHelpId(mode)} />
             <div className="text-xs text-slate-500">{modeMeta.subtitle}</div>
           </div>
           <div className="inline-flex rounded-xl bg-slate-100 p-1">
@@ -556,7 +563,7 @@ function TeamPassSonarCard({ title, zones, defaultZone = 'Overall' }) {
   return (
     <Card className="report-pane h-full">
       <CardContent className="flex h-full flex-col p-4 space-y-2.5">
-        <div className="font-semibold text-slate-900">{title}</div>
+        {React.isValidElement(title) ? title : <div className="font-semibold text-slate-900">{title}</div>}
         <div className="flex-1">
           <SonarZoneCard bare zone={zone} title={activeZone === 'Overall' ? 'Overall' : zoneOptions.find((option) => option.key === activeZone)?.label || activeZone} />
         </div>
@@ -930,7 +937,7 @@ function BuildUpTab({
   return (
     <div className="space-y-4">
         <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-5 items-stretch">
-          <ComparisonMetricsCard
+        <ComparisonMetricsCard
             title="Build-Up Metrics"
             homeTeam={homeTeam}
             awayTeam={awayTeam}
@@ -939,20 +946,20 @@ function BuildUpTab({
             rows={[
               { label: 'Passes', home: formatRatioPct(kpis.home.passComp, kpis.home.passes), away: formatRatioPct(kpis.away.passComp, kpis.away.passes) },
               { label: 'Carries', home: formatRatioPct(kpis.home.carryComp, kpis.home.carries), away: formatRatioPct(kpis.away.carryComp, kpis.away.carries) },
-              { label: 'Progressive Passes', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
-              { label: 'Progressive Carries', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
-              { label: 'Switches', home: kpis.home.switches, away: kpis.away.switches },
-              { label: 'Field Tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
+              { label: 'Progressive Passes', infoHelpId: 'build_up_metric_progressive_passes', home: kpis.home.progPassComp, away: kpis.away.progPassComp },
+              { label: 'Progressive Carries', infoHelpId: 'build_up_metric_progressive_carries', home: kpis.home.progCarryComp, away: kpis.away.progCarryComp },
+              { label: 'Switches', infoHelpId: 'build_up_metric_switches', home: kpis.home.switches, away: kpis.away.switches },
+              { label: 'Field Tilt', infoHelpId: 'build_up_metric_field_tilt', home: formatPct(fieldTiltPct.home), away: formatPct(fieldTiltPct.away) },
             ]}
           />
           {teamMode === 'both' ? (
             <div className="grid lg:grid-cols-2 gap-4">
-              <TeamPassSonarCard title={`${homeTeam?.name || 'Home'} Pass Sonar`} zones={homeSonarZones} defaultZone="Overall" />
-              <TeamPassSonarCard title={`${awayTeam?.name || 'Away'} Pass Sonar`} zones={awaySonarZones} defaultZone="Overall" />
+              <TeamPassSonarCard title={<ReportInfoTitle title={`${homeTeam?.name || 'Home'} Pass Sonar`} helpId="build_up_sonars" />} zones={homeSonarZones} defaultZone="Overall" />
+              <TeamPassSonarCard title={<ReportInfoTitle title={`${awayTeam?.name || 'Away'} Pass Sonar`} helpId="build_up_sonars" />} zones={awaySonarZones} defaultZone="Overall" />
             </div>
           ) : (
             <TeamPassSonarCard
-              title={`${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar`}
+              title={<ReportInfoTitle title={`${teamMode === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')} Pass Sonar`} helpId="build_up_sonars" />}
               zones={singleTeamSonarZones}
               defaultZone="Overall"
             />
@@ -1180,12 +1187,12 @@ function BuildUpTab({
                   teamMode={teamMode}
                   cardClassName="w-full max-w-none mr-0"
                   rows={[
-                    { label: 'Build-Up Speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
-                    { label: 'Scoring Zone Entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
-                    { label: 'Passes Into Scoring Zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
-                    { label: 'Passes / Possession Minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
-                    { label: 'Avg Pass Length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
-                    { label: 'Handpass : Kickpass', home: formatHandKickRatio(kpis.home.handPassCount, kpis.home.kickPassCount), away: formatHandKickRatio(kpis.away.handPassCount, kpis.away.kickPassCount) },
+                    { label: 'Build-Up Speed', infoHelpId: 'build_up_style_speed', home: Number.isFinite(kpis.home.buildUpSpeed) ? `${kpis.home.buildUpSpeed.toFixed(1)}s` : 'NA', away: Number.isFinite(kpis.away.buildUpSpeed) ? `${kpis.away.buildUpSpeed.toFixed(1)}s` : 'NA' },
+                    { label: 'Scoring Zone Entries', infoHelpId: 'build_up_style_scoring_zone_entries', home: kpis.home.scoringEntries, away: kpis.away.scoringEntries },
+                    { label: 'Passes Into Scoring Zone', infoHelpId: 'build_up_style_passes_into_scoring_zone', home: kpis.home.passesIntoScoringZone, away: kpis.away.passesIntoScoringZone },
+                    { label: 'Passes / Possession Minute', infoHelpId: 'build_up_style_passes_per_possession_minute', home: Number.isFinite(kpis.home.passesPerMinuteInPossession) ? kpis.home.passesPerMinuteInPossession.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.passesPerMinuteInPossession) ? kpis.away.passesPerMinuteInPossession.toFixed(2) : 'NA' },
+                    { label: 'Avg Pass Length', infoHelpId: 'build_up_style_avg_pass_length', home: Number.isFinite(kpis.home.avgPassLength) ? kpis.home.avgPassLength.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.avgPassLength) ? kpis.away.avgPassLength.toFixed(1) : 'NA' },
+                    { label: 'Handpass : Kickpass', infoHelpId: 'build_up_style_hand_kick_ratio', home: formatHandKickRatio(kpis.home.handPassCount, kpis.home.kickPassCount), away: formatHandKickRatio(kpis.away.handPassCount, kpis.away.kickPassCount) },
                   ]}
                 />
               </div>
@@ -1325,6 +1332,7 @@ function BuildUpTab({
                       minCount={pnMin}
                       teamLabel={networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
                       teamColor={networkTeamColor}
+                      headerHelpId="build_up_pass_network"
                       showTable
                       pitchScale="88%"
                       hiddenPlayerIds={hiddenPlayerIds}

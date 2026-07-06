@@ -49,6 +49,7 @@ import {
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
+  ReportInfoTitle,
   DirectionBadge,
   FullscreenMapShell,
   TouchMap,
@@ -809,8 +810,11 @@ function DefenseTab({
   homeTeam,
   awayTeam,
   reportFilters,
+  isLiveMode = false,
+  showXpData = true,
   onOpenVideoAt,
 }) {
+  const showXp = !isLiveMode || showXpData;
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul', 'pass', 'carry', 'shot'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
@@ -1003,6 +1007,16 @@ function DefenseTab({
     };
     return { home: calc('home'), away: calc('away') };
   }, [calcTurnovers, calcBase, defensiveActions, fouls, turnoverWonPossessionsByTurnoverId, scorableFreeRows, reportFilters?.match, reportFilters?.imputedTimeById]);
+  const liveDefenseMetricRows = useMemo(() => ([
+    { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
+    { label: 'TO Won / 10 Opp Poss', infoHelpId: 'defense_secondary_to_won_rate', home: Number.isFinite(kpis.home.turnoverWonPer10Poss) ? kpis.home.turnoverWonPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverWonPer10Poss) ? kpis.away.turnoverWonPer10Poss.toFixed(2) : 'NA' },
+    { label: 'Shots Conceded / 10 Poss', infoHelpId: 'defense_secondary_shots_conceded_rate', home: Number.isFinite(kpis.home.shotsConcededPer10Poss) ? kpis.home.shotsConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.shotsConcededPer10Poss) ? kpis.away.shotsConcededPer10Poss.toFixed(2) : 'NA' },
+    ...(showXp ? [{ label: 'xP Conceded / 10 Poss', infoHelpId: 'defense_secondary_xp_conceded_rate', home: Number.isFinite(kpis.home.xpConcededPer10Poss) ? kpis.home.xpConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpConcededPer10Poss) ? kpis.away.xpConcededPer10Poss.toFixed(2) : 'NA' }] : []),
+    { label: 'Fouls Conceded', home: kpis.home.foulConceded, away: kpis.away.foulConceded },
+    { label: 'Scorable Frees Conceded', infoHelpId: 'defense_metric_scorable_frees', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
+    { label: 'Regain Points', infoHelpId: 'defense_secondary_regain_points', home: kpis.home.pointsFrom, away: kpis.away.pointsFrom },
+    ...(showXp ? [{ label: 'Regain xP', infoHelpId: 'defense_secondary_regain_xp', home: Number.isFinite(kpis.home.xpFrom) ? kpis.home.xpFrom.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpFrom) ? kpis.away.xpFrom.toFixed(2) : 'NA' }] : []),
+  ]), [kpis, showXp]);
   const playerLabelById = useMemo(() => {
     const map = new Map();
     defensiveActions.playerActions.forEach((action) => {
@@ -1144,6 +1158,10 @@ function DefenseTab({
       defMapZone, defMapPlayerId, defMapAction, defMapPressureType, defMapPressureDefenderId, defMapFoulType, defMapFoulById,
       defMapTurnoverType, defMapForcedById, defMapRecoveredById, defMapLostById, defMapBlockSaveType, defMapBlockSavedById, defMapBlockRecoveredById
     ]);
+  const liveTurnoverMapActions = useMemo(
+    () => defActionMapActions.filter((action) => (action?.primaryCategory || action?.actionCategory) === 'turnover'),
+    [defActionMapActions],
+  );
 
   const playerDefenseRows = useMemo(() => {
     const rows = new Map();
@@ -1211,6 +1229,10 @@ function DefenseTab({
     { key: 'defensiveActions', label: 'Defensive Actions', sortValue: (r) => r.defensiveActions },
     { key: 'fouls', label: 'Fouls', sortValue: (r) => r.fouls },
   ]), []);
+  const visiblePlayerDefenseColumns = useMemo(
+    () => playerDefenseColumns.filter((column) => !isLiveMode || column.key !== 'defensiveActions'),
+    [isLiveMode, playerDefenseColumns],
+  );
   const togglePlayerDefenseSort = (key) => setPlayerDefenseSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'player' || key === 'teamLabel' ? 'asc' : 'desc' });
   const [showAllPlayerDefenseRows, setShowAllPlayerDefenseRows] = useState(false);
   const sortedPlayerDefenseRows = useMemo(
@@ -1273,20 +1295,20 @@ function DefenseTab({
           teamMode={teamMode}
           cardClassName="w-full h-full"
           metricColWidth="150px"
-          rows={[
+          rows={isLiveMode ? liveDefenseMetricRows : [
             { label: 'Turnovers Won', home: kpis.home.won, away: kpis.away.won },
             { label: 'Unforced TO Lost', home: kpis.home.unforcedLost, away: kpis.away.unforcedLost },
-            { label: 'Defensive Actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
-            { label: 'Def Actions / Poss', home: Number.isFinite(kpis.home.defActionsPerPoss) ? kpis.home.defActionsPerPoss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.defActionsPerPoss) ? kpis.away.defActionsPerPoss.toFixed(2) : 'NA' },
-            { label: 'PPDA', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
+            { label: 'Defensive Actions', infoHelpId: 'defense_metric_def_actions', home: kpis.home.defActionCount, away: kpis.away.defActionCount },
+            { label: 'Def Actions / Poss', infoHelpId: 'defense_metric_def_actions_per_poss', home: Number.isFinite(kpis.home.defActionsPerPoss) ? kpis.home.defActionsPerPoss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.defActionsPerPoss) ? kpis.away.defActionsPerPoss.toFixed(2) : 'NA' },
+            { label: 'PPDA', infoHelpId: 'defense_metric_ppda', home: Number.isFinite(kpis.home.ppda) ? kpis.home.ppda.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.ppda) ? kpis.away.ppda.toFixed(2) : 'NA' },
             { label: 'Fouls Conceded', home: kpis.home.foulConceded, away: kpis.away.foulConceded },
-            { label: 'Scorable\u00A0Frees\u00A0Conceded', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
+            { label: 'Scorable\u00A0Frees\u00A0Conceded', infoHelpId: 'defense_metric_scorable_frees', home: kpis.home.scorableFreesConceded, away: kpis.away.scorableFreesConceded },
           ]}
         />
         <Card className={DEFENSE_PANE_CLASS}>
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="font-semibold text-slate-900">Turnover Flow</div>
+              <ReportInfoTitle title="Turnover Flow" helpId="defense_flow" />
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex rounded-xl bg-slate-100 p-1">
                   <Button
@@ -1353,6 +1375,153 @@ function DefenseTab({
         </Card>
       </div>
 
+      {isLiveMode ? (
+      <Card className={DEFENSE_PANE_CLASS}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold text-slate-900">Turnover Map</div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setDefMapTeam(String(reportFilters?.team || 'both'));
+                setDefMapHalves(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
+                setDefMapTimeMin(String(reportFilters?.timeMin ?? ''));
+                setDefMapTimeMax(String(reportFilters?.timeMax ?? ''));
+                setDefMapZone('all');
+                setDefMapPlayerId('all');
+                setDefMapTurnoverType('all');
+                setDefMapForcedById('all');
+                setDefMapRecoveredById('all');
+                setDefMapLostById('all');
+              }}
+            >
+              Reset Filters
+            </Button>
+          </div>
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+            <div>
+              {liveTurnoverMapActions.length ? (
+                <DefensiveActionMap
+                  actions={liveTurnoverMapActions}
+                  homeColor={homeTeam?.color}
+                  awayColor={awayTeam?.color}
+                  homeTeamName={homeTeam?.name}
+                  awayTeamName={awayTeam?.name}
+                  match={reportFilters?.match}
+                  imputedTimeById={reportFilters?.imputedTimeById}
+                  onOpenVideoAt={onOpenVideoAt}
+                />
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
+                  No turnovers available for current filters.
+                </div>
+              )}
+            </div>
+            <div className="space-y-3">
+              <div className="grid gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <TeamMultiSelect
+                    value={defMapTeam}
+                    onValueChange={setDefMapTeam}
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
+                  />
+                  <MultiSelect
+                    label="Half"
+                    placeholder="All"
+                    values={defMapHalves}
+                    onChange={setDefMapHalves}
+                    options={['first', 'second', 'et_first', 'et_second'].map((v) => ({ value: v, label: toTitleCase(v) }))}
+                  />
+                </div>
+                <MatchTimeRangeSlider
+                  timeMin={defMapTimeMin}
+                  timeMax={defMapTimeMax}
+                  match={reportFilters?.match}
+                  stats={stats}
+                  imputedTimeById={reportFilters?.imputedTimeById}
+                  compact
+                  onChange={({ timeMin: nextMin, timeMax: nextMax }) => {
+                    setDefMapTimeMin(nextMin);
+                    setDefMapTimeMax(nextMax);
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Zone</Label>
+                    <Select value={defMapZone} onValueChange={setDefMapZone}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="Defensive Third">Defensive Third</SelectItem>
+                        <SelectItem value="Middle Third">Middle Third</SelectItem>
+                        <SelectItem value="Attacking Third">Attacking Third</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Player</Label>
+                    <Select value={defMapPlayerId} onValueChange={setDefMapPlayerId}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {playerFilterOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Turnover Type</Label>
+                    <Select value={defMapTurnoverType} onValueChange={setDefMapTurnoverType}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {turnoverTypeOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Forced By</Label>
+                    <Select value={defMapForcedById} onValueChange={setDefMapForcedById}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {forcedByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Recovered By</Label>
+                    <Select value={defMapRecoveredById} onValueChange={setDefMapRecoveredById}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {recoveredByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Lost By</Label>
+                    <Select value={defMapLostById} onValueChange={setDefMapLostById}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {lostByOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      ) : null}
+
+      {!isLiveMode ? (
       <Card className={DEFENSE_PANE_CLASS}>
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -1608,8 +1777,10 @@ function DefenseTab({
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
-      <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 items-stretch">
+      <div className={`grid gap-5 items-stretch ${isLiveMode ? '' : 'lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'}`}>
+        {!isLiveMode ? (
         <ComparisonMetricsCard
           title="Secondary Defense Metrics"
           homeTeam={homeTeam}
@@ -1618,18 +1789,19 @@ function DefenseTab({
           cardClassName="w-full"
           metricColWidth="160px"
           rows={[
-            { label: 'First Contact Height', home: Number.isFinite(kpis.home.firstContactHeight) ? kpis.home.firstContactHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.firstContactHeight) ? kpis.away.firstContactHeight.toFixed(1) : 'NA' },
-            { label: 'TO Won / 10 Opp Poss', home: Number.isFinite(kpis.home.turnoverWonPer10Poss) ? kpis.home.turnoverWonPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverWonPer10Poss) ? kpis.away.turnoverWonPer10Poss.toFixed(2) : 'NA' },
-            { label: 'Shots\u00A0Conceded\u00A0/\u00A010\u00A0Poss', home: Number.isFinite(kpis.home.shotsConcededPer10Poss) ? kpis.home.shotsConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.shotsConcededPer10Poss) ? kpis.away.shotsConcededPer10Poss.toFixed(2) : 'NA' },
-            { label: 'xP Conceded / 10 Poss', home: Number.isFinite(kpis.home.xpConcededPer10Poss) ? kpis.home.xpConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpConcededPer10Poss) ? kpis.away.xpConcededPer10Poss.toFixed(2) : 'NA' },
-            { label: 'Regain Points', home: kpis.home.pointsFrom, away: kpis.away.pointsFrom },
-            { label: 'Regain xP', home: Number.isFinite(kpis.home.xpFrom) ? kpis.home.xpFrom.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpFrom) ? kpis.away.xpFrom.toFixed(2) : 'NA' },
+            ...(!isLiveMode ? [{ label: 'First Contact Height', infoHelpId: 'defense_secondary_first_contact_height', home: Number.isFinite(kpis.home.firstContactHeight) ? kpis.home.firstContactHeight.toFixed(1) : 'NA', away: Number.isFinite(kpis.away.firstContactHeight) ? kpis.away.firstContactHeight.toFixed(1) : 'NA' }] : []),
+            { label: 'TO Won / 10 Opp Poss', infoHelpId: 'defense_secondary_to_won_rate', home: Number.isFinite(kpis.home.turnoverWonPer10Poss) ? kpis.home.turnoverWonPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.turnoverWonPer10Poss) ? kpis.away.turnoverWonPer10Poss.toFixed(2) : 'NA' },
+            { label: 'Shots\u00A0Conceded\u00A0/\u00A010\u00A0Poss', infoHelpId: 'defense_secondary_shots_conceded_rate', home: Number.isFinite(kpis.home.shotsConcededPer10Poss) ? kpis.home.shotsConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.shotsConcededPer10Poss) ? kpis.away.shotsConcededPer10Poss.toFixed(2) : 'NA' },
+            ...(showXp ? [{ label: 'xP Conceded / 10 Poss', infoHelpId: 'defense_secondary_xp_conceded_rate', home: Number.isFinite(kpis.home.xpConcededPer10Poss) ? kpis.home.xpConcededPer10Poss.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpConcededPer10Poss) ? kpis.away.xpConcededPer10Poss.toFixed(2) : 'NA' }] : []),
+            { label: 'Regain Points', infoHelpId: 'defense_secondary_regain_points', home: kpis.home.pointsFrom, away: kpis.away.pointsFrom },
+            ...(showXp ? [{ label: 'Regain xP', infoHelpId: 'defense_secondary_regain_xp', home: Number.isFinite(kpis.home.xpFrom) ? kpis.home.xpFrom.toFixed(2) : 'NA', away: Number.isFinite(kpis.away.xpFrom) ? kpis.away.xpFrom.toFixed(2) : 'NA' }] : []),
           ]}
         />
+        ) : null}
         <Card className={`${DEFENSE_PANE_CLASS} h-full`}>
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-slate-900">Player Defensive Table</div>
+              <ReportInfoTitle title="Player Defensive Table" helpId="defense_players" />
               <Button
                 type="button"
                 variant="outline"
@@ -1644,7 +1816,7 @@ function DefenseTab({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                    {playerDefenseColumns.map((column) => (
+                    {visiblePlayerDefenseColumns.map((column) => (
                       <TableHead key={column.key} className={column.key === 'player' || column.key === 'teamLabel' ? 'text-left' : 'text-center'}>
                         <button
                           type="button"
@@ -1667,7 +1839,7 @@ function DefenseTab({
                       <TableCell>{row.teamLabel || '—'}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toForced}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toRecovered}</TableCell>
-                      <TableCell className="text-center tabular-nums">{row.defensiveActions}</TableCell>
+                      {!isLiveMode ? <TableCell className="text-center tabular-nums">{row.defensiveActions}</TableCell> : null}
                       <TableCell className="text-center tabular-nums">{row.fouls}</TableCell>
                     </TableRow>
                   ))}

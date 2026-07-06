@@ -22,6 +22,7 @@ import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServer
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
 import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, getSetDefenceValue, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
+import { buildMatchRosterSnapshotPatch, resolveMatchRosterPlayers } from '@/lib/matchRosterSnapshots';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
@@ -229,8 +230,22 @@ export default function MatchStats() {
     const awayOnField = hasMatchSubs
         ? (parseIds(match?.away_on_field).length ? parseIds(match?.away_on_field) : awayStarters.slice(0, 15))
         : awayStarters.slice(0, 15);
-    const homePlayers = homeTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === homeTeam.id), homeStarters, homeSubs, homeOnField) : [];
-    const awayPlayers = awayTeam ? orderByTeamSheet(allPlayers.filter(p => p.team_id === awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
+    const homePlayers = homeTeam ? orderByTeamSheet(resolveMatchRosterPlayers(match?.home_roster_snapshot, allPlayers.filter(p => p.team_id === homeTeam.id), homeTeam.id), homeStarters, homeSubs, homeOnField) : [];
+    const awayPlayers = awayTeam ? orderByTeamSheet(resolveMatchRosterPlayers(match?.away_roster_snapshot, allPlayers.filter(p => p.team_id === awayTeam.id), awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
+
+    useEffect(() => {
+        if (!match?.id || !homeTeam?.id || !awayTeam?.id) return;
+        if (match?.home_roster_snapshot && match?.away_roster_snapshot) return;
+        const liveHomePlayers = allPlayers.filter((player) => player.team_id === homeTeam.id);
+        const liveAwayPlayers = allPlayers.filter((player) => player.team_id === awayTeam.id);
+        if (liveHomePlayers.length === 0 && liveAwayPlayers.length === 0) return;
+        db.entities.Match.update(match.id, buildMatchRosterSnapshotPatch({
+            homePlayers: liveHomePlayers,
+            awayPlayers: liveAwayPlayers,
+        }))
+            .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
+            .catch(() => {});
+    }, [allPlayers, awayTeam?.id, homeTeam?.id, match?.away_roster_snapshot, match?.home_roster_snapshot, match?.id, matchId, queryClient]);
     const previousStat = useMemo(() => {
         const ordered = [...(stats || [])]
             .filter((s) => s?.stat_type !== 'substitution' && s?.stat_type !== 'period_end')
@@ -1069,9 +1084,9 @@ export default function MatchStats() {
                 onHalfChange={requestHalfChange}
                 scoreLine={scoreLine}
                 backUrl={createPageUrl('Home')}
-                statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
-                seasonStatsUrl={createPageUrl(`SeasonStats?matchId=${matchId}`)}
-                settingsUrl={createPageUrl('Settings')}
+                dataUrl={createPageUrl(`MatchReport?id=${matchId}&tab=data`)}
+                settingsUrl={createPageUrl('Settings?tab=logging')}
+                settingsLabel="Logging Settings"
             />
 
             <div className="max-w-7xl mx-auto px-4 pt-1 pb-5">
@@ -1105,53 +1120,61 @@ export default function MatchStats() {
                     </div>
 
                     <div className="space-y-6">
-                        {isLiveMode && (
-                            <div className="rounded-xl border bg-white p-4 space-y-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <div className="font-semibold text-slate-900">Live Clock</div>
-                                        <div className="text-xs text-slate-500">
-                                            Click the pitch to open the logger.
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="font-mono text-2xl font-bold">{formatLiveClock(liveClockSeconds)}</div>
-                                        <div className="text-xs text-slate-500">{half.replace('_', ' ')}</div>
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-xs font-medium text-slate-600">Edit Clock</div>
-                                    <Input
-                                        className="h-9 font-mono text-right"
-                                        value={liveClockEditValue}
-                                        onFocus={() => setIsEditingLiveClock(true)}
-                                        onChange={(e) => setLiveClockEditValue(e.target.value)}
-                                        onBlur={applyLiveClockEdit}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                applyLiveClockEdit();
-                                            }
-                                            if (e.key === 'Escape') {
-                                                e.preventDefault();
-                                                setLiveClockEditValue(formatLiveClock(liveClockSeconds));
-                                                setIsEditingLiveClock(false);
-                                            }
-                                        }}
-                                        placeholder="MM:SS"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Button type="button" onClick={() => setLiveClockRunning((v) => !v)}>{liveClockRunning ? 'Pause' : 'Start'}</Button>
-                                    <Button type="button" variant="outline" onClick={() => { setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 })); setLiveClockEditValue(formatLiveClock(0)); }}>Reset</Button>
-                                </div>
-                            </div>
-                        )}
                         <RecentStats
                             stats={stats}
                             statsCount={stats.length}
                             onEdit={handleEditStat}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
+                            topContent={isLiveMode ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="font-semibold text-slate-900">Live Clock</div>
+                                            <div className="text-xs text-slate-500">
+                                                Click the pitch to open the logger.
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-mono text-2xl font-bold text-slate-900">{formatLiveClock(liveClockSeconds)}</div>
+                                            <div className="text-xs uppercase tracking-wide text-slate-500">{half.replace('_', ' ')}</div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                                        <Input
+                                            className="h-9 font-mono text-right"
+                                            value={liveClockEditValue}
+                                            onFocus={() => setIsEditingLiveClock(true)}
+                                            onChange={(e) => setLiveClockEditValue(e.target.value)}
+                                            onBlur={applyLiveClockEdit}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    applyLiveClockEdit();
+                                                }
+                                                if (e.key === 'Escape') {
+                                                    e.preventDefault();
+                                                    setLiveClockEditValue(formatLiveClock(liveClockSeconds));
+                                                    setIsEditingLiveClock(false);
+                                                }
+                                            }}
+                                            placeholder="MM:SS"
+                                        />
+                                        <Button type="button" onClick={() => setLiveClockRunning((v) => !v)}>
+                                            {liveClockRunning ? 'Pause' : 'Start'}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() => {
+                                                setLiveClockSecondsByHalf((prev) => ({ ...(prev || {}), [half]: 0 }));
+                                                setLiveClockEditValue(formatLiveClock(0));
+                                            }}
+                                        >
+                                            Reset
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : null}
                         />
                     </div>
                 </div>

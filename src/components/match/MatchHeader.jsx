@@ -26,8 +26,10 @@ export default function MatchHeader({
     scoreLine,
     backUrl,
     statsUrl,
+    dataUrl,
     seasonStatsUrl,
     settingsUrl,
+    settingsLabel = 'Settings',
 }) {
     return (
         <div className="bg-white border-b sticky top-0 z-10">
@@ -96,6 +98,13 @@ export default function MatchHeader({
                                 </Button>
                             </Link>
                         )}
+                        {dataUrl && (
+                            <Link to={dataUrl}>
+                                <Button variant="outline" size="sm" className="gap-2 h-7">
+                                    <BarChart3 className="w-4 h-4" /> Data
+                                </Button>
+                            </Link>
+                        )}
                         {seasonStatsUrl && (
                             <Link to={seasonStatsUrl}>
                                 <Button variant="outline" size="sm" className="gap-2 h-7">
@@ -106,7 +115,7 @@ export default function MatchHeader({
                         {settingsUrl && (
                             <Link to={settingsUrl}>
                                 <Button variant="outline" size="sm" className="gap-2 h-7">
-                                    <Settings className="w-4 h-4" /> Settings
+                                    <Settings className="w-4 h-4" /> {settingsLabel}
                                 </Button>
                             </Link>
                         )}

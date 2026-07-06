@@ -9,6 +9,7 @@ import MatchReport from '@/pages/MatchReport';
 import { fetchSharedMatchSnapshotByCode } from '@/lib/sharedMatchCopies';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
+import demoBundle from '@/data/demoMatch.json';
 
 function parsePayload(snapshot) {
   const raw = snapshot?.payload;
@@ -26,18 +27,19 @@ export default function StatShare() {
   const location = useLocation();
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
+  const demoMode = params.get('demo') === '1';
   const backUrl = isAuthenticated ? createPageUrl('Home') : createPageUrl('Login');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stat-share', code],
     queryFn: () => fetchSharedMatchSnapshotByCode(code, { requireAuth: false, allowedTypes: ['stat_view'] }),
-    enabled: !!code,
+    enabled: !!code && !demoMode,
   });
 
   const snapshot = data?.ok ? data.snapshot : null;
-  const payload = useMemo(() => parsePayload(snapshot), [snapshot]);
+  const payload = useMemo(() => (demoMode ? demoBundle : parsePayload(snapshot)), [demoMode, snapshot]);
 
-  if (!code) {
+  if (!code && !demoMode) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <Card className="w-full max-w-lg">
@@ -55,7 +57,7 @@ export default function StatShare() {
     );
   }
 
-  if (isLoading) {
+  if (!demoMode && isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
@@ -63,7 +65,7 @@ export default function StatShare() {
     );
   }
 
-  if (error || !data?.ok || !snapshot || !payload) {
+  if (!demoMode && (error || !data?.ok || !snapshot || !payload)) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <Card className="w-full max-w-lg">
@@ -84,5 +86,5 @@ export default function StatShare() {
     );
   }
 
-  return <MatchReport sharedPayload={payload} statShareCode={code} readOnly />;
+  return <MatchReport sharedPayload={payload} statShareCode={demoMode ? 'DEMO' : code} readOnly />;
 }

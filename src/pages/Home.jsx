@@ -13,9 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles, ChevronDown, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -31,9 +32,71 @@ import {
 import { hydrateServerAccountData as hydrateServerAccountDataShared } from '@/lib/accountSync';
 import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { deriveMatchLengthMinutes, getSetDefenceValue, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
+import { buildMatchRosterSnapshotPatch } from '@/lib/matchRosterSnapshots';
 import { useAuth } from '@/lib/AuthContext';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
+
+const CreateMatchSelect = ({ children, ...props }) => (
+    <Select {...props}>
+        {children}
+    </Select>
+);
+
+function isStoredTrue(value) {
+    return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function CreateMatchPicker({ value, onChange, placeholder, options = [] }) {
+    const [open, setOpen] = React.useState(false);
+    const selected = options.find((option) => String(option.value) === String(value));
+
+    return (
+        <Popover modal={false} open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <button
+                    type="button"
+                    className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-left text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                    <span className={selected ? "truncate text-foreground" : "truncate text-muted-foreground"}>
+                        {selected?.label || placeholder}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent
+                align="start"
+                sideOffset={8}
+                className="w-[var(--radix-popover-trigger-width)] p-1"
+                style={{ scrollbarGutter: 'stable', zIndex: 90 }}
+            >
+                <div className="max-h-64 overflow-y-auto">
+                    {options.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-400">No options available</div>
+                    ) : (
+                        options.map((option) => {
+                            const isSelected = String(option.value) === String(value);
+                            return (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-100 focus:outline-none focus:bg-slate-100"
+                                    onClick={() => {
+                                        onChange(option.value);
+                                        setOpen(false);
+                                    }}
+                                >
+                                    <span className="truncate pr-3">{option.label}</span>
+                                    <Check className={`h-4 w-4 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
+                                </button>
+                            );
+                        })
+                    )}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 const WIND_DIRECTION_OPTIONS = Array.from({ length: 24 }, (_, index) => {
     const degrees = index * 15;
@@ -248,7 +311,7 @@ export default function Home() {
         date: '',
         venue: '',
         competition: '',
-        level: 'Senior',
+        level: 'Intercounty',
         code: 'GAA',
         mode: 'analysis',
         wind_speed: '',
@@ -299,7 +362,35 @@ export default function Home() {
         serverHydrationMutation.mutate();
     }, [isAuthenticated, isLoading, isLoadingStats, serverHydrationMutation.isPending, serverHydrationMutation.isSuccess]);
 
-    const selectableTeams = React.useMemo(() => (teams || []).filter((team) => !team?.is_demo && !team?.is_synced_placeholder), [teams]);
+    const createMatchTeams = React.useMemo(() => {
+        return (teams || []).filter(
+            (team) => team?.id
+                && String(team?.name || '').trim().length > 0
+                && !isStoredTrue(team?.is_synced_placeholder)
+        );
+    }, [teams]);
+
+    const createMatchTeamOptions = React.useMemo(
+        () => createMatchTeams.map((team) => ({ value: team.id, label: team.name })),
+        [createMatchTeams]
+    );
+
+    const createMatchLevelOptions = React.useMemo(
+        () => [
+            { value: 'Intercounty', label: 'Intercounty' },
+            { value: 'Senior', label: 'Senior' },
+            { value: 'Intermediate', label: 'Intermediate' },
+            { value: 'Junior', label: 'Junior' },
+            { value: 'Minor', label: 'Minor' },
+            { value: 'Other', label: 'Other' },
+        ],
+        []
+    );
+
+    const windDirectionOptions = React.useMemo(
+        () => WIND_DIRECTION_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+        []
+    );
 
     const scoreByMatch = React.useMemo(() => {
         const map = {};
@@ -376,6 +467,13 @@ export default function Home() {
             payload.away_starters = JSON.stringify(awaySheet.starters);
             payload.away_subs = JSON.stringify(awaySheet.subs);
             payload.away_on_field = JSON.stringify(awaySheet.on_field);
+            Object.assign(
+                payload,
+                buildMatchRosterSnapshotPatch({
+                    homePlayers: (players || []).filter((player) => player.team_id === payload.home_team_id),
+                    awayPlayers: (players || []).filter((player) => player.team_id === payload.away_team_id),
+                })
+            );
 
             const created = await db.entities.Match.create(payload);
 
@@ -412,7 +510,7 @@ export default function Home() {
                 date: '',
                 venue: '',
                 competition: '',
-                level: 'Senior',
+                level: 'Intercounty',
                 code: 'GAA',
                 mode: 'analysis',
                 wind_speed: '',
@@ -548,9 +646,9 @@ export default function Home() {
                                         <Plus className="w-4 h-4" /> Create Match
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
+                                <DialogContent className="w-[min(92vw,620px)] max-w-[min(92vw,620px)] max-h-[92vh] overflow-hidden flex flex-col p-5 sm:p-6">
                                     <DialogHeader><DialogTitle>Create Match</DialogTitle></DialogHeader>
-                                    <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-4">
+                                    <div className="flex-1 overflow-y-scroll pr-1 space-y-4 py-4" style={{ scrollbarGutter: 'stable' }}>
                                         <div className="space-y-2">
                                             <Label>Mode</Label>
                                             <div className="grid grid-cols-2 gap-2">
@@ -601,28 +699,23 @@ export default function Home() {
 
                                         <div className="space-y-2">
                                             <Label>Level</Label>
-                                            <Select value={newMatch.level} onValueChange={(v) => setNewMatch({ ...newMatch, level: v })}>
-                                                <SelectTrigger><SelectValue placeholder="Select level..." /></SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Intercounty">Intercounty</SelectItem>
-                                                    <SelectItem value="Senior">Senior</SelectItem>
-                                                    <SelectItem value="Intermediate">Intermediate</SelectItem>
-                                                    <SelectItem value="Junior">Junior</SelectItem>
-                                                    <SelectItem value="Minor">Minor</SelectItem>
-                                                    <SelectItem value="Other">Other</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                            <CreateMatchPicker
+                                                value={newMatch.level}
+                                                onChange={(nextValue) => setNewMatch({ ...newMatch, level: nextValue })}
+                                                placeholder="Select level..."
+                                                options={createMatchLevelOptions}
+                                            />
                                         </div>
 
                                         <div className="space-y-2">
                                             <Label>Home Team *</Label>
-                                            <Select value={newMatch.home_team_id} onValueChange={(v) => setNewMatch({ ...newMatch, home_team_id: v })}>
-                                                <SelectTrigger><SelectValue placeholder="Select home team..." /></SelectTrigger>
-                                                <SelectContent>
-                                                    {selectableTeams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
-                                            {selectableTeams.length === 0 && (
+                                            <CreateMatchPicker
+                                                value={newMatch.home_team_id}
+                                                onChange={(nextValue) => setNewMatch({ ...newMatch, home_team_id: nextValue })}
+                                                placeholder="Select home team..."
+                                                options={createMatchTeamOptions}
+                                            />
+                                            {createMatchTeams.length === 0 && (
                                                 <p className="text-xs text-slate-400">
                                                     No teams yet. <Link to={createPageUrl('Teams')} className="text-green-600 underline">Add teams first.</Link>
                                                 </p>
@@ -630,12 +723,12 @@ export default function Home() {
                                         </div>
                                         <div className="space-y-2">
                                             <Label>Away Team *</Label>
-                                            <Select value={newMatch.away_team_id} onValueChange={(v) => setNewMatch({ ...newMatch, away_team_id: v })}>
-                                                <SelectTrigger><SelectValue placeholder="Select away team..." /></SelectTrigger>
-                                                <SelectContent>
-                                                    {selectableTeams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
+                                            <CreateMatchPicker
+                                                value={newMatch.away_team_id}
+                                                onChange={(nextValue) => setNewMatch({ ...newMatch, away_team_id: nextValue })}
+                                                placeholder="Select away team..."
+                                                options={createMatchTeamOptions}
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <Label>Date *</Label>
@@ -654,14 +747,12 @@ export default function Home() {
                                                 <div className="text-sm font-semibold text-slate-900">Wind Details</div>
                                                 <div className="space-y-2">
                                                     <Label>Wind Direction</Label>
-                                                    <Select value={newMatch.wind_direction} onValueChange={(v) => setNewMatch({ ...newMatch, wind_direction: v })}>
-                                                        <SelectTrigger><SelectValue placeholder="Select angle..." /></SelectTrigger>
-                                                        <SelectContent>
-                                                            {WIND_DIRECTION_OPTIONS.map((option) => (
-                                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
+                                                    <CreateMatchPicker
+                                                        value={newMatch.wind_direction}
+                                                        onChange={(nextValue) => setNewMatch({ ...newMatch, wind_direction: nextValue })}
+                                                        placeholder="Select angle..."
+                                                        options={windDirectionOptions}
+                                                    />
                                                     <p className="text-xs text-slate-400">Angle for the home team playing up in the 1st half.</p>
                                                 </div>
                                                 <div className="space-y-2">

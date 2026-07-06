@@ -13,6 +13,7 @@ import {
   normalizeStatModelRows,
   rebuildPossessionRows,
 } from '@/lib/reportAnalytics';
+import { buildMatchRosterSnapshotPatch } from '@/lib/matchRosterSnapshots';
 
 function parseJsonMaybe(value, fallback = null) {
   if (!value) return fallback;
@@ -351,6 +352,10 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
     away_subs: remapIdList(sourceMatch.away_subs, playerIdMap),
     home_on_field: remapIdList(sourceMatch.home_on_field, playerIdMap),
     away_on_field: remapIdList(sourceMatch.away_on_field, playerIdMap),
+    ...buildMatchRosterSnapshotPatch({
+      homePlayers: createdPlayers.filter((player) => player?.team_id === createdHomeTeam?.id),
+      awayPlayers: createdPlayers.filter((player) => player?.team_id === createdAwayTeam?.id),
+    }),
   });
 
   const importedStats = [];

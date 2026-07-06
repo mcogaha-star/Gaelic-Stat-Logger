@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { formatPct } from '../shared';
+import { formatPct, ReportInfoTitle } from '../shared';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
 function teamBandStyle(color, side) {
@@ -243,7 +243,7 @@ export default function OverviewTab({
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             <Card className={`h-full ${paneClassName}`}>
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
-                <div className="font-semibold text-slate-900">Momentum</div>
+                <ReportInfoTitle title="Momentum" helpId="overview_momentum" />
                 {!showMomentum ? (
                   <div className="text-xs text-slate-500">No timeline data available (no normalized time values).</div>
                 ) : (
@@ -310,7 +310,7 @@ export default function OverviewTab({
             <Card className="report-pane h-full">
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
                 <div className="space-y-2">
-                  <div className="font-semibold text-slate-900">Possession Outcomes</div>
+                  <ReportInfoTitle title="Possession Outcomes" helpId="overview_possession_outcomes" />
                   <div className="flex flex-wrap gap-2 text-[11px]">
                     {outcomeSeries.map((series) => (
                       <button

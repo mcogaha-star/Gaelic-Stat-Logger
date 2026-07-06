@@ -54,6 +54,7 @@ import {
   selectionKey,
   normalizePlayerRef,
   ComparisonMetricsCard,
+  ReportInfoTitle,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -505,6 +506,7 @@ function getKickoutGroupingLabel(stat, groupingMode) {
   const kick = extra?.kickout || {};
   if (groupingMode === 'press') {
     const press = String(kick?.press || '').toLowerCase();
+    if (press === 'off') return 'Off';
     if (press === 'm2m') return 'M2M';
     if (press === 'zonal') return 'Zonal';
     if (press === 'conceded') return 'Conceded';
@@ -750,6 +752,8 @@ function RestartsTab({
   awayTeam,
   playerOptions,
   reportFilters,
+  isLiveMode = false,
+  showXpData = true,
   restartTargetFilter = [],
   restartWonByFilter = [],
   restartLengthFilter = [],
@@ -757,6 +761,8 @@ function RestartsTab({
   onOpenVideoAt,
 }) {
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
+  const showXp = !isLiveMode || showXpData;
+  const activeRestartTargetFilter = isLiveMode ? [] : restartTargetFilter;
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -765,6 +771,10 @@ function RestartsTab({
   const calcKickouts = useMemo(() => calcBase.filter((s) => s?.stat_type === 'kickout'), [calcBase]);
   const throwIns = useMemo(() => calcBase.filter((s) => s?.stat_type === 'throw_in'), [calcBase]);
   const [kickoutValueGrouping, setKickoutValueGrouping] = useState('all');
+  const kickoutValueGroupingOptions = useMemo(
+    () => (isLiveMode ? KICKOUT_VALUE_GROUPING_OPTIONS.filter((option) => option.value !== 'press') : KICKOUT_VALUE_GROUPING_OPTIONS),
+    [isLiveMode],
+  );
   const orderedAllStats = useMemo(() => (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
     const pa = Number(a?.play_id);
     const pb = Number(b?.play_id);
@@ -940,6 +950,7 @@ function RestartsTab({
         kickoutsTaken: 0,
         ownKickoutsWon: 0,
         pressBreakdown: {
+          off: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
@@ -948,7 +959,7 @@ function RestartsTab({
       current.kickoutsTaken += 1;
       const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
       if (won) current.ownKickoutsWon += 1;
-      const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+      const pressKey = ['off', 'm2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
       if (!pressKey) {
         keeperRows.set(keeperKey, current);
         continue;
@@ -967,7 +978,7 @@ function RestartsTab({
     }
 
     return Array.from(keeperRows.values()).map((row) => {
-      const pressRows = ['m2m', 'zonal', 'conceded']
+      const pressRows = ['off', 'm2m', 'zonal', 'conceded']
         .map((press) => {
           const info = row.pressBreakdown?.[press];
           return {
@@ -1038,7 +1049,7 @@ function RestartsTab({
   const [koMapHalves, setKoMapHalves] = useState(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
   const [koMapTimeMin, setKoMapTimeMin] = useState(String(reportFilters?.timeMin ?? ''));
   const [koMapTimeMax, setKoMapTimeMax] = useState(String(reportFilters?.timeMax ?? ''));
-  const [koMapTargets, setKoMapTargets] = useState(Array.isArray(restartTargetFilter) ? restartTargetFilter : []);
+  const [koMapTargets, setKoMapTargets] = useState(Array.isArray(activeRestartTargetFilter) ? activeRestartTargetFilter : []);
   const [koMapOutcomes, setKoMapOutcomes] = useState([]);
   const [koMapWonBy, setKoMapWonBy] = useState(Array.isArray(restartWonByFilter) ? restartWonByFilter : []);
   const [koMapPress, setKoMapPress] = useState([]);
@@ -1047,14 +1058,24 @@ function RestartsTab({
   const [koMapDotsOnly, setKoMapDotsOnly] = useState(false);
   const [kickoutOutcomeMode, setKickoutOutcomeMode] = useState('detailed');
   const [kickoutSankeyGrouping, setKickoutSankeyGrouping] = useState('all');
+  const kickoutSankeyGroupingOptions = useMemo(
+    () => (isLiveMode ? KICKOUT_SANKEY_GROUPING_OPTIONS.filter((option) => option.value !== 'press') : KICKOUT_SANKEY_GROUPING_OPTIONS),
+    [isLiveMode],
+  );
   const [kickoutSankeyTeam, setKickoutSankeyTeam] = useState(String(reportFilters?.team || '') === 'away' ? 'away' : 'home');
   const [kickoutSankeyViewMode, setKickoutSankeyViewMode] = useState('full');
   const [kickoutSankeyLayer2OrderMode, setKickoutSankeyLayer2OrderMode] = useState('grouped');
   const [selectedKickoutSankeyNodeKey, setSelectedKickoutSankeyNodeKey] = useState(null);
-  useEffect(() => { setKoMapTargets(Array.isArray(restartTargetFilter) ? restartTargetFilter : []); }, [restartTargetFilter]);
+  useEffect(() => { setKoMapTargets(Array.isArray(activeRestartTargetFilter) ? activeRestartTargetFilter : []); }, [activeRestartTargetFilter]);
   useEffect(() => { setKoMapWonBy(Array.isArray(restartWonByFilter) ? restartWonByFilter : []); }, [restartWonByFilter]);
   useEffect(() => { setKoMapLengths(Array.isArray(restartLengthFilter) ? restartLengthFilter : []); }, [restartLengthFilter]);
   useEffect(() => { setKoMapSides(Array.isArray(restartSideFilter) ? restartSideFilter : []); }, [restartSideFilter]);
+  useEffect(() => {
+    if (isLiveMode && kickoutValueGrouping === 'press') setKickoutValueGrouping('all');
+  }, [isLiveMode, kickoutValueGrouping]);
+  useEffect(() => {
+    if (isLiveMode && kickoutSankeyGrouping === 'press') setKickoutSankeyGrouping('all');
+  }, [isLiveMode, kickoutSankeyGrouping]);
   useEffect(() => { setSelectedKickoutSankeyNodeKey(null); }, [kickoutSankeyGrouping, kickoutSankeyTeam, kickoutSankeyViewMode, kickoutSankeyLayer2OrderMode]);
   const kickoutMapBase = useMemo(() => applyNonTeamReportFilters(stats, {
     halves: koMapHalves,
@@ -1118,7 +1139,7 @@ function RestartsTab({
     const kick = extra?.kickout || {};
     const kickTeam = kick?.team_side;
     if (koMapTeam !== 'both' && kickTeam !== koMapTeam && stat?.team_side !== koMapTeam) return false;
-    if (koMapTargets.length) {
+    if (!isLiveMode && koMapTargets.length) {
       const target = kick?.intended_recipient;
       const targetKey = target?.kind === 'player' ? String(target.id) : String(target?.kind || 'unknown');
       if (!koMapTargets.includes(targetKey)) return false;
@@ -1151,16 +1172,16 @@ function RestartsTab({
       if (!sideLabel || !koMapSides.includes(sideLabel)) return false;
     }
     return true;
-  }), [kickoutMapBase, koMapTeam, koMapTargets, koMapOutcomes, koMapWonBy, koMapPress, koMapLengths, koMapSides, nextStatById]);
+  }), [isLiveMode, kickoutMapBase, koMapTeam, koMapTargets, koMapOutcomes, koMapWonBy, koMapPress, koMapLengths, koMapSides, nextStatById]);
   const restartFilteredKickouts = useMemo(() => calcKickouts.filter((stat) => {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const kick = extra?.kickout || {};
     const kickTeam = kick?.team_side;
     if (kickTeam !== kickoutSankeyTeam && stat?.team_side !== kickoutSankeyTeam) return false;
-    if (restartTargetFilter.length) {
+    if (activeRestartTargetFilter.length) {
       const target = kick?.intended_recipient;
       const targetKey = target?.kind === 'player' ? String(target.id) : String(target?.kind || 'unknown');
-      if (!restartTargetFilter.includes(targetKey)) return false;
+      if (!activeRestartTargetFilter.includes(targetKey)) return false;
     }
     if (restartWonByFilter.length) {
       const winner = normalizePlayerRef(kick?.won_by);
@@ -1182,14 +1203,14 @@ function RestartsTab({
       if (!sideLabel || !restartSideFilter.includes(sideLabel)) return false;
     }
     return true;
-  }), [calcKickouts, kickoutSankeyTeam, restartTargetFilter, restartWonByFilter, restartLengthFilter, restartSideFilter, nextStatById]);
+  }), [activeRestartTargetFilter, calcKickouts, kickoutSankeyTeam, restartWonByFilter, restartLengthFilter, restartSideFilter, nextStatById]);
   const kickoutValueKickouts = useMemo(() => calcKickouts.filter((stat) => {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const kick = extra?.kickout || {};
-    if (restartTargetFilter.length) {
+    if (activeRestartTargetFilter.length) {
       const target = kick?.intended_recipient;
       const targetKey = target?.kind === 'player' ? String(target.id) : String(target?.kind || 'unknown');
-      if (!restartTargetFilter.includes(targetKey)) return false;
+      if (!activeRestartTargetFilter.includes(targetKey)) return false;
     }
     if (restartWonByFilter.length) {
       const winner = normalizePlayerRef(kick?.won_by);
@@ -1211,7 +1232,7 @@ function RestartsTab({
       if (!sideLabel || !restartSideFilter.includes(sideLabel)) return false;
     }
     return true;
-  }), [calcKickouts, restartTargetFilter, restartWonByFilter, restartLengthFilter, restartSideFilter, nextStatById]);
+  }), [activeRestartTargetFilter, calcKickouts, restartWonByFilter, restartLengthFilter, restartSideFilter, nextStatById]);
   const kickoutValueRowsHome = useMemo(
     () => buildKickoutValueRows({
       kickouts: kickoutValueKickouts.filter((stat) => (safeParseJSON(stat?.extra_data || '{}', {})?.kickout?.team_side || stat?.team_side) === 'home'),
@@ -1325,26 +1346,31 @@ function RestartsTab({
           rows={[
             {
               label: 'Own Kickout Win %',
+              infoHelpId: 'restarts_metric_own_win',
               home: `${kpis.home.ownKickoutsWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownKickoutsWon / kpis.home.ownKickoutsTaken) * 100 : NaN)})`,
               away: `${kpis.away.ownKickoutsWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownKickoutsWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Opp. Kickout Disruption %',
+              infoHelpId: 'restarts_metric_disruption',
               home: `${kpis.home.oppDisrupted}/${kpis.home.oppKickoutsTaken} (${formatPct(kpis.home.oppKickoutsTaken ? (kpis.home.oppDisrupted / kpis.home.oppKickoutsTaken) * 100 : NaN)})`,
               away: `${kpis.away.oppDisrupted}/${kpis.away.oppKickoutsTaken} (${formatPct(kpis.away.oppKickoutsTaken ? (kpis.away.oppDisrupted / kpis.away.oppKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Clean Kickout Win %',
+              infoHelpId: 'restarts_metric_clean_win',
               home: `${kpis.home.ownCleanWon}/${kpis.home.ownKickoutsTaken} (${formatPct(kpis.home.ownKickoutsTaken ? (kpis.home.ownCleanWon / kpis.home.ownKickoutsTaken) * 100 : NaN)})`,
               away: `${kpis.away.ownCleanWon}/${kpis.away.ownKickoutsTaken} (${formatPct(kpis.away.ownKickoutsTaken ? (kpis.away.ownCleanWon / kpis.away.ownKickoutsTaken) * 100 : NaN)})`,
             },
             {
               label: 'Break Win %',
+              infoHelpId: 'restarts_metric_break_win',
               home: `${kpis.breakWonHome}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonHome / kpis.breakAll) * 100 : NaN)})`,
               away: `${kpis.breakWonAway}/${kpis.breakAll} (${formatPct(kpis.breakAll ? (kpis.breakWonAway / kpis.breakAll) * 100 : NaN)})`,
             },
             {
               label: 'Throw-In Win %',
+              infoHelpId: 'restarts_metric_throw_in_win',
               home: `${kpis.throwInWinHome}/${kpis.throwInsContested} (${formatPct(kpis.throwInsContested ? (kpis.throwInWinHome / kpis.throwInsContested) * 100 : NaN)})`,
               away: `${kpis.throwInWinAway}/${kpis.throwInsContested} (${formatPct(kpis.throwInsContested ? (kpis.throwInWinAway / kpis.throwInsContested) * 100 : NaN)})`,
             },
@@ -1353,7 +1379,7 @@ function RestartsTab({
         <Card className={RESTART_PANE_CLASS}>
           <CardContent className="flex h-full flex-col p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-slate-900">Kickout Outcomes</div>
+              <ReportInfoTitle title="Kickout Outcomes" helpId="restarts_outcomes" />
               <div className="inline-flex rounded-xl bg-slate-100 p-1">
                 <Button
                   type="button"
@@ -1511,13 +1537,15 @@ function RestartsTab({
                           setKoMapTimeMax(nextMax);
                         }}
                       />
-                      <MultiSelect
-                        label="Target"
-                        placeholder="All"
-                        values={koMapTargets}
-                        onChange={setKoMapTargets}
-                        options={kickoutTargetOptions}
-                      />
+                      {!isLiveMode ? (
+                        <MultiSelect
+                          label="Target"
+                          placeholder="All"
+                          values={koMapTargets}
+                          onChange={setKoMapTargets}
+                          options={kickoutTargetOptions}
+                        />
+                      ) : null}
                       <MultiSelect
                         label="Outcome"
                         placeholder="All"
@@ -1544,6 +1572,7 @@ function RestartsTab({
                         values={koMapPress}
                         onChange={setKoMapPress}
                         options={[
+                          { value: 'off', label: 'Off' },
                           { value: 'm2m', label: 'M2M' },
                           { value: 'zonal', label: 'Zonal' },
                           { value: 'conceded', label: 'Conceded' },
@@ -1580,7 +1609,7 @@ function RestartsTab({
                         setKoMapHalves(Array.isArray(reportFilters?.halves) ? reportFilters.halves : []);
                         setKoMapTimeMin(String(reportFilters?.timeMin ?? ''));
                         setKoMapTimeMax(String(reportFilters?.timeMax ?? ''));
-                        setKoMapTargets(Array.isArray(restartTargetFilter) ? restartTargetFilter : []);
+                        setKoMapTargets(Array.isArray(activeRestartTargetFilter) ? activeRestartTargetFilter : []);
                         setKoMapOutcomes([]);
                         setKoMapWonBy(Array.isArray(restartWonByFilter) ? restartWonByFilter : []);
                         setKoMapPress([]);
@@ -1595,10 +1624,10 @@ function RestartsTab({
               </CardContent>
             </Card>
 
-            {kickoutPressCards.length > 0 && (
+            {!isLiveMode && kickoutPressCards.length > 0 && (
               <Card className={RESTART_PANE_CLASS}>
                 <CardContent className="p-4 space-y-3">
-                  <div className="font-semibold text-slate-900">Kickout Press Breakdown</div>
+                  <ReportInfoTitle title="Kickout Press Breakdown" helpId="restarts_press_flow" />
                   <div className="grid gap-4 lg:grid-cols-2">
                     {kickoutPressCards.map((card) => (
                       <KickoutPressTable key={card.key} card={card} homeTeam={homeTeam} awayTeam={awayTeam} />
@@ -1608,10 +1637,11 @@ function RestartsTab({
               </Card>
             )}
 
+            {!isLiveMode ? (
             <Card className={RESTART_PANE_CLASS}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold text-slate-900">Kickout Targets</div>
+                  <ReportInfoTitle title="Kickout Targets" helpId="restarts_players" />
                   {sortedKickoutTargets.length > 8 ? (
                     <Button
                       type="button"
@@ -1685,12 +1715,13 @@ function RestartsTab({
                 </Table>
               </CardContent>
             </Card>
+            ) : null}
 
             <Card className={RESTART_PANE_CLASS}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="font-semibold text-slate-900">Kickout Flow</div>
+                    <ReportInfoTitle title="Kickout Flow" helpId="restarts_press_flow" />
                     <div className="text-xs text-slate-500">Kickout grouping to immediate outcome, post-win possession outcome, and shot result.</div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1743,7 +1774,7 @@ function RestartsTab({
                     <div className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Filter</div>
                       <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                        {KICKOUT_SANKEY_GROUPING_OPTIONS.map((option) => (
+                        {kickoutSankeyGroupingOptions.map((option) => (
                           <Button
                             key={option.value}
                             type="button"
@@ -1804,9 +1835,9 @@ function RestartsTab({
             <Card className={RESTART_PANE_CLASS}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="font-semibold text-slate-900">Kickout Value</div>
+                  <ReportInfoTitle title="Kickout Value" helpId="restarts_value" />
                   <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                    {KICKOUT_VALUE_GROUPING_OPTIONS.map((option) => (
+                    {kickoutValueGroupingOptions.map((option) => (
                       <Button
                         key={option.value}
                         type="button"
@@ -1833,7 +1864,7 @@ function RestartsTab({
                             <TableRow>
                               <TableHead>Group</TableHead>
                               <TableHead className="text-right">Number</TableHead>
-                              <TableHead className="text-right">Net xP / KO</TableHead>
+                              {showXp ? <TableHead className="text-right">Net xP / KO</TableHead> : null}
                               <TableHead className="text-right">Net Pts / KO</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1842,7 +1873,7 @@ function RestartsTab({
                               <TableRow key={`${panel.side}-${row.group}`}>
                                 <TableCell className="font-medium">{row.group}</TableCell>
                                 <TableCell className="text-right tabular-nums">{row.n}</TableCell>
-                                <TableCell className="text-right tabular-nums">{row.netXPPerKickout.toFixed(2)}</TableCell>
+                                {showXp ? <TableCell className="text-right tabular-nums">{row.netXPPerKickout.toFixed(2)}</TableCell> : null}
                                 <TableCell className="text-right tabular-nums">{row.netPointsPerKickout.toFixed(2)}</TableCell>
                               </TableRow>
                             ))}

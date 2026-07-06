@@ -729,7 +729,7 @@ export default function StatModalV4({
       setKickoutLostBy(selectionToValue(extra?.kickout?.lost_by));
       setKickoutBrokenBy(selectionToValue(extra?.kickout?.broken_by));
       setKickoutMark(!!extra?.kickout?.mark);
-      setKickoutPress(extra?.kickout?.press || '');
+      setKickoutPress(String(extra?.kickout?.press || '').toLowerCase() === 'off' ? 'm2m' : (extra?.kickout?.press || 'm2m'));
     } else if (type === 'foul') {
       setPrimaryPlayer(selectionToValue(extra?.foul?.foul_by));
     } else if (type === 'turnover') {
@@ -954,7 +954,7 @@ export default function StatModalV4({
       if (!shotMethod) setShotMethod('right');
     }
     if (action === 'kickout' && !kickoutPress) {
-      setKickoutPress('m2m');
+      setKickoutPress('off');
     }
     if (action === 'kickout' && previousAction !== 'kickout' && previousShotOppositeSide && !initialStat?.id) {
       setKickoutTeam(previousShotOppositeSide);
@@ -1081,12 +1081,18 @@ export default function StatModalV4({
     if (action !== 'pass') return;
     if (passOutcome !== 'turnover') return;
 
-    if (lostBy === NONE && passer !== NONE) setLostBy(passer);
+    if (turnoverType === 'fumbled') {
+      if (!touchedRoles?.lost_by && passIntendedRecipient !== NONE && lostBy !== passIntendedRecipient) {
+        setLostBy(passIntendedRecipient);
+      }
+    } else if (lostBy === NONE && passer !== NONE) {
+      setLostBy(passer);
+    }
     if (passWonBy !== NONE) {
       if (forcedBy === NONE) setForcedBy(passWonBy);
       if (recoveredBy === NONE) setRecoveredBy(passWonBy);
     }
-  }, [isDrag, action, passOutcome, passer, passWonBy, lostBy, forcedBy, recoveredBy, initialStat]);
+  }, [isDrag, action, passOutcome, turnoverType, passer, passIntendedRecipient, passWonBy, lostBy, forcedBy, recoveredBy, touchedRoles, initialStat]);
 
   useEffect(() => {
     if (initialStat) return;
@@ -1331,6 +1337,13 @@ export default function StatModalV4({
       return [];
     }
     if (action === 'kickout') {
+      if (liveMode) {
+        if (kickoutOutcome === 'foul') return ['foul_by', 'foul_on'];
+        const liveKickoutRoles = ['kickout_won_by'];
+        if (liveSettingEnabled('showKickoutLostBy')) liveKickoutRoles.push('kickout_lost_by');
+        if (kickoutOutcome === 'break' && liveSettingEnabled('showKickoutBrokenBy')) liveKickoutRoles.push('kickout_broken_by');
+        return liveKickoutRoles;
+      }
       if (kickoutOutcome === 'clean') return ['kickout_intended', 'kickout_won_by', 'kickout_lost_by'];
       if (kickoutOutcome === 'break') return ['kickout_intended', 'kickout_broken_by', 'kickout_won_by', 'kickout_lost_by'];
       if (kickoutOutcome === 'foul') return ['kickout_intended', 'foul_by', 'foul_on'];
@@ -1566,7 +1579,7 @@ export default function StatModalV4({
     <div className="grid grid-cols-2 gap-2">
       {roleButton('lost_by')}
       {roleButton('forced_by')}
-      {turnoverType !== 'foul' && !liveMode && roleButton('recovered_by')}
+      {turnoverType !== 'foul' && roleButton('recovered_by')}
     </div>
   );
 
@@ -1584,6 +1597,7 @@ export default function StatModalV4({
                 { value: 'group_tackle', label: 'Group Tackle' },
                 { value: 'broken', label: 'Broken' },
                 { value: 'interception', label: 'Interception' },
+                { value: 'fumbled', label: 'Fumbled' },
                 { value: 'sideline_against', label: 'Sideline Against' },
               ].map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -1635,13 +1649,17 @@ export default function StatModalV4({
           && isRoleFilled('foul_on', foulOn)
           && !!foulType;
       }
-      if (liveMode) return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy);
+      if (liveMode) return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
       return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
     }
     if (action === 'throw_in') {
       if (!throwOutcome) return false;
       if (throwOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-      if (liveMode) return isRoleFilled('throw_won_by', wonBy) && (!liveSettingEnabled('showThrowInLostBy') || isRoleFilled('throw_lost_by', throwLostBy));
+      if (liveMode) {
+        return isRoleFilled('throw_won_by', wonBy)
+          && (!liveSettingEnabled('showThrowInBrokenBy') || throwOutcome !== 'break' || isRoleFilled('broken_by', brokenBy))
+          && (!liveSettingEnabled('showThrowInLostBy') || isRoleFilled('throw_lost_by', throwLostBy));
+      }
       if (throwOutcome === 'clean') return isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       if (throwOutcome === 'break') return isRoleFilled('broken_by', brokenBy) && isRoleFilled('throw_won_by', wonBy) && isRoleFilled('throw_lost_by', throwLostBy);
       return false;
@@ -1649,7 +1667,11 @@ export default function StatModalV4({
     if (action === 'kickout') {
       if (!kickoutOutcome) return false;
       if (kickoutOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-      if (liveMode) return isRoleFilled('kickout_won_by', kickoutWonBy) && (!liveSettingEnabled('showKickoutLostBy') || isRoleFilled('kickout_lost_by', kickoutLostBy));
+      if (liveMode) {
+        return isRoleFilled('kickout_won_by', kickoutWonBy)
+          && (!liveSettingEnabled('showKickoutLostBy') || isRoleFilled('kickout_lost_by', kickoutLostBy))
+          && (kickoutOutcome !== 'break' || !liveSettingEnabled('showKickoutBrokenBy') || isRoleFilled('kickout_broken_by', kickoutBrokenBy));
+      }
       if (kickoutOutcome === 'clean') return isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       if (kickoutOutcome === 'break') return isRoleFilled('kickout_broken_by', kickoutBrokenBy) && isRoleFilled('kickout_won_by', kickoutWonBy) && isRoleFilled('kickout_lost_by', kickoutLostBy);
       return true; // sideline outcomes
@@ -1727,7 +1749,7 @@ export default function StatModalV4({
         outcome: kickoutOutcome,
         won_by: sel(kickoutWonBy),
         lost_by: sel(kickoutLostBy),
-        broken_by: liveMode ? { kind: 'none' } : sel(kickoutBrokenBy),
+        broken_by: liveMode && !liveSettingEnabled('showKickoutBrokenBy') ? { kind: 'none' } : sel(kickoutBrokenBy),
         mark: liveMode ? false : !!kickoutMark,
         press: kickoutPress || '',
       };
@@ -1749,7 +1771,7 @@ export default function StatModalV4({
         turnover_type: effectiveTurnoverType,
         lost_by: lost,
         forced_by: forced,
-        recovered_by: effectiveTurnoverType === 'foul' || liveMode ? forced : sel(recoveredBy),
+        recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy),
         unforced: !!unforced,
         brought_back_adv: !!broughtBackAdv,
       };
@@ -1763,7 +1785,7 @@ export default function StatModalV4({
         outcome: throwOutcome,
         won_by: sel(wonBy),
         lost_by: sel(throwLostBy),
-        broken_by: liveMode ? { kind: 'none' } : sel(brokenBy),
+        broken_by: liveMode && !liveSettingEnabled('showThrowInBrokenBy') ? { kind: 'none' } : sel(brokenBy),
       };
       if (throwOutcome === 'foul') {
         extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1857,10 +1879,11 @@ export default function StatModalV4({
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
-      <DialogContent className="!top-[8px] !translate-y-0 w-full sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-3">
+      <DialogContent className="!top-[8px] !translate-y-0 w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-2 sm:p-3">
         {/* Only scroll if viewport is too small; otherwise stays fixed (no-scroll). */}
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-          <div className="grid md:grid-cols-[240px_1fr_240px] gap-3 items-stretch">
+        <div className="flex-1 min-h-0 overflow-y-scroll pr-1" style={{ scrollbarGutter: 'stable' }}>
+          <div className="grid gap-3 items-stretch md:grid-cols-[240px_1fr_240px]">
+            <div className="order-2 md:order-1">
             <RosterPanel
               title="Home"
               side="home"
@@ -1881,8 +1904,9 @@ export default function StatModalV4({
               onPickValue={handlePickValue}
               onOpenBench={() => { setBenchQuery(''); setBenchOpen('home'); }}
             />
+            </div>
 
-            <div className="space-y-2">
+            <div className="order-1 space-y-2 md:order-2">
           {/* Action selector (locked in edit mode) */}
           {initialStat?.id ? (
             <div className="space-y-1">
@@ -1916,13 +1940,13 @@ export default function StatModalV4({
           )}
 
           {/* Forms */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid gap-2 ${liveMode ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'}`}>
             <div className="space-y-2">
               {action === 'shot' && !isDrag && (
                 <>
                   <Buttons label="Shot Type" value={shotType} onChange={(value) => { setShotType(value); setShotTypeTouched(true); }} options={[{ value: 'point', label: '1 Point' }, { value: '2_point', label: '2 Point' }, { value: 'goal', label: 'Goal' }]} />
-                  <div className={liveMode ? "space-y-2" : "grid sm:grid-cols-2 gap-2"}>
-                    {!liveMode && (
+                  <div className={liveMode ? "grid grid-cols-1 gap-2" : "grid sm:grid-cols-2 gap-2"}>
+                    {liveSettingEnabled('showShotSituation') && (
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Situation</Label>
                       <Select value={shotSituation} onValueChange={setShotSituation}>
@@ -1955,7 +1979,7 @@ export default function StatModalV4({
                   </div>
                   {!liveMode && <YesNo label="Set Defence" value={counterAttack} onChange={setCounterAttack} />}
                   {renderTimeBlock()}
-                  {liveSettingEnabled('showShotBroughtBackAdv') && <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />}
+                  {!liveMode && liveSettingEnabled('showShotBroughtBackAdv') && <YesNo label="Brought Back - Adv." value={shotBroughtBackAdv} onChange={setShotBroughtBackAdv} />}
                 </>
               )}
 
@@ -2113,7 +2137,8 @@ export default function StatModalV4({
                 <>
                   {!liveMode && roleButton('kickout_intended')}
                   {(liveMode && kickoutOutcome && kickoutOutcome !== 'foul') && (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {kickoutOutcome === 'break' && liveSettingEnabled('showKickoutBrokenBy') && roleButton('kickout_broken_by')}
                       {roleButton('kickout_won_by')}
                       {liveSettingEnabled('showKickoutLostBy') && roleButton('kickout_lost_by')}
                     </div>
@@ -2143,6 +2168,7 @@ export default function StatModalV4({
                 <>
                   {(liveMode && throwOutcome && throwOutcome !== 'foul') && (
                     <div className="grid grid-cols-2 gap-2">
+                      {throwOutcome === 'break' && liveSettingEnabled('showThrowInBrokenBy') && roleButton('broken_by')}
                       {roleButton('throw_won_by')}
                       {liveSettingEnabled('showThrowInLostBy') && roleButton('throw_lost_by')}
                     </div>
@@ -2219,6 +2245,7 @@ export default function StatModalV4({
           )}
             </div>
 
+            <div className="order-3">
             <RosterPanel
               title="Away"
               side="away"
@@ -2239,6 +2266,7 @@ export default function StatModalV4({
               onPickValue={handlePickValue}
               onOpenBench={() => { setBenchQuery(''); setBenchOpen('away'); }}
             />
+            </div>
           </div>
         </div>
 

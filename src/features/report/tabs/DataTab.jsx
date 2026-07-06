@@ -190,6 +190,7 @@ function getKickoutPressLabel(stat) {
   const extra = safeParseJSON(stat?.extra_data || '{}', {});
   const value = String(extra?.kickout?.press || '').trim().toLowerCase();
   if (!value) return 'Unknown';
+  if (value === 'off') return 'Off';
   if (value === 'm2m') return 'M2M';
   return toTitleCase(value);
 }
@@ -601,9 +602,36 @@ function DataTab({
   const [rawRecipientNumber, setRawRecipientNumber] = useState('');
   const [rawExtraJson, setRawExtraJson] = useState('{}');
   const structuredExtra = useMemo(() => safeParseJSON(rawExtraJson || '{}', {}), [rawExtraJson]);
+  const hasMeaningfulSelection = (value) => Boolean(value && value.kind && value.kind !== 'none');
+  const selectionsMatch = (left, right) => {
+    if (!hasMeaningfulSelection(left) || !hasMeaningfulSelection(right)) return false;
+    if ((left.id || '') && (right.id || '')) return String(left.id) === String(right.id);
+    return (
+      String(left.kind || '') === String(right.kind || '')
+      && String(left.team_side || '') === String(right.team_side || '')
+      && String(left.number || '') === String(right.number || '')
+      && String(left.name || '').trim().toLowerCase() === String(right.name || '').trim().toLowerCase()
+    );
+  };
   const setStructuredExtraValue = (section, key, value) => {
     const next = safeParseJSON(rawExtraJson || '{}', {});
+    const previousRecipient = next?.pass?.intended_recipient;
     next[section] = { ...(next[section] || {}), [key]: value };
+    if (section === 'turnover' && key === 'turnover_type' && value === 'fumbled') {
+      if (!hasMeaningfulSelection(next?.turnover?.lost_by) && hasMeaningfulSelection(next?.pass?.intended_recipient)) {
+        next.turnover.lost_by = next.pass.intended_recipient;
+      }
+    }
+    if (section === 'pass' && key === 'intended_recipient' && next?.turnover?.turnover_type === 'fumbled') {
+      const currentLostBy = next?.turnover?.lost_by;
+      const shouldSyncLostBy = !hasMeaningfulSelection(currentLostBy) || selectionsMatch(currentLostBy, previousRecipient);
+      if (shouldSyncLostBy) {
+        next.turnover = {
+          ...(next.turnover || {}),
+          lost_by: hasMeaningfulSelection(value) ? value : currentLostBy,
+        };
+      }
+    }
     setRawExtraJson(JSON.stringify(next, null, 2));
   };
 
@@ -832,7 +860,7 @@ function DataTab({
             label="Turnover Type"
             value={structuredExtra?.turnover?.turnover_type || 'NA'}
             onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v === 'NA' ? '' : v)}
-            options={['NA', 'interception', 'tackle', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: v === 'NA' ? 'NA' : toTitleCase(v) }))}
+            options={['NA', 'interception', 'tackle', 'fumbled', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: v === 'NA' ? 'NA' : toTitleCase(v) }))}
           />
         <SelectionField label="Lost By" section="turnover" field="lost_by" />
         <SelectionField label="Forced By" section="turnover" field="forced_by" />
@@ -3899,7 +3927,7 @@ function DataTab({
                         <SelectionField label="Lost By" section="kickout" field="lost_by" />
                         <SelectionField label="Broken By" section="kickout" field="broken_by" />
                         <FieldSelect label="Outcome" value={structuredExtra?.kickout?.outcome || 'clean'} onChange={(v) => setStructuredExtraValue('kickout', 'outcome', v)} options={['clean', 'break', 'foul', 'sideline_for', 'sideline_against'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
-                        <FieldSelect label="Press" value={structuredExtra?.kickout?.press || 'm2m'} onChange={(v) => setStructuredExtraValue('kickout', 'press', v)} options={['m2m', 'zonal', 'conceded'].map((v) => ({ value: v, label: toTitleCase(v) }))} />
+                        <FieldSelect label="Press" value={structuredExtra?.kickout?.press || 'off'} onChange={(v) => setStructuredExtraValue('kickout', 'press', v)} options={['off', 'm2m', 'zonal', 'conceded'].map((v) => ({ value: v, label: v === 'm2m' ? 'M2M' : toTitleCase(v) }))} />
                         <FieldBool label="Mark" value={!!structuredExtra?.kickout?.mark} onChange={(v) => setStructuredExtraValue('kickout', 'mark', v)} />
                       </div>
                       {structuredExtra?.kickout?.outcome === 'foul' && renderFoulFields('Kickout Foul')}

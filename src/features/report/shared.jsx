@@ -5,10 +5,11 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Maximize2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Info, Maximize2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import pitchImg from '@/assets/pitch.png';
+import { reportInfoCatalog } from './reportInfoCatalog';
 import {
   PITCH_W,
   PITCH_H,
@@ -500,15 +501,168 @@ function metricBandStyle(color, side) {
   };
 }
 
+function ReportInfoSection({ label, body }) {
+  const values = Array.isArray(body) ? body.filter(Boolean) : [body].filter(Boolean);
+  if (!values.length) return null;
+  return (
+    <div className="space-y-1.5 py-2.5 text-left first:pt-0 last:pb-0">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
+      {values.length === 1 ? (
+        <p className="text-sm leading-5 text-slate-700">{values[0]}</p>
+      ) : (
+        <ul className="list-disc space-y-1 pl-4 text-sm leading-5 text-slate-700">
+          {values.map((value, index) => (
+            <li key={`${label}-${index}`}>{value}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ReportInfoContentBody({ entry }) {
+  if (!entry) return null;
+  return (
+    <div className="space-y-0 divide-y divide-slate-100 text-left">
+      <div className="pb-3 text-left text-sm font-semibold text-slate-900">{entry.title}</div>
+      <ReportInfoSection label="What it is" body={entry.whatItIs} />
+      <ReportInfoSection label="Why it matters" body={entry.whyItMatters} />
+      <ReportInfoSection label={entry.calculationOrChartLabel || "How it's calculated"} body={entry.calculationOrChart} />
+      <ReportInfoSection label="How to use it" body={entry.howToUse} />
+      <ReportInfoSection label="Limitations" body={entry.caveats} />
+    </div>
+  );
+}
+
+function ReportInfoTrigger({ helpId, className = '' }) {
+  const entry = helpId ? reportInfoCatalog[helpId] : null;
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const contentRef = useRef(null);
+  if (!entry) return null;
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const openPanel = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  const closePanel = () => {
+    clearCloseTimer();
+    setOpen(false);
+  };
+
+  const closePanelSoon = () => {
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 120);
+  };
+
+  const isWithinHoverRegion = (target) => {
+    if (!(target instanceof Node)) return false;
+    return Boolean(triggerRef.current?.contains(target) || contentRef.current?.contains(target));
+  };
+
+  const handlePointerLeave = (event) => {
+    if (isWithinHoverRegion(event.relatedTarget)) {
+      clearCloseTimer();
+      return;
+    }
+    closePanelSoon();
+  };
+
+  const handleBlur = (event) => {
+    if (isWithinHoverRegion(event.relatedTarget)) {
+      clearCloseTimer();
+      return;
+    }
+    closePanelSoon();
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
+
+  const trigger = (
+    <button
+      ref={triggerRef}
+      type="button"
+      className={`inline-flex h-5 shrink-0 items-center justify-center text-slate-500 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`.trim()}
+      aria-label={`More info about ${entry.title}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        clearCloseTimer();
+        setOpen((current) => !current);
+      }}
+      onPointerEnter={openPanel}
+      onPointerLeave={handlePointerLeave}
+      onFocus={openPanel}
+      onBlur={handleBlur}
+    >
+      <Info className="h-3.5 w-3.5" />
+    </button>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        {trigger}
+      </PopoverTrigger>
+      <PopoverContent
+        ref={contentRef}
+        side="bottom"
+        align="start"
+        sideOffset={10}
+        collisionPadding={16}
+        className="z-[120] max-h-[70vh] w-[min(40rem,calc(100vw-1.5rem))] overflow-y-auto overflow-x-hidden break-words rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xl"
+        onPointerEnter={clearCloseTimer}
+        onPointerLeave={handlePointerLeave}
+        onFocusCapture={clearCloseTimer}
+        onBlurCapture={handleBlur}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={closePanel}
+        onPointerDownOutside={closePanel}
+        onFocusOutside={closePanel}
+      >
+        <ReportInfoContentBody entry={entry} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ReportInfoTitle({
+  title,
+  helpId,
+  wrapperClassName = 'flex items-center gap-1.5',
+  titleClassName = 'font-semibold text-slate-900',
+}) {
+  return (
+    <div className={wrapperClassName}>
+      <div className={titleClassName} data-export-title="true">{title}</div>
+      <ReportInfoTrigger helpId={helpId} />
+    </div>
+  );
+}
+
 function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 'Metrics', rows = [], cardClassName = 'w-full lg:w-[48%] lg:max-w-[48%] mr-auto', metricColWidth = '180px' }) {
   const showHome = teamMode === 'both' || teamMode === 'home';
   const showAway = teamMode === 'both' || teamMode === 'away';
   const metricCol = metricColWidth;
+  const titleNode = React.isValidElement(title)
+    ? title
+    : <div className="font-semibold text-slate-900">{title}</div>;
 
   return (
     <Card className={`report-pane ${cardClassName}`.trim()}>
       <CardContent className="p-4 space-y-4">
-        <div className="font-semibold text-slate-900">{title}</div>
+        {titleNode}
         <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
           <div className="absolute inset-y-0 left-0 w-2" style={metricBandStyle(homeTeam?.color || '#22c55e', 'left')} />
           <div className="absolute inset-y-0 right-0 w-2" style={metricBandStyle(awayTeam?.color || '#ef4444', 'right')} />
@@ -529,7 +683,10 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
                 <div className={`text-left tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                   {showHome ? row.home : ''}
                 </div>
-                <div className="text-center text-sm font-semibold text-slate-700">{row.label}</div>
+                <div className="flex items-center justify-center gap-1 text-center text-sm font-semibold text-slate-700">
+                  <span>{row.label}</span>
+                  {row.infoHelpId ? <ReportInfoTrigger helpId={row.infoHelpId} className="translate-y-[1px]" /> : null}
+                </div>
                 <div className={`text-right tabular-nums ${row.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>
                   {showAway ? row.away : ''}
                 </div>
@@ -2454,7 +2611,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume' }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null }) {
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -2644,7 +2801,12 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
 
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
-        {!isFullscreen && <div className="font-semibold text-slate-900">{teamLabel || toTitleCase(side)} Pass Network</div>}
+        {!isFullscreen && (
+          <ReportInfoTitle
+            title={`${teamLabel || toTitleCase(side)} Pass Network`}
+            helpId={headerHelpId}
+          />
+        )}
         {showPitch && (
           <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
             <div
@@ -3648,6 +3810,8 @@ export {
   DirectionBadge,
   transformDisplayPoint,
   PitchViz,
+  ReportInfoTitle,
+  ReportInfoTrigger,
   AttackChannelPitch,
   PassNetwork,
   PassSonar,

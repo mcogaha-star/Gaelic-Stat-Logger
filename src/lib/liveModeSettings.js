@@ -1,13 +1,15 @@
 export const DEFAULT_LIVE_MODE_SETTINGS = {
+  showShotSituation: true,
   showShotMethod: true,
   showShotPressure: true,
   showShotBlockedSavedBy: true,
-  showShotBroughtBackAdv: true,
-  showKickoutPress: true,
+  showKickoutBrokenBy: true,
+  showKickoutPress: false,
   showKickoutLostBy: true,
   showTurnoverType: true,
   showTurnoverBroughtBackAdv: true,
   showFoulCard: true,
+  showThrowInBrokenBy: true,
   showThrowInLostBy: true,
   showTemporarySub: true,
 };

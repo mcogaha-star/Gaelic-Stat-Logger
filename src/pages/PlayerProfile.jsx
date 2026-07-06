@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { createPageUrl } from '@/utils';
 import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
+import { buildMatchRosterSnapshotPatch, resolveMatchRosterPlayers } from '@/lib/matchRosterSnapshots';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -94,8 +95,22 @@ export default function PlayerProfile({ sharedPayload = null, statShareCode = ''
   });
 
   const effectiveRawStats = isSharedView ? (sharedData.rawStats || []) : rawStats;
-  const effectiveHomePlayers = isSharedView ? (sharedData.homePlayers || []) : homePlayers;
-  const effectiveAwayPlayers = isSharedView ? (sharedData.awayPlayers || []) : awayPlayers;
+  const effectiveHomePlayers = isSharedView
+    ? (sharedData.homePlayers || [])
+    : resolveMatchRosterPlayers(match?.home_roster_snapshot, homePlayers, homeTeam?.id);
+  const effectiveAwayPlayers = isSharedView
+    ? (sharedData.awayPlayers || [])
+    : resolveMatchRosterPlayers(match?.away_roster_snapshot, awayPlayers, awayTeam?.id);
+
+  React.useEffect(() => {
+    if (isSharedView || !match?.id || !homeTeam?.id || !awayTeam?.id) return;
+    if (match?.home_roster_snapshot && match?.away_roster_snapshot) return;
+    if (homePlayers.length === 0 && awayPlayers.length === 0) return;
+    db.entities.Match.update(match.id, buildMatchRosterSnapshotPatch({
+      homePlayers,
+      awayPlayers,
+    })).catch(() => {});
+  }, [awayPlayers, awayTeam?.id, homePlayers, homeTeam?.id, isSharedView, match?.away_roster_snapshot, match?.home_roster_snapshot, match?.id]);
 
   const playerOptions = useMemo(() => buildPlayerOptions(effectiveHomePlayers, effectiveAwayPlayers), [effectiveHomePlayers, effectiveAwayPlayers]);
   const selectedPlayer = useMemo(

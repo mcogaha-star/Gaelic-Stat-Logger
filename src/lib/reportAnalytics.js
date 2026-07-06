@@ -1657,6 +1657,7 @@ export function normalizeOutcomeAlias(value, context = '') {
   if (v === 'sidelinefor' || v === 'sideline for') return 'sideline_for';
   if (v === 'goal kick for') return 'goal_kick_for';
   if (v === 'goal kick against') return 'goal_kick_against';
+  if (v === 'fumble' || v === 'fumbled pass') return 'fumbled';
   // Plain "sideline" was mostly used as a turnover-against type.
   if (v === 'sideline' && context === 'turnover') return 'sideline_against';
   return v;
@@ -2113,6 +2114,23 @@ export function buildLegacyPossessionRepairs(stats) {
         next.pass.won_by = cloneSelection(next.pass.intended_recipient) || {
           kind: 'team',
           team_side: passerSide,
+        };
+        changed = true;
+      }
+      const turnoverType = normalizeOutcomeAlias(next?.turnover?.turnover_type, 'turnover');
+      const currentLostBy = next?.turnover?.lost_by;
+      if (
+        hasPassTurnover
+        && turnoverType === 'fumbled'
+        && (!currentLostBy || currentLostBy.kind === 'none')
+        && next.pass.intended_recipient
+        && next.pass.intended_recipient.kind
+        && next.pass.intended_recipient.kind !== 'none'
+      ) {
+        next.turnover = {
+          ...(next.turnover || {}),
+          turnover_type: turnoverType,
+          lost_by: cloneSelection(next.pass.intended_recipient),
         };
         changed = true;
       }

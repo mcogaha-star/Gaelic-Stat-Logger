@@ -8,6 +8,7 @@ import {
   restoreExtraDataFromPrivateRefs,
 } from '@/lib/serverSync';
 import { deriveMatchLengthMinutes, getSetDefenceValue } from '@/lib/reportAnalytics';
+import { buildMatchRosterSnapshotPatch } from '@/lib/matchRosterSnapshots';
 
 function stringifyServerExtra(extraData) {
   if (!extraData) return '{}';
@@ -212,6 +213,10 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
         away_subs: JSON.stringify(awaySheet.subs),
         home_on_field: JSON.stringify(homeSheet.on_field),
         away_on_field: JSON.stringify(awaySheet.on_field),
+        ...buildMatchRosterSnapshotPatch({
+          homePlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackHomeTeam.id),
+          awayPlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackAwayTeam.id),
+        }),
       });
       importedMatches += 1;
       if (publicMatchId) localByPublicId.set(publicMatchId, localMatch);
@@ -241,6 +246,8 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
         const needsRosterBackfill =
           needsHomeRosterBackfill
           || needsAwayRosterBackfill
+          || !localMatch.home_roster_snapshot
+          || !localMatch.away_roster_snapshot
           || localMatch.home_team_id !== localHomeTeam.id
           || localMatch.away_team_id !== localAwayTeam.id;
         if (needsRosterBackfill) {
@@ -253,6 +260,10 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
             away_subs: JSON.stringify(awaySheet.subs),
             home_on_field: JSON.stringify(homeSheet.on_field),
             away_on_field: JSON.stringify(awaySheet.on_field),
+            ...buildMatchRosterSnapshotPatch({
+              homePlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localHomeTeam.id),
+              awayPlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localAwayTeam.id),
+            }),
           };
           await db.entities.Match.update(localMatch.id, rosterPatch);
           localMatch = { ...localMatch, ...rosterPatch };

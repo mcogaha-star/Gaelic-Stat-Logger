@@ -144,15 +144,6 @@ button:focus-visible {
 }
 
 @layer base {
-  html {
-    overflow-y: scroll;
-    scrollbar-gutter: stable both-edges;
-  }
-
-  body {
-    scrollbar-gutter: stable both-edges;
-  }
-
   html body[data-scroll-locked] {
     overflow-y: scroll !important;
     margin-right: 0 !important;

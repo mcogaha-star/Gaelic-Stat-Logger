@@ -57,6 +57,7 @@ import {
   normalizePlayerRef,
   teamRowTint,
   ComparisonMetricsCard,
+  ReportInfoTitle,
   PitchViz,
   AttackChannelPitch,
   PassNetwork,
@@ -441,8 +442,9 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
   );
 }
 
-function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualisePossession, onOpenVideoAt, onOpenVideoPossession, attackTypeFilter = 'any', setAttackTypeFilter, outcomeFilter = [], originFilter = [], startZoneFilter = [] }) {
+function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode = false, showXpData = true, onVisualisePossession, onOpenVideoAt, onOpenVideoPossession, attackTypeFilter = 'any', setAttackTypeFilter, outcomeFilter = [], originFilter = [], startZoneFilter = [] }) {
   const paneClassName = 'report-pane';
+  const showXp = !isLiveMode || showXpData;
   const outcomeSeries = [
     { k: 'Score', c: '#059669' },
     { k: 'Missed Shot', c: '#eab308' },
@@ -459,6 +461,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
   const [breakdownCategory, setBreakdownCategory] = useState('');
   const [originBreakdownOpen, setOriginBreakdownOpen] = useState(false);
   const [originBreakdownCategory, setOriginBreakdownCategory] = useState('');
+  useEffect(() => {
+    if (isLiveMode) setOutcomeMode('possessions');
+  }, [isLiveMode]);
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry', 'shot', 'turnover', 'kickout', 'throw_in', 'foul'] }), [reportFilters]);
   const possessionLevelFilters = useMemo(() => ({
     ...scopedReportFilters,
@@ -525,7 +530,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
         Number.isFinite(liveStartAnchor) && Number.isFinite(firstEventTime) && firstEventTime >= liveStartAnchor
           ? firstEventTime - liveStartAnchor
           : 0;
-      const duration = Number.isFinite(timeSummary.liveSeconds)
+      const duration = isLiveMode && Number.isFinite(startTime) && Number.isFinite(endTime)
+        ? Math.max(0, endTime - startTime)
+        : Number.isFinite(timeSummary.liveSeconds)
         ? timeSummary.liveSeconds
         : Number.isFinite(liveDuration)
         ? liveDuration + anchorGap
@@ -594,7 +601,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
       return String(a.key).localeCompare(String(b.key));
     });
     return out;
-  }, [calcBase, reportFilters]);
+  }, [calcBase, isLiveMode, reportFilters]);
 
   const possessionsFiltered = useMemo(() => {
     return possessions.filter((p) => {
@@ -1046,7 +1053,14 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
     { key: 'points', label: 'Pts', sortValue: (r) => r.points },
     { key: 'attackType', label: 'Attack Type', sortValue: (r) => r.attackType },
   ]), [homeTeam, awayTeam]);
-  const sortedPossessions = useMemo(() => sortRows(possessionsFiltered, possessionSort, possessionColumns, 'key'), [possessionsFiltered, possessionSort, possessionColumns]);
+  const visiblePossessionColumns = useMemo(
+    () => possessionColumns.filter((column) => {
+      if (!isLiveMode) return true;
+      return !['duration', 'passes', 'attack', 'attackType'].includes(column.key);
+    }),
+    [isLiveMode, possessionColumns],
+  );
+  const sortedPossessions = useMemo(() => sortRows(possessionsFiltered, possessionSort, visiblePossessionColumns, 'key'), [possessionsFiltered, possessionSort, visiblePossessionColumns]);
   const visiblePossessions = useMemo(() => (showAllPossessions ? sortedPossessions : sortedPossessions.slice(0, 5)), [showAllPossessions, sortedPossessions]);
   const togglePossessionSort = (key) => setPossessionSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'team' || key === 'half' || key === 'startSource' || key === 'outcome' || key === 'startZone' || key === 'attackType' ? 'asc' : 'desc' });
   const activeOutcomeData = outcomeMode === 'attacks' ? attackOutcomeData : possessionOutcomeData;
@@ -1303,40 +1317,43 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
           awayTeam={awayTeam}
           teamMode={teamMode}
           rows={[
-            { label: 'Possessions (Attacks)', home: `${sideKpis.home.possN} (${sideKpis.home.attN})`, away: `${sideKpis.away.possN} (${sideKpis.away.attN})` },
+            { label: isLiveMode ? 'Possessions' : 'Possessions (Attacks)', infoHelpId: 'possessions_metric_possessions', home: isLiveMode ? `${sideKpis.home.possN}` : `${sideKpis.home.possN} (${sideKpis.home.attN})`, away: isLiveMode ? `${sideKpis.away.possN}` : `${sideKpis.away.possN} (${sideKpis.away.attN})` },
             {
               label: 'Possession (%)',
+              infoHelpId: 'possessions_metric_possession_pct',
               home: Number.isFinite(sideKpis.home.livePossessionSeconds) ? `${formatMMSS(sideKpis.home.livePossessionSeconds)} (${formatPct(sideKpis.home.possessionPct)})` : 'NA',
               away: Number.isFinite(sideKpis.away.livePossessionSeconds) ? `${formatMMSS(sideKpis.away.livePossessionSeconds)} (${formatPct(sideKpis.away.possessionPct)})` : 'NA',
             },
-            { label: 'Points Per Possession', home: Number.isFinite(sideKpis.home.pointsPerPossession) ? sideKpis.home.pointsPerPossession.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.pointsPerPossession) ? sideKpis.away.pointsPerPossession.toFixed(2) : 'NA' },
-            { label: 'Avg Possession Duration', home: Number.isFinite(sideKpis.home.avgDur) ? `${sideKpis.home.avgDur.toFixed(1)}s` : 'NA', away: Number.isFinite(sideKpis.away.avgDur) ? `${sideKpis.away.avgDur.toFixed(1)}s` : 'NA' },
-            { label: 'Completed Passes Per Possession', home: Number.isFinite(sideKpis.home.passesPerPoss) ? sideKpis.home.passesPerPoss.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.passesPerPoss) ? sideKpis.away.passesPerPoss.toFixed(2) : 'NA' },
-            { label: 'Possession To Shot %', home: formatPct(sideKpis.home.possToShot), away: formatPct(sideKpis.away.possToShot) },
-            { label: 'Transition Attack %', home: formatPct(sideKpis.home.transitionAttackPct), away: formatPct(sideKpis.away.transitionAttackPct) },
+            { label: 'Points Per Possession', infoHelpId: 'possessions_metric_points_per_possession', home: Number.isFinite(sideKpis.home.pointsPerPossession) ? sideKpis.home.pointsPerPossession.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.pointsPerPossession) ? sideKpis.away.pointsPerPossession.toFixed(2) : 'NA' },
+            ...(!isLiveMode ? [
+              { label: 'Avg Possession Duration', infoHelpId: 'possessions_metric_avg_duration', home: Number.isFinite(sideKpis.home.avgDur) ? `${sideKpis.home.avgDur.toFixed(1)}s` : 'NA', away: Number.isFinite(sideKpis.away.avgDur) ? `${sideKpis.away.avgDur.toFixed(1)}s` : 'NA' },
+              { label: 'Completed Passes Per Possession', infoHelpId: 'possessions_metric_completed_passes_per_possession', home: Number.isFinite(sideKpis.home.passesPerPoss) ? sideKpis.home.passesPerPoss.toFixed(2) : 'NA', away: Number.isFinite(sideKpis.away.passesPerPoss) ? sideKpis.away.passesPerPoss.toFixed(2) : 'NA' },
+            ] : []),
+            { label: 'Possession To Shot %', infoHelpId: 'possessions_metric_possession_to_shot', home: formatPct(sideKpis.home.possToShot), away: formatPct(sideKpis.away.possToShot) },
+            ...(!isLiveMode ? [{ label: 'Transition Attack %', infoHelpId: 'possessions_metric_transition_attack', home: formatPct(sideKpis.home.transitionAttackPct), away: formatPct(sideKpis.away.transitionAttackPct) }] : []),
           ]}
         />
-
-        <div className="report-companion-grid h-full self-stretch">
-          <Card className={`${paneClassName} h-full`}>
-            <CardContent className="flex h-full flex-col p-4">
-              <div>
-                <div className="font-semibold text-slate-900">Possession Time By Zone</div>
-              </div>
-              <div className="mt-3 flex flex-1 items-center justify-center py-2">
-                <PossessionZonePitch
-                  className="w-full max-w-[660px]"
-                  homeTeam={homeTeam}
-                  awayTeam={awayTeam}
-                  homeColor={homeTeam?.color || '#fb4b14'}
-                  awayColor={awayTeam?.color || '#5b1f32'}
-                  zoneSeconds={possessionPhysicalZoneSeconds}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-        </div>
+        {!isLiveMode ? (
+          <div className="report-companion-grid h-full self-stretch">
+            <Card className={`${paneClassName} h-full`}>
+              <CardContent className="flex h-full flex-col p-4">
+                <div>
+                  <div className="font-semibold text-slate-900">Possession Time By Zone</div>
+                </div>
+                <div className="mt-3 flex flex-1 items-center justify-center py-2">
+                  <PossessionZonePitch
+                    className="w-full max-w-[660px]"
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
+                    homeColor={homeTeam?.color || '#fb4b14'}
+                    awayColor={awayTeam?.color || '#5b1f32'}
+                    zoneSeconds={possessionPhysicalZoneSeconds}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
       </div>
 
         {possessionsFiltered.length === 0 ? (
@@ -1350,7 +1367,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             <Card className={paneClassName}>
               <CardContent className="space-y-4 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold text-slate-900">Possession Flow</div>
+                  <ReportInfoTitle title="Possession Flow" helpId="possessions_flow" />
                   <div className="inline-flex items-center gap-2">
                     <Button type="button" variant={flowView === 'charts' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setFlowView('charts')}>
                       Charts
@@ -1421,7 +1438,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                     <div className="hidden lg:block self-stretch w-px bg-slate-200/90" />
                     <div className="flex h-full flex-col space-y-3">
                       <div className="flex min-h-[42px] items-start">
-                        <div className="pt-0.5 font-semibold text-slate-900">{outcomeMode === 'attacks' ? 'Attack Outcomes' : 'Possession Outcomes'}</div>
+                        <div className="pt-0.5 font-semibold text-slate-900">{isLiveMode ? 'Possession Outcomes' : (outcomeMode === 'attacks' ? 'Attack Outcomes' : 'Possession Outcomes')}</div>
                       </div>
                       <div className="flex min-h-[40px] flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap gap-2 text-[11px]">
@@ -1438,14 +1455,16 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                               </button>
                           ))}
                         </div>
-                        <div className="inline-flex items-center gap-2">
-                          <Button type="button" variant={outcomeMode === 'possessions' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('possessions')}>
-                            Possessions
-                          </Button>
-                          <Button type="button" variant={outcomeMode === 'attacks' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('attacks')}>
-                            Attacks
-                          </Button>
-                        </div>
+                        {!isLiveMode ? (
+                          <div className="inline-flex items-center gap-2">
+                            <Button type="button" variant={outcomeMode === 'possessions' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('possessions')}>
+                              Possessions
+                            </Button>
+                            <Button type="button" variant={outcomeMode === 'attacks' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('attacks')}>
+                              Attacks
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                       <ChartContainer id="possession-outcomes" className="h-[280px] w-full flex-1" config={{}}>
                         <BarChart data={activeOutcomeData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }} barCategoryGap={28}>
@@ -1466,14 +1485,13 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
             <Card className={paneClassName}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold text-slate-900">Possession Value</div>
+                  <ReportInfoTitle title="Possession Value" helpId="possessions_value" />
                   <div className="inline-flex rounded-xl bg-slate-100 p-1">
                     {[
                       { value: 'all', label: 'All' },
                       { value: 'origin', label: 'Origin' },
                       { value: 'source', label: 'Source' },
-                      { value: 'length', label: 'Length' },
-                      { value: 'attackType', label: 'Attack Type' },
+                      ...(!isLiveMode ? [{ value: 'length', label: 'Length' }, { value: 'attackType', label: 'Attack Type' }] : []),
                     ].map((option) => (
                       <Button
                         key={option.value}
@@ -1500,7 +1518,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                             <TableRow>
                               <TableHead>{toTitleCase(possessionValueGroupBy)}</TableHead>
                               <TableHead className="text-right">Poss</TableHead>
-                              <TableHead className="text-right">xP/Poss</TableHead>
+                              {showXp ? <TableHead className="text-right">xP/Poss</TableHead> : null}
                               <TableHead className="text-right">Pts/Poss</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1509,7 +1527,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                               <TableRow key={`${panel.side}-${row.group}`}>
                                 <TableCell className="font-medium">{row.group}</TableCell>
                                 <TableCell className="text-right tabular-nums">{row.poss}</TableCell>
-                                <TableCell className="text-right tabular-nums">{row.poss > 0 && Number.isFinite(row.xpPerPoss) ? row.xpPerPoss.toFixed(2) : '—'}</TableCell>
+                                {showXp ? <TableCell className="text-right tabular-nums">{row.poss > 0 && Number.isFinite(row.xpPerPoss) ? row.xpPerPoss.toFixed(2) : '—'}</TableCell> : null}
                                 <TableCell className="text-right tabular-nums">{row.poss > 0 && Number.isFinite(row.ptsPerPoss) ? row.ptsPerPoss.toFixed(2) : '—'}</TableCell>
                               </TableRow>
                             ))}
@@ -1544,20 +1562,19 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                         <col style={{ width: '42px' }} />
                         <col style={{ width: '62px' }} />
                         <col style={{ width: '62px' }} />
-                        <col style={{ width: '56px' }} />
+                      {!isLiveMode ? <col style={{ width: '56px' }} /> : null}
                       <col style={{ width: '102px' }} />
                       <col style={{ width: '102px' }} />
                       <col style={{ width: '84px' }} />
-                      <col style={{ width: '60px' }} />
-                      <col style={{ width: '58px' }} />
+                      {!isLiveMode ? <col style={{ width: '60px' }} /> : null}
                       <col style={{ width: '54px' }} />
-                      <col style={{ width: '40px' }} />
-                      <col style={{ width: '108px' }} />
+                      {!isLiveMode ? <col style={{ width: '40px' }} /> : null}
+                      {!isLiveMode ? <col style={{ width: '108px' }} /> : null}
                       <col style={{ width: '138px' }} />
                     </colgroup>
                   <TableHeader>
                     <TableRow>
-                        {possessionColumns.map((column) => (
+                        {visiblePossessionColumns.map((column) => (
                           <SortableTableHead
                             key={column.key}
                             column={column}
@@ -1582,15 +1599,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, onVisualiseP
                             <TableCell className="whitespace-nowrap">{formatPossessionHalfLabel(p.half)}</TableCell>
                           <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.startTime) ? formatMMSS(p.startTime) : 'NA'}</TableCell>
                           <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.endTime) ? formatMMSS(p.endTime) : 'NA'}</TableCell>
-                          <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.duration) ? `${p.duration.toFixed(1)}s` : 'NA'}</TableCell>
+                          {!isLiveMode ? <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.duration) ? `${p.duration.toFixed(1)}s` : 'NA'}</TableCell> : null}
                           <TableCell>{p.startSource}</TableCell>
                             <TableCell className="whitespace-nowrap">{formatPossessionZoneLabel(p.startZone)}</TableCell>
                             <TableCell>{p.outcome}</TableCell>
-                            <TableCell className="text-left tabular-nums">{p.passes}</TableCell>
-                            <TableCell className="text-left tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell>
+                            {!isLiveMode ? <TableCell className="text-left tabular-nums">{p.passes}</TableCell> : null}
                             <TableCell className="text-left tabular-nums">{p.shots > 0 ? 'Yes' : 'No'}</TableCell>
                             <TableCell className="text-left tabular-nums">{p.points}</TableCell>
-                            <TableCell className="whitespace-nowrap">{p.attackType}</TableCell>
+                            {!isLiveMode ? <TableCell className="text-left tabular-nums">{p.isAttack ? 'Yes' : 'No'}</TableCell> : null}
+                            {!isLiveMode ? <TableCell className="whitespace-nowrap">{p.attackType}</TableCell> : null}
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               {Number.isFinite(p.videoStartTime) ? (

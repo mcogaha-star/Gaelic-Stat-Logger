@@ -103,7 +103,7 @@ export const DEFAULT_SUB_MENUS = [
         options: [
             { value: 'block', label: 'Block' }, { value: 'interception', label: 'Interception' },
             { value: 'individual_tackle', label: 'Individual Tackle' }, { value: 'group_tackle', label: 'Group Tackle' },
-            { value: 'unforced', label: 'Unforced' }, { value: 'foul', label: 'Foul' },
+            { value: 'unforced', label: 'Unforced' }, { value: 'fumbled', label: 'Fumbled' }, { value: 'foul', label: 'Foul' },
         ],
     },
     {

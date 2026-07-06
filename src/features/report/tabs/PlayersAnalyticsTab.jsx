@@ -74,6 +74,7 @@ import {
   inferRestartTeamSide,
   shotSideFromY,
   toTitleCase,
+  ReportInfoTitle,
 } from '../shared';
 import { createTimestampClipRef, getVideoClipSettings } from '@/lib/videoWorkflow';
 
@@ -679,6 +680,7 @@ function PlayerShootingPanel({
   row,
   shots = [],
   statMode = 'raw',
+  showXp = true,
   teamSide = 'home',
   match = null,
   filter = 'all',
@@ -807,10 +809,10 @@ function PlayerShootingPanel({
       label: 'Points',
       value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, summary.points, 'rate') : summary.points, { decimals: 0 }),
     },
-    {
+    ...(showXp ? [{
       label: 'xP',
       value: summary.xpCount ? formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, summary.xpTotal, 'rate') : summary.xpTotal, { decimals: 2 }) : 'NA',
-    },
+    }] : []),
     {
       label: 'Scoring',
       value: formatScoringFraction(summary.scores, summary.shotCount),
@@ -831,10 +833,10 @@ function PlayerShootingPanel({
       label: 'Points / Shot',
       value: summary.shotCount ? formatMetricValue(summary.points / summary.shotCount, { decimals: 2 }) : 'NA',
     },
-    {
+    ...(showXp ? [{
       label: 'xP / Shot',
       value: summary.shotCount && summary.xpCount ? formatMetricValue(summary.xpTotal / summary.shotCount, { decimals: 2 }) : 'NA',
-    },
+    }] : []),
     {
       label: 'Shots Short',
       value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, summary.shortShots, 'rate') : summary.shortShots, { decimals: 0 }),
@@ -847,10 +849,10 @@ function PlayerShootingPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+        <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="text-lg font-semibold text-slate-900">Shooting</div>
+            <ReportInfoTitle title="Shooting" helpId="players_shooting" titleClassName="text-lg font-semibold text-slate-900" />
             <div className="flex min-w-0 items-center sm:w-[128px]">
               <select
                 value={filter}
@@ -901,7 +903,7 @@ function PlayerShootingPanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
           <div className="relative overflow-hidden rounded-lg bg-slate-100" style={{ aspectRatio: `${PITCH_H} / ${PITCH_W / 2}` }}>
               <svg viewBox={`0 0 ${PITCH_H} ${PITCH_W / 2}`} className="relative z-10 h-full w-full">
@@ -921,7 +923,7 @@ function PlayerShootingPanel({
                       `Shot Type: ${toTitleCase(shot.shotType)}`,
                       `Situation: ${toTitleCase(shot.situation || 'play')}`,
                       `Outcome: ${toTitleCase(shot.outcome)}`,
-                      `xP: ${Number.isFinite(shot.xp) ? shot.xp.toFixed(2) : 'N/A'}`,
+                      ...(showXp ? [`xP: ${Number.isFinite(shot.xp) ? shot.xp.toFixed(2) : 'N/A'}`] : []),
                       Number.isFinite(shot.distance) ? `Distance: ${shot.distance.toFixed(1)}` : null,
                       shot.possessionLabel ? `Possession: ${shot.possessionLabel}` : null,
                     ].filter(Boolean).join('\n');
@@ -1209,9 +1211,9 @@ function PlayerPassingPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
-          <div className="text-lg font-semibold text-slate-900">Passing</div>
+          <ReportInfoTitle title="Passing" helpId="players_passing" titleClassName="text-lg font-semibold text-slate-900" />
 
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {metrics.map((metric) => (
@@ -1225,7 +1227,7 @@ function PlayerPassingPanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
           <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
               <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -1441,9 +1443,9 @@ function PlayerCarryingPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
-          <div className="text-lg font-semibold text-slate-900">Carrying</div>
+          <ReportInfoTitle title="Carrying" helpId="players_carrying" titleClassName="text-lg font-semibold text-slate-900" />
 
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {metrics.map((metric) => (
@@ -1456,7 +1458,7 @@ function PlayerCarryingPanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="flex h-full items-center p-4">
           <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
             <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -1549,6 +1551,7 @@ function PlayerCarryingPanel({
 function PlayerRestartPanel({
   row,
   statMode = 'raw',
+  isLiveMode = false,
   kickoutItems = [],
   teamSide = 'home',
   onOpenVideoSelection = null,
@@ -1557,8 +1560,10 @@ function PlayerRestartPanel({
   if (!row) return null;
 
   const metrics = [
-    { label: 'Targetted', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.kickoutTargets, 'rate') : row.kickoutTargets, { decimals: 0 }) },
-    { label: 'Targetted KOs Won By Team', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.kickoutWins, 'rate') : row.kickoutWins, { decimals: 0 }) },
+    ...(!isLiveMode ? [
+      { label: 'Targetted', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.kickoutTargets, 'rate') : row.kickoutTargets, { decimals: 0 }) },
+      { label: 'Targetted KOs Won By Team', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.kickoutWins, 'rate') : row.kickoutWins, { decimals: 0 }) },
+    ] : []),
     { label: 'Clean Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanWon, 'rate') : row.cleanWon, { decimals: 0 }) },
     { label: 'Clean Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanLost, 'rate') : row.cleanLost, { decimals: 0 }) },
     { label: 'Break Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.breakWon, 'rate') : row.breakWon, { decimals: 0 }) },
@@ -1571,9 +1576,9 @@ function PlayerRestartPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
-          <div className="text-lg font-semibold text-slate-900">Restarts</div>
+          <ReportInfoTitle title="Restarts" helpId="players_restarts" titleClassName="text-lg font-semibold text-slate-900" />
 
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {metrics.map((metric) => (
@@ -1586,7 +1591,7 @@ function PlayerRestartPanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="flex h-full items-center p-4">
           <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
             <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -1765,9 +1770,9 @@ function PlayerProgressionPanel({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
-          <div className="text-lg font-semibold text-slate-900">Progression</div>
+          <ReportInfoTitle title="Progression" helpId="players_progression" titleClassName="text-lg font-semibold text-slate-900" />
 
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {metrics.map((metric) => (
@@ -1800,7 +1805,7 @@ function PlayerProgressionPanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="flex h-full items-center p-4">
           <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
             <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -1849,6 +1854,7 @@ function PlayerDefensePanel({
   actions = [],
   cardCounts = null,
   statMode = 'raw',
+  isLiveMode = false,
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
@@ -1894,17 +1900,19 @@ function PlayerDefensePanel({
   const metrics = [
     { label: 'TO Forced', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.turnoversForced, 'rate') : row.turnoversForced, { decimals: 0 }) },
     { label: 'TO Recovered', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.turnoversRecovered, 'rate') : row.turnoversRecovered, { decimals: 0 }) },
-    { label: 'Defensive Actions', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.defActions, 'rate') : row.defActions, { decimals: 0 }) },
     { label: 'Fouls', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.foulsConceded, 'rate') : row.foulsConceded, { decimals: 0 }) },
-    { label: 'Blocks', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.blocks, 'rate') : row.blocks, { decimals: 0 }) },
-    { label: 'Pressure Applied', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, summary.pressureApplied, 'rate') : summary.pressureApplied, { decimals: 0 }) },
+    ...(!isLiveMode ? [
+      { label: 'Defensive Actions', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.defActions, 'rate') : row.defActions, { decimals: 0 }) },
+      { label: 'Blocks', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.blocks, 'rate') : row.blocks, { decimals: 0 }) },
+      { label: 'Pressure Applied', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, summary.pressureApplied, 'rate') : summary.pressureApplied, { decimals: 0 }) },
+    ] : []),
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-      <Card style={cardStyle}>
+    <div className={`grid gap-4 ${isLiveMode ? '' : 'lg:grid-cols-2 lg:items-stretch'}`}>
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="p-4 space-y-4">
-          <div className="text-lg font-semibold text-slate-900">Defense</div>
+          <ReportInfoTitle title="Defense" helpId="players_defending" titleClassName="text-lg font-semibold text-slate-900" />
 
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {metrics.map((metric) => (
@@ -1932,7 +1940,8 @@ function PlayerDefensePanel({
         </CardContent>
       </Card>
 
-      <Card style={cardStyle}>
+      {!isLiveMode ? (
+      <Card style={cardStyle} className="report-pane">
         <CardContent className="flex h-full items-center p-4">
           <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
             <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -1983,6 +1992,7 @@ function PlayerDefensePanel({
           </div>
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }
@@ -2031,10 +2041,10 @@ function PlayerDefendingAllowedPanel({
   return (
     <>
     <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-      <Card style={cardStyle} className="h-full">
+      <Card style={cardStyle} className="report-pane h-full">
         <CardContent className="flex h-full flex-col gap-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-lg font-semibold text-slate-900">Defending Allowed</div>
+            <ReportInfoTitle title="Defending Allowed" helpId="players_defending_allowed" titleClassName="text-lg font-semibold text-slate-900" />
             <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
               {matchupMinutesLabel}
             </div>
@@ -2052,7 +2062,7 @@ function PlayerDefendingAllowedPanel({
       </Card>
 
       <div className="flex h-full min-h-0 flex-col gap-4">
-        <Card style={cardStyle} className="shrink-0">
+        <Card style={cardStyle} className="report-pane shrink-0">
           <CardContent className="p-3">
             <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
               <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -2100,10 +2110,10 @@ function PlayerDefendingAllowedPanel({
           </CardContent>
         </Card>
 
-        <Card style={cardStyle} className="shrink-0">
+        <Card style={cardStyle} className="report-pane shrink-0">
           <CardContent className="flex flex-col gap-3 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div className="text-lg font-semibold text-slate-900">Matchups</div>
+              <ReportInfoTitle title="Matchups" helpId="players_matchups" titleClassName="text-lg font-semibold text-slate-900" />
               <div className="flex shrink-0 items-center gap-2">
                 <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                   {matchupMinutesLabel}
@@ -2179,21 +2189,23 @@ function PlayerHeaderCard({
   kickoutMapItems = [],
   onComparePlayer = null,
   onOpenVideoSelection = null,
+  isLiveMode = false,
 }) {
   if (!row) return null;
   const position = String(row.position || '').trim() || 'Position not logged';
-  const hideRoleChip = isGoalkeeperPlayer(row) || /goalkeeper/i.test(position) || position.toLowerCase() === 'gk';
+  const hideRoleChip = isLiveMode || isGoalkeeperPlayer(row) || /goalkeeper/i.test(position) || position.toLowerCase() === 'gk';
   const teamLabel = teamLabelForSide(row.team, homeTeam, awayTeam);
   const playerTitle = buildPlayerDisplayTitle(row);
   const paneStyle = {
     backgroundColor: '#ffffff',
     borderColor: 'rgb(226, 232, 240)',
   };
+  const showRightPane = rightPanelMode === 'kickout-map' || rightPanelMode === 'heatmap';
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-        <Card style={paneStyle}>
+      <div className={`grid gap-4 ${showRightPane ? 'lg:grid-cols-2 lg:items-stretch' : ''}`}>
+        <Card style={paneStyle} className="report-pane">
           <CardContent className="h-full p-0">
             <div className="min-w-0">
               <div className="min-w-0 p-4 pb-2">
@@ -2259,7 +2271,8 @@ function PlayerHeaderCard({
           </CardContent>
         </Card>
 
-        <Card style={paneStyle}>
+        {showRightPane ? (
+        <Card style={paneStyle} className="report-pane">
           <CardContent className="h-full p-0">
               {rightPanelMode === 'kickout-map' ? (
                 <PlayerTopPitchMap items={kickoutMapItems} teamSide={teamSide} match={match} onOpenVideoSelection={onOpenVideoSelection} />
@@ -2268,6 +2281,7 @@ function PlayerHeaderCard({
               )}
           </CardContent>
         </Card>
+        ) : null}
       </div>
     </div>
   );
@@ -2523,9 +2537,9 @@ function GoalkeeperPressTable({ card, homeTeam, awayTeam }) {
 
 function GoalkeeperSummaryMetricsCard({ title, metrics = [], cardStyle = undefined }) {
   return (
-    <Card style={cardStyle}>
+    <Card style={cardStyle} className="report-pane">
       <CardContent className="p-4 space-y-4">
-        <div className="text-lg font-semibold text-slate-900">{title}</div>
+        {React.isValidElement(title) ? title : <div className="text-lg font-semibold text-slate-900">{title}</div>}
         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
           {metrics.map((metric) => (
             <div key={metric.label} className="min-w-0 space-y-1">
@@ -2542,10 +2556,10 @@ function GoalkeeperSummaryMetricsCard({ title, metrics = [], cardStyle = undefin
 function GoalkeeperPressPanel({ card, cardStyle = undefined }) {
   if (!card) return null;
   return (
-    <Card style={cardStyle}>
+    <Card style={cardStyle} className="report-pane">
       <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-lg font-semibold text-slate-900">Kickout Press Breakdown</div>
+          <ReportInfoTitle title="Kickout Press Breakdown" helpId="players_goalkeeper_press" titleClassName="text-lg font-semibold text-slate-900" />
           <div className="text-right text-sm text-slate-600">
             <div className="font-semibold text-slate-900">
               {card.kickoutsTaken ? `${card.ownKickoutsWon}/${card.kickoutsTaken}` : '0/0'}
@@ -2586,7 +2600,7 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
   const visibleDepth = zoneDepth * 0.75;
 
   return (
-    <Card style={cardStyle}>
+    <Card style={cardStyle} className="report-pane">
       <CardContent className="p-4">
         <div className="relative overflow-hidden rounded-lg bg-slate-100" style={{ aspectRatio: `${PITCH_H} / ${visibleDepth}` }}>
           <svg viewBox={`0 0 ${PITCH_H} ${visibleDepth}`} className="relative z-10 h-full w-full">
@@ -2658,12 +2672,89 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
   );
 }
 
+function LiveGoalkeeperRestartMetricsCard({ row, statMode = 'raw', cardStyle = undefined }) {
+  if (!row) return null;
+
+  const metrics = [
+    { label: 'Clean Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanWon, 'rate') : row.cleanWon, { decimals: 0 }) },
+    { label: 'Clean Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanLost, 'rate') : row.cleanLost, { decimals: 0 }) },
+    { label: 'Break Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.breakWon, 'rate') : row.breakWon, { decimals: 0 }) },
+    { label: 'Break Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.breakLost, 'rate') : row.breakLost, { decimals: 0 }) },
+    { label: 'Broken', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.broken, 'rate') : row.broken, { decimals: 0 }) },
+    { label: 'Marks', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.marks, 'rate') : row.marks, { decimals: 0 }) },
+  ];
+
+  return (
+    <GoalkeeperSummaryMetricsCard
+      title={<ReportInfoTitle title="Restart Metrics" helpId="players_restarts" titleClassName="text-lg font-semibold text-slate-900" />}
+      metrics={metrics}
+      cardStyle={cardStyle}
+    />
+  );
+}
+
+function LiveGoalkeeperPlayerPanels({
+  row,
+  teamSide = 'home',
+  match = null,
+  statMode = 'raw',
+  involvementMetrics = [],
+  savingMetrics = [],
+  shotsOnGoal = [],
+  defensiveActions = [],
+  cardCounts = null,
+  onOpenVideoSelection = null,
+  cardStyle = undefined,
+}) {
+  if (!row) return null;
+
+  return (
+    <div className="space-y-4">
+      <LiveGoalkeeperRestartMetricsCard row={row} statMode={statMode} cardStyle={cardStyle} />
+
+      <div className="grid gap-4 xl:grid-cols-2 xl:items-stretch">
+        <GoalkeeperSummaryMetricsCard
+          title={<ReportInfoTitle title="Involvement" helpId="players_goalkeeper_involvement" titleClassName="text-lg font-semibold text-slate-900" />}
+          metrics={involvementMetrics}
+          cardStyle={cardStyle}
+        />
+        <PlayerDefensePanel
+          row={row}
+          actions={defensiveActions}
+          cardCounts={cardCounts}
+          statMode={statMode}
+          isLiveMode
+          onOpenVideoSelection={onOpenVideoSelection}
+          cardStyle={cardStyle}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2 xl:items-stretch">
+        <GoalkeeperSummaryMetricsCard
+          title={<ReportInfoTitle title="Saving Metrics" helpId="players_goalkeeper_saving" titleClassName="text-lg font-semibold text-slate-900" />}
+          metrics={savingMetrics}
+          cardStyle={cardStyle}
+        />
+        <GoalkeeperShotsMap
+          shots={shotsOnGoal}
+          teamSide={teamSide}
+          match={match}
+          onOpenVideoSelection={onOpenVideoSelection}
+          cardStyle={cardStyle}
+        />
+      </div>
+    </div>
+  );
+}
+
 function PlayersAnalyticsTabContent({
   stats,
   homeTeam,
   awayTeam,
   playerOptions,
   reportFilters,
+  isLiveMode = false,
+  showXpData = true,
   match = null,
   matchupStints = [],
   playerTimeAndPossessionStats: playerTimeAndPossessionStatsProp = null,
@@ -2673,6 +2764,7 @@ function PlayersAnalyticsTabContent({
   setFocusPlayerId = null,
   lockPlayerValue = null,
   lockPlayerBucket = null,
+  forcePlayerMode = null,
   singlePlayerOnly = false,
   playersNavPortalTargetId = '',
   onOpenVideoAt = null,
@@ -2697,6 +2789,7 @@ function PlayersAnalyticsTabContent({
   const [statMode, setStatMode] = useState('raw');
   const [playerShotPaneFilter, setPlayerShotPaneFilter] = useState('all');
   const [lbSort, setLbSort] = useState({ key: 'points', dir: 'desc' });
+  const showXp = !isLiveMode || showXpData;
 
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
@@ -2716,6 +2809,18 @@ function PlayersAnalyticsTabContent({
     return document.getElementById(playersNavPortalTargetId);
   }, [playersNavPortalTargetId]);
   const playerMapClipSettings = useMemo(() => getVideoClipSettings(reportFilters?.match), [reportFilters?.match]);
+  useEffect(() => {
+    if (isLiveMode && activeMode !== 'player-card') {
+      setActiveMode('player-card');
+    }
+  }, [activeMode, isLiveMode]);
+
+  useEffect(() => {
+    if (!forcePlayerMode) return;
+    if (activeMode !== forcePlayerMode) {
+      setActiveMode(forcePlayerMode);
+    }
+  }, [activeMode, forcePlayerMode]);
 
   const openPlayerMapVideoSelection = (items, { sourceLabel = 'Player Map', selectedId = null } = {}) => {
     const matchId = reportFilters?.match?.id || '';
@@ -2923,6 +3028,7 @@ function PlayersAnalyticsTabContent({
         goalShotsSaved: 0,
         goalShotsAgainst: 0,
         pressBreakdown: {
+          off: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
@@ -3106,7 +3212,7 @@ function PlayersAnalyticsTabContent({
           if (won) keeper.ownKickoutsWon += 1;
           if (cleanWon) keeper.cleanKickoutsWon += 1;
           const isLong = classifyKickoutLength(s) === 'long';
-          const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+          const pressKey = ['off', 'm2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
           if (isLong) {
             keeper.longKickoutsTaken += 1;
             if (won) keeper.longKickoutsWon += 1;
@@ -4058,7 +4164,7 @@ function PlayersAnalyticsTabContent({
     const sourceRows = (leaderboard || []).filter((row) => isGoalkeeperPlayer(row));
     return sourceRows
       .map((row) => {
-        const pressRows = ['m2m', 'zonal', 'conceded']
+        const pressRows = ['off', 'm2m', 'zonal', 'conceded']
           .map((press) => {
             const info = row.pressBreakdown?.[press];
             if (!info) return null;
@@ -4534,10 +4640,6 @@ function PlayersAnalyticsTabContent({
           value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.points, 'rate') : selectedPlayerRow.points, { decimals: 0 }),
         },
         {
-          label: 'Touches',
-          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.touches, 'rate') : selectedPlayerRow.touches, { decimals: 0 }),
-        },
-        {
           label: 'Saves',
           value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.goalShotsSaved, 'rate') : selectedPlayerRow.goalShotsSaved, { decimals: 0 }),
         },
@@ -4547,9 +4649,32 @@ function PlayersAnalyticsTabContent({
             ? `${selectedPlayerRow.ownKickoutsWon}/${selectedPlayerRow.kickoutsTaken} (${formatPct(selectedPlayerRow.ownKickoutWinPct)})`
             : '0/0',
         },
-        {
+        ...(isLiveMode ? [{
+          label: 'TO Won',
+          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversWon, 'rate') : selectedPlayerRow.turnoversWon, { decimals: 0 }),
+        }] : [{
           label: 'Progression',
           value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, progressionValue, 'rate') : progressionValue, { decimals: 0 }),
+        }]),
+      ];
+    }
+    if (isLiveMode) {
+      return [
+        {
+          label: 'Points',
+          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.points, 'rate') : selectedPlayerRow.points, { decimals: 0 }),
+        },
+        {
+          label: 'Shots',
+          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.shots, 'rate') : selectedPlayerRow.shots, { decimals: 0 }),
+        },
+        {
+          label: 'Kickouts Won',
+          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, kickoutsWonValue, 'rate') : kickoutsWonValue, { decimals: 0 }),
+        },
+        {
+          label: 'TO Won',
+          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversWon, 'rate') : selectedPlayerRow.turnoversWon, { decimals: 0 }),
         },
       ];
     }
@@ -4579,7 +4704,7 @@ function PlayersAnalyticsTabContent({
         value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.passes, 'rate') : selectedPlayerRow.passes, { decimals: 0 }),
       },
     ];
-  }, [selectedIsGoalkeeper, selectedPlayerRow, statMode]);
+  }, [isLiveMode, selectedIsGoalkeeper, selectedPlayerRow, statMode]);
 
   const goalkeeperInvolvementMetrics = useMemo(() => {
     if (!selectedIsGoalkeeper || !selectedPlayerRow) return [];
@@ -4589,11 +4714,11 @@ function PlayersAnalyticsTabContent({
       { label: 'Carries', value: formatScoringFraction(selectedPlayerRow.carryComp, selectedPlayerRow.carries) },
       { label: 'Prog Carries', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.progCarryComp, 'rate') : selectedPlayerRow.progCarryComp, { decimals: 0 }) },
       { label: 'Pts', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.points, 'rate') : selectedPlayerRow.points, { decimals: 0 }) },
-      { label: 'xP', value: selectedPlayerRow.xpCount ? formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.xpTotal, 'rate') : selectedPlayerRow.xpTotal, { decimals: 2 }) : '0.00' },
+      ...(showXp ? [{ label: 'xP', value: selectedPlayerRow.xpCount ? formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.xpTotal, 'rate') : selectedPlayerRow.xpTotal, { decimals: 2 }) : '0.00' }] : []),
       { label: 'TO Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversWon, 'rate') : selectedPlayerRow.turnoversWon, { decimals: 0 }) },
       { label: 'TO Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversLost, 'rate') : selectedPlayerRow.turnoversLost, { decimals: 0 }) },
     ];
-  }, [selectedIsGoalkeeper, selectedPlayerRow, statMode]);
+  }, [selectedIsGoalkeeper, selectedPlayerRow, showXp, statMode]);
 
   const goalkeeperSavingMetrics = useMemo(() => {
     if (!selectedIsGoalkeeper || !selectedPlayerRow) return [];
@@ -4607,10 +4732,12 @@ function PlayersAnalyticsTabContent({
       { label: 'Goals Conceded', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.goalShotsAgainst, 'rate') : selectedPlayerRow.goalShotsAgainst, { decimals: 0 }) },
       { label: 'Wides Of Shots On Goal', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, widesOfShotsOnGoal, 'rate') : widesOfShotsOnGoal, { decimals: 0 }) },
       { label: 'Saves', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.goalShotsSaved, 'rate') : selectedPlayerRow.goalShotsSaved, { decimals: 0 }) },
-      { label: 'xP Of Shots On Goal', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, xPShotsOnGoal, 'rate') : xPShotsOnGoal, { decimals: 2 }) },
-      { label: 'xP Of Shots On Target', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, xPShotsOnTarget, 'rate') : xPShotsOnTarget, { decimals: 2 }) },
+      ...(showXp ? [
+        { label: 'xP Of Shots On Goal', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, xPShotsOnGoal, 'rate') : xPShotsOnGoal, { decimals: 2 }) },
+        { label: 'xP Of Shots On Target', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, xPShotsOnTarget, 'rate') : xPShotsOnTarget, { decimals: 2 }) },
+      ] : []),
     ];
-  }, [selectedGoalkeeperShotsOnGoal, selectedIsGoalkeeper, selectedPlayerRow, statMode]);
+  }, [selectedGoalkeeperShotsOnGoal, selectedIsGoalkeeper, selectedPlayerRow, showXp, statMode]);
 
   const toggleSort = (key) => {
     setLbSort((current) => {
@@ -4683,6 +4810,8 @@ function PlayersAnalyticsTabContent({
     </div>
   );
 
+  const availablePlayerCardModes = isLiveMode ? [['player-card', 'Player Card']] : (singlePlayerOnly ? PLAYER_CARD_MODES.slice(0, 1) : PLAYER_CARD_MODES);
+
   const playersNavControls = (
     <div className="flex max-w-full flex-nowrap items-center justify-end gap-0.5" aria-label="Players tab controls">
       {(activeMode === 'player-card' && !singlePlayerOnly) ? (
@@ -4694,8 +4823,9 @@ function PlayersAnalyticsTabContent({
           <Button type="button" size="sm" variant={statMode === 'rate' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('rate')}>{rateModeLabel}</Button>
         </div>
       ) : null}
+      {availablePlayerCardModes.length > 1 ? (
       <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5">
-        {(singlePlayerOnly ? PLAYER_CARD_MODES.slice(0, 1) : PLAYER_CARD_MODES).map(([value, label]) => (
+        {availablePlayerCardModes.map(([value, label]) => (
           <Button
             key={value}
             type="button"
@@ -4708,6 +4838,7 @@ function PlayersAnalyticsTabContent({
           </Button>
         ))}
       </div>
+      ) : null}
     </div>
   );
 
@@ -4728,23 +4859,40 @@ function PlayersAnalyticsTabContent({
                   teamSide={selectedPlayerTeamSide}
                   heatmapPoints={selectedPlayerHeatmapPoints}
                   match={reportFilters?.match}
-                  rightPanelMode={selectedTopRightIsGoalkeeper ? 'kickout-map' : 'heatmap'}
+                  rightPanelMode={isLiveMode ? (selectedTopRightIsGoalkeeper ? 'kickout-map' : 'none') : (selectedTopRightIsGoalkeeper ? 'kickout-map' : 'heatmap')}
                   kickoutMapItems={selectedTopRightIsGoalkeeper ? goalkeeperKickoutItems : []}
-                  onComparePlayer={!singlePlayerOnly ? () => {
+                  onComparePlayer={(!singlePlayerOnly && !isLiveMode) ? () => {
                     setActiveMode('comparison');
                     if (!comparisonSecondPlayerId || comparisonSecondPlayerId === safeChartPlayerValue) {
                       setComparisonSecondPlayerId(defaultComparisonSecondValue);
                     }
                   } : null}
                   onOpenVideoSelection={openPlayerMapVideoSelection}
+                  isLiveMode={isLiveMode}
                 />
 
+                {selectedIsGoalkeeper && isLiveMode ? (
+                  <LiveGoalkeeperPlayerPanels
+                    row={selectedPlayerRow}
+                    teamSide={selectedPlayerTeamSide}
+                    match={reportFilters?.match}
+                    statMode={statMode}
+                    involvementMetrics={goalkeeperInvolvementMetrics}
+                    savingMetrics={goalkeeperSavingMetrics}
+                    shotsOnGoal={selectedGoalkeeperShotsOnGoal}
+                    defensiveActions={selectedPlayerDefensiveActions}
+                    cardCounts={selectedPlayerCardCounts}
+                    onOpenVideoSelection={openPlayerMapVideoSelection}
+                    cardStyle={selectedCardTintStyle}
+                  />
+                ) : (
                 <div className="space-y-4">
                   {!selectedIsGoalkeeper ? (
                     <PlayerShootingPanel
                       row={selectedPlayerRow}
                       shots={selectedPlayerShotStats}
                       statMode={statMode}
+                      showXp={showXp}
                       teamSide={selectedPlayerTeamSide}
                       match={reportFilters?.match}
                       filter={playerShotPaneFilter}
@@ -4753,7 +4901,7 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {!selectedIsGoalkeeper && !isLiveMode ? (
                     <PlayerPassingPanel
                       row={selectedPlayerRow}
                       passes={selectedPlayerPassStats}
@@ -4764,7 +4912,7 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {!selectedIsGoalkeeper && !isLiveMode ? (
                     <PlayerCarryingPanel
                       row={selectedPlayerRow}
                       carries={selectedPlayerCarryStats}
@@ -4775,7 +4923,7 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {!selectedIsGoalkeeper && !isLiveMode ? (
                     <PlayerProgressionPanel
                       row={selectedPlayerRow}
                       derived={selectedPlayerDerived || {}}
@@ -4790,10 +4938,11 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {(!selectedIsGoalkeeper || isLiveMode) ? (
                     <PlayerRestartPanel
                       row={selectedPlayerRow}
                       statMode={statMode}
+                      isLiveMode={isLiveMode}
                       kickoutItems={selectedPlayerKickoutMapItems}
                       teamSide={selectedPlayerTeamSide}
                       match={reportFilters?.match}
@@ -4801,17 +4950,18 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {(!selectedIsGoalkeeper || isLiveMode) ? (
                     <PlayerDefensePanel
                       row={selectedPlayerRow}
                       actions={selectedPlayerDefensiveActions}
                       cardCounts={selectedPlayerCardCounts}
                       statMode={statMode}
+                      isLiveMode={isLiveMode}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? (
+                  {!selectedIsGoalkeeper && !isLiveMode ? (
                     <PlayerDefendingAllowedPanel
                       row={selectedPlayerRow}
                       statMode={statMode}
@@ -4825,7 +4975,7 @@ function PlayersAnalyticsTabContent({
                       cardStyle={selectedCardTintStyle}
                     />
                   ) : null}
-                  {!selectedIsGoalkeeper ? playerCardSections.map((section) => (
+                  {!selectedIsGoalkeeper && !isLiveMode ? playerCardSections.map((section) => (
                     <MetricCategoryCard
                       key={section.title}
                       title={section.title}
@@ -4835,16 +4985,24 @@ function PlayersAnalyticsTabContent({
                     />
                   )) : null}
 
-                  {selectedIsGoalkeeper ? (
+                  {selectedIsGoalkeeper && !isLiveMode ? (
                     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
                       <GoalkeeperPressPanel card={selectedGoalkeeperPressCard} cardStyle={selectedCardTintStyle} />
-                      <GoalkeeperSummaryMetricsCard title="Involvement" metrics={goalkeeperInvolvementMetrics} cardStyle={selectedCardTintStyle} />
+                      <GoalkeeperSummaryMetricsCard
+                        title={<ReportInfoTitle title="Involvement" helpId="players_goalkeeper_involvement" titleClassName="text-lg font-semibold text-slate-900" />}
+                        metrics={goalkeeperInvolvementMetrics}
+                        cardStyle={selectedCardTintStyle}
+                      />
                     </div>
                   ) : null}
 
                   {selectedIsGoalkeeper ? (
                     <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-                      <GoalkeeperSummaryMetricsCard title="Saving Metrics" metrics={goalkeeperSavingMetrics} cardStyle={selectedCardTintStyle} />
+                      <GoalkeeperSummaryMetricsCard
+                        title={<ReportInfoTitle title="Saving Metrics" helpId="players_goalkeeper_saving" titleClassName="text-lg font-semibold text-slate-900" />}
+                        metrics={goalkeeperSavingMetrics}
+                        cardStyle={selectedCardTintStyle}
+                      />
                       <GoalkeeperShotsMap
                         shots={selectedGoalkeeperShotsOnGoal}
                         teamSide={selectedPlayerTeamSide}
@@ -4855,6 +5013,7 @@ function PlayersAnalyticsTabContent({
                     </div>
                   ) : null}
               </div>
+                )}
             </div>
           ) : (
             <div className="text-sm text-slate-600">Select a player to view the player card.</div>
@@ -4862,10 +5021,10 @@ function PlayersAnalyticsTabContent({
         </div>
       )}
 
-          {activeMode === 'comparison' && (
+          {!isLiveMode && activeMode === 'comparison' && (
             <div className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-2">
-                <Card>
+                <Card className="report-pane">
                   <CardContent className="p-4 space-y-4">
                     <div className="flex flex-col gap-3 border-b border-slate-100 pb-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -4947,7 +5106,7 @@ function PlayersAnalyticsTabContent({
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="report-pane">
                   <CardContent className="p-4 space-y-4">
                     <div className="flex flex-col gap-3 border-b border-slate-100 pb-4">
                         <div>
@@ -5023,7 +5182,7 @@ function PlayersAnalyticsTabContent({
                 </Card>
               </div>
 
-              <Card>
+              <Card className="report-pane">
                 <CardContent className="p-4 space-y-4">
                   <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -5044,7 +5203,7 @@ function PlayersAnalyticsTabContent({
               </Card>
 
               {playerBucket === 'goalkeepers' && goalkeeperPressCards.length > 0 ? (
-                <Card>
+                <Card className="report-pane">
                   <CardContent className="p-4 space-y-3">
                     <div className="text-lg font-semibold text-slate-900">Kickout Press Breakdown</div>
                     <div className="grid gap-3 lg:grid-cols-2">

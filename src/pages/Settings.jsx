@@ -6,7 +6,7 @@ const db = globalThis.__B44_DB__ || {
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { createPageUrl } from '@/utils';
@@ -152,6 +152,8 @@ function ShortcutSection({ section, shortcuts, setShortcuts }) {
 
 export default function Settings() {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { isAuthenticated, user, linkGoogleIdentity, isSupabaseConfigured: authConfigured } = useAuth();
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
@@ -269,6 +271,23 @@ export default function Settings() {
     onError: (error) => toast.error(error?.message || 'Failed to sync account data'),
   });
 
+  const openLiveDemoMutation = useMutation({
+    mutationFn: async () => {
+      const { openDemoMatch } = await import('@/lib/demoData');
+      return openDemoMatch(db, { mode: 'live' });
+    },
+    onSuccess: (match) => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['players'] });
+      queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+      if (match?.id) queryClient.invalidateQueries({ queryKey: ['stats', match.id] });
+      toast.success('Live demo match ready');
+      if (match?.id) navigate(createPageUrl(`MatchStats?id=${match.id}`));
+    },
+    onError: (error) => toast.error(error?.message || 'Failed to open live demo match'),
+  });
+
   const identities = Array.isArray(user?.identities) ? user.identities : [];
   const hasGoogleIdentity = identities.some((identity) => identity?.provider === 'google');
   const accountLabel = isAuthenticated
@@ -278,6 +297,11 @@ export default function Settings() {
     () => ['custom_1', 'custom_2', 'custom_3'].filter((key) => customFields?.[key]?.enabled).length,
     [customFields]
   );
+  const settingsTab = useMemo(() => {
+    const params = new URLSearchParams(location?.search || '');
+    const value = String(params.get('tab') || 'stats');
+    return ['stats', 'logging', 'account', 'info'].includes(value) ? value : 'stats';
+  }, [location?.search]);
 
   const handleLinkGoogle = async () => {
     if (!authConfigured) {
@@ -316,7 +340,7 @@ export default function Settings() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        <Tabs defaultValue="stats" className="space-y-6">
+        <Tabs key={settingsTab} defaultValue={settingsTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="stats">Stats</TabsTrigger>
             <TabsTrigger value="logging">Logging</TabsTrigger>
@@ -376,6 +400,23 @@ export default function Settings() {
                     <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
                       Logging settings affect the match-day logger, live mode fields, keyboard shortcuts, and optional custom stat-entry fields.
                     </div>
+                    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <Label>Live Demo Match</Label>
+                        <p className="text-xs text-slate-500">
+                          Open the demo fixture in live mode to test live logging and the trimmed live report without changing the analysis demo.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="sm:self-start"
+                        onClick={() => openLiveDemoMutation.mutate()}
+                        disabled={openLiveDemoMutation.isPending}
+                      >
+                        {openLiveDemoMutation.isPending ? 'Opening...' : 'Open Live Demo Match'}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -384,15 +425,17 @@ export default function Settings() {
                 <Card>
                   <CardContent className="space-y-6 p-6">
                     {[
+                      ['showShotSituation', 'Show shot situation'],
                       ['showShotMethod', 'Show shot method'],
                       ['showShotPressure', 'Show shot pressure'],
                       ['showShotBlockedSavedBy', 'Show shot blocked or saved by'],
-                      ['showShotBroughtBackAdv', 'Show shot brought back advantage'],
+                      ['showKickoutBrokenBy', 'Show kickout broken by'],
                       ['showKickoutPress', 'Show kickout press'],
                       ['showKickoutLostBy', 'Show kickout lost by'],
                       ['showTurnoverType', 'Show turnover type'],
                       ['showTurnoverBroughtBackAdv', 'Show turnover brought back advantage'],
                       ['showFoulCard', 'Show foul card'],
+                      ['showThrowInBrokenBy', 'Show throw-in broken by'],
                       ['showThrowInLostBy', 'Show throw-in lost by'],
                       ['showTemporarySub', 'Show temporary sub toggle'],
                     ].map(([key, label]) => (

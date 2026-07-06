@@ -119,7 +119,6 @@ export function createDefaultLiveDraft(homeSide = 'home') {
     shotPressure: 'low',
     shotBlockedBy: NONE,
     shotSavedBy: NONE,
-    shotBroughtBackAdv: false,
     kickoutTeam: homeSide,
     kickoutOutcome: 'clean',
     kickoutWonBy: NONE,
@@ -127,6 +126,7 @@ export function createDefaultLiveDraft(homeSide = 'home') {
     kickoutPress: 'm2m',
     turnoverWonBy: NONE,
     turnoverLostBy: NONE,
+    turnoverRecoveredBy: NONE,
     turnoverType: 'forced',
     turnoverBroughtBackAdv: false,
     foulBy: NONE,
@@ -135,6 +135,7 @@ export function createDefaultLiveDraft(homeSide = 'home') {
     card: 'none',
     throwOutcome: 'clean',
     throwWonBy: NONE,
+    throwBrokenBy: NONE,
     throwLostBy: NONE,
   };
 }
@@ -229,7 +230,6 @@ export default function LiveModeLogger({
             {settings.showShotPressure !== false && <Field label="Pressure"><ChoiceButtons value={draft.shotPressure} onChange={(v) => update({ shotPressure: v })} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Med' }, { value: 'high', label: 'High' }]} /></Field>}
             {settings.showShotBlockedSavedBy !== false && draft.shotOutcome === 'blocked' && <Field label="Blocked By"><PlayerSelect value={draft.shotBlockedBy} onChange={(v) => update({ shotBlockedBy: v })} players={players} /></Field>}
             {settings.showShotBlockedSavedBy !== false && draft.shotOutcome === 'saved' && <Field label="Saved By"><PlayerSelect value={draft.shotSavedBy} onChange={(v) => update({ shotSavedBy: v })} players={players} /></Field>}
-            {settings.showShotBroughtBackAdv !== false && <ToggleRow label="Brought Back - Adv." checked={draft.shotBroughtBackAdv} onCheckedChange={(v) => update({ shotBroughtBackAdv: v })} />}
           </div>
         )}
 
@@ -272,6 +272,7 @@ export default function LiveModeLogger({
               <>
                 <Field label="Won By"><PlayerSelect value={draft.turnoverWonBy} onChange={(v) => update({ turnoverWonBy: v })} players={players} /></Field>
                 <Field label="Lost By"><PlayerSelect value={draft.turnoverLostBy} onChange={(v) => update({ turnoverLostBy: v })} players={players} /></Field>
+                <Field label="Recovered By"><PlayerSelect value={draft.turnoverRecoveredBy} onChange={(v) => update({ turnoverRecoveredBy: v })} players={players} /></Field>
               </>
             )}
             {settings.showTurnoverBroughtBackAdv !== false && <ToggleRow label="Brought Back - Adv." checked={draft.turnoverBroughtBackAdv} onCheckedChange={(v) => update({ turnoverBroughtBackAdv: v })} />}
@@ -289,6 +290,7 @@ export default function LiveModeLogger({
               </Select>
             </Field>
             <Field label="Won By"><PlayerSelect value={draft.throwWonBy} onChange={(v) => update({ throwWonBy: v })} players={players} /></Field>
+            {settings.showThrowInBrokenBy !== false && draft.throwOutcome === 'break' && <Field label="Broken By"><PlayerSelect value={draft.throwBrokenBy} onChange={(v) => update({ throwBrokenBy: v })} players={players} /></Field>}
             {settings.showThrowInLostBy !== false && <Field label="Lost By"><PlayerSelect value={draft.throwLostBy} onChange={(v) => update({ throwLostBy: v })} players={players} /></Field>}
             {draft.throwOutcome === 'foul' && <FoulFields draft={draft} update={update} players={players} showCard={settings.showFoulCard !== false} />}
           </div>

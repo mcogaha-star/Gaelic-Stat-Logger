@@ -17,10 +17,11 @@ const formatHalf = (half) =>
             : half === 'et_second' ? 'ET 2nd'
                 : '1st';
 
-export default function RecentStats({ stats, statsCount, onDelete, onEdit }) {
+export default function RecentStats({ stats, statsCount, onDelete, onEdit, topContent = null }) {
     if (stats.length === 0) {
         return (
             <div className="bg-white rounded-xl border p-6 text-center text-slate-400">
+                {topContent ? <div className="mb-4 border-b border-slate-100 pb-4 text-left text-slate-900">{topContent}</div> : null}
                 <p>No stats logged yet</p>
                 <p className="text-sm mt-1">Click or drag on the pitch to log stats</p>
             </div>
@@ -45,6 +46,7 @@ export default function RecentStats({ stats, statsCount, onDelete, onEdit }) {
                     </div>
                 </div>
             </div>
+            {topContent ? <div className="border-b border-slate-100 p-4">{topContent}</div> : null}
             <ScrollArea className="h-64">
                 <div className="p-2 space-y-1">
                     {recentStats.map((stat) => (

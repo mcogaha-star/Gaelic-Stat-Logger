@@ -11,14 +11,14 @@ const DEFAULT_REPORT_FILTERS = {
   timeMax: '',
 };
 
-export function useReportFilterState({ stats, match, imputedTimeById }) {
+export function useReportFilterState({ stats, match, imputedTimeById, initialActiveTab = 'summary' }) {
   const [vizTeam, setVizTeam] = useState('both');
   const [vizActions, setVizActions] = useState([]);
   const [vizHalves, setVizHalves] = useState([]);
   const [vizCounters, setVizCounters] = useState([]);
   const [vizPlayerIds, setVizPlayerIds] = useState([]);
   const [vizColorBy, setVizColorBy] = useState('team');
-  const [activeTab, setActiveTab] = useState('summary');
+  const [activeTab, setActiveTab] = useState(initialActiveTab || 'summary');
   const [topFiltersOpen, setTopFiltersOpen] = useState(false);
   const [overviewHalf, setOverviewHalf] = useState('all');
   const previousActiveTabRef = useRef(activeTab);

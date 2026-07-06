@@ -4,12 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BarChart3, ChevronDown, Copy, Menu, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +44,7 @@ import {
   normalizeStatModelRows,
   rebuildPossessionRows,
   shouldExcludeFromTotals,
+  getShotExpectedPointsValue,
   POSSESSION_REBUILD_VERSION,
   DEFENCE_SET_MIGRATION_VERSION,
   STAT_MODEL_MIGRATION_VERSION,
@@ -88,6 +91,7 @@ import { createSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { buildEffectiveMatchupStints, buildMatchupPeriodMaxSeconds } from '@/lib/defendingAllowed';
 import { useAuth } from '@/lib/AuthContext';
 import { setPostLoginRedirect } from '@/lib/postLoginRedirect';
+import { buildMatchRosterSnapshotPatch, resolveMatchRosterPlayers } from '@/lib/matchRosterSnapshots';
 import {
   applyXpImportToShots,
   buildThirdPartyShotExportRows,
@@ -98,6 +102,11 @@ import {
   writeThirdPartyXpIssues,
 } from '@/lib/thirdPartyXp';
 import { createSeededRng, hashSimulationSeed, simulateFullMatchFromShots } from '@/lib/winProbability';
+import {
+  exportReportTargetsAsJpegs,
+  exportReportTargetsAsPdf,
+  sanitizeExportFilePart,
+} from '@/features/report/reportExport';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -121,6 +130,15 @@ const REPORT_TAB_OPTIONS = [
   { value: 'players_ana', label: 'Players' },
   { value: 'video', label: 'Video' },
 ];
+const REPORT_EXPORT_FORMATS = [
+  { value: 'pdf', label: 'PDF' },
+  { value: 'jpeg', label: 'JPEG' },
+];
+
+function reportTabVisibleInMode(tabValue, isLiveMode) {
+  if (!isLiveMode) return true;
+  return !['build_up', 'video'].includes(String(tabValue || ''));
+}
 
 function getSectionBoundaryLabel(half) {
   if (half === 'first') return 'HT';
@@ -145,6 +163,16 @@ function buildFilterButtonLabel(count) {
 function safeShotArcFilePart(value, fallback = 'team') {
   const text = String(value || fallback).trim().toLowerCase();
   return (text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || fallback).slice(0, 80);
+}
+
+function extractExportPaneTitle(element) {
+  if (!(element instanceof HTMLElement)) return '';
+  const explicitTitle = element.querySelector('[data-export-title="true"]');
+  if (explicitTitle?.textContent) return explicitTitle.textContent.trim();
+  const titleCandidate = element.querySelector(
+    '.text-lg.font-semibold.text-slate-900, .font-semibold.text-slate-900, .text-base.font-semibold.text-slate-900, .text-sm.font-semibold.text-slate-900'
+  );
+  return titleCandidate?.textContent?.trim() || '';
 }
 
 function clampColorChannel(value) {
@@ -388,6 +416,11 @@ function sortRestartFilterOptions(options) {
 export default function MatchReport({ sharedPayload = null, statShareCode = '', readOnly = false }) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const requestedTab = useMemo(() => {
+    const params = new URLSearchParams(location?.search || '');
+    const value = String(params.get('tab') || '').trim();
+    return REPORT_TAB_OPTIONS.some((option) => option.value === value) ? value : 'summary';
+  }, [location?.search]);
   const { isAuthenticated } = useAuth();
   const urlParams = new URLSearchParams(location?.search || '');
   const isSharedView = !!sharedPayload;
@@ -398,11 +431,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [statViewShareCode, setStatViewShareCode] = useState('');
   const [shareBusy, setShareBusy] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportFormat, setExportFormat] = useState('pdf');
+  const [exportTargets, setExportTargets] = useState([]);
+  const [selectedExportIds, setSelectedExportIds] = useState([]);
+  const [exportPlayersPlayerId, setExportPlayersPlayerId] = useState('');
   const [playerProfileOpen, setPlayerProfileOpen] = useState(false);
   const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
   const [matchupEditorState, setMatchupEditorState] = useState({ open: false, defenderKey: null });
   const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
+  const [manageMenuOpen, setManageMenuOpen] = useState(false);
   const shotArcImportInputRef = useRef(null);
+  const exportWorkspaceRef = useRef(null);
+  const reportMainRef = useRef(null);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
@@ -453,8 +495,24 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     setStatViewShareCode(match?.latest_stat_share_code || '');
   }, [match?.latest_game_share_code, match?.latest_share_code, match?.latest_stat_share_code]);
 
-  const effectiveHomePlayers = isSharedView ? (sharedData.homePlayers || []) : homePlayers;
-  const effectiveAwayPlayers = isSharedView ? (sharedData.awayPlayers || []) : awayPlayers;
+  const effectiveHomePlayers = isSharedView
+    ? (sharedData.homePlayers || [])
+    : resolveMatchRosterPlayers(match?.home_roster_snapshot, homePlayers, homeTeam?.id);
+  const effectiveAwayPlayers = isSharedView
+    ? (sharedData.awayPlayers || [])
+    : resolveMatchRosterPlayers(match?.away_roster_snapshot, awayPlayers, awayTeam?.id);
+
+  useEffect(() => {
+    if (isSharedView || !match?.id || !homeTeam?.id || !awayTeam?.id) return;
+    if (match?.home_roster_snapshot && match?.away_roster_snapshot) return;
+    if (homePlayers.length === 0 && awayPlayers.length === 0) return;
+    db.entities.Match.update(match.id, buildMatchRosterSnapshotPatch({
+      homePlayers,
+      awayPlayers,
+    }))
+      .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
+      .catch(() => {});
+  }, [awayPlayers, awayTeam?.id, homePlayers, homeTeam?.id, isSharedView, match?.away_roster_snapshot, match?.home_roster_snapshot, match?.id, matchId, queryClient]);
 
   const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
   const readDefenceSetMigrationDone = (key) => {
@@ -497,6 +555,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const stats = useMemo(
     () => rebuildPossessionRows(normalizeStatModelRows(normalizeDefenceSetRows((effectiveRawStats || []).filter((s) => s?.stat_type !== 'defensive_contact'), defenceSetMigrationDone), statModelMigrationDone)),
     [effectiveRawStats, defenceSetMigrationDone, statModelMigrationDone]
+  );
+  const isLiveMode = String(match?.mode || 'analysis') === 'live';
+  const showXpData = useMemo(() => {
+    if (!isLiveMode) return true;
+    return (Array.isArray(stats) ? stats : []).some((stat) => (
+      stat?.stat_type === 'shot' && Number.isFinite(getShotExpectedPointsValue(stat))
+    ));
+  }, [isLiveMode, stats]);
+  const visibleReportTabOptions = useMemo(
+    () => REPORT_TAB_OPTIONS.filter((option) => reportTabVisibleInMode(option.value, isLiveMode)),
+    [isLiveMode],
   );
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
@@ -666,6 +735,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         position: p.position || '',
       }));
   }, [effectiveHomePlayers, effectiveAwayPlayers]);
+  const exportPlayerOptions = useMemo(
+    () => playerOptions.map((player) => ({
+      value: `${String(player.team_side || '')}|${String(player.id)}`,
+      label: `${player.label} | ${player.team_side === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}`,
+    })),
+    [awayTeam?.name, homeTeam?.name, playerOptions],
+  );
   const allPlayersForShare = useMemo(() => [...(effectiveHomePlayers || []), ...(effectiveAwayPlayers || [])], [effectiveHomePlayers, effectiveAwayPlayers]);
   const thirdPartyShotTeams = useMemo(() => ({ homeTeam, awayTeam }), [homeTeam, awayTeam]);
   const playerTimeAndPossessionStats = useMemo(
@@ -975,7 +1051,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
   };
 
-  const reportState = useReportFilterState({ stats, match, imputedTimeById });
+  const reportState = useReportFilterState({ stats, match, imputedTimeById, initialActiveTab: requestedTab });
   const {
     activeTab,
     setActiveTab,
@@ -1059,7 +1135,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         + countMeaningfulArray(possessionsOutcomeFilter)
         + countMeaningfulArray(possessionsOriginFilter)
         + countMeaningfulArray(possessionsStartZoneFilter)
-        + countMeaningfulSelect(possessionsAttackTypeFilter);
+        + (isLiveMode ? 0 : countMeaningfulSelect(possessionsAttackTypeFilter));
     }
     if (activeTab === 'build_up') {
       return baseCount
@@ -1070,7 +1146,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
     if (activeTab === 'kickouts') {
       return baseCount
-        + countMeaningfulArray(restartTargetFilter)
+        + (isLiveMode ? 0 : countMeaningfulArray(restartTargetFilter))
         + countMeaningfulArray(restartWonByFilter)
         + countMeaningfulArray(restartLengthFilter)
         + countMeaningfulArray(restartSideFilter);
@@ -1117,12 +1193,18 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     defenseDefTypes,
     defenseEventCategory,
     playersFocusPlayerId,
+    isLiveMode,
   ]);
 
   useEffect(() => {
     if (activeTab === 'data') setActiveTab('video');
     if (activeTab === 'visualiser') setActiveTab('video');
   }, [activeTab, setActiveTab]);
+
+  useEffect(() => {
+    if (reportTabVisibleInMode(activeTab, isLiveMode)) return;
+    setActiveTab('summary');
+  }, [activeTab, isLiveMode, setActiveTab]);
 
   const { overviewStats, filteredForReport } = useFilteredReportStats({
     stats,
@@ -1718,6 +1800,391 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       },
     };
   }, [homeTeam?.color, awayTeam?.color]);
+  const headerDateText = match?.date ? String(match.date) : '';
+  const reportTitleText = `${homeTeam?.name || 'Home'} vs ${awayTeam?.name || 'Away'}`;
+  const reportSubtitleText = [headerDateText, match?.venue || '', `Exported ${new Date().toLocaleString('en-IE')}`]
+    .filter(Boolean)
+    .join(' • ');
+  const reportExportBaseName = sanitizeExportFilePart(
+    [homeTeam?.name || 'home', 'vs', awayTeam?.name || 'away', match?.date || 'report'].join('_'),
+    'gaeliq_report'
+  );
+
+  const reportTabEntries = [
+    {
+      value: 'summary',
+      label: 'Overview',
+      render: () => (
+        <OverviewTab
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          match={match}
+          scoreTimeline={scoreTimeline}
+          summary={summary}
+          overviewMomentum={overviewMomentum}
+          overviewPossessionOutcome={overviewPossessionOutcome}
+          overviewHalf={overviewHalf}
+          setOverviewHalf={setOverviewHalf}
+        />
+      ),
+    },
+    {
+      value: 'scoring',
+      label: 'Shooting',
+      render: () => (
+        <ScoringTab
+          stats={filteredForScoring}
+          simStats={filteredForScoringWp}
+          match={match}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          playerOptions={playerOptions}
+          reportFilters={reportFilters}
+          isLiveMode={isLiveMode}
+          showXpData={showXpData}
+          shotType={scoringShotType}
+          setShotType={setScoringShotType}
+          situation={scoringSituation}
+          setSituation={setScoringSituation}
+          pressure={scoringPressure}
+          setPressure={setScoringPressure}
+          method={scoringMethod}
+          setMethod={setScoringMethod}
+          attackType={scoringAttackType}
+          onOpenVideoAt={openSharedVideoAt}
+        />
+      ),
+    },
+    {
+      value: 'possessions',
+      label: 'Possessions',
+      render: () => (
+        <PossessionsTab
+          stats={stats}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          playerOptions={playerOptions}
+          reportFilters={reportFilters}
+          isLiveMode={isLiveMode}
+          showXpData={showXpData}
+          onOpenVideoAt={openSharedVideoAt}
+          onOpenVideoPossession={openSharedVideoPossession}
+          outcomeFilter={possessionsOutcomeFilter}
+          originFilter={possessionsOriginFilter}
+          startZoneFilter={possessionsStartZoneFilter}
+          attackTypeFilter={possessionsAttackTypeFilter}
+          setAttackTypeFilter={setPossessionsAttackTypeFilter}
+          onVisualisePossession={(p) => {
+            const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
+            const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => {
+              if (!s) return false;
+              if (s?.team_side === p?.teamSide) return true;
+              return (s?.stat_type === 'kickout' || s?.stat_type === 'throw_in') && s?.possession_team_side === p?.teamSide;
+            });
+            openPossessionVisualiser({
+              title: `Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`,
+              stats: possessionStats,
+            });
+          }}
+        />
+      ),
+    },
+    {
+      value: 'build_up',
+      label: 'Build-Up',
+      render: () => (
+        <BuildUpTab
+          stats={filteredForReport}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          playerOptions={playerOptions}
+          reportFilters={reportFilters}
+          eventTypes={buildEventTypes}
+          setEventTypes={setBuildEventTypes}
+          pressure={buildPressure}
+          setPressure={setBuildPressure}
+          outcome={buildOutcome}
+          setOutcome={setBuildOutcome}
+          progressiveOnly={buildProgressiveOnly}
+          setProgressiveOnly={setBuildProgressiveOnly}
+          pnSide={buildPnSide}
+          setPnSide={setBuildPnSide}
+          pnMin={buildPnMin}
+          setPnMin={setBuildPnMin}
+          pnHalf={buildPnHalf}
+          setPnHalf={setBuildPnHalf}
+          onOpenVideoAt={openSharedVideoAt}
+        />
+      ),
+    },
+    {
+      value: 'kickouts',
+      label: 'Restarts',
+      render: () => (
+        <RestartsTab
+          stats={stats}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          playerOptions={playerOptions}
+          reportFilters={reportFilters}
+          isLiveMode={isLiveMode}
+          showXpData={showXpData}
+          restartTargetFilter={restartTargetFilter}
+          restartWonByFilter={restartWonByFilter}
+          restartLengthFilter={restartLengthFilter}
+          restartSideFilter={restartSideFilter}
+          onOpenVideoAt={openSharedVideoAt}
+        />
+      ),
+    },
+    {
+      value: 'defense',
+      label: 'Defense',
+      render: () => (
+        <DefenseTab
+          stats={stats}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          reportFilters={reportFilters}
+          isLiveMode={isLiveMode}
+          showXpData={showXpData}
+          eventCategory={defenseEventCategory}
+          setEventCategory={setDefenseEventCategory}
+          turnoverResult={defenseTurnoverResult}
+          setTurnoverResult={setDefenseTurnoverResult}
+          turnoverTypes={defenseTurnoverTypes}
+          setTurnoverTypes={setDefenseTurnoverTypes}
+          defTypes={defenseDefTypes}
+          setDefTypes={setDefenseDefTypes}
+          onOpenVideoAt={openSharedVideoAt}
+        />
+      ),
+    },
+    {
+      value: 'players_ana',
+      label: 'Players',
+      render: (options = {}) => (
+        <PlayersAnalyticsTab
+          stats={stats}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          playerOptions={playerOptions}
+          reportFilters={reportFilters}
+          match={match}
+          isLiveMode={isLiveMode}
+          showXpData={showXpData}
+          matchupStints={effectiveMatchupStints}
+          playerTimeAndPossessionStats={playerTimeAndPossessionStats}
+          readOnly={readOnly}
+          onPlayerSelect={openPlayerProfile}
+          onOpenVideoAt={openSharedVideoAt}
+          onOpenVideoSelection={openSharedVideoSelection}
+          onOpenMatchupEditor={openMatchupEditor}
+          focusPlayerId={playersFocusPlayerId}
+          setFocusPlayerId={setPlayersFocusPlayerId}
+          {...options}
+        />
+      ),
+    },
+    {
+      value: 'video',
+      label: 'Video',
+      render: (options = {}) => (
+        <DataTab
+          matchId={matchId}
+          match={match}
+          stats={stats}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          homePlayers={effectiveHomePlayers}
+          awayPlayers={effectiveAwayPlayers}
+          sharedHighlightReels={sharedData.highlightReels}
+          sharedHighlightReelClips={sharedData.highlightReelClips}
+          sharedVideoNotes={sharedData.videoNotes}
+          readOnly={readOnly}
+          mode="video"
+          {...options}
+        />
+      ),
+    },
+  ].filter((entry) => reportTabVisibleInMode(entry.value, isLiveMode));
+
+  const selectedExportTargets = useMemo(
+    () => exportTargets.filter((target) => selectedExportIds.includes(target.id)),
+    [exportTargets, selectedExportIds]
+  );
+  const shouldRenderExportWorkspace = exportOpen || exportBusy;
+
+  useEffect(() => {
+    if (!exportPlayerOptions.length) {
+      if (exportPlayersPlayerId) setExportPlayersPlayerId('');
+      return;
+    }
+    const currentValue = String(exportPlayersPlayerId || '');
+    if (currentValue && exportPlayerOptions.some((option) => option.value === currentValue)) return;
+    const fallbackValue = String(
+      playersFocusPlayerId
+      || exportPlayerOptions[0]?.value
+      || ''
+    );
+    if (fallbackValue && fallbackValue !== currentValue) {
+      setExportPlayersPlayerId(fallbackValue);
+    }
+  }, [exportPlayerOptions, exportPlayersPlayerId, playerOptions, playersFocusPlayerId]);
+
+  const openManageSurface = (callback) => {
+    setManageMenuOpen(false);
+    requestAnimationFrame(() => {
+      callback?.();
+    });
+  };
+
+  useEffect(() => {
+    if (!shouldRenderExportWorkspace) return;
+    let cancelled = false;
+    const scanWorkspace = () => {
+      const hiddenRoot = exportWorkspaceRef.current;
+      const liveRoot = reportMainRef.current;
+      if (!(hiddenRoot instanceof HTMLElement) || cancelled) return;
+      const nextTargets = [];
+      reportTabEntries.forEach((entry) => {
+        const shouldUseLiveRoot = entry.value === activeTab && entry.value !== 'players_ana';
+        const tabRoot = shouldUseLiveRoot
+          ? liveRoot?.querySelector?.(`[data-live-report-tab-root="${entry.value}"]`)
+          : hiddenRoot.querySelector(`[data-export-tab-root="${entry.value}"]`);
+        if (!(tabRoot instanceof HTMLElement)) return;
+        const panes = Array.from(tabRoot.querySelectorAll('.report-pane'));
+        const usedLabels = new Map();
+        panes.forEach((pane, index) => {
+          if (!(pane instanceof HTMLElement)) return;
+          const rawLabel = extractExportPaneTitle(pane) || `${entry.label} Section ${index + 1}`;
+          const duplicateCount = (usedLabels.get(rawLabel) || 0) + 1;
+          usedLabels.set(rawLabel, duplicateCount);
+          const label = duplicateCount > 1 ? `${rawLabel} (${duplicateCount})` : rawLabel;
+          const id = `${entry.value}__${index + 1}`;
+          pane.dataset.exportItemId = id;
+          pane.dataset.exportTabLabel = entry.label;
+          pane.dataset.exportItemLabel = label;
+          nextTargets.push({
+            id,
+            tabValue: entry.value,
+            tabLabel: entry.label,
+            label,
+            paneIndex: index,
+          });
+        });
+      });
+      if (cancelled) return;
+      setExportTargets(nextTargets);
+      setSelectedExportIds((current) => {
+        if (current.length === 0) return current;
+        const nextSet = new Set(nextTargets.map((target) => target.id));
+        return current.filter((id) => nextSet.has(id));
+      });
+    };
+    let rafOne = 0;
+    let rafTwo = 0;
+    rafOne = requestAnimationFrame(() => {
+      rafTwo = requestAnimationFrame(scanWorkspace);
+    });
+    return () => {
+      cancelled = true;
+      if (rafOne) cancelAnimationFrame(rafOne);
+      if (rafTwo) cancelAnimationFrame(rafTwo);
+    };
+  }, [activeTab, exportPlayersPlayerId, reportTabEntries, shouldRenderExportWorkspace]);
+
+  const handleToggleExportTarget = (targetId, checked) => {
+    setSelectedExportIds((current) => {
+      if (checked) {
+        if (current.includes(targetId)) return current;
+        return [...current, targetId];
+      }
+      return current.filter((id) => id !== targetId);
+    });
+  };
+
+  const handleRunReportExport = async () => {
+    if (!selectedExportTargets.length) {
+      toast.error('Select at least one export item');
+      return;
+    }
+
+    setExportBusy(true);
+    const originalTab = activeTab;
+    let currentTabValue = activeTab;
+    try {
+      const clonedTargets = [];
+      const waitForPaint = async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      };
+
+      for (const target of selectedExportTargets) {
+        if (currentTabValue !== target.tabValue) {
+          setActiveTab(target.tabValue);
+          await waitForPaint();
+          currentTabValue = target.tabValue;
+        }
+        const sourceRoot = target.tabValue === 'players_ana'
+          ? exportWorkspaceRef.current
+          : reportMainRef.current;
+        const rootSelector = target.tabValue === 'players_ana'
+          ? `[data-export-tab-root="${target.tabValue}"]`
+          : `[data-live-report-tab-root="${target.tabValue}"]`;
+        const tabRoot = sourceRoot?.querySelector?.(rootSelector);
+        if (!(tabRoot instanceof HTMLElement)) continue;
+        const panes = Array.from(tabRoot.querySelectorAll('.report-pane'));
+        const pane = panes[target.paneIndex];
+        if (!(pane instanceof HTMLElement)) continue;
+        const clonedElement = pane.cloneNode(true);
+        if (!(clonedElement instanceof HTMLElement)) continue;
+        clonedTargets.push({
+          ...target,
+          element: clonedElement,
+          sectionLabel: `${target.tabLabel} • ${target.label}`,
+          fileName: `${reportExportBaseName}_${sanitizeExportFilePart(target.tabLabel)}_${sanitizeExportFilePart(target.label)}.jpg`,
+        });
+      }
+
+      if (currentTabValue !== originalTab) {
+        setActiveTab(originalTab);
+        await waitForPaint();
+        currentTabValue = originalTab;
+      }
+
+      if (!clonedTargets.length) {
+        toast.error('Could not find the selected export content');
+        return;
+      }
+
+      if (exportFormat === 'pdf') {
+        await exportReportTargetsAsPdf(clonedTargets, {
+          fileName: `${reportExportBaseName}_report_export.pdf`,
+          reportTitle: reportTitleText,
+          reportSubtitle: reportSubtitleText,
+        });
+        toast.success(`PDF exported (${clonedTargets.length} item${clonedTargets.length === 1 ? '' : 's'})`);
+      } else {
+        const result = await exportReportTargetsAsJpegs(clonedTargets, {
+          reportTitle: reportTitleText,
+          reportSubtitle: reportSubtitleText,
+        });
+        if (result.failures.length) {
+          toast.warning(`Exported ${clonedTargets.length - result.failures.length} JPEGs. Some downloads may have been blocked by the browser.`);
+        } else {
+          toast.success(`JPEG export started (${clonedTargets.length} image${clonedTargets.length === 1 ? '' : 's'})`);
+        }
+      }
+    } catch (error) {
+      toast.error(error?.message || 'Could not export the report');
+    } finally {
+      if (currentTabValue !== originalTab) {
+        setActiveTab(originalTab);
+      }
+      setExportBusy(false);
+    }
+  };
 
   if (!matchId) {
     return (
@@ -1739,7 +2206,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
   const canManageReport = !readOnly;
   const filterButtonLabel = buildFilterButtonLabel(activeTopFilterCount);
-  const formattedHeaderDate = match?.date ? String(match.date) : '';
   const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
   const isPlayersAnalyticsTab = activeTab === 'players_ana';
 
@@ -1770,13 +2236,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     {homeTeam?.name || 'Home'} vs {awayTeam?.name || 'Away'}
                   </div>
                   <div className="truncate text-xs text-slate-500">
-                    {formattedHeaderDate}{match?.venue ? ` - ${match.venue}` : ''}
+                    {headerDateText}{match?.venue ? ` - ${match.venue}` : ''}
                   </div>
                 </div>
               </div>
               {canManageReport ? (
                 <div className="flex items-center gap-2">
-                  <DropdownMenu modal={false}>
+                  <DropdownMenu open={manageMenuOpen} onOpenChange={setManageMenuOpen} modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} aria-label="Open report management menu">
                         Manage
@@ -1784,11 +2250,24 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem onSelect={() => setDataOpen(true)}>
+                      <DropdownMenuItem onSelect={(event) => {
+                        event.preventDefault();
+                        openManageSurface(() => setExportOpen(true));
+                      }}>
+                        <Copy className="h-4 w-4" />
+                        Export
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={(event) => {
+                        event.preventDefault();
+                        openManageSurface(() => setDataOpen(true));
+                      }}>
                         <BarChart3 className="h-4 w-4" />
                         Manage Data
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => openMatchupEditor()}>
+                      <DropdownMenuItem onSelect={(event) => {
+                        event.preventDefault();
+                        openManageSurface(() => openMatchupEditor());
+                      }}>
                         <BarChart3 className="h-4 w-4" />
                         Assign Matchups
                       </DropdownMenuItem>
@@ -1796,14 +2275,23 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                         <DropdownMenuSubTrigger>ShotArc</DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-44">
                           <DropdownMenuItem onSelect={handleShotArcExport}>Export</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={handleShotArcImportClick}>Import</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={toggleShotArcInfo}>Game Info</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={(event) => {
+                            event.preventDefault();
+                            openManageSurface(handleShotArcImportClick);
+                          }}>Import</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={(event) => {
+                            event.preventDefault();
+                            openManageSurface(toggleShotArcInfo);
+                          }}>Game Info</DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                       {!readOnly ? (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => setShareOpen(true)}>
+                          <DropdownMenuItem onSelect={(event) => {
+                            event.preventDefault();
+                            openManageSurface(() => setShareOpen(true));
+                          }}>
                             <Share2 className="h-4 w-4" />
                             Share
                           </DropdownMenuItem>
@@ -1835,7 +2323,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             <div className="flex min-h-10 items-center justify-between gap-3">
               <div className="hidden min-w-0 flex-1 xl:block">
                 <TabsList className="min-h-10 flex-nowrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
-                  {REPORT_TAB_OPTIONS.map((option) => (
+                  {visibleReportTabOptions.map((option) => (
                     <TabsTrigger
                       key={option.value}
                       value={option.value}
@@ -2022,20 +2510,22 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                                 { value: 'Attacking Third', label: 'Attacking Third' },
                               ]}
                             />
-                            <MultiSelect
-                              label="Attack Type"
-                              placeholder="Any"
-                              values={possessionsAttackTypeFilter === 'any' ? [] : [possessionsAttackTypeFilter]}
-                              onChange={(nextValues) => setPossessionsAttackTypeFilter(nextValues[0] || 'any')}
-                              options={[
-                                { value: 'attack_type_set', label: 'Set' },
-                                { value: 'attack_type_transition', label: 'Transition' },
-                                { value: 'attack_type_transition_to_set', label: 'Transition->Set' },
-                              ]}
-                              singleSelect
-                              clearActionLabel="Any"
-                              triggerClassName="h-8 text-xs"
-                            />
+                            {!isLiveMode ? (
+                              <MultiSelect
+                                label="Attack Type"
+                                placeholder="Any"
+                                values={possessionsAttackTypeFilter === 'any' ? [] : [possessionsAttackTypeFilter]}
+                                onChange={(nextValues) => setPossessionsAttackTypeFilter(nextValues[0] || 'any')}
+                                options={[
+                                  { value: 'attack_type_set', label: 'Set' },
+                                  { value: 'attack_type_transition', label: 'Transition' },
+                                  { value: 'attack_type_transition_to_set', label: 'Transition->Set' },
+                                ]}
+                                singleSelect
+                                clearActionLabel="Any"
+                                triggerClassName="h-8 text-xs"
+                              />
+                            ) : null}
                           </>
                         )}
                         {activeTab === 'build_up' && (
@@ -2066,13 +2556,15 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                               showOutcome={false}
                               timeBeforeAction
                             />
-                            <MultiSelect
-                              label="Target"
-                              placeholder="All"
-                              values={restartTargetFilter}
-                              onChange={setRestartTargetFilter}
-                              options={restartTargetOptions}
-                            />
+                            {!isLiveMode ? (
+                              <MultiSelect
+                                label="Target"
+                                placeholder="All"
+                                values={restartTargetFilter}
+                                onChange={setRestartTargetFilter}
+                                options={restartTargetOptions}
+                              />
+                            ) : null}
                             <MultiSelect
                               label="Won By"
                               placeholder="All"
@@ -2162,7 +2654,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               <SheetTitle>Report Tabs</SheetTitle>
             </SheetHeader>
             <div className="space-y-2">
-              {REPORT_TAB_OPTIONS.map((option) => {
+              {visibleReportTabOptions.map((option) => {
                 const isActive = option.value === activeTab;
                 return (
                   <Button
@@ -2191,171 +2683,163 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           onChange={handleShotArcImportChange}
         />
 
-        <main className="max-w-7xl mx-auto px-4 py-3">
-          <TabsContent value="summary" className="mt-2">
-            <OverviewTab
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              match={match}
-              scoreTimeline={scoreTimeline}
-              summary={summary}
-              overviewMomentum={overviewMomentum}
-              overviewPossessionOutcome={overviewPossessionOutcome}
-              overviewHalf={overviewHalf}
-              setOverviewHalf={setOverviewHalf}
-            />
-          </TabsContent>
-
-          <TabsContent value="scoring" className="mt-2">
-            <ScoringTab
-              stats={filteredForScoring}
-              simStats={filteredForScoringWp}
-              match={match}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-              shotType={scoringShotType}
-              setShotType={setScoringShotType}
-              situation={scoringSituation}
-              setSituation={setScoringSituation}
-              pressure={scoringPressure}
-              setPressure={setScoringPressure}
-              method={scoringMethod}
-              setMethod={setScoringMethod}
-              attackType={scoringAttackType}
-              onOpenVideoAt={openSharedVideoAt}
-            />
-          </TabsContent>
-
-          <TabsContent value="possessions" className="mt-2">
-            <PossessionsTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-              onOpenVideoAt={openSharedVideoAt}
-              onOpenVideoPossession={openSharedVideoPossession}
-              outcomeFilter={possessionsOutcomeFilter}
-              originFilter={possessionsOriginFilter}
-              startZoneFilter={possessionsStartZoneFilter}
-	              attackTypeFilter={possessionsAttackTypeFilter}
-	              setAttackTypeFilter={setPossessionsAttackTypeFilter}
-	              onVisualisePossession={(p) => {
-	                const titleTeam = p?.teamSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home');
-	                const possessionStats = (Array.isArray(p?.stats) ? p.stats : []).filter((s) => {
-	                  if (!s) return false;
-	                  if (s?.team_side === p?.teamSide) return true;
-	                  return (s?.stat_type === 'kickout' || s?.stat_type === 'throw_in') && s?.possession_team_side === p?.teamSide;
-	                });
-	                openPossessionVisualiser({
-	                  title: `Possession #${p?.possessionId ?? 'NA'} - ${titleTeam}`,
-	                  stats: possessionStats,
-	                });
-	              }}
-            />
-          </TabsContent>
-
-          <TabsContent value="build_up" className="mt-2">
-            <BuildUpTab
-              stats={filteredForReport}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-              eventTypes={buildEventTypes}
-              setEventTypes={setBuildEventTypes}
-              pressure={buildPressure}
-              setPressure={setBuildPressure}
-              outcome={buildOutcome}
-              setOutcome={setBuildOutcome}
-              progressiveOnly={buildProgressiveOnly}
-              setProgressiveOnly={setBuildProgressiveOnly}
-              pnSide={buildPnSide}
-              setPnSide={setBuildPnSide}
-              pnMin={buildPnMin}
-              setPnMin={setBuildPnMin}
-              pnHalf={buildPnHalf}
-              setPnHalf={setBuildPnHalf}
-              onOpenVideoAt={openSharedVideoAt}
-            />
-          </TabsContent>
-
-          <TabsContent value="kickouts" className="mt-2">
-            <RestartsTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-              restartTargetFilter={restartTargetFilter}
-              restartWonByFilter={restartWonByFilter}
-              restartLengthFilter={restartLengthFilter}
-              restartSideFilter={restartSideFilter}
-              onOpenVideoAt={openSharedVideoAt}
-            />
-          </TabsContent>
-
-          <TabsContent value="defense" className="mt-2">
-            <DefenseTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              reportFilters={reportFilters}
-              eventCategory={defenseEventCategory}
-              setEventCategory={setDefenseEventCategory}
-              turnoverResult={defenseTurnoverResult}
-              setTurnoverResult={setDefenseTurnoverResult}
-              turnoverTypes={defenseTurnoverTypes}
-              setTurnoverTypes={setDefenseTurnoverTypes}
-              defTypes={defenseDefTypes}
-              setDefTypes={setDefenseDefTypes}
-              onOpenVideoAt={openSharedVideoAt}
-            />
-          </TabsContent>
-
-          <TabsContent value="players_ana" className="mt-2">
-            <PlayersAnalyticsTab
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              playerOptions={playerOptions}
-              reportFilters={reportFilters}
-              match={match}
-              matchupStints={effectiveMatchupStints}
-              playerTimeAndPossessionStats={playerTimeAndPossessionStats}
-              readOnly={readOnly}
-              onPlayerSelect={openPlayerProfile}
-              onOpenVideoAt={openSharedVideoAt}
-              onOpenVideoSelection={openSharedVideoSelection}
-              onOpenMatchupEditor={openMatchupEditor}
-              focusPlayerId={playersFocusPlayerId}
-              setFocusPlayerId={setPlayersFocusPlayerId}
-              playersNavPortalTargetId="report-players-nav-controls"
-            />
-          </TabsContent>
-
-          <TabsContent value="video" className="mt-2">
-            <DataTab
-              matchId={matchId}
-              match={match}
-              stats={stats}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              homePlayers={effectiveHomePlayers}
-              awayPlayers={effectiveAwayPlayers}
-              sharedHighlightReels={sharedData.highlightReels}
-              sharedHighlightReelClips={sharedData.highlightReelClips}
-              sharedVideoNotes={sharedData.videoNotes}
-              readOnly={readOnly}
-              mode="video"
-              videoNavPortalTargetId="report-video-nav-controls"
-            />
-          </TabsContent>
+        <main ref={reportMainRef} className="max-w-7xl mx-auto px-4 py-3">
+          {reportTabEntries.map((entry) => {
+            const extraProps = {};
+            if (entry.value === 'players_ana') {
+              extraProps.playersNavPortalTargetId = 'report-players-nav-controls';
+            }
+            if (entry.value === 'video') {
+              extraProps.videoNavPortalTargetId = 'report-video-nav-controls';
+            }
+            return (
+              <TabsContent key={entry.value} value={entry.value} className="mt-2" data-live-report-tab-root={entry.value}>
+                {entry.render(extraProps)}
+              </TabsContent>
+            );
+          })}
         </main>
       </Tabs>
       </div>
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen} modal={false}>
+        <DialogContent className="max-w-4xl w-[96vw] max-h-[88vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Export Report</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex rounded-full border border-slate-200 bg-slate-100 p-1">
+                {REPORT_EXPORT_FORMATS.map((formatOption) => {
+                  const isActive = exportFormat === formatOption.value;
+                  return (
+                    <Button
+                      key={formatOption.value}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={`rounded-full px-4 text-xs font-semibold ${isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                      onClick={() => setExportFormat(formatOption.value)}
+                    >
+                      {formatOption.label}
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="text-sm text-slate-500">
+                {selectedExportIds.length} selected
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedExportIds(exportTargets.map((target) => target.id))}
+                disabled={!exportTargets.length}
+              >
+                Select all
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedExportIds([])}
+                disabled={!selectedExportIds.length}
+              >
+                Clear all
+              </Button>
+            </div>
+            <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-slate-200">
+              {reportTabEntries.map((entry) => {
+                const tabTargets = exportTargets.filter((target) => target.tabValue === entry.value);
+                if (!tabTargets.length) return null;
+                return (
+                  <div key={entry.value} className="border-b border-slate-200 last:border-b-0">
+                    <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900">
+                      {entry.label}
+                    </div>
+                    {entry.value === 'players_ana' && exportPlayerOptions.length ? (
+                      <div className="border-b border-slate-100 px-3 py-3">
+                        <div className="mb-1 text-xs font-medium text-slate-500">Export Player</div>
+                        <Select value={String(exportPlayersPlayerId || exportPlayerOptions[0]?.value || '')} onValueChange={setExportPlayersPlayerId}>
+                          <SelectTrigger className="h-9 rounded-lg text-sm">
+                            <SelectValue placeholder="Select player" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {exportPlayerOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+                    <div className="space-y-1 p-3">
+                      {tabTargets.map((target) => {
+                        const checked = selectedExportIds.includes(target.id);
+                        return (
+                          <label
+                            key={target.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(nextChecked) => handleToggleExportTarget(target.id, Boolean(nextChecked))}
+                              className="mt-0.5"
+                            />
+                            <span className="min-w-0 text-sm text-slate-700">{target.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {!exportTargets.length ? (
+                <div className="px-4 py-6 text-sm text-slate-500">Preparing export targets…</div>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                Tables export the top 15 visible rows. Charts and panes use the current visible mode and filters.
+              </div>
+              <Button
+                type="button"
+                onClick={handleRunReportExport}
+                disabled={exportBusy || !selectedExportIds.length}
+              >
+                {exportBusy ? 'Exporting…' : `Export ${exportFormat === 'pdf' ? 'PDF' : 'JPEGs'}`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {shouldRenderExportWorkspace ? (
+        <div
+          ref={exportWorkspaceRef}
+          aria-hidden="true"
+          className="pointer-events-none fixed left-[-20000px] top-0 z-[-1] overflow-hidden bg-white"
+          style={{ width: '1440px' }}
+        >
+          {reportTabEntries.map((entry) => (
+            <div
+              key={`export-${entry.value}-${entry.value === 'players_ana' ? (exportPlayersPlayerId || 'none') : 'default'}`}
+              data-export-tab-root={entry.value}
+              data-export-tab-label={entry.label}
+              className="w-full bg-white p-4"
+            >
+              {entry.render(entry.value === 'players_ana'
+                ? {
+                    lockPlayerValue: exportPlayersPlayerId || undefined,
+                    forcePlayerMode: 'player-card',
+                    singlePlayerOnly: true,
+                  }
+                : {})}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <Dialog open={dataOpen} onOpenChange={setDataOpen} modal={false}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">

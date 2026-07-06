@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
-import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react';
 import { setPostLoginRedirect, consumePostLoginRedirect } from '@/lib/postLoginRedirect';
 
 export default function Login() {
@@ -82,7 +82,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.12),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(0,0,0,0.10),_transparent_32%),linear-gradient(135deg,_rgba(239,68,68,0.08)_0%,_rgba(15,23,42,0.08)_100%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.14),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(15,23,42,0.14),_transparent_34%),linear-gradient(135deg,_rgba(239,68,68,0.10)_0%,_rgba(15,23,42,0.12)_100%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-10">
         <div className="w-full space-y-8">
           <div className="max-w-3xl space-y-2">
@@ -179,6 +179,15 @@ export default function Login() {
                 />
                 <Button className="h-11 w-full bg-slate-900 text-base hover:bg-slate-800" onClick={openSharedStats}>
                   Open Shared Stats
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full gap-2"
+                  onClick={() => navigate(createPageUrl('StatShare?demo=1'))}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  View Demo Data
                 </Button>
               </CardContent>
             </Card>
