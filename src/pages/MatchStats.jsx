@@ -459,7 +459,15 @@ export default function MatchStats() {
             })();
             return created;
         },
-        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat logged'); }
+        onSuccess: (created) => {
+            queryClient.setQueryData(['stats', matchId], (prev = []) => {
+                const existing = Array.isArray(prev) ? prev : [];
+                if (existing.some((row) => row?.id === created?.id)) return existing;
+                return [...existing, created];
+            });
+            void queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+            toast.success('Stat logged');
+        }
     });
 
     const updateStatMutation = useMutation({
@@ -488,8 +496,12 @@ export default function MatchStats() {
             }
             return updated;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+        onSuccess: (updated) => {
+            queryClient.setQueryData(['stats', matchId], (prev = []) => {
+                const existing = Array.isArray(prev) ? prev : [];
+                return existing.map((row) => (row?.id === updated?.id ? updated : row));
+            });
+            void queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
             toast.success('Stat updated');
         }
     });
@@ -505,7 +517,14 @@ export default function MatchStats() {
             }
             return { id };
         },
-        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat deleted'); }
+        onSuccess: ({ id }) => {
+            queryClient.setQueryData(['stats', matchId], (prev = []) => {
+                const existing = Array.isArray(prev) ? prev : [];
+                return existing.filter((row) => row?.id !== id);
+            });
+            void queryClient.invalidateQueries({ queryKey: ['stats', matchId] });
+            toast.success('Stat deleted');
+        }
     });
 
     const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
