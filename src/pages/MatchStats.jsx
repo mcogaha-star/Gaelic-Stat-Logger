@@ -224,14 +224,26 @@ export default function MatchStats() {
     const awaySubs = parseTeamSheetIds(awayTeam?.subs);
     const substitutionStats = (stats || []).filter((s) => s?.stat_type === 'substitution');
     const hasMatchSubs = substitutionStats.length > 0;
-    const homeOnField = hasMatchSubs
+    const resolvedHomeRoster = homeTeam
+        ? resolveMatchRosterPlayers(match?.home_roster_snapshot, allPlayers.filter(p => p.team_id === homeTeam.id), homeTeam.id)
+        : [];
+    const resolvedAwayRoster = awayTeam
+        ? resolveMatchRosterPlayers(match?.away_roster_snapshot, allPlayers.filter(p => p.team_id === awayTeam.id), awayTeam.id)
+        : [];
+    const homeOnFieldBase = hasMatchSubs
         ? (parseIds(match?.home_on_field).length ? parseIds(match?.home_on_field) : homeStarters.slice(0, 15))
         : homeStarters.slice(0, 15);
-    const awayOnField = hasMatchSubs
+    const awayOnFieldBase = hasMatchSubs
         ? (parseIds(match?.away_on_field).length ? parseIds(match?.away_on_field) : awayStarters.slice(0, 15))
         : awayStarters.slice(0, 15);
-    const homePlayers = homeTeam ? orderByTeamSheet(resolveMatchRosterPlayers(match?.home_roster_snapshot, allPlayers.filter(p => p.team_id === homeTeam.id), homeTeam.id), homeStarters, homeSubs, homeOnField) : [];
-    const awayPlayers = awayTeam ? orderByTeamSheet(resolveMatchRosterPlayers(match?.away_roster_snapshot, allPlayers.filter(p => p.team_id === awayTeam.id), awayTeam.id), awayStarters, awaySubs, awayOnField) : [];
+    const homeOnField = homeOnFieldBase.length
+        ? homeOnFieldBase
+        : resolvedHomeRoster.slice(0, 15).map((player) => player?.id).filter(Boolean);
+    const awayOnField = awayOnFieldBase.length
+        ? awayOnFieldBase
+        : resolvedAwayRoster.slice(0, 15).map((player) => player?.id).filter(Boolean);
+    const homePlayers = homeTeam ? orderByTeamSheet(resolvedHomeRoster, homeStarters, homeSubs, homeOnField) : [];
+    const awayPlayers = awayTeam ? orderByTeamSheet(resolvedAwayRoster, awayStarters, awaySubs, awayOnField) : [];
 
     useEffect(() => {
         if (!match?.id || !homeTeam?.id || !awayTeam?.id) return;
