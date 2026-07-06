@@ -11,12 +11,14 @@ import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 
 import GAAPitch from '@/components/pitch/GAAPitch';
 import StatMarkers from '@/components/pitch/StatMarkers';
 import MatchHeader from '@/components/match/MatchHeader';
 import RecentStats from '@/components/match/RecentStats';
+import DataTab from '@/features/report/tabs/DataTab';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
@@ -165,6 +167,7 @@ export default function MatchStats() {
     }, [settingsRecord?.custom_fields_config]);
 
     const [subDialogOpen, setSubDialogOpen] = useState(false);
+    const [dataOpen, setDataOpen] = useState(false);
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
     const [subTemporary, setSubTemporary] = useState(false);
@@ -1118,7 +1121,7 @@ export default function MatchStats() {
                 onHalfChange={requestHalfChange}
                 scoreLine={scoreLine}
                 backUrl={createPageUrl('Home')}
-                dataUrl={createPageUrl(`MatchReport?id=${matchId}&tab=data`)}
+                onDataClick={() => setDataOpen(true)}
                 settingsUrl={createPageUrl('Settings?tab=logging')}
                 settingsLabel="Logging Settings"
             />
@@ -1278,6 +1281,27 @@ export default function MatchStats() {
                     setHalfStartFromVideoFor,
                 }}
             />
+
+            <Dialog open={dataOpen} onOpenChange={setDataOpen}>
+                <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-6 pb-0">
+                        <DialogTitle>Manage Data</DialogTitle>
+                    </DialogHeader>
+                    <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
+                        <DataTab
+                            matchId={matchId}
+                            match={match}
+                            stats={stats}
+                            homeTeam={homeTeam}
+                            awayTeam={awayTeam}
+                            homePlayers={homePlayers}
+                            awayPlayers={awayPlayers}
+                            readOnly={false}
+                            mode="data"
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

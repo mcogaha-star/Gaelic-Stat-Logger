@@ -27,6 +27,7 @@ export default function MatchHeader({
     backUrl,
     statsUrl,
     dataUrl,
+    onDataClick,
     seasonStatsUrl,
     settingsUrl,
     settingsLabel = 'Settings',
@@ -98,12 +99,18 @@ export default function MatchHeader({
                                 </Button>
                             </Link>
                         )}
-                        {dataUrl && (
-                            <Link to={dataUrl}>
-                                <Button variant="outline" size="sm" className="gap-2 h-7">
+                        {(dataUrl || onDataClick) && (
+                            onDataClick ? (
+                                <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onDataClick}>
                                     <BarChart3 className="w-4 h-4" /> Data
                                 </Button>
-                            </Link>
+                            ) : (
+                                <Link to={dataUrl}>
+                                    <Button variant="outline" size="sm" className="gap-2 h-7">
+                                        <BarChart3 className="w-4 h-4" /> Data
+                                    </Button>
+                                </Link>
+                            )
                         )}
                         {seasonStatsUrl && (
                             <Link to={seasonStatsUrl}>

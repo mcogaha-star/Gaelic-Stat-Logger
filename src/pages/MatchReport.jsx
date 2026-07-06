@@ -445,6 +445,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const shotArcImportInputRef = useRef(null);
   const exportWorkspaceRef = useRef(null);
   const reportMainRef = useRef(null);
+  const pendingManageActionRef = useRef(null);
 
   const { data: matchArr = [] } = useQuery({
     queryKey: ['match', matchId],
@@ -2033,11 +2034,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   }, [exportPlayerOptions, exportPlayersPlayerId, playerOptions, playersFocusPlayerId]);
 
   const openManageSurface = (callback) => {
+    pendingManageActionRef.current = typeof callback === 'function' ? callback : null;
     setManageMenuOpen(false);
-    requestAnimationFrame(() => {
-      callback?.();
-    });
   };
+
+  useEffect(() => {
+    if (manageMenuOpen) return undefined;
+    const callback = pendingManageActionRef.current;
+    if (typeof callback !== 'function') return undefined;
+    pendingManageActionRef.current = null;
+    const timeoutId = window.setTimeout(() => {
+      callback();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [manageMenuOpen]);
 
   useEffect(() => {
     if (!shouldRenderExportWorkspace) return;
@@ -2841,7 +2851,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </div>
       ) : null}
 
-      <Dialog open={dataOpen} onOpenChange={setDataOpen} modal={false}>
+      <Dialog open={dataOpen} onOpenChange={setDataOpen}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>Manage Data</DialogTitle>

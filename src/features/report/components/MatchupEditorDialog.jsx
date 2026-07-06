@@ -348,7 +348,7 @@ export default function MatchupEditorDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>Assign Matchups</DialogTitle>
