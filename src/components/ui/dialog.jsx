@@ -6,7 +6,7 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const Dialog = ({ modal = false, ...props }) => (
+const Dialog = ({ modal = true, ...props }) => (
   <DialogPrimitive.Root modal={modal} {...props} />
 )
 

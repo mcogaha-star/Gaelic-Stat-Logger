@@ -28,6 +28,29 @@ export const DEFAULT_VIDEO_CLIP_SETTINGS = {
 export const MIN_HIGHLIGHT_POST_ACTION_SECONDS = 7;
 export const REVIEW_PLAYER_WINDOW_NAME = 'gstl_video_review';
 const REVIEW_PLAYER_CHANNEL = 'gstl_video';
+export const MOBILE_REVIEW_PLAYER_EVENT = 'gstl:open-mobile-review-player';
+
+function isMobileReviewViewport() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(max-width: 1023px)').matches;
+}
+
+function buildReviewPlayerUrl(matchId, { selectionKey = '', reelId = '', embedded = false } = {}) {
+  const query = new URLSearchParams();
+  query.set('matchId', matchId);
+  query.set('review', '1');
+  if (selectionKey) query.set('selectionKey', selectionKey);
+  if (reelId) query.set('reelId', reelId);
+  if (embedded) query.set('embedded', '1');
+  return `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?${query.toString()}`)}`;
+}
+
+function dispatchMobileReviewPlayer(detail) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  const payload = { handled: false, ...detail };
+  window.dispatchEvent(new CustomEvent(MOBILE_REVIEW_PLAYER_EVENT, { detail: payload }));
+  return !!payload.handled;
+}
 
 function broadcastReviewMessage(message, delays = [0, 180, 500, 1100]) {
   if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
@@ -191,9 +214,22 @@ export function openReportVideoSelection(matchId, clips = [], { sourceLabel = 'S
   } catch {
     return false;
   }
-  const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&selectionKey=${encodeURIComponent(selectionKey)}`)}`;
+  const url = buildReviewPlayerUrl(matchId, { selectionKey, embedded: false });
   const existing = window.__gstlReviewPlayerWindow;
   const message = { matchId, type: 'SET_REVIEW_SELECTION', selectionKey };
+  if (isMobileReviewViewport()) {
+    const handled = dispatchMobileReviewPlayer({
+      matchId,
+      selectionKey,
+      reelId: '',
+      sourceLabel,
+      url: buildReviewPlayerUrl(matchId, { selectionKey, embedded: true }),
+    });
+    if (handled) {
+      broadcastReviewMessage(message, [120, 420, 900, 1500]);
+      return true;
+    }
+  }
   if (existing && !existing.closed) {
     try { existing.focus(); } catch { /* ignore */ }
     broadcastReviewMessage(message);
@@ -206,9 +242,22 @@ export function openReportVideoSelection(matchId, clips = [], { sourceLabel = 'S
 
 export function openReportVideoReel(matchId, reelId) {
   if (!matchId || !reelId || typeof window === 'undefined') return false;
-  const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&reelId=${encodeURIComponent(reelId)}`)}`;
+  const url = buildReviewPlayerUrl(matchId, { reelId, embedded: false });
   const existing = window.__gstlReviewPlayerWindow;
   const message = { matchId, type: 'SET_REVIEW_REEL', reelId: String(reelId) };
+  if (isMobileReviewViewport()) {
+    const handled = dispatchMobileReviewPlayer({
+      matchId,
+      selectionKey: '',
+      reelId: String(reelId),
+      sourceLabel: 'Highlight Reel',
+      url: buildReviewPlayerUrl(matchId, { reelId, embedded: true }),
+    });
+    if (handled) {
+      broadcastReviewMessage(message, [120, 420, 900, 1500]);
+      return true;
+    }
+  }
   if (existing && !existing.closed) {
     try { existing.focus(); } catch { /* ignore */ }
     broadcastReviewMessage(message);

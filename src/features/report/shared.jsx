@@ -2568,7 +2568,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`report-pane flex h-full w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>

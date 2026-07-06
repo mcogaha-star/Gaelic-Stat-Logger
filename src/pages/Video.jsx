@@ -82,6 +82,7 @@ export default function Video() {
   const params = useMemo(() => new URLSearchParams(location.search || ''), [location.search]);
   const matchId = params.get('matchId') || params.get('id') || '';
   const reviewMode = params.get('review') === '1';
+  const embeddedMode = params.get('embedded') === '1';
   const reelId = params.get('reelId') || '';
   const selectionKey = params.get('selectionKey') || '';
   const [activeReelId, setActiveReelId] = useState(reelId);
@@ -181,7 +182,7 @@ export default function Video() {
   );
 
   const pipSupported = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
-  const canCloseWindow = typeof window !== 'undefined' && !!window.opener;
+  const canCloseWindow = typeof window !== 'undefined' && !!window.opener && !embeddedMode;
 
   useEffect(() => {
     setActiveReelId(reelId);
@@ -210,6 +211,14 @@ export default function Video() {
   };
 
   const handleCloseOrBack = () => {
+    if (embeddedMode) {
+      try {
+        window.parent?.postMessage({ type: 'GSTL_CLOSE_REVIEW_PLAYER' }, window.location.origin);
+      } catch {
+        // ignore
+      }
+      return;
+    }
     // Some browsers block window.close() unless the window was opened by script.
     if (canCloseWindow) {
       try { window.close(); } catch { /* ignore */ }
@@ -756,7 +765,7 @@ export default function Video() {
           </Button>
         )}
         <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleCloseOrBack}>
-          {canCloseWindow ? 'Close' : 'Back'}
+          {embeddedMode || canCloseWindow ? 'Close' : 'Back'}
         </Button>
       </div>
     </div>
@@ -925,7 +934,7 @@ export default function Video() {
                     Options
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={handleCloseOrBack}>
-                    {canCloseWindow ? 'Close' : 'Back to Match'}
+                    {embeddedMode || canCloseWindow ? 'Close' : 'Back to Match'}
                   </Button>
                 </div>
               </div>

@@ -107,6 +107,7 @@ import {
   exportReportTargetsAsPdf,
   sanitizeExportFilePart,
 } from '@/features/report/reportExport';
+import { MOBILE_REVIEW_PLAYER_EVENT } from '@/lib/videoWorkflow';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -1108,6 +1109,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   } = reportState;
 
   const [mobileTabsOpen, setMobileTabsOpen] = useState(false);
+  const [mobileReviewOpen, setMobileReviewOpen] = useState(false);
+  const [mobileReviewUrl, setMobileReviewUrl] = useState('');
+  const mobileReviewMatchIdRef = useRef('');
+  const mobileReviewOpenRef = useRef(false);
   const [restartTargetFilter, setRestartTargetFilter] = useState([]);
   const [restartWonByFilter, setRestartWonByFilter] = useState([]);
   const [restartLengthFilter, setRestartLengthFilter] = useState([]);
@@ -1196,6 +1201,40 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     playersFocusPlayerId,
     isLiveMode,
   ]);
+
+  useEffect(() => {
+    mobileReviewOpenRef.current = mobileReviewOpen;
+  }, [mobileReviewOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleOpenMobileReview = (event) => {
+      const detail = event?.detail || {};
+      const nextMatchId = String(detail?.matchId || '');
+      const nextUrl = String(detail?.url || '');
+      if (!nextMatchId || !nextUrl) return;
+      detail.handled = true;
+      const shouldRefreshUrl =
+        !mobileReviewOpenRef.current
+        || !mobileReviewUrl
+        || mobileReviewMatchIdRef.current !== nextMatchId;
+      mobileReviewMatchIdRef.current = nextMatchId;
+      if (shouldRefreshUrl) setMobileReviewUrl(nextUrl);
+      setMobileReviewOpen(true);
+    };
+    const handleReviewMessage = (event) => {
+      if (event?.origin !== window.location.origin) return;
+      if (event?.data?.type === 'GSTL_CLOSE_REVIEW_PLAYER') {
+        setMobileReviewOpen(false);
+      }
+    };
+    window.addEventListener(MOBILE_REVIEW_PLAYER_EVENT, handleOpenMobileReview);
+    window.addEventListener('message', handleReviewMessage);
+    return () => {
+      window.removeEventListener(MOBILE_REVIEW_PLAYER_EVENT, handleOpenMobileReview);
+      window.removeEventListener('message', handleReviewMessage);
+    };
+  }, [mobileReviewUrl]);
 
   useEffect(() => {
     if (activeTab === 'data') setActiveTab('video');
@@ -2685,6 +2724,21 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           </SheetContent>
         </Sheet>
 
+        <Sheet open={mobileReviewOpen} onOpenChange={setMobileReviewOpen} modal>
+          <SheetContent
+            side="bottom"
+            className="h-[85dvh] rounded-t-[24px] border-slate-200 bg-white p-0 sm:h-[88vh]"
+          >
+            {mobileReviewUrl ? (
+              <iframe
+                title="Review Player"
+                src={mobileReviewUrl}
+                className="h-full w-full border-0"
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+
         <input
           ref={shotArcImportInputRef}
           type="file"
@@ -2712,7 +2766,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       </Tabs>
       </div>
 
-      <Dialog open={exportOpen} onOpenChange={setExportOpen} modal={false}>
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="max-w-4xl w-[96vw] max-h-[88vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Export Report</DialogTitle>
@@ -2875,7 +2929,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={shotArcInfoOpen} onOpenChange={setShotArcInfoOpen} modal={false}>
+      <Dialog open={shotArcInfoOpen} onOpenChange={setShotArcInfoOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>ShotArc Game Info</DialogTitle>
@@ -2899,7 +2953,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen} modal={false}>
+      <Dialog open={playerProfileOpen} onOpenChange={setPlayerProfileOpen}>
         <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>Player Match Profile</DialogTitle>
@@ -2933,7 +2987,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         onDeleteMatchupStint={handleDeleteMatchupStint}
       />
 
-      <Dialog open={shareOpen} onOpenChange={setShareOpen} modal={false}>
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Share Match</DialogTitle>
@@ -2973,7 +3027,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen} modal={false}>
+      <Dialog open={sharedVizOpen} onOpenChange={setSharedVizOpen}>
         <DialogContent className="sm:max-w-4xl p-4">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">

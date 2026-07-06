@@ -548,11 +548,16 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
         return String(a?.id || '').localeCompare(String(b?.id || ''));
       });
-      const firstValidShot = orderedActing.find((e) => e?.stat_type === 'shot' && !shouldExcludeFromTotals(e)) || null;
-      const firstShotPoints = firstValidShot
-        ? shotPointsForOutcome(safeParseJSON(firstValidShot.extra_data || '{}', {})?.shot?.outcome)
-        : 0;
-      const firstShotXP = firstValidShot ? getShotExpectedPointsValue(firstValidShot) : 0;
+      const actingShots = orderedActing.filter((e) => e?.stat_type === 'shot' && !shouldExcludeFromTotals(e));
+      const firstValidShot = actingShots[0] || null;
+      const possessionPoints = actingShots.reduce(
+        (sum, shot) => sum + shotPointsForOutcome(safeParseJSON(shot.extra_data || '{}', {})?.shot?.outcome),
+        0,
+      );
+      const possessionXp = actingShots.reduce((sum, shot) => {
+        const xp = getShotExpectedPointsValue(shot);
+        return sum + (Number.isFinite(xp) ? xp : 0);
+      }, 0);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
       const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e)).length;
       const firstOpp45EntryStat = orderedActing.find((stat) => statHasEnteredOpp45(stat));
@@ -581,8 +586,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         isAttack,
         passes,
         shots,
-        points: firstShotPoints,
-        xp: firstShotXP,
+        points: possessionPoints,
+        xp: possessionXp,
         firstShotId: firstValidShot?.id || null,
         hasFirstShot: !!firstValidShot,
         counterState,
@@ -1342,7 +1347,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                 </div>
                 <div className="mt-3 flex flex-1 items-center justify-center py-2">
                   <PossessionZonePitch
-                    className="w-full max-w-[660px]"
+                    className="w-full max-w-full lg:max-w-[660px]"
                     homeTeam={homeTeam}
                     awayTeam={awayTeam}
                     homeColor={homeTeam?.color || '#fb4b14'}
