@@ -437,27 +437,26 @@ export default function MatchStats() {
     const createStatMutation = useMutation({
         mutationFn: async (data) => {
             const created = await db.entities.StatEntry.create(data);
-
-            try {
-                // Best-effort server upload (redacted)
-                const serverSync = await ensureMatchServerId();
-                if (serverSync?.id && match?.public_match_id) {
-                    const res = await insertServerStat({
-                        matchId: serverSync.id,
-                        publicMatchId: match.public_match_id,
-                        stat: created,
-                        teamSide: created.team_side || 'unknown',
-                        playerRefByLocalId: serverSync.playerRefByLocalId || {},
-                    });
-                    if (res.ok && res.id) {
-                        await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
-                        return { ...created, server_stat_id: res.id };
+            void (async () => {
+                try {
+                    // Best-effort server upload should not block local logger refresh.
+                    const serverSync = await ensureMatchServerId();
+                    if (serverSync?.id && match?.public_match_id) {
+                        const res = await insertServerStat({
+                            matchId: serverSync.id,
+                            publicMatchId: match.public_match_id,
+                            stat: created,
+                            teamSide: created.team_side || 'unknown',
+                            playerRefByLocalId: serverSync.playerRefByLocalId || {},
+                        });
+                        if (res.ok && res.id) {
+                            await db.entities.StatEntry.update(created.id, { server_stat_id: res.id });
+                        }
                     }
+                } catch (error) {
+                    console.warn('Server stat sync failed after local create', error);
                 }
-            } catch (error) {
-                console.warn('Server stat sync failed after local create', error);
-            }
-
+            })();
             return created;
         },
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stats', matchId] }); toast.success('Stat logged'); }
@@ -467,23 +466,25 @@ export default function MatchStats() {
         mutationFn: async ({ id, data }) => {
             const updated = await db.entities.StatEntry.update(id, data);
             if (updated?.server_stat_id) {
-                try {
-                    await updateServerStat(updated.server_stat_id, {
-                        stat_type: updated.stat_type,
-                        is_pass: !!updated.is_pass,
-                        team_side: updated.team_side || 'unknown',
-                        counter_attack: !!updated.counter_attack,
-                        set_defence: !!updated.counter_attack,
-                        defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
-                        time_s: updated.time_s ?? null,
-                        normalized_time_s: updated.normalized_time_s ?? null,
-                        player_number: updated.player_number ?? null,
-                        recipient_number: updated.recipient_number ?? null,
-                        extra_data: updated.extra_data ?? null,
-                    });
-                } catch (error) {
-                    console.warn('Server stat sync failed after local update', error);
-                }
+                void (async () => {
+                    try {
+                        await updateServerStat(updated.server_stat_id, {
+                            stat_type: updated.stat_type,
+                            is_pass: !!updated.is_pass,
+                            team_side: updated.team_side || 'unknown',
+                            counter_attack: !!updated.counter_attack,
+                            set_defence: !!updated.counter_attack,
+                            defence_set_migration_version: DEFENCE_SET_MIGRATION_VERSION,
+                            time_s: updated.time_s ?? null,
+                            normalized_time_s: updated.normalized_time_s ?? null,
+                            player_number: updated.player_number ?? null,
+                            recipient_number: updated.recipient_number ?? null,
+                            extra_data: updated.extra_data ?? null,
+                        });
+                    } catch (error) {
+                        console.warn('Server stat sync failed after local update', error);
+                    }
+                })();
             }
             return updated;
         },
@@ -498,7 +499,9 @@ export default function MatchStats() {
             const stat = await db.entities.StatEntry.get(id);
             await db.entities.StatEntry.delete(id);
             if (stat?.server_stat_id) {
-                await softDeleteServerStat(stat.server_stat_id);
+                void softDeleteServerStat(stat.server_stat_id).catch((error) => {
+                    console.warn('Server stat sync failed after local delete', error);
+                });
             }
             return { id };
         },
