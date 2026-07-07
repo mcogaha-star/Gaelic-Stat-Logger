@@ -1263,7 +1263,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
                         className="h-8 w-[108px] px-2 text-xs"
                         onClick={() => setShowAllPlayerShooting((current) => !current)}
                       >
-                        {showAllPlayerShooting ? 'Show Top 8' : 'Expand Table'}
+                        {showAllPlayerShooting ? 'Show Top 8' : 'Expand'}
                       </Button>
                     ) : null}
                   </div>

@@ -308,14 +308,26 @@ function buildSubstitutionTimeSById(stats = []) {
     let lastKnown = null;
     for (let i = 0; i < rows.length; i += 1) {
       const currentTime = getRawLoggedTimeSLocal(rows[i]);
-      if (currentTime != null) lastKnown = currentTime;
+      if (currentTime != null) {
+        lastKnown = {
+          time: currentTime,
+          type: String(rows[i]?.stat_type || ''),
+          playId: safeNumber(rows[i]?.play_id) ?? null,
+        };
+      }
       prevKnown[i] = lastKnown;
     }
 
     lastKnown = null;
     for (let i = rows.length - 1; i >= 0; i -= 1) {
       const currentTime = getRawLoggedTimeSLocal(rows[i]);
-      if (currentTime != null) lastKnown = currentTime;
+      if (currentTime != null) {
+        lastKnown = {
+          time: currentTime,
+          type: String(rows[i]?.stat_type || ''),
+          playId: safeNumber(rows[i]?.play_id) ?? null,
+        };
+      }
       nextKnown[i] = lastKnown;
     }
 
@@ -331,9 +343,11 @@ function buildSubstitutionTimeSById(stats = []) {
       const prev = prevKnown[i];
       const next = nextKnown[i];
       let inferred = 0;
-      if (prev != null && next != null && next >= prev) inferred = (prev + next) / 2;
-      else if (prev != null) inferred = prev;
-      else if (next != null) inferred = next;
+      if (prev?.time != null) {
+        inferred = prev.time;
+      } else if (next?.time != null) {
+        inferred = next.time;
+      }
       out.set(stat.id, inferred);
     }
   }

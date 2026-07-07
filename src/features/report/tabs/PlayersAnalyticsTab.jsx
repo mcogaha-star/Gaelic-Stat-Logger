@@ -4696,8 +4696,8 @@ function PlayersAnalyticsTabContent({
         value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, kickoutsWonValue, 'rate') : kickoutsWonValue, { decimals: 0 }),
       },
       {
-        label: 'Progression',
-        value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, progressionValue, 'rate') : progressionValue, { decimals: 0 }),
+        label: 'TO Lost',
+        value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversLost, 'rate') : selectedPlayerRow.turnoversLost, { decimals: 0 }),
       },
       {
         label: 'Passes',

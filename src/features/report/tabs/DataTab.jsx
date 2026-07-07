@@ -63,6 +63,7 @@ import {
   groupByPossession,
   getPossessionStartZone,
   deriveAttackTypeState,
+  ReportInfoTitle,
   SortableTableHead,
   sortRows,
 } from '../shared';
@@ -2886,7 +2887,10 @@ function DataTab({
           <CardContent className="p-4 space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="font-semibold text-slate-900">{videoBrowseMode === 'play' ? 'Events Workspace' : 'Possessions Workspace'}</div>
+                <ReportInfoTitle
+                  title={videoBrowseMode === 'play' ? 'Events Workspace' : 'Possessions Workspace'}
+                  helpId="video_workspace"
+                />
                 <div className="text-xs text-slate-500">
                   {videoBrowseMode === 'play'
                     ? `Showing ${Math.min(videoVisiblePlayRows.length, sortedVideoPlayTableRows.length)} of ${sortedVideoPlayTableRows.length} event rows.`

@@ -161,6 +161,7 @@ export default function OverviewTab({
 
             <Card className="report-pane h-full lg:order-1">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
+                <div className="sr-only" data-export-title="true">Metrics</div>
                 <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm">
                   <div className="absolute inset-y-0 left-0 w-2" style={teamBandStyle(homeTeam?.color || '#22c55e', 'left')} />
                   <div className="absolute inset-y-0 right-0 w-2" style={teamBandStyle(awayTeam?.color || '#ef4444', 'right')} />

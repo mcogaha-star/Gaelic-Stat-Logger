@@ -247,16 +247,22 @@ export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = 
   if (requireAuth && !user) return { ok: false, reason: 'not_authenticated' };
   if (!String(shareCode || '').trim()) return { ok: false, reason: 'missing_share_code' };
 
-  let query = supabase
+  const query = supabase
     .from('shared_match_snapshots')
     .select('*')
     .eq('share_code', String(shareCode).trim().toUpperCase())
     .is('deleted_at', null);
-  if (Array.isArray(allowedTypes) && allowedTypes.length) query = query.in('share_type', allowedTypes);
   const { data, error } = await query.maybeSingle();
 
   if (error) return { ok: false, reason: error.message };
   if (!data?.id) return { ok: false, reason: 'not_found' };
+  if (Array.isArray(allowedTypes) && allowedTypes.length) {
+    const normalizedAllowedTypes = allowedTypes.map((value) => String(value || '').trim().toLowerCase());
+    const normalizedShareType = String(data?.share_type || '').trim().toLowerCase();
+    if (!normalizedAllowedTypes.includes(normalizedShareType)) {
+      return { ok: false, reason: 'wrong_share_type', shareType: data?.share_type || '' };
+    }
+  }
   return { ok: true, snapshot: data };
 }
 

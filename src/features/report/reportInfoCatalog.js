@@ -1412,4 +1412,27 @@ export const reportInfoCatalog = {
       'It is a shot-on-goal view, so wider defensive context still matters when judging the keeper.',
     ],
   },
+  video_workspace: {
+    title: 'Video Workspace',
+    whatItIs: [
+      'This is the review area for turning logged stats into clips you can watch, save, and group together.',
+    ],
+    whyItMatters: [
+      'It helps you move from numbers to evidence quickly, whether you want one clip, a run of events, or a full possession.',
+    ],
+    calculationOrChartLabel: 'What the workspace shows',
+    calculationOrChart: [
+      'Events Workspace lists single logged actions such as shots, passes, carries, turnovers, and fouls.',
+      'Possessions Workspace groups those actions into full possessions so you can review the whole attack or defensive phase.',
+      'Table, Pitch, and Split modes show the same filtered clips in different layouts, and selections build a watch queue from the current results.',
+    ],
+    howToUse: [
+      'Use Events when you want quick examples like all kickouts, missed shots, or turnovers by one player.',
+      'Use Possessions when you want to review full attacks, see how chances were built, or compare good and bad sequences side by side.',
+      'A good workflow is to filter first, select the most relevant rows or pitch points, then watch the queue as one review set.',
+    ],
+    caveats: [
+      'The workspace can only open clips that have usable linked video timing, so missing or rough timestamps will limit what opens cleanly.',
+    ],
+  },
 };

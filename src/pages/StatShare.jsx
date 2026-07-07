@@ -25,6 +25,7 @@ function parsePayload(snapshot) {
 export default function StatShare() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
+  const initialSnapshot = location?.state?.sharedSnapshot || null;
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
   const demoMode = params.get('demo') === '1';
@@ -36,7 +37,7 @@ export default function StatShare() {
     enabled: !!code && !demoMode,
   });
 
-  const snapshot = data?.ok ? data.snapshot : null;
+  const snapshot = data?.ok ? data.snapshot : initialSnapshot;
   const payload = useMemo(() => (demoMode ? demoBundle : parsePayload(snapshot)), [demoMode, snapshot]);
 
   if (!code && !demoMode) {
@@ -65,7 +66,7 @@ export default function StatShare() {
     );
   }
 
-  if (!demoMode && (error || !data?.ok || !snapshot || !payload)) {
+  if (!demoMode && !snapshot && (error || !data?.ok || !payload)) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <Card className="w-full max-w-lg">
@@ -76,6 +77,27 @@ export default function StatShare() {
             <div className="text-slate-900 font-semibold">This stat share is unavailable</div>
             <div className="text-sm text-slate-600">
               The code may be invalid, expired, or not yet published.
+            </div>
+            <Link to={backUrl}>
+              <Button className="gap-2"><ArrowLeft className="w-4 h-4" /> {isAuthenticated ? 'Back to Home' : 'Back to Login'}</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!demoMode && snapshot && !payload) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <Card className="w-full max-w-lg">
+          <CardContent className="p-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-slate-900 mx-auto flex items-center justify-center">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-slate-900 font-semibold">This stat share is unavailable</div>
+            <div className="text-sm text-slate-600">
+              The shared report could not be loaded from the saved snapshot.
             </div>
             <Link to={backUrl}>
               <Button className="gap-2"><ArrowLeft className="w-4 h-4" /> {isAuthenticated ? 'Back to Home' : 'Back to Login'}</Button>

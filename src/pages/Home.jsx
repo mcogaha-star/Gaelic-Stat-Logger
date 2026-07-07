@@ -550,7 +550,7 @@ export default function Home() {
                 return { flow: 'game_copy', ...imported };
             }
             if (shareType === 'stat_view') {
-                return { ok: true, flow: 'stat_view', shareCode };
+                return { ok: true, flow: 'stat_view', shareCode, snapshot: fetched.snapshot };
             }
             throw new Error('Unsupported share code type');
         },
@@ -558,7 +558,9 @@ export default function Home() {
             setImportShareCode('');
             if (result?.flow === 'stat_view') {
                 toast.success('Opening shared stats');
-                navigate(createPageUrl(`StatShare?code=${encodeURIComponent(result.shareCode || '')}`));
+                navigate(createPageUrl(`StatShare?code=${encodeURIComponent(result.shareCode || '')}`), {
+                    state: result?.snapshot ? { sharedSnapshot: result.snapshot } : undefined,
+                });
                 return;
             }
             queryClient.invalidateQueries({ queryKey: ['matches'] });
