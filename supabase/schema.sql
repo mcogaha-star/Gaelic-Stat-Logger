@@ -286,3 +286,26 @@ create policy user_consents_update_own on public.user_consents
   for update to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+do $$
+begin
+  if to_regclass('public.shared_match_snapshots') is not null then
+    execute $fn$
+      create or replace function public.fetch_public_shared_match_snapshot(input_share_code text)
+      returns jsonb
+      language sql
+      security definer
+      set search_path = public
+      as $inner$
+        select to_jsonb(s) - 'user_id'
+        from public.shared_match_snapshots s
+        where s.deleted_at is null
+          and lower(coalesce(s.share_type, '')) = 'stat_view'
+          and upper(s.share_code) = upper(trim(input_share_code))
+        order by s.created_at desc
+        limit 1
+      $inner$
+    $fn$;
+    execute 'grant execute on function public.fetch_public_shared_match_snapshot(text) to anon, authenticated';
+  end if;
+end $$;

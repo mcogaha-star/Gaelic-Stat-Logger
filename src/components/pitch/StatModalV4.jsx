@@ -541,7 +541,16 @@ export default function StatModalV4({
     return parsedVideoTimeS - hs;
   }, [parsedVideoTimeS, halfStartTimeS]);
   const liveNormalizedTimeS = Number(liveClockSeconds);
+  const fallbackInitialAbsoluteTimeS = Number(initialStat?.time_s);
   const fallbackInitialNormalizedTimeS = Number(initialStat?.normalized_time_s);
+  const fallbackInitialVideoTimeS = useMemo(() => {
+    if (Number.isFinite(fallbackInitialAbsoluteTimeS)) return fallbackInitialAbsoluteTimeS;
+    const hs = Number(halfStartTimeS);
+    if (Number.isFinite(fallbackInitialNormalizedTimeS) && Number.isFinite(hs)) {
+      return Math.max(0, hs + fallbackInitialNormalizedTimeS);
+    }
+    return null;
+  }, [fallbackInitialAbsoluteTimeS, fallbackInitialNormalizedTimeS, halfStartTimeS]);
   const renderTimeBlock = () => liveMode ? (
     <LiveTimeBlock liveClockSeconds={liveClockSeconds} />
   ) : (
@@ -792,7 +801,7 @@ export default function StatModalV4({
     setTouchedRoles(touched);
 
     // Seed video time from the existing row (edit mode).
-    const ts = Number(initialStat?.time_s);
+    const ts = Number(fallbackInitialVideoTimeS);
     if (Number.isFinite(ts)) {
       setVideoTimeText(formatMMSS(ts));
       setVideoTimeTouched(true);
@@ -800,7 +809,7 @@ export default function StatModalV4({
       setVideoTimeText('');
       setVideoTimeTouched(false);
     }
-  }, [open, initialStat?.id, previousShotNeedsKickout]);
+  }, [open, initialStat?.id, previousShotNeedsKickout, fallbackInitialVideoTimeS]);
 
   useEffect(() => {
     if (!open || action !== 'shot') return;
@@ -1859,16 +1868,31 @@ export default function StatModalV4({
 
     if (liveMode) extra.live_mode = true;
 
+    const resolvedLiveAbsoluteTimeS = liveMode
+      ? (Number.isFinite(Number(currentVideoTimeS))
+          ? Number(currentVideoTimeS)
+          : (Number.isFinite(fallbackInitialVideoTimeS) ? Number(fallbackInitialVideoTimeS) : null))
+      : (Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null);
+    const resolvedLiveNormalizedTimeS = liveMode
+      ? (() => {
+          if (initialStat?.id && Number.isFinite(fallbackInitialNormalizedTimeS)) return Math.max(0, fallbackInitialNormalizedTimeS);
+          if (Number.isFinite(liveNormalizedTimeS)) return Math.max(0, liveNormalizedTimeS);
+          const hs = Number(halfStartTimeS);
+          if (Number.isFinite(resolvedLiveAbsoluteTimeS) && Number.isFinite(hs)) {
+            return Math.max(0, resolvedLiveAbsoluteTimeS - hs);
+          }
+          return null;
+        })()
+      : (Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null);
+
     onClose?.();
     onSubmit?.({
       stat_type: action,
       is_pass: isDrag,
       team_side: actingSide,
       counter_attack: !!counterAttack,
-      time_s: liveMode ? null : (Number.isFinite(parsedVideoTimeS) ? parsedVideoTimeS : null),
-      normalized_time_s: liveMode
-        ? (Number.isFinite(liveNormalizedTimeS) ? liveNormalizedTimeS : (Number.isFinite(fallbackInitialNormalizedTimeS) ? fallbackInitialNormalizedTimeS : null))
-        : (Number.isFinite(normalizedVideoTimeS) ? normalizedVideoTimeS : null),
+      time_s: resolvedLiveAbsoluteTimeS,
+      normalized_time_s: resolvedLiveNormalizedTimeS,
       primary_player: primary,
       extra,
     });

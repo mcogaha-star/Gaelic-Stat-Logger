@@ -727,16 +727,16 @@ function computeImputedNormalizedTimes(stats) {
 
     let lastT = null;
     for (let i = 0; i < sorted.length; i += 1) {
+      prev[i] = lastT;
       const t = Number(sorted[i]?.stat?.normalized_time_s);
       if (Number.isFinite(t)) lastT = Math.max(0, t);
-      prev[i] = lastT;
     }
 
     let nextT = null;
     for (let i = sorted.length - 1; i >= 0; i -= 1) {
+      next[i] = nextT;
       const t = Number(sorted[i]?.stat?.normalized_time_s);
       if (Number.isFinite(t)) nextT = Math.max(0, t);
-      next[i] = nextT;
     }
 
     for (let i = 0; i < sorted.length; i += 1) {
@@ -744,8 +744,17 @@ function computeImputedNormalizedTimes(stats) {
       const id = s?.id;
       if (!id) continue;
       const t = Number(s?.normalized_time_s);
+      const suspiciousZeroSubstitution =
+        String(s?.stat_type || '') === 'substitution'
+        && Number.isFinite(t)
+        && t <= 0
+        && Number.isFinite(prev[i])
+        && prev[i] > 0
+        && Number.isFinite(next[i])
+        && next[i] > 0;
       if (Number.isFinite(t)) {
-        out.set(id, Math.max(0, t));
+        if (suspiciousZeroSubstitution) out.set(id, Math.max(0, Math.round((prev[i] + next[i]) / 2)));
+        else out.set(id, Math.max(0, t));
         continue;
       }
       const a = prev[i];

@@ -307,6 +307,7 @@ function buildSubstitutionTimeSById(stats = []) {
     const nextKnown = new Array(rows.length).fill(null);
     let lastKnown = null;
     for (let i = 0; i < rows.length; i += 1) {
+      prevKnown[i] = lastKnown;
       const currentTime = getRawLoggedTimeSLocal(rows[i]);
       if (currentTime != null) {
         lastKnown = {
@@ -315,11 +316,11 @@ function buildSubstitutionTimeSById(stats = []) {
           playId: safeNumber(rows[i]?.play_id) ?? null,
         };
       }
-      prevKnown[i] = lastKnown;
     }
 
     lastKnown = null;
     for (let i = rows.length - 1; i >= 0; i -= 1) {
+      nextKnown[i] = lastKnown;
       const currentTime = getRawLoggedTimeSLocal(rows[i]);
       if (currentTime != null) {
         lastKnown = {
@@ -328,22 +329,33 @@ function buildSubstitutionTimeSById(stats = []) {
           playId: safeNumber(rows[i]?.play_id) ?? null,
         };
       }
-      nextKnown[i] = lastKnown;
     }
 
     for (let i = 0; i < rows.length; i += 1) {
       const stat = rows[i];
       if (String(stat?.stat_type || '') !== 'substitution' || !stat?.id) continue;
       const direct = getRawLoggedTimeSLocal(stat);
+      const prev = prevKnown[i];
+      const next = nextKnown[i];
+      const suspiciousZeroDirect =
+        direct === 0
+        && Number.isFinite(Number(prev?.time))
+        && Number(prev.time) > 0
+        && Number.isFinite(Number(next?.time))
+        && Number(next.time) > 0;
       if (direct != null) {
-        out.set(stat.id, direct);
+        if (suspiciousZeroDirect) {
+          out.set(stat.id, Math.max(0, Math.round((Number(prev.time) + Number(next.time)) / 2)));
+        } else {
+          out.set(stat.id, direct);
+        }
         continue;
       }
 
-      const prev = prevKnown[i];
-      const next = nextKnown[i];
       let inferred = 0;
-      if (prev?.time != null) {
+      if (prev?.time != null && next?.time != null) {
+        inferred = Math.max(0, Math.round((Number(prev.time) + Number(next.time)) / 2));
+      } else if (prev?.time != null) {
         inferred = prev.time;
       } else if (next?.time != null) {
         inferred = next.time;
@@ -1230,12 +1242,12 @@ export function getShotContextType(stat) {
 }
 
 export function getNormalizedTimeS(stat, imputedMap) {
-  const t = Number(stat?.normalized_time_s);
-  if (Number.isFinite(t)) return Math.max(0, t);
   if (imputedMap && typeof imputedMap.get === 'function') {
     const imputed = Number(imputedMap.get(stat?.id));
     if (Number.isFinite(imputed)) return Math.max(0, imputed);
   }
+  const t = Number(stat?.normalized_time_s);
+  if (Number.isFinite(t)) return Math.max(0, t);
   return null;
 }
 

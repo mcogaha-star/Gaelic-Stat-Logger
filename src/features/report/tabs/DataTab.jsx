@@ -22,7 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { createPageUrl } from '@/utils';
-import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, getSetDefenceValue, isAttackPossession, isProgressive as isProgressiveShared, oppositeTeamSide, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
+import { DEFENCE_SET_MIGRATION_VERSION, buildDataHealthChecks, getAttackEntryChannelForPossession, getMatchTimeS, getNormalizedTimeS, getSetDefenceValue, isAttackPossession, isProgressive as isProgressiveShared, oppositeTeamSide, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { softDeleteServerStat, updateServerStat } from '@/lib/serverSync';
 import { useAuth } from '@/lib/AuthContext';
 import {
@@ -2502,8 +2502,24 @@ function DataTab({
     setRawTeamSide(stat?.team_side === 'away' ? 'away' : (stat?.team_side === 'unknown' ? 'unknown' : 'home'));
     setRawHalf(stat?.half || 'first');
     setRawSetDefence(!!getSetDefenceValue(stat, false));
-    setRawTimeS(Number.isFinite(Number(stat?.time_s)) ? String(Number(stat.time_s)) : '');
-    setRawNormalizedTimeS(Number.isFinite(Number(stat?.normalized_time_s)) ? String(Number(stat.normalized_time_s)) : '');
+    const derivedMatchTime = getMatchTimeS(stat, match, imputedTimeById);
+    const derivedNormalizedTime = getNormalizedTimeS(stat, imputedTimeById);
+    const suspiciousSubstitutionTime =
+      String(stat?.stat_type || '') === 'substitution'
+      && Number.isFinite(Number(stat?.normalized_time_s))
+      && Number(stat.normalized_time_s) <= 0
+      && Number.isFinite(derivedNormalizedTime)
+      && derivedNormalizedTime > 0;
+    setRawTimeS(
+      suspiciousSubstitutionTime
+        ? (Number.isFinite(derivedMatchTime) ? String(Math.round(derivedMatchTime)) : '')
+        : (Number.isFinite(Number(stat?.time_s)) ? String(Number(stat.time_s)) : '')
+    );
+    setRawNormalizedTimeS(
+      suspiciousSubstitutionTime
+        ? String(Math.round(derivedNormalizedTime))
+        : (Number.isFinite(Number(stat?.normalized_time_s)) ? String(Number(stat.normalized_time_s)) : '')
+    );
     setRawPlayerName(stat?.player_name || '');
     setRawPlayerNumber(stat?.player_number == null ? '' : String(stat.player_number));
     setRawRecipientName(stat?.recipient_name || '');
@@ -4159,7 +4175,18 @@ function DataTab({
                                           { label: 'Possession', value: Number.isFinite(Number(s.possession_id)) ? String(Number(s.possession_id)) : 'NA' },
                                           { label: 'Possession Team', value: s.possession_team_side === 'away' ? (awayTeam?.name || 'Away') : (s.possession_team_side === 'home' ? (homeTeam?.name || 'Home') : 'NA') },
                                           { label: 'Set Defence', value: getSetDefenceValue(s, false) ? 'Yes' : 'No' },
-                                        { label: 'Video', value: Number.isFinite(Number(s.time_s)) ? formatMMSS(Number(s.time_s)) : 'NA' },
+                                        { label: 'Video', value: (() => {
+                                          const directVideo = Number(s?.time_s);
+                                          const rowTime = getMatchTimeS(s, match, imputedTimeById);
+                                          const suspiciousSubstitutionVideo =
+                                            String(s?.stat_type || '') === 'substitution'
+                                            && Number.isFinite(Number(s?.normalized_time_s))
+                                            && Number(s.normalized_time_s) <= 0
+                                            && Number.isFinite(rowTime)
+                                            && rowTime > 0;
+                                          if (suspiciousSubstitutionVideo) return formatMMSS(rowTime);
+                                          return Number.isFinite(directVideo) ? formatMMSS(directVideo) : 'NA';
+                                        })() },
                                         { label: 'Time', value: (() => { const rowTime = getMatchTimeS(s, match, imputedTimeById); return Number.isFinite(rowTime) ? formatMatchClock(rowTime, match, s.half) : 'NA'; })() },
                                         { label: 'X, Y', value: Number.isFinite(Number(s.x_position)) && Number.isFinite(Number(s.y_position)) ? `${Number(s.x_position).toFixed(2)}, ${Number(s.y_position).toFixed(2)}` : 'NA' },
                                           { label: 'End X, Y', value: Number.isFinite(Number(s.end_x_position)) && Number.isFinite(Number(s.end_y_position)) ? `${Number(s.end_x_position).toFixed(2)}, ${Number(s.end_y_position).toFixed(2)}` : 'NA' },

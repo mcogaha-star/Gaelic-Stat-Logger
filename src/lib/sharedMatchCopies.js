@@ -30,6 +30,37 @@ async function requireAuthUser() {
   return data?.user ?? null;
 }
 
+async function fetchPublicSharedMatchSnapshotByCode(shareCode) {
+  const normalizedCode = String(shareCode || '').trim().toUpperCase();
+  if (!normalizedCode) return { ok: false, reason: 'missing_share_code' };
+
+  const { data, error } = await supabase.rpc('fetch_public_shared_match_snapshot', {
+    input_share_code: normalizedCode,
+  });
+
+  if (error) {
+    const message = String(error?.message || '');
+    const missingRpc =
+      /fetch_public_shared_match_snapshot/i.test(message)
+      && /(does not exist|not found|schema cache)/i.test(message);
+    if (!missingRpc) return { ok: false, reason: message };
+
+    const fallback = await supabase
+      .from('shared_match_snapshots')
+      .select('*')
+      .eq('share_code', normalizedCode)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (fallback.error) return { ok: false, reason: fallback.error.message };
+    if (!fallback.data?.id) return { ok: false, reason: 'not_found' };
+    return { ok: true, snapshot: fallback.data };
+  }
+
+  if (!data?.id) return { ok: false, reason: 'not_found' };
+  return { ok: true, snapshot: data };
+}
+
 async function retireOtherSnapshots({ userId, shareType, sourceMatchKey, keepId }) {
   if (!userId || !shareType || !sourceMatchKey || !keepId) return;
   await supabase
@@ -247,15 +278,23 @@ export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = 
   if (requireAuth && !user) return { ok: false, reason: 'not_authenticated' };
   if (!String(shareCode || '').trim()) return { ok: false, reason: 'missing_share_code' };
 
-  const query = supabase
-    .from('shared_match_snapshots')
-    .select('*')
-    .eq('share_code', String(shareCode).trim().toUpperCase())
-    .is('deleted_at', null);
-  const { data, error } = await query.maybeSingle();
+  const result = requireAuth
+    ? await (async () => {
+        const query = supabase
+          .from('shared_match_snapshots')
+          .select('*')
+          .eq('share_code', String(shareCode).trim().toUpperCase())
+          .is('deleted_at', null);
+        const { data, error } = await query.maybeSingle();
+        if (error) return { ok: false, reason: error.message };
+        if (!data?.id) return { ok: false, reason: 'not_found' };
+        return { ok: true, snapshot: data };
+      })()
+    : await fetchPublicSharedMatchSnapshotByCode(shareCode);
 
-  if (error) return { ok: false, reason: error.message };
-  if (!data?.id) return { ok: false, reason: 'not_found' };
+  if (!result?.ok || !result?.snapshot?.id) return result?.ok ? { ok: false, reason: 'not_found' } : result;
+
+  const data = result.snapshot;
   if (Array.isArray(allowedTypes) && allowedTypes.length) {
     const normalizedAllowedTypes = allowedTypes.map((value) => String(value || '').trim().toLowerCase());
     const normalizedShareType = String(data?.share_type || '').trim().toLowerCase();
