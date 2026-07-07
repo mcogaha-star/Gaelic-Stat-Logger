@@ -67,6 +67,7 @@ import {
   SortableTableHead,
   sortRows,
 } from '../shared';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const VIDEO_PLAY_ACTION_OPTIONS = [
   { value: 'all', label: 'All' },
@@ -475,6 +476,7 @@ function DataTab({
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
   const isVideoMode = mode === 'video';
   const allowEditing = !readOnly && !isVideoMode;
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [team, setTeam] = useState('both');
@@ -540,6 +542,10 @@ function DataTab({
   const [selectedVideoPossessionKeys, setSelectedVideoPossessionKeys] = useState([]);
   const [reelNameDraft, setReelNameDraft] = useState('');
   const [selectedReelId, setSelectedReelId] = useState('');
+
+  useEffect(() => {
+    if (isMobile) setVideoFiltersCollapsed(true);
+  }, [isMobile]);
   const [editingReelId, setEditingReelId] = useState('');
   const [editingReelName, setEditingReelName] = useState('');
   const [editingReelClips, setEditingReelClips] = useState([]);
@@ -1659,13 +1665,13 @@ function DataTab({
   const videoNavControls = useMemo(() => {
     if (!isVideoMode) return null;
     return (
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <div className="inline-flex">
+      <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
+        <div className="inline-flex min-w-0">
           <Button
             type="button"
             variant={videoBrowseMode === 'play' ? 'default' : 'outline'}
             size="sm"
-            className="h-8 px-3 text-xs sm:px-4"
+            className="h-8 flex-1 px-2 text-xs sm:flex-none sm:px-4"
             onClick={() => setVideoBrowseMode('play')}
           >
             Events
@@ -1674,7 +1680,7 @@ function DataTab({
             type="button"
             variant={videoBrowseMode === 'possession' ? 'default' : 'outline'}
             size="sm"
-            className="h-8 px-3 text-xs sm:px-4"
+            className="h-8 flex-1 px-2 text-xs sm:flex-none sm:px-4"
             onClick={() => setVideoBrowseMode('possession')}
           >
             Possessions
@@ -1684,7 +1690,7 @@ function DataTab({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 px-3 text-xs sm:px-4"
+          className="h-8 px-2 text-xs sm:px-4"
           onClick={handleWatchCurrentVideoSet}
           disabled={!currentClipCandidates.length}
           aria-label="Watch selected rows, or current filtered rows if nothing is selected"
@@ -1694,8 +1700,8 @@ function DataTab({
         </Button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs sm:px-4">
-              <ListVideo className="mr-2 h-4 w-4" />
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs sm:px-4">
+              {!isMobile ? <ListVideo className="mr-2 h-4 w-4" /> : null}
               Options
             </Button>
           </DropdownMenuTrigger>
@@ -1723,7 +1729,7 @@ function DataTab({
         </DropdownMenu>
       </div>
     );
-  }, [currentClipCandidates.length, currentSelectedCount, handleWatchCurrentVideoSet, isVideoMode, openAddSelectionToReelDialog, openSaveHighlightDialog, videoBrowseMode]);
+  }, [currentClipCandidates.length, currentSelectedCount, handleWatchCurrentVideoSet, isMobile, isVideoMode, openAddSelectionToReelDialog, openSaveHighlightDialog, videoBrowseMode]);
   const createCandidateClips = (selectionMode = 'filtered') => {
     const source = selectionMode === 'selected' ? currentSelectedClipRefs : currentClipCandidates;
     const seen = new Set();
@@ -2913,7 +2919,7 @@ function DataTab({
                     : `Showing ${Math.min(videoVisiblePossessionRows.length, sortedVideoPossessionRows.length)} of ${sortedVideoPossessionRows.length} possessions.`}
                 </div>
               </div>
-              <div className="flex min-h-[32px] flex-wrap items-center justify-end gap-2 lg:min-w-[520px]">
+              <div className="flex min-h-[32px] w-full flex-wrap items-center justify-end gap-2 lg:min-w-[520px] lg:w-auto">
                 <div className="flex h-8 min-w-[120px] items-center justify-end gap-1.5 text-xs text-slate-600">
                   {currentSelectedCount ? (
                     <>
@@ -2924,11 +2930,24 @@ function DataTab({
                     </>
                   ) : null}
                 </div>
-                <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                  <Button type="button" variant={videoViewMode === 'table' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('table')}>Table</Button>
-                  <Button type="button" variant={videoViewMode === 'pitch' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('pitch')}>Pitch</Button>
-                  <Button type="button" variant={videoViewMode === 'split' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('split')}>Split</Button>
-                </div>
+                {isMobile ? (
+                  <Select value={videoViewMode} onValueChange={setVideoViewMode}>
+                    <SelectTrigger className="h-8 w-[118px] rounded-xl text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="table">Table</SelectItem>
+                      <SelectItem value="pitch">Pitch</SelectItem>
+                      <SelectItem value="split">Split</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                    <Button type="button" variant={videoViewMode === 'table' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('table')}>Table</Button>
+                    <Button type="button" variant={videoViewMode === 'pitch' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('pitch')}>Pitch</Button>
+                    <Button type="button" variant={videoViewMode === 'split' ? 'default' : 'outline'} size="sm" className="h-8 px-3 text-xs" onClick={() => setVideoViewMode('split')}>Split</Button>
+                  </div>
+                )}
                 {(videoBrowseMode === 'play' ? sortedVideoPlayTableRows.length : sortedVideoPossessionRows.length) > VIDEO_PREVIEW_COUNT ? (
                   <Button
                     type="button"

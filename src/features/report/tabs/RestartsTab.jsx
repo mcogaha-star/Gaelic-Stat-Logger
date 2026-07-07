@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { BarChart, Bar, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis, ResponsiveContainer, Sankey } from 'recharts';
 import {
   PITCH_W,
@@ -760,6 +761,7 @@ function RestartsTab({
   restartSideFilter = [],
   onOpenVideoAt,
 }) {
+  const isMobile = useIsMobile();
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const showXp = !isLiveMode || showXpData;
   const activeRestartTargetFilter = isLiveMode ? [] : restartTargetFilter;
@@ -1380,33 +1382,45 @@ function RestartsTab({
           <CardContent className="flex h-full flex-col p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <ReportInfoTitle title="Kickout Outcomes" helpId="restarts_outcomes" />
-              <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                <Button
-                  type="button"
-                  variant={kickoutOutcomeMode === 'detailed' ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  onClick={() => setKickoutOutcomeMode('detailed')}
-                >
-                  Detailed
-                </Button>
-                <Button
-                  type="button"
-                  variant={kickoutOutcomeMode === 'simple' ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  onClick={() => setKickoutOutcomeMode('simple')}
-                >
-                  Simple
-                </Button>
-              </div>
+              {isMobile ? (
+                <Select value={kickoutOutcomeMode} onValueChange={setKickoutOutcomeMode}>
+                  <SelectTrigger className="h-8 w-[140px] rounded-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="detailed">Detailed</SelectItem>
+                    <SelectItem value="simple">Simple</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                  <Button
+                    type="button"
+                    variant={kickoutOutcomeMode === 'detailed' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => setKickoutOutcomeMode('detailed')}
+                  >
+                    Detailed
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={kickoutOutcomeMode === 'simple' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => setKickoutOutcomeMode('simple')}
+                  >
+                    Simple
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="flex-1 min-h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={kickoutOutcomeChartRows} layout="vertical" margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                <BarChart data={kickoutOutcomeChartRows} layout="vertical" margin={{ top: 8, right: isMobile ? 6 : 12, left: isMobile ? 2 : 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                   <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} allowDecimals={false} />
-                  <YAxis dataKey="label" type="category" tick={{ fontSize: 14, fill: '#0f172a', fontWeight: 700 }} width={108} />
+                  <YAxis dataKey="label" type="category" tick={{ fontSize: isMobile ? 12 : 14, fill: '#0f172a', fontWeight: 700 }} width={isMobile ? 86 : 108} />
                   <Tooltip
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
@@ -1440,7 +1454,7 @@ function RestartsTab({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className={`grid gap-3 text-[11px] text-slate-700 ${kickoutOutcomeMode === 'simple' ? 'sm:grid-cols-1' : 'sm:grid-cols-4'}`}>
+            <div className={`grid gap-3 text-[11px] text-slate-700 ${kickoutOutcomeMode === 'simple' ? 'grid-cols-1 sm:grid-cols-1' : 'grid-cols-2 sm:grid-cols-4'}`}>
               {kickoutOutcomeLegendColumns.map((column, columnIndex) => (
                 <div key={`legend-column-${columnIndex}`} className="space-y-1">
                   {column.map((entry) => (

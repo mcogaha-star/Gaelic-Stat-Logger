@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, ResponsiveContainer, XAxis, YAxis, Sankey } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
@@ -66,6 +67,7 @@ import {
   shotZoneFromDistance,
   applyNonTeamReportFilters,
 } from '../shared';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 function getLivePossessionStartAnchor(previousStat, startSource, match, imputedMap) {
   if (!previousStat || isDeadBallGapStart(previousStat)) return NaN;
@@ -443,6 +445,7 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
 }
 
 function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode = false, showXpData = true, onVisualisePossession, onOpenVideoAt, onOpenVideoPossession, attackTypeFilter = 'any', setAttackTypeFilter, outcomeFilter = [], originFilter = [], startZoneFilter = [] }) {
+  const isMobile = useIsMobile();
   const paneClassName = 'report-pane';
   const showXp = !isLiveMode || showXpData;
   const outcomeSeries = [
@@ -1429,7 +1432,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                             ))}
                       </div>
                       <ChartContainer id="possession-origins" className="h-[280px] w-full flex-1" config={{}}>
-                        <BarChart data={possessionOriginData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }} barCategoryGap={28}>
+                        <BarChart data={possessionOriginData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 18 : 28}>
                           <CartesianGrid vertical={false} />
                           <XAxis dataKey="team" className="text-xs" />
                           <YAxis allowDecimals={false} width={34} className="text-xs" domain={[0, sharedOutcomeAxisMax]} />
@@ -1461,18 +1464,30 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                           ))}
                         </div>
                         {!isLiveMode ? (
-                          <div className="inline-flex items-center gap-2">
-                            <Button type="button" variant={outcomeMode === 'possessions' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('possessions')}>
-                              Possessions
-                            </Button>
-                            <Button type="button" variant={outcomeMode === 'attacks' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('attacks')}>
-                              Attacks
-                            </Button>
-                          </div>
+                          isMobile ? (
+                            <Select value={outcomeMode} onValueChange={setOutcomeMode}>
+                              <SelectTrigger className="h-8 w-[148px] rounded-full text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="possessions">Possessions</SelectItem>
+                                <SelectItem value="attacks">Attacks</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="inline-flex items-center gap-2">
+                              <Button type="button" variant={outcomeMode === 'possessions' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('possessions')}>
+                                Possessions
+                              </Button>
+                              <Button type="button" variant={outcomeMode === 'attacks' ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => setOutcomeMode('attacks')}>
+                                Attacks
+                              </Button>
+                            </div>
+                          )
                         ) : null}
                       </div>
                       <ChartContainer id="possession-outcomes" className="h-[280px] w-full flex-1" config={{}}>
-                        <BarChart data={activeOutcomeData} margin={{ top: 12, right: 16, left: 0, bottom: 6 }} barCategoryGap={28}>
+                        <BarChart data={activeOutcomeData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 18 : 28}>
                           <CartesianGrid vertical={false} />
                           <XAxis dataKey="team" className="text-xs" />
                           <YAxis allowDecimals={false} width={34} className="text-xs" domain={[0, sharedOutcomeAxisMax]} />
@@ -1491,25 +1506,40 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <ReportInfoTitle title="Possession Value" helpId="possessions_value" />
-                  <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                    {[
-                      { value: 'all', label: 'All' },
-                      { value: 'origin', label: 'Origin' },
-                      { value: 'source', label: 'Source' },
-                      ...(!isLiveMode ? [{ value: 'length', label: 'Length' }, { value: 'attackType', label: 'Attack Type' }] : []),
-                    ].map((option) => (
-                      <Button
-                        key={option.value}
-                        type="button"
-                        variant={possessionValueGroupBy === option.value ? 'default' : 'outline'}
-                        size="sm"
-                        className="h-8 px-3 text-xs"
-                        onClick={() => setPossessionValueGroupBy(option.value)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </div>
+                  {isMobile ? (
+                    <Select value={possessionValueGroupBy} onValueChange={setPossessionValueGroupBy}>
+                      <SelectTrigger className="h-8 w-[148px] rounded-full text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="origin">Origin</SelectItem>
+                        <SelectItem value="source">Source</SelectItem>
+                        {!isLiveMode ? <SelectItem value="length">Length</SelectItem> : null}
+                        {!isLiveMode ? <SelectItem value="attackType">Attack Type</SelectItem> : null}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                      {[
+                        { value: 'all', label: 'All' },
+                        { value: 'origin', label: 'Origin' },
+                        { value: 'source', label: 'Source' },
+                        ...(!isLiveMode ? [{ value: 'length', label: 'Length' }, { value: 'attackType', label: 'Attack Type' }] : []),
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          type="button"
+                          variant={possessionValueGroupBy === option.value ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-8 px-3 text-xs"
+                          onClick={() => setPossessionValueGroupBy(option.value)}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                     {[
@@ -1655,7 +1685,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
           </>
         )}
       <Dialog open={breakdownOpen} onOpenChange={setBreakdownOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className={isMobile ? 'w-[92vw] max-w-[92vw] max-h-[80dvh] overflow-y-auto' : 'max-w-3xl'}>
           <DialogHeader>
             <DialogTitle>
               {outcomeMode === 'attacks' ? 'Attack' : 'Possession'} Outcome Breakdown: {breakdownCategory}
@@ -1680,7 +1710,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         </DialogContent>
       </Dialog>
         <Dialog open={originBreakdownOpen} onOpenChange={setOriginBreakdownOpen}>
-          <DialogContent className="max-w-3xl">
+          <DialogContent className={isMobile ? 'w-[92vw] max-w-[92vw] max-h-[80dvh] overflow-y-auto' : 'max-w-3xl'}>
             <DialogHeader>
               <DialogTitle>{originBreakdownCategory || 'Origin'} Breakdown</DialogTitle>
             </DialogHeader>

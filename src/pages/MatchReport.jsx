@@ -2369,7 +2369,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
         <div className="sticky top-0 z-[70] isolate border-b-2 border-slate-300 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]">
           <div className="max-w-7xl mx-auto px-4 py-1.5">
-            <div className="flex min-h-10 items-center justify-between gap-3">
+            <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 sm:gap-3">
               <div className="hidden min-w-0 flex-1 xl:block">
                 <TabsList className="min-h-10 flex-nowrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
                   {visibleReportTabOptions.map((option) => (
@@ -2395,7 +2395,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Menu className="h-4 w-4" />
                 </Button>
               </div>
-              <div className={`ml-auto flex max-w-full items-center justify-end gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-auto'}`}>
+              <div className={`ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-full sm:w-auto'}`}>
                 {activeTab === 'summary' ? (
                   <MultiSelect
                     label="Overview Half"
@@ -2416,14 +2416,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 {activeTab === 'video' ? (
                   <div
                     id="report-video-nav-controls"
-                    className="flex max-w-full flex-wrap items-center justify-end gap-2"
+                    className="flex w-full max-w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:gap-2"
                     aria-label="Video tab controls"
                   />
                 ) : null}
                   {activeTab === 'players_ana' ? (
                     <div
                       id="report-players-nav-controls"
-                      className="flex max-w-full flex-nowrap items-center justify-end gap-1.5"
+                      className="flex w-full max-w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto"
                       aria-label="Players tab controls"
                     />
                   ) : null}
@@ -2747,7 +2747,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           onChange={handleShotArcImportChange}
         />
 
-        <main ref={reportMainRef} className="max-w-7xl mx-auto px-4 py-3">
+        <main ref={reportMainRef} className="max-w-7xl mx-auto px-3 py-3 sm:px-4">
           {reportTabEntries.map((entry) => {
             const extraProps = {};
             if (entry.value === 'players_ana') {

@@ -238,6 +238,52 @@ button:focus-visible {
     }
   }
 
+  @media (max-width: 767px) {
+    .report-pane,
+    .report-panel,
+    .report-panel-muted,
+    .report-metric-split,
+    .report-companion-grid {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+    }
+
+    .report-metric-split,
+    .report-companion-grid {
+      gap: 0.75rem;
+    }
+
+    .report-pane [class*='overflow-x-auto'],
+    .report-pane [class*='overflow-y-auto'],
+    .report-pane [class*='overflow-auto'] {
+      scrollbar-color: #475569 #e2e8f0;
+      scrollbar-width: thin;
+    }
+
+    .report-pane [class*='overflow-x-auto']::-webkit-scrollbar,
+    .report-pane [class*='overflow-y-auto']::-webkit-scrollbar,
+    .report-pane [class*='overflow-auto']::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .report-pane [class*='overflow-x-auto']::-webkit-scrollbar-thumb,
+    .report-pane [class*='overflow-y-auto']::-webkit-scrollbar-thumb,
+    .report-pane [class*='overflow-auto']::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 999px;
+      border: 2px solid #e2e8f0;
+    }
+
+    .report-pane [class*='overflow-x-auto']::-webkit-scrollbar-track,
+    .report-pane [class*='overflow-y-auto']::-webkit-scrollbar-track,
+    .report-pane [class*='overflow-auto']::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 999px;
+    }
+  }
+
   @media (min-width: 1100px) {
     .report-metric-split {
       grid-template-columns: minmax(420px, 0.95fr) minmax(420px, 1.05fr);

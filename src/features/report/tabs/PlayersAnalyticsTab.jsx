@@ -15,6 +15,7 @@ import {
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
+import { useIsMobile } from '@/hooks/use-mobile';
 import pitchImg from '@/assets/pitch.png';
 import {
   CartesianGrid,
@@ -656,7 +657,7 @@ function MetricCategoryCard({ title, subtitle = '', metrics, tone = 'slate' }) {
             {subtitle ? <div className="text-xs text-slate-500">{subtitle}</div> : null}
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
           {metrics.map((metric) => (
             <div key={metric.label} className="rounded-lg border border-white/70 bg-white/80 p-3 shadow-sm">
               <div className="text-[11px] uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -688,6 +689,7 @@ function PlayerShootingPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   const summary = useMemo(() => {
     const sourceShots = Array.isArray(shots) ? shots : [];
     const filteredShots = sourceShots.filter((stat) => {
@@ -867,7 +869,7 @@ function PlayerShootingPanel({
             </div>
           </div>
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -941,8 +943,11 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => event.stopPropagation()}
-                          onDoubleClick={handleOpenVideo}
+                          onClick={(event) => {
+                            if (isMobile) handleOpenVideo(event);
+                            else event.stopPropagation();
+                          }}
+                          onDoubleClick={isMobile ? undefined : handleOpenVideo}
                         >
                           <rect
                             x={shot.x - size}
@@ -981,8 +986,11 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => event.stopPropagation()}
-                          onDoubleClick={handleOpenVideo}
+                          onClick={(event) => {
+                            if (isMobile) handleOpenVideo(event);
+                            else event.stopPropagation();
+                          }}
+                          onDoubleClick={isMobile ? undefined : handleOpenVideo}
                         >
                           <rect
                             x={shot.x - size}
@@ -1023,8 +1031,11 @@ function PlayerShootingPanel({
                       <g
                         key={shot.id}
                         className="cursor-pointer"
-                        onClick={(event) => event.stopPropagation()}
-                        onDoubleClick={handleOpenVideo}
+                        onClick={(event) => {
+                          if (isMobile) handleOpenVideo(event);
+                          else event.stopPropagation();
+                        }}
+                        onDoubleClick={isMobile ? undefined : handleOpenVideo}
                       >
                         <circle
                           cx={shot.x}
@@ -1077,6 +1088,7 @@ function PlayerPassingPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   const summary = useMemo(() => {
     const sourcePasses = Array.isArray(passes) ? passes : [];
     let completedPasses = 0;
@@ -1215,7 +1227,7 @@ function PlayerPassingPanel({
         <CardContent className="p-4 space-y-4">
           <ReportInfoTitle title="Passing" helpId="players_passing" titleClassName="text-lg font-semibold text-slate-900" />
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -1253,8 +1265,11 @@ function PlayerPassingPanel({
                     <g
                       key={pass.id}
                       className="cursor-pointer"
-                      onClick={(event) => event.stopPropagation()}
-                      onDoubleClick={handleOpenVideo}
+                      onClick={(event) => {
+                        if (isMobile) handleOpenVideo(event);
+                        else event.stopPropagation();
+                      }}
+                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
                     >
                       <line
                         x1={pass.start.x}
@@ -1325,6 +1340,7 @@ function PlayerCarryingPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   const summary = useMemo(() => {
     const sourceCarries = Array.isArray(carries) ? carries : [];
     let completedCarries = 0;
@@ -1447,7 +1463,7 @@ function PlayerCarryingPanel({
         <CardContent className="p-4 space-y-4">
           <ReportInfoTitle title="Carrying" helpId="players_carrying" titleClassName="text-lg font-semibold text-slate-900" />
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -1484,8 +1500,11 @@ function PlayerCarryingPanel({
                   <g
                     key={carry.id}
                     className="cursor-pointer"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={handleOpenVideo}
+                    onClick={(event) => {
+                      if (isMobile) handleOpenVideo(event);
+                      else event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
                   >
                     <line
                       x1={carry.start.x}
@@ -1557,6 +1576,7 @@ function PlayerRestartPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
 
   const metrics = [
@@ -1580,7 +1600,7 @@ function PlayerRestartPanel({
         <CardContent className="p-4 space-y-4">
           <ReportInfoTitle title="Restarts" helpId="players_restarts" titleClassName="text-lg font-semibold text-slate-900" />
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -1622,8 +1642,11 @@ function PlayerRestartPanel({
                   <g
                     key={item.id}
                     className="cursor-pointer"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={handleOpenVideo}
+                    onClick={(event) => {
+                      if (isMobile) handleOpenVideo(event);
+                      else event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
                   >
                     <line
                       x1={startPoint.x}
@@ -1682,6 +1705,7 @@ function PlayerProgressionPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
 
   const summary = useMemo(() => {
@@ -1774,7 +1798,7 @@ function PlayerProgressionPanel({
         <CardContent className="p-4 space-y-4">
           <ReportInfoTitle title="Progression" helpId="players_progression" titleClassName="text-lg font-semibold text-slate-900" />
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -1826,8 +1850,11 @@ function PlayerProgressionPanel({
                   <g
                     key={reception.id}
                     className="cursor-pointer"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={handleOpenVideo}
+                    onClick={(event) => {
+                      if (isMobile) handleOpenVideo(event);
+                      else event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
                   >
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill={reception.color} opacity="0.92">
@@ -1858,6 +1885,7 @@ function PlayerDefensePanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
 
   const summary = useMemo(() => {
@@ -1914,7 +1942,7 @@ function PlayerDefensePanel({
         <CardContent className="p-4 space-y-4">
           <ReportInfoTitle title="Defense" helpId="players_defending" titleClassName="text-lg font-semibold text-slate-900" />
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -1962,8 +1990,11 @@ function PlayerDefensePanel({
                   <g
                     key={action.id}
                     className="cursor-pointer"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={handleOpenVideo}
+                    onClick={(event) => {
+                      if (isMobile) handleOpenVideo(event);
+                      else event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
                   >
                     {action.shape === 'cross' ? (
                       <>
@@ -2009,6 +2040,7 @@ function PlayerDefendingAllowedPanel({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
   const [stintsOpen, setStintsOpen] = useState(false);
 
@@ -2050,7 +2082,7 @@ function PlayerDefendingAllowedPanel({
             </div>
           </div>
 
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {metrics.map((metric) => (
               <div key={metric.label} className="min-w-0 space-y-1">
                 <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -2062,7 +2094,7 @@ function PlayerDefendingAllowedPanel({
       </Card>
 
       <div className="flex h-full min-h-0 flex-col gap-4">
-        <Card style={cardStyle} className="report-pane shrink-0">
+        <Card style={cardStyle} className="report-pane">
           <CardContent className="p-3">
             <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}` }}>
               <svg viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} className="relative z-10 h-full w-full">
@@ -2085,9 +2117,12 @@ function PlayerDefendingAllowedPanel({
                     <g
                       key={touch.id}
                       className="cursor-pointer"
-                      onClick={(event) => event.stopPropagation()}
-                      onDoubleClick={handleOpenVideo}
-                    >
+                    onClick={(event) => {
+                      if (isMobile) handleOpenVideo(event);
+                      else event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                  >
                       <circle cx={point.x} cy={point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                       <circle cx={point.x} cy={point.y} r="1.9" fill={touch.color || '#2563eb'} opacity="0.92">
                         <title>{touch.tooltip}</title>
@@ -2110,7 +2145,7 @@ function PlayerDefendingAllowedPanel({
           </CardContent>
         </Card>
 
-        <Card style={cardStyle} className="report-pane shrink-0">
+        <Card style={cardStyle} className="report-pane">
           <CardContent className="flex flex-col gap-3 p-4">
             <div className="flex items-start justify-between gap-3">
               <ReportInfoTitle title="Matchups" helpId="players_matchups" titleClassName="text-lg font-semibold text-slate-900" />
@@ -2125,7 +2160,7 @@ function PlayerDefendingAllowedPanel({
                 ) : null}
                 {!readOnly && typeof onOpenMatchupEditor === 'function' ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => onOpenMatchupEditor(row.key)}>
-                    Manage Matchups
+                    {isMobile ? 'Manage' : 'Manage Matchups'}
                   </Button>
                 ) : null}
               </div>
@@ -2191,6 +2226,7 @@ function PlayerHeaderCard({
   onOpenVideoSelection = null,
   isLiveMode = false,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
   const position = String(row.position || '').trim() || 'Position not logged';
   const hideRoleChip = isLiveMode || isGoalkeeperPlayer(row) || /goalkeeper/i.test(position) || position.toLowerCase() === 'gk';
@@ -2258,7 +2294,7 @@ function PlayerHeaderCard({
               </div>
 
               <div className="min-w-0 px-4 pb-4 pt-3">
-                <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className={`grid gap-x-6 gap-y-4 ${isMobile ? 'grid-cols-2' : 'grid-cols-2 xl:grid-cols-3'}`}>
                   {heroKpis.map((item) => (
                     <div key={item.label} className="min-w-0 space-y-1">
                       <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{item.label}</div>
@@ -2392,6 +2428,7 @@ function PlayerInvolvementHeatmap({ points = [], teamSide = 'home', match = null
 }
 
 function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title = 'Kickouts', arrowText = 'Attacking ->', arrowSide = 'left', onOpenVideoSelection = null }) {
+  const isMobile = useIsMobile();
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
@@ -2421,11 +2458,20 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                 <g
                   key={item.id}
                   className={item.raw ? 'cursor-pointer' : undefined}
-                  onDoubleClick={(event) => {
+                  onClick={(event) => {
+                    if (!item.raw) return event.stopPropagation();
+                    if (isMobile) {
+                      event.stopPropagation();
+                      onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
+                      return;
+                    }
+                    event.stopPropagation();
+                  }}
+                  onDoubleClick={isMobile ? undefined : ((event) => {
                     if (!item.raw) return;
                     event.stopPropagation();
                     onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                  }}
+                  })}
                 >
                   {item.tooltip ? <title>{item.tooltip}</title> : null}
                   <line
@@ -2448,11 +2494,20 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
               <g
                 key={item.id}
                 className={item.raw ? 'cursor-pointer' : undefined}
-                onDoubleClick={(event) => {
+                onClick={(event) => {
+                  if (!item.raw) return event.stopPropagation();
+                  if (isMobile) {
+                    event.stopPropagation();
+                    onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
+                    return;
+                  }
+                  event.stopPropagation();
+                }}
+                onDoubleClick={isMobile ? undefined : ((event) => {
                   if (!item.raw) return;
                   event.stopPropagation();
                   onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                }}
+                })}
               >
                 {item.tooltip ? <title>{item.tooltip}</title> : null}
                 <circle
@@ -2540,7 +2595,7 @@ function GoalkeeperSummaryMetricsCard({ title, metrics = [], cardStyle = undefin
     <Card style={cardStyle} className="report-pane">
       <CardContent className="p-4 space-y-4">
         {React.isValidElement(title) ? title : <div className="text-lg font-semibold text-slate-900">{title}</div>}
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
           {metrics.map((metric) => (
             <div key={metric.label} className="min-w-0 space-y-1">
               <div className="text-sm font-medium uppercase tracking-wide text-slate-500">{metric.label}</div>
@@ -2633,11 +2688,18 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                   <g
                     key={shot.id}
                     className="cursor-pointer"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => {
+                    onClick={(event) => {
+                      if (isMobile) {
+                        event.stopPropagation();
+                        onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
+                        return;
+                      }
+                      event.stopPropagation();
+                    }}
+                    onDoubleClick={isMobile ? undefined : ((event) => {
                       event.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
-                    }}
+                    })}
                   >
                     <circle cx={point.x} cy={point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                     <circle
@@ -2706,6 +2768,7 @@ function LiveGoalkeeperPlayerPanels({
   onOpenVideoSelection = null,
   cardStyle = undefined,
 }) {
+  const isMobile = useIsMobile();
   if (!row) return null;
 
   return (
@@ -4794,7 +4857,7 @@ function PlayersAnalyticsTabContent({
     : (currentColumns[playerBucket] || currentColumns.scoring);
 
   const renderToolbarPlayerSelect = (value, onChange) => (
-    <div className="flex min-w-0 items-center sm:w-[165px] lg:w-[185px]">
+    <div className="flex min-w-0 flex-1 items-center sm:w-[165px] sm:flex-none lg:w-[185px]">
       <select
         value={String(value || 'all')}
         onChange={(event) => onChange(event.target.value)}
@@ -4813,18 +4876,18 @@ function PlayersAnalyticsTabContent({
   const availablePlayerCardModes = isLiveMode ? [['player-card', 'Player Card']] : (singlePlayerOnly ? PLAYER_CARD_MODES.slice(0, 1) : PLAYER_CARD_MODES);
 
   const playersNavControls = (
-    <div className="flex max-w-full flex-nowrap items-center justify-end gap-0.5" aria-label="Players tab controls">
+    <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:gap-1.5" aria-label="Players tab controls">
       {(activeMode === 'player-card' && !singlePlayerOnly) ? (
         renderToolbarPlayerSelect(safeChartPlayerValue, setChartPlayerId)
       ) : null}
       {(activeMode === 'player-card' || activeMode === 'comparison') ? (
-        <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5">
+        <div className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5">
           <Button type="button" size="sm" variant={statMode === 'raw' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('raw')}>Total</Button>
           <Button type="button" size="sm" variant={statMode === 'rate' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('rate')}>{rateModeLabel}</Button>
         </div>
       ) : null}
       {availablePlayerCardModes.length > 1 ? (
-      <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5">
+      <div className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5">
         {availablePlayerCardModes.map(([value, label]) => (
           <Button
             key={value}

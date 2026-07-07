@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,6 +10,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Info, Maximize2 } from 'l
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import pitchImg from '@/assets/pitch.png';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { reportInfoCatalog } from './reportInfoCatalog';
 import {
   PITCH_W,
@@ -414,6 +416,8 @@ function fullscreenPitchStyle(aspectRatio) {
 function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
   const rootRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const isMobile = useIsMobile();
   const rendered = typeof children === 'function' ? children(isFullscreen) : children;
 
   useEffect(() => {
@@ -426,6 +430,11 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
 
   const handleExpand = (event) => {
     if (!enabled) return;
+    if (isMobile) {
+      event?.stopPropagation?.();
+      setMobileExpanded(true);
+      return;
+    }
     if (document.fullscreenElement === rootRef.current) return;
     if (document.fullscreenElement && document.fullscreenElement !== rootRef.current) return;
     event?.stopPropagation?.();
@@ -447,26 +456,37 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
     : undefined;
 
   return (
-    <div
-      ref={rootRef}
-      className="relative"
-      style={fullscreenStyle}
-    >
-      {rendered}
-      {enabled && !isFullscreen ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          data-fullscreen-block="true"
-          className="absolute bottom-3 right-3 z-10 h-8 w-8 rounded-full border-white/70 bg-black/55 text-white hover:bg-black/70"
-          onClick={handleExpand}
-          title={`Expand ${title}`}
-        >
-          <Maximize2 className="h-4 w-4" />
-        </Button>
+    <>
+      <div
+        ref={rootRef}
+        className="relative"
+        style={fullscreenStyle}
+      >
+        {rendered}
+        {enabled && !isFullscreen ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            data-fullscreen-block="true"
+            className="absolute bottom-3 right-3 z-10 h-8 w-8 rounded-full border-white/70 bg-black/55 text-white hover:bg-black/70"
+            onClick={handleExpand}
+            title={`Expand ${title}`}
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
+      {enabled && isMobile ? (
+        <Dialog open={mobileExpanded} onOpenChange={setMobileExpanded}>
+          <DialogContent className="h-[100dvh] w-screen max-w-none rounded-none border-0 bg-black p-0 shadow-none sm:rounded-none">
+            <div className="flex h-full w-full items-center justify-center overflow-hidden bg-black">
+              {typeof children === 'function' ? children(true) : children}
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -540,6 +560,7 @@ function ReportInfoTrigger({ helpId, className = '' }) {
   const closeTimerRef = useRef(null);
   const triggerRef = useRef(null);
   const contentRef = useRef(null);
+  const isMobile = useIsMobile();
   if (!entry) return null;
 
   const clearCloseTimer = () => {
@@ -609,6 +630,30 @@ function ReportInfoTrigger({ helpId, className = '' }) {
       <Info className="h-3.5 w-3.5" />
     </button>
   );
+
+  if (isMobile) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`inline-flex h-5 shrink-0 items-center justify-center text-slate-500 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`.trim()}
+          aria-label={`More info about ${entry.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpen(true);
+          }}
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+        <DialogContent className="w-[min(92vw,42rem)] max-w-[min(92vw,42rem)] max-h-[82dvh] overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-xl">
+          <div className="max-h-[82dvh] overflow-y-auto overflow-x-hidden p-4 text-left">
+            <ReportInfoContentBody entry={entry} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
@@ -2577,7 +2622,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`report-pane flex h-full w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-none lg:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>
@@ -3462,6 +3507,12 @@ function ShotMapLegend({ teamMode, homeColor, awayColor }) {
 
 function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor, onOpenVideoAt = null, fullscreenEnabled = true }) {
   const list = Array.isArray(shots) ? shots : [];
+  const isMobile = useIsMobile();
+  const [legendOpen, setLegendOpen] = useState(!isMobile);
+
+  useEffect(() => {
+    setLegendOpen(!isMobile);
+  }, [isMobile]);
 
   const colors = {
     score: '#16a34a',
@@ -3483,30 +3534,56 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
     return true;
   });
 
+  const shotMapModeOptions = [
+    ['all', 'All Shots'],
+    ['scores', 'Scores Only'],
+    ['misses', 'Misses Only'],
+    ['blocked_saved', 'Blocked/Saved'],
+  ];
+
   const renderContent = (isFullscreen = false) => (
     <div className="space-y-3 w-full">
         {!isFullscreen && (
-        <div data-fullscreen-block="true" className="flex items-center justify-between gap-2">
+        <div data-fullscreen-block="true" className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="font-semibold text-slate-900">Shot Map</div>
-          <div className="inline-flex items-center gap-2">
-            {[
-              ['all', 'All Shots'],
-              ['scores', 'Scores Only'],
-              ['misses', 'Misses Only'],
-              ['blocked_saved', 'Blocked/Saved'],
-            ].map(([v, label]) => (
+          {isMobile ? (
+            <div className="flex items-center justify-between gap-2">
+              <Select value={mode} onValueChange={setMode}>
+                <SelectTrigger className="h-8 w-full max-w-[220px] text-xs">
+                  <SelectValue placeholder="Filter shots" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shotMapModeOptions.map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
-                key={v}
                 type="button"
-                variant={mode === v ? 'default' : 'outline'}
+                variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setMode(v)}
+                className="h-8 px-3 text-xs"
+                onClick={() => setLegendOpen((current) => !current)}
               >
-                {label}
+                {legendOpen ? 'Hide Key' : 'Show Key'}
               </Button>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2">
+              {shotMapModeOptions.map(([v, label]) => (
+                <Button
+                  key={v}
+                  type="button"
+                  variant={mode === v ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setMode(v)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
         </div>
         )}
 
@@ -3555,15 +3632,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 ].filter(Boolean).join('\n');
 
                 if (shape === 'goal') {
+                  const handleOpenVideo = (event) => {
+                    event.stopPropagation();
+                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                  };
                   return (
                     <g
                       key={s.id}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                        if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                      }}
+                      onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
+                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
                     >
                       <rect
                         x={x - size}
@@ -3607,15 +3685,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                   );
                 }
                 if (shape === '2_point') {
+                  const handleOpenVideo = (event) => {
+                    event.stopPropagation();
+                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                  };
                   return (
                     <g
                       key={s.id}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                        if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                      }}
+                      onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
+                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
                     >
                       <rect
                         x={x - size}
@@ -3662,15 +3741,16 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     </g>
                   );
                 }
+                const handleOpenVideo = (event) => {
+                  event.stopPropagation();
+                  const timeS = Number(s?.raw?.time_s ?? s?.time_s);
+                  if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+                };
                 return (
                   <g
                     key={s.id}
-                    onClick={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                      if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                    }}
+                    onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
+                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
                   >
                     <circle
                       cx={x}
@@ -3712,7 +3792,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
             </svg>
           </div>
 
-          {!isFullscreen ? (
+          {!isFullscreen && (!isMobile || legendOpen) ? (
             <ShotMapLegend teamMode={teamMode} homeColor={homeColor} awayColor={awayColor} />
           ) : null}
         </div>

@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles, ChevronDown, Check } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles, ChevronDown, Check, Menu } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -303,6 +304,7 @@ export default function Home() {
     const navigate = useNavigate();
     const { isAuthenticated } = useAuth();
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
     const [importShareCode, setImportShareCode] = useState('');
     const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
     const [newMatch, setNewMatch] = useState({
@@ -803,49 +805,113 @@ export default function Home() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => openDemoMutation.mutate()}
-                                disabled={openDemoMutation.isPending}
-                                title="Open the bundled Armagh vs Galway demo match"
-                            >
-                                Demo
-                            </Button>
-                            <div className="flex items-center">
+                            <div className="hidden items-center gap-2 md:flex">
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="gap-2 rounded-r-none border-r-0 shadow-none"
-                                    onClick={handleImportSharedMatch}
-                                    disabled={importSharedMatchMutation.isPending}
+                                    className="gap-2"
+                                    onClick={() => openDemoMutation.mutate()}
+                                    disabled={openDemoMutation.isPending}
+                                    title="Open the bundled Armagh vs Galway demo match"
                                 >
-                                    {importSharedMatchMutation.isPending ? 'Importing...' : 'Import'}
+                                    Demo
                                 </Button>
-                                <Input
-                                    value={importShareCode}
-                                    onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleImportSharedMatch();
-                                    }}
-                                    placeholder="Enter share code"
-                                    className="h-9 w-40 rounded-l-none bg-white shadow-none sm:w-44"
-                                />
+                                <div className="flex items-center">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="gap-2 rounded-r-none border-r-0 shadow-none"
+                                        onClick={handleImportSharedMatch}
+                                        disabled={importSharedMatchMutation.isPending}
+                                    >
+                                        {importSharedMatchMutation.isPending ? 'Importing...' : 'Import'}
+                                    </Button>
+                                    <Input
+                                        value={importShareCode}
+                                        onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleImportSharedMatch();
+                                        }}
+                                        placeholder="Enter share code"
+                                        className="h-9 w-40 rounded-l-none bg-white shadow-none sm:w-44"
+                                    />
+                                </div>
+                                <Link to={createPageUrl('Teams')}>
+                                    <Button variant="outline" className="gap-2">Teams</Button>
+                                </Link>
+                                <Link to={createPageUrl('SeasonStats')}>
+                                    <Button variant="outline" className="gap-2"><BarChart3 className="w-4 h-4" /> Season</Button>
+                                </Link>
+                                <Link to={createPageUrl('Settings')}>
+                                    <Button variant="outline" size="icon" title="Settings" aria-label="Settings"><Settings className="w-4 h-4" /></Button>
+                                </Link>
                             </div>
-                            <Link to={createPageUrl('Teams')}>
-                                <Button variant="outline" className="gap-2">Teams</Button>
-                            </Link>
-                            <Link to={createPageUrl('SeasonStats')}>
-                                <Button variant="outline" className="gap-2"><BarChart3 className="w-4 h-4" /> Season</Button>
-                            </Link>
-                            <Link to={createPageUrl('Settings')}>
-                                <Button variant="outline" size="icon" title="Settings" aria-label="Settings"><Settings className="w-4 h-4" /></Button>
-                            </Link>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10 rounded-full md:hidden"
+                                aria-label="Open home actions"
+                                onClick={() => setMobileActionsOpen(true)}
+                            >
+                                <Menu className="h-4 w-4" />
+                            </Button>
                         </div>
                     </div>
                 </div>
             </header>
+
+            <Sheet open={mobileActionsOpen} onOpenChange={setMobileActionsOpen}>
+                <SheetContent side="right" className="w-[300px] border-slate-200 bg-white px-4 py-5 sm:max-w-[300px]">
+                    <SheetHeader className="mb-4 pr-8">
+                        <SheetTitle>Home Actions</SheetTitle>
+                    </SheetHeader>
+                    <div className="space-y-3">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-start"
+                            onClick={() => {
+                                setMobileActionsOpen(false);
+                                openDemoMutation.mutate();
+                            }}
+                            disabled={openDemoMutation.isPending}
+                        >
+                            Demo
+                        </Button>
+                        <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Import</div>
+                            <Input
+                                value={importShareCode}
+                                onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleImportSharedMatch();
+                                }}
+                                placeholder="Enter share code"
+                                className="h-9 bg-white shadow-none"
+                            />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full justify-center"
+                                onClick={handleImportSharedMatch}
+                                disabled={importSharedMatchMutation.isPending}
+                            >
+                                {importSharedMatchMutation.isPending ? 'Importing...' : 'Import'}
+                            </Button>
+                        </div>
+                        <Link to={createPageUrl('Teams')} onClick={() => setMobileActionsOpen(false)}>
+                            <Button variant="outline" className="w-full justify-start">Teams</Button>
+                        </Link>
+                        <Link to={createPageUrl('SeasonStats')} onClick={() => setMobileActionsOpen(false)}>
+                            <Button variant="outline" className="w-full justify-start gap-2"><BarChart3 className="w-4 h-4" /> Season</Button>
+                        </Link>
+                        <Link to={createPageUrl('Settings')} onClick={() => setMobileActionsOpen(false)}>
+                            <Button variant="outline" className="w-full justify-start gap-2"><Settings className="w-4 h-4" /> Settings</Button>
+                        </Link>
+                    </div>
+                </SheetContent>
+            </Sheet>
 
             <main className="max-w-7xl mx-auto px-4 py-8">
                 {isLoading ? (
