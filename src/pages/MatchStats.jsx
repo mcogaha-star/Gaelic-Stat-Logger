@@ -27,6 +27,10 @@ import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialo
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
 import useHalfManagement from '@/features/match-stats/hooks/useHalfManagement';
 import useStatLogging from '@/features/match-stats/hooks/useStatLogging';
+import AnalystAccessGate from '@/components/AnalystAccessGate';
+import { useAuth } from '@/lib/AuthContext';
+import { canUseAnalystWorkspace } from '@/lib/accountProfiles';
+import { ANALYST_DASHBOARD_PATH } from '@/lib/appRoutes';
 
 const VIDEO_CHANNEL = 'gstl_video';
 
@@ -59,6 +63,7 @@ function parseLiveClockInput(value) {
 }
 
 export default function MatchStats() {
+    const { accountProfile } = useAuth();
     // With HashRouter, query params live in the hash segment, so use react-router's location.
     const location = useLocation();
     const urlParams = new URLSearchParams(location.search);
@@ -217,6 +222,8 @@ export default function MatchStats() {
             return [];
         }
     };
+
+    const analystBlocked = !canUseAnalystWorkspace(accountProfile);
     const homeStarters = parseTeamSheetIds(homeTeam?.starters);
     const homeSubs = parseTeamSheetIds(homeTeam?.subs);
     const awayStarters = parseTeamSheetIds(awayTeam?.starters);
@@ -944,7 +951,7 @@ export default function MatchStats() {
             <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
                 <div className="text-center">
                     <h2 className="text-xl font-semibold text-slate-900 mb-2">No match selected</h2>
-                    <Link to={createPageUrl('Home')}><Button>Go to Dashboard</Button></Link>
+                    <Link to={ANALYST_DASHBOARD_PATH}><Button>Go to Dashboard</Button></Link>
                 </div>
             </div>
         );
@@ -1060,6 +1067,15 @@ export default function MatchStats() {
         setEndPeriodPrompt({ open: false, nextHalf: null });
     };
 
+    if (analystBlocked) {
+        return (
+            <AnalystAccessGate
+                title="Coach / Analyst tools are required for live match logging"
+                description="Enable Coach / Analyst tools to create matches and log team data."
+            />
+        );
+    }
+
     return (
         <div className="min-h-screen bg-slate-50">
             <MatchHeader
@@ -1068,7 +1084,7 @@ export default function MatchStats() {
                 half={half}
                 onHalfChange={requestHalfChange}
                 scoreLine={scoreLine}
-                backUrl={createPageUrl('Home')}
+                backUrl={ANALYST_DASHBOARD_PATH}
                 statsUrl={createPageUrl(`MatchReport?id=${matchId}`)}
                 seasonStatsUrl={createPageUrl(`SeasonStats?matchId=${matchId}`)}
                 settingsUrl={createPageUrl('Settings')}

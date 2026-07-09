@@ -8,7 +8,6 @@ import React, { useMemo, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +19,7 @@ import { Plus, ArrowLeft, Trash2, Pencil, Users, BarChart3 } from 'lucide-react'
 import { toast } from 'sonner';
 import { softDeletePrivatePlayer, upsertPrivatePlayerFromLocal } from '@/lib/serverSync';
 import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
+import { ANALYST_DASHBOARD_PATH } from '@/lib/appRoutes';
 
 const POSITIONS = [
     'Goalkeeper',
@@ -215,7 +215,7 @@ export default function Players() {
                 <div className="max-w-4xl mx-auto px-4 py-6">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <Link to={createPageUrl('Home')}>
+                            <Link to={ANALYST_DASHBOARD_PATH}>
                                 <Button variant="ghost" size="icon">
                                     <ArrowLeft className="w-5 h-5" />
                                 </Button>

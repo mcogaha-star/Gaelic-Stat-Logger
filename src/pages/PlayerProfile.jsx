@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { createPageUrl } from '@/utils';
 import PlayerProfilePanel from '@/features/report/components/PlayerProfilePanel';
+import { ANALYST_DASHBOARD_PATH } from '@/lib/appRoutes';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -116,7 +117,7 @@ export default function PlayerProfile({ sharedPayload = null, statShareCode = ''
               <Activity className="w-6 h-6 text-white" />
             </div>
             <div className="text-slate-900 font-semibold">No player profile selected</div>
-            <Link to={createPageUrl('Home')}>
+            <Link to={ANALYST_DASHBOARD_PATH}>
               <Button>Go to Dashboard</Button>
             </Link>
           </CardContent>

@@ -506,7 +506,7 @@ function ComparisonMetricsCard({ homeTeam, awayTeam, teamMode = 'both', title = 
   const metricCol = metricColWidth;
 
   return (
-    <Card className={`border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md ${cardClassName}`.trim()}>
+    <Card className={`report-pane ${cardClassName}`.trim()}>
       <CardContent className="p-4 space-y-4">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
@@ -2339,7 +2339,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`flex h-full w-full flex-col rounded-2xl border-2 border-slate-400 bg-slate-50/70 p-3 shadow-sm ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'max-w-[310px]' : 'max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>

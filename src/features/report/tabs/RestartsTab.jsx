@@ -65,7 +65,7 @@ import {
 
 function KickoutPressTable({ card, homeTeam, awayTeam }) {
   return (
-    <div className="rounded-xl border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white p-3 shadow-md space-y-3">
+    <div className="report-pane rounded-xl p-3 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-medium text-slate-900">{card.player}</div>
@@ -385,7 +385,7 @@ const KICKOUT_OUTCOME_SIMPLE_STACKS = [
   { key: 'against_total', label: 'Lost', color: '#dc2626' },
 ];
 
-const RESTART_PANE_CLASS = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
+const RESTART_PANE_CLASS = 'report-pane';
 const KICKOUT_VALUE_GROUPING_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'side', label: 'Direction' },

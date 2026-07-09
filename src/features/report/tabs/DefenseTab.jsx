@@ -60,7 +60,7 @@ import {
   selectionTooltipLabel,
 } from '../shared';
 
-const DEFENSE_PANE_CLASS = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
+const DEFENSE_PANE_CLASS = 'report-pane';
 const DEFENSE_SANKEY_GROUPING_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'type', label: 'Type' },

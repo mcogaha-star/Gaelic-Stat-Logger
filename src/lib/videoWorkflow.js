@@ -1,3 +1,5 @@
+import { createPageUrl } from '@/utils';
+
 function parseJsonMaybe(value, fallback = null) {
   if (!value) return fallback;
   if (typeof value === 'object') return value;
@@ -23,6 +25,9 @@ export const DEFAULT_VIDEO_CLIP_SETTINGS = {
   play_fallback_postroll_s: 15,
   possession_postroll_s: 3,
 };
+export const MIN_HIGHLIGHT_POST_ACTION_SECONDS = 7;
+export const REVIEW_PLAYER_WINDOW_NAME = 'gstl_video_review';
+const REVIEW_PLAYER_CHANNEL = 'gstl_video';
 
 export function getVideoClipSettings(match) {
   const parsed = parseJsonMaybe(match?.video_clip_settings, {});
@@ -80,10 +85,12 @@ export function createPlayClipRef(row, nextRow, match, clipSettings) {
   const startBase = Number(stat?.time_s);
   if (!stat || !Number.isFinite(startBase)) return null;
   const nextBase = Number(nextRow?.stat?.time_s);
+  const minEndFromAction = startBase + MIN_HIGHLIGHT_POST_ACTION_SECONDS;
   const start = Math.max(0, startBase - Number(clipSettings?.play_preroll_s ?? DEFAULT_VIDEO_CLIP_SETTINGS.play_preroll_s));
+  const fallbackEnd = startBase + Number(clipSettings?.play_fallback_postroll_s ?? DEFAULT_VIDEO_CLIP_SETTINGS.play_fallback_postroll_s);
   const end = Number.isFinite(nextBase)
-    ? Math.max(start + 0.25, nextBase + 1)
-    : Math.max(start + 0.25, startBase + Number(clipSettings?.play_fallback_postroll_s ?? DEFAULT_VIDEO_CLIP_SETTINGS.play_fallback_postroll_s));
+    ? Math.max(start + 0.25, nextBase + 1, minEndFromAction)
+    : Math.max(start + 0.25, fallbackEnd, minEndFromAction);
   return {
     match_id: match?.id || stat?.match_id || '',
     reel_type: 'play',
@@ -92,6 +99,36 @@ export function createPlayClipRef(row, nextRow, match, clipSettings) {
     play_id: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
     possession_id: Number.isFinite(Number(stat?.possession_id)) ? Number(stat.possession_id) : null,
     label: buildPlayLabel(row),
+    action_time: startBase,
+    start_time: start,
+    end_time: end,
+  };
+}
+
+export function createTimestampClipRef({
+  matchId,
+  timeS,
+  label = 'Event',
+  sourceRef = null,
+  playId = null,
+  possessionId = null,
+  clipSettings = null,
+}) {
+  const actionTime = Number(timeS);
+  if (!matchId || !Number.isFinite(actionTime)) return null;
+  const preRoll = Number(clipSettings?.play_preroll_s ?? DEFAULT_VIDEO_CLIP_SETTINGS.play_preroll_s);
+  const fallbackPostRoll = Number(clipSettings?.play_fallback_postroll_s ?? DEFAULT_VIDEO_CLIP_SETTINGS.play_fallback_postroll_s);
+  const start = Math.max(0, actionTime - preRoll);
+  const end = Math.max(start + 0.25, actionTime + fallbackPostRoll, actionTime + MIN_HIGHLIGHT_POST_ACTION_SECONDS);
+  return {
+    match_id: matchId,
+    reel_type: 'play',
+    source_type: 'play',
+    source_ref: String(sourceRef || `time:${Math.round(actionTime * 10)}`),
+    play_id: Number.isFinite(Number(playId)) ? Number(playId) : null,
+    possession_id: Number.isFinite(Number(possessionId)) ? Number(possessionId) : null,
+    label,
+    action_time: actionTime,
     start_time: start,
     end_time: end,
   };
@@ -116,6 +153,61 @@ export function createPossessionClipRef(row, match, homeTeam, awayTeam, clipSett
 
 export function reorderClipList(clips = []) {
   return (Array.isArray(clips) ? clips : []).map((clip, index) => ({ ...clip, order_index: index }));
+}
+
+export function openReportVideoSelection(matchId, clips = [], { sourceLabel = 'Selection' } = {}) {
+  const list = (Array.isArray(clips) ? clips : []).filter(Boolean);
+  if (!matchId || !list.length || typeof window === 'undefined') return false;
+  const selectionKey = `selection-${matchId}-${Date.now()}`;
+  const payload = {
+    sourceLabel,
+    clips: list,
+  };
+  try {
+    const serialized = JSON.stringify(payload);
+    window.sessionStorage.setItem(`gstl_video_selection:${selectionKey}`, serialized);
+    window.localStorage.setItem(`gstl_video_selection:${selectionKey}`, serialized);
+  } catch {
+    return false;
+  }
+  const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&selectionKey=${encodeURIComponent(selectionKey)}`)}`;
+  const existing = window.__gstlReviewPlayerWindow;
+  if (existing && !existing.closed) {
+    try { existing.focus(); } catch { /* ignore */ }
+    try {
+      const ch = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
+      const msg = { matchId, type: 'SET_REVIEW_SELECTION', selectionKey };
+      ch.postMessage(msg);
+      setTimeout(() => ch.postMessage(msg), 120);
+      setTimeout(() => ch.close(), 500);
+    } catch {
+      // ignore and fall through to returning true; existing player may already have navigated path state
+    }
+    return true;
+  }
+  window.__gstlReviewPlayerWindow = window.open(url, REVIEW_PLAYER_WINDOW_NAME, 'popup=yes,width=1280,height=840');
+  return true;
+}
+
+export function openReportVideoReel(matchId, reelId) {
+  if (!matchId || !reelId || typeof window === 'undefined') return false;
+  const url = `${window.location.origin}${window.location.pathname}#${createPageUrl(`Video?matchId=${matchId}&review=1&reelId=${encodeURIComponent(reelId)}`)}`;
+  const existing = window.__gstlReviewPlayerWindow;
+  if (existing && !existing.closed) {
+    try { existing.focus(); } catch { /* ignore */ }
+    try {
+      const ch = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
+      const msg = { matchId, type: 'SET_REVIEW_REEL', reelId: String(reelId) };
+      ch.postMessage(msg);
+      setTimeout(() => ch.postMessage(msg), 120);
+      setTimeout(() => ch.close(), 500);
+    } catch {
+      // ignore
+    }
+    return true;
+  }
+  window.__gstlReviewPlayerWindow = window.open(url, REVIEW_PLAYER_WINDOW_NAME, 'popup=yes,width=1280,height=840');
+  return true;
 }
 
 export function getAuthorInitials(user) {

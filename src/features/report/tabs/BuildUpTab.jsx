@@ -399,7 +399,7 @@ function BuildUpHeatmapSection({ stats, teamMode, homeTeam, awayTeam, homeColor,
       ];
 
   return (
-    <Card className="border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+    <Card className="report-pane">
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -553,7 +553,7 @@ function TeamPassSonarCard({ title, zones, defaultZone = 'Overall' }) {
       : { zone: activeZone, total: 0, buckets: [] });
 
   return (
-    <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+    <Card className="report-pane h-full">
       <CardContent className="flex h-full flex-col p-4 space-y-2.5">
         <div className="font-semibold text-slate-900">{title}</div>
         <div className="flex-1">
@@ -572,9 +572,6 @@ function TeamPassSonarCard({ title, zones, defaultZone = 'Overall' }) {
               {option.label}
             </Button>
           ))}
-        </div>
-        <div className="min-h-[28px] text-center text-[11px] leading-4 text-slate-500">
-          Red = more handpass-heavy, blue = more kickpass-heavy, purple = balanced mix.
         </div>
       </CardContent>
     </Card>
@@ -603,7 +600,7 @@ function BuildUpTab({
   setPnHalf,
   onOpenVideoAt,
 }) {
-  const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md';
+  const paneClassName = 'report-pane';
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);

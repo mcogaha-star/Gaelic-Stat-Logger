@@ -12,7 +12,7 @@ function teamBandStyle(color, side) {
   };
 }
 
-const paneClassName = 'border-2 border-slate-400 bg-gradient-to-br from-white via-white to-slate-50 shadow-md';
+const paneClassName = 'report-pane';
 
 export default function OverviewTab({
   homeTeam,
@@ -89,8 +89,7 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4 space-y-4">
+      <div className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             <Card className={`h-full lg:order-2 ${paneClassName}`}>
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
@@ -160,9 +159,9 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full lg:order-1 border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+            <Card className="report-pane h-full lg:order-1">
               <CardContent className="p-4 space-y-4 h-full flex flex-col">
-                <div className="relative overflow-hidden rounded-xl border border-slate-300/90 bg-white/80 px-4 py-3 shadow-sm">
+                <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm">
                   <div className="absolute inset-y-0 left-0 w-2" style={teamBandStyle(homeTeam?.color || '#22c55e', 'left')} />
                   <div className="absolute inset-y-0 right-0 w-2" style={teamBandStyle(awayTeam?.color || '#ef4444', 'right')} />
                   <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3 text-slate-600">
@@ -227,7 +226,7 @@ export default function OverviewTab({
                     ];
 
                     return metrics.map((m) => (
-                      <div key={m.label} className="rounded-xl border border-slate-300 bg-gradient-to-r from-white to-slate-50 px-3 py-2 shadow-sm">
+                      <div key={m.label} className="rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 px-3 py-2 shadow-sm">
                         <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-center gap-3">
                           <div className={`text-left tabular-nums ${m.strong ? 'font-semibold text-slate-900' : 'text-slate-900'}`}>{m.home}</div>
                           <div className="text-center text-sm font-semibold text-slate-700">{m.label}</div>
@@ -308,7 +307,7 @@ export default function OverviewTab({
               </CardContent>
             </Card>
 
-            <Card className="h-full border-2 border-slate-400 bg-gradient-to-br from-slate-50 via-white to-white shadow-md">
+            <Card className="report-pane h-full">
               <CardContent className="p-4 space-y-3 h-full flex flex-col">
                 <div className="space-y-2">
                   <div className="font-semibold text-slate-900">Possession Outcomes</div>
@@ -348,8 +347,7 @@ export default function OverviewTab({
               </CardContent>
             </Card>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       <Dialog open={breakdownOpen} onOpenChange={setBreakdownOpen}>
         <DialogContent className="max-w-4xl w-[94vw]">
