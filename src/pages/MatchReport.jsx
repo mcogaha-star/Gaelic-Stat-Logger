@@ -458,8 +458,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   });
 
   const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
+  const reportIntroTriggerKey = match?.id || (isSharedView ? (statShareCode || sharedData?.match?.id || 'shared-report') : '');
   useEffect(() => {
-    if (!match?.id || typeof window === 'undefined') return;
+    if (!reportIntroTriggerKey || typeof window === 'undefined') return;
     try {
       if (window.localStorage.getItem(REPORT_INTRO_STORAGE_KEY) === 'seen') return;
     } catch {
@@ -467,7 +468,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
     const id = window.setTimeout(() => setReportIntroOpen(true), 250);
     return () => window.clearTimeout(id);
-  }, [match?.id]);
+  }, [reportIntroTriggerKey]);
   const dismissReportIntro = () => {
     try { window.localStorage.setItem(REPORT_INTRO_STORAGE_KEY, 'seen'); } catch {}
     setReportIntroOpen(false);

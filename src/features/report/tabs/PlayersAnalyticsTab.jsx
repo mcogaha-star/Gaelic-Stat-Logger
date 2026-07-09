@@ -12,7 +12,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -3065,7 +3065,6 @@ function PlayersAnalyticsTabContent({
         goalShotsSaved: 0,
         goalShotsAgainst: 0,
         pressBreakdown: {
-          off: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
@@ -3249,7 +3248,7 @@ function PlayersAnalyticsTabContent({
           if (won) keeper.ownKickoutsWon += 1;
           if (cleanWon) keeper.cleanKickoutsWon += 1;
           const isLong = classifyKickoutLength(s) === 'long';
-          const pressKey = ['off', 'm2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+          const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
           if (isLong) {
             keeper.longKickoutsTaken += 1;
             if (won) keeper.longKickoutsWon += 1;
@@ -4201,7 +4200,7 @@ function PlayersAnalyticsTabContent({
     const sourceRows = (leaderboard || []).filter((row) => isGoalkeeperPlayer(row));
     return sourceRows
       .map((row) => {
-        const pressRows = ['off', 'm2m', 'zonal', 'conceded']
+        const pressRows = ['m2m', 'zonal', 'conceded']
           .map((press) => {
             const info = row.pressBreakdown?.[press];
             if (!info) return null;
@@ -5386,19 +5385,19 @@ function bucketColumnsBuilder({
     defending: [
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (row) => teamLabelForSide(row.team, homeTeam, awayTeam) },
-      { key: 'turnoversWon', label: 'TO Won', numeric: true, render: (row) => countValue(row, row.turnoversWon) },
-      { key: 'turnoversLost', label: 'TO Lost', numeric: true, render: (row) => countValue(row, row.turnoversLost) },
-      { key: 'turnoversForced', label: 'TO Forced', numeric: true, render: (row) => countValue(row, row.turnoversForced) },
-      { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true, render: (row) => countValue(row, row.turnoversRecovered) },
-      { key: 'defActions', label: 'Defensive Actions', numeric: true, render: (row) => countValue(row, row.defActions) },
-      { key: 'foulsConceded', label: 'Fouls', numeric: true, render: (row) => countValue(row, row.foulsConceded) },
-      { key: 'blocks', label: 'Blocks', numeric: true, render: (row) => countValue(row, row.blocks) },
+      { key: 'turnoversWon', label: 'TO Won', numeric: true, sortValue: (row) => row.turnoversWon || 0, render: (row) => countValue(row, row.turnoversWon) },
+      { key: 'turnoversLost', label: 'TO Lost', numeric: true, sortValue: (row) => row.turnoversLost || 0, render: (row) => countValue(row, row.turnoversLost) },
+      { key: 'turnoversForced', label: 'TO Forced', numeric: true, sortValue: (row) => row.turnoversForced || 0, render: (row) => countValue(row, row.turnoversForced) },
+      { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true, sortValue: (row) => row.turnoversRecovered || 0, render: (row) => countValue(row, row.turnoversRecovered) },
+      { key: 'defActions', label: 'Defensive Actions', numeric: true, sortValue: (row) => row.defActions || 0, render: (row) => countValue(row, row.defActions) },
+      { key: 'foulsConceded', label: 'Fouls', numeric: true, sortValue: (row) => row.foulsConceded || 0, render: (row) => countValue(row, row.foulsConceded) },
+      { key: 'blocks', label: 'Blocks', numeric: true, sortValue: (row) => row.blocks || 0, render: (row) => countValue(row, row.blocks) },
       { key: 'pressureApplied', label: 'Pressure Applied', numeric: true, sortValue: (row) => getDerived(row).highPressureActions || 0, render: (row) => countValue(row, getDerived(row).highPressureActions || 0) },
     ],
     defending_allowed: [
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (row) => teamLabelForSide(row.team, homeTeam, awayTeam) },
-      { key: 'placeholder', label: 'Pending', render: () => '—' },
+      { key: 'placeholder', label: 'Pending', render: () => '-' },
     ],
     restarts: [
       { key: 'player', label: 'Player', render: renderPlayerCell },

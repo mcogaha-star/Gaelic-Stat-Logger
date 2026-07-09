@@ -333,6 +333,18 @@ button:focus-visible {
       background: #e2e8f0;
       border-radius: 999px;
     }
+
+    button,
+    [role='button'],
+    a,
+    select,
+    input,
+    textarea,
+    .report-pane svg,
+    .report-panel svg,
+    .report-panel-muted svg {
+      touch-action: manipulation;
+    }
   }
 
   @media (min-width: 1100px) {

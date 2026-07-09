@@ -230,24 +230,43 @@ export const reportInfoCatalog = {
     ],
   },
   build_up_pass_network: {
-    title: 'Pass Network & Table',
+    title: 'Pass Network',
     whatItIs: [
-      'This combines the passing map and the passing table for the selected team.',
+      'This map shows the most repeated completed passing links for the selected team.',
     ],
     whyItMatters: [
-      'It helps you see who the build-up hubs are, which links appear most often, and whether the ball is moving through a few players or a wider group.',
+      'It helps you see whether build-up flows through a few hubs, wide links, or a broader group.',
     ],
-    calculationOrChartLabel: 'What the chart and table show',
+    calculationOrChartLabel: 'What the chart shows',
     calculationOrChart: [
       'Nodes represent players and links represent repeated completed passing connections.',
       'The network only includes completed passes that match the current filters and minimum-link setting.',
-      'The table underneath ranks the same players by their passing volume and network influence in the filtered sample.',
     ],
     howToUse: [
-      'Use the map to spot the main shape, then use the table to confirm which players are driving it.',
+      'Use the map to spot the main passing shape and the links a team returns to most often.',
     ],
     caveats: [
       'A frequent link is not always the most dangerous one. It can simply be the safest outlet.',
+    ],
+  },
+  build_up_pass_network_table: {
+    title: 'Pass Network Table',
+    whatItIs: [
+      'This table ranks the players shown in the pass network.',
+    ],
+    whyItMatters: [
+      'It gives a quick check on who is most involved and who connects different parts of the team.',
+    ],
+    calculationOrChartLabel: 'What the table shows',
+    calculationOrChart: [
+      'Passes and received count completed passes in the current filters.',
+      'Activity score rewards frequent involvement, while connector score highlights players who link separate passing groups.',
+    ],
+    howToUse: [
+      'Use it with the map: the table tells you who matters most, and the map shows where those links happen.',
+    ],
+    caveats: [
+      'Network scores depend on the current filters and minimum-link setting, so small samples can move quickly.',
     ],
   },
   build_up_heatmaps: {

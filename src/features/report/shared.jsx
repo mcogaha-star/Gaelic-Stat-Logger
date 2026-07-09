@@ -2370,8 +2370,10 @@ function PitchViz({
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
-          onClick={() => {
-            if (isMobile) setMobileTooltip(null);
+          onClick={(event) => {
+            if (!isMobile) return;
+            if (event.target?.closest?.('[data-mobile-tooltip-point="true"]')) return;
+            setMobileTooltip(null);
           }}
         >
           <DirectionBadge label={directionLabel} />
@@ -2408,6 +2410,11 @@ function PitchViz({
                 return (
                   <g
                     key={s.id}
+                    data-mobile-tooltip-point="true"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      showMobileTooltip(x2, y2, tip);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       showMobileTooltip(x2, y2, tip);
@@ -2445,6 +2452,11 @@ function PitchViz({
                 return (
                   <g
                     key={s.id}
+                    data-mobile-tooltip-point="true"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      showMobileTooltip(x2, y2, tip);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       showMobileTooltip(x2, y2, tip);
@@ -2465,6 +2477,11 @@ function PitchViz({
               return (
                 <g
                   key={s.id}
+                  data-mobile-tooltip-point="true"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    showMobileTooltip(x2, y2, tip);
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     showMobileTooltip(x2, y2, tip);
@@ -2498,6 +2515,11 @@ function PitchViz({
             return (
               <g
                 key={s.id}
+                data-mobile-tooltip-point="true"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  showMobileTooltip(x1, y1, tip);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   showMobileTooltip(x1, y1, tip);
@@ -2666,7 +2688,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`report-pane flex h-full min-h-[320px] w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-none lg:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full min-h-[360px] w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 sm:min-h-[320px] ${compact ? 'sm:max-w-none lg:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>
@@ -2709,7 +2731,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null, showHeader = true }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null, tableHelpId = null, showHeader = true }) {
   const isMobile = useIsMobile();
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
@@ -3004,7 +3026,14 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
         )}
         {showTable && visibleCentralityRows.length > 0 && (
           <div data-fullscreen-block="true" className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
-          <div className="mb-2 flex items-center justify-end gap-3">
+          <div className={`mb-2 flex items-center gap-3 ${tableHelpId ? 'justify-between' : 'justify-end'}`}>
+            {tableHelpId ? (
+              <ReportInfoTitle
+                title="Pass Network Table"
+                helpId={tableHelpId}
+                titleClassName="text-sm font-semibold text-slate-900"
+              />
+            ) : null}
             {sortedCentralityRows.length > 8 ? (
               <Button
                 type="button"

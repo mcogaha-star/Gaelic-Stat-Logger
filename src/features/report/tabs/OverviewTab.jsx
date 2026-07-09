@@ -218,8 +218,8 @@ export default function OverviewTab({
                       },
                       {
                         label: 'Turnovers Won',
-                        home: `${summary.home.turnoversWon} (${formatSigned(summary.home.turnoversWon - summary.home.turnovers)})`,
-                        away: `${summary.away.turnoversWon} (${formatSigned(summary.away.turnoversWon - summary.away.turnovers)})`,
+                        home: String(summary.home.turnoversWon),
+                        away: String(summary.away.turnoversWon),
                       },
                       {
                         label: 'Points Per Possession',
@@ -330,7 +330,8 @@ export default function OverviewTab({
                     ))}
                   </div>
                 </div>
-                <ChartContainer id="possession-outcomes-overview" className="h-[240px] w-full flex-1" config={{}}>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                <ChartContainer id="possession-outcomes-overview" className="h-[240px] w-full max-w-full" config={{}}>
                   <BarChart data={possessionOutcomeRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                     <CartesianGrid vertical={false} />
                     <XAxis dataKey="team" className="text-xs" />
@@ -349,13 +350,14 @@ export default function OverviewTab({
                     ))}
                   </BarChart>
                 </ChartContainer>
+                </div>
               </CardContent>
             </Card>
           </div>
       </div>
 
       <Dialog open={breakdownOpen} onOpenChange={setBreakdownOpen}>
-        <DialogContent className="max-w-4xl w-[94vw]">
+        <DialogContent className="max-h-[86vh] w-[calc(100vw-2rem)] max-w-4xl overflow-y-auto sm:w-[94vw]">
           <DialogHeader>
             <DialogTitle>{breakdownCategory} Breakdown</DialogTitle>
           </DialogHeader>
@@ -363,7 +365,8 @@ export default function OverviewTab({
             <div className="text-sm text-slate-600">
               Breakdown of the selected possession outcome by team.
             </div>
-            <ChartContainer id="overview-outcome-breakdown" className="h-[320px] w-full" config={{}}>
+            <div className="min-w-0 overflow-hidden">
+            <ChartContainer id="overview-outcome-breakdown" className="h-[320px] w-full max-w-full" config={{}}>
               <BarChart data={breakdownRows} margin={{ top: 10, right: 16, left: 0, bottom: 6 }}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="team" className="text-xs" />
@@ -375,6 +378,7 @@ export default function OverviewTab({
                 ))}
               </BarChart>
             </ChartContainer>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

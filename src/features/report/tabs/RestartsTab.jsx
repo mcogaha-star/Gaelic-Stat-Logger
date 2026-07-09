@@ -507,7 +507,6 @@ function getKickoutGroupingLabel(stat, groupingMode) {
   const kick = extra?.kickout || {};
   if (groupingMode === 'press') {
     const press = String(kick?.press || '').toLowerCase();
-    if (press === 'off') return 'Off';
     if (press === 'm2m') return 'M2M';
     if (press === 'zonal') return 'Zonal';
     if (press === 'conceded') return 'Conceded';
@@ -952,7 +951,6 @@ function RestartsTab({
         kickoutsTaken: 0,
         ownKickoutsWon: 0,
         pressBreakdown: {
-          off: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           m2m: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
@@ -961,7 +959,7 @@ function RestartsTab({
       current.kickoutsTaken += 1;
       const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
       if (won) current.ownKickoutsWon += 1;
-      const pressKey = ['off', 'm2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
+      const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
       if (!pressKey) {
         keeperRows.set(keeperKey, current);
         continue;
@@ -980,7 +978,7 @@ function RestartsTab({
     }
 
     return Array.from(keeperRows.values()).map((row) => {
-      const pressRows = ['off', 'm2m', 'zonal', 'conceded']
+      const pressRows = ['m2m', 'zonal', 'conceded']
         .map((press) => {
           const info = row.pressBreakdown?.[press];
           return {
@@ -1586,7 +1584,6 @@ function RestartsTab({
                         values={koMapPress}
                         onChange={setKoMapPress}
                         options={[
-                          { value: 'off', label: 'Off' },
                           { value: 'm2m', label: 'M2M' },
                           { value: 'zonal', label: 'Zonal' },
                           { value: 'conceded', label: 'Conceded' },

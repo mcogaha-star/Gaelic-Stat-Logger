@@ -1171,7 +1171,7 @@ function DefenseTab({
       if (!id) return null;
       const key = String(id);
       if (!rows.has(key)) {
-        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, toWon: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set(), _seenTurnoversWon: new Set() });
+        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, toWon: 0, toLost: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set(), _seenTurnoversWon: new Set(), _seenTurnoversLost: new Set() });
       }
       return rows.get(key);
     };
@@ -1199,6 +1199,7 @@ function DefenseTab({
       const metricIncluded = !!action?.metricIncluded;
       const forcedRow = ensure(action?.forcedById, action?.forcedByLabel, action?.teamSide);
       const recoveredRow = ensure(action?.recoveredById, action?.recoveredByLabel, action?.teamSide);
+      const lostRow = ensure(action?.lostById, action?.lostByLabel, action?.lostByTeamSide || action?.turnoverLostBy || action?.actingTeamSide);
       const foulRow = ensure(action?.foulById, action?.fouledByLabel, action?.committingTeamSide || action?.teamSide);
       const defenderRow = ensure(action?.defenderId, action?.defenderLabel, action?.teamSide);
       const blockedRow = ensure(action?.blockedById, action?.blockedByLabel, action?.teamSide);
@@ -1220,6 +1221,10 @@ function DefenseTab({
             recoveredRow.toWon += 1;
           }
         }
+        if (lostRow && !lostRow._seenTurnoversLost.has(turnoverKey)) {
+          lostRow._seenTurnoversLost.add(turnoverKey);
+          lostRow.toLost += 1;
+        }
       }
       if (Array.isArray(action?.filterTags) && action.filterTags.includes('foul') && foulRow) {
         foulRow.fouls += 1;
@@ -1240,6 +1245,7 @@ function DefenseTab({
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'teamLabel', label: 'Team', sortValue: (r) => r.teamLabel },
     { key: 'toWon', label: 'TO Won', sortValue: (r) => r.toWon },
+    { key: 'toLost', label: 'TO Lost', sortValue: (r) => r.toLost },
     { key: 'toForced', label: 'TO Forced', sortValue: (r) => r.toForced },
     { key: 'toRecovered', label: 'TO Recovered', sortValue: (r) => r.toRecovered },
     { key: 'defensiveActions', label: 'Defensive Actions', sortValue: (r) => r.defensiveActions },

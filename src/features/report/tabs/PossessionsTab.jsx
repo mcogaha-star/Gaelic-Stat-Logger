@@ -141,7 +141,9 @@ function derivePossessionOriginLabel(possession, { grouped = true } = {}) {
 function formatPossessionOriginDisplayLabel(source) {
   const value = String(source || '');
   if (value === 'Turnover Won') return 'Turnover';
-  if (value === 'Kickout Won' || value === 'Own KO Won' || value === 'Opp KO Won') return 'Opp/Own Kickout';
+  if (value === 'Own KO Won') return 'Own Kickout';
+  if (value === 'Opp KO Won') return 'Opp Kickout';
+  if (value === 'Kickout Won') return 'Kickout';
   if (value === 'Throw In Won') return 'Throw In';
   return value || 'NA';
 }

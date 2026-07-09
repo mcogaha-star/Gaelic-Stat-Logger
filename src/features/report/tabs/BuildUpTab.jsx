@@ -1330,7 +1330,7 @@ function BuildUpTab({
               <CardContent className="p-4 space-y-3">
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] items-start">
                   <div className="order-2 min-w-0 lg:order-1">
-                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:block lg:space-y-3">
+                    <div className="grid min-w-0 grid-cols-2 gap-3 lg:block lg:space-y-3">
                       <div className="min-w-0">{passNetworkOptionControls}</div>
                       <div className="min-w-0">{passNetworkSubstitutionControls}</div>
                     </div>
@@ -1347,6 +1347,7 @@ function BuildUpTab({
                       pitchScale={isMobile ? '100%' : '88%'}
                       hiddenPlayerIds={hiddenPlayerIds}
                       nodeSizeMode={pnNodeSizeMode}
+                      tableHelpId="build_up_pass_network_table"
                     />
                   </div>
                   {isMobile ? (
@@ -1363,6 +1364,7 @@ function BuildUpTab({
                         fullscreenEnabled={false}
                         hiddenPlayerIds={hiddenPlayerIds}
                         nodeSizeMode={pnNodeSizeMode}
+                        tableHelpId="build_up_pass_network_table"
                       />
                     </div>
                   ) : null}
