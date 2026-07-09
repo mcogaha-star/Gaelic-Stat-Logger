@@ -133,7 +133,7 @@ const COMPARISON_PRESET_METRIC_KEYS = {
   shooting: ['points', 'xp', 'scoring_pct', 'goal_pct', 'one_point_pct', 'two_point_pct', 'points_per_shot', 'xp_per_shot', 'shots_short', 'avg_distance'],
   progression: ['passes_received', 'prog_passes_received', 'touches', 'prog_passes_received_opp_third', 'total_prog_metres', 'scorable_frees_won'],
   restarts: ['targetted', 'targetted_kos_won', 'clean_won', 'clean_lost', 'break_won', 'break_lost', 'broken', 'marks'],
-  defending: ['to_forced', 'to_recovered', 'def_actions', 'blocks', 'pressure_applied', 'fouls_conceded'],
+  defending: ['to_won', 'to_lost', 'to_forced', 'to_recovered', 'def_actions', 'blocks', 'pressure_applied', 'fouls_conceded'],
   defending_allowed: ['da_touches', 'da_shots', 'da_points', 'da_xp', 'da_passes', 'da_prog_passes', 'da_carries', 'da_prog_carries', 'da_prog_passes_received', 'da_prog_metres', 'da_kickout_win_pct', 'da_to_lost', 'da_fouls_won'],
   goalkeeping: ['gk_points', 'gk_touches', 'gk_saves', 'gk_kickout_pct', 'gk_progression'],
 };
@@ -146,7 +146,7 @@ const COMPARISON_METRIC_DEFINITIONS = [
   { key: 'def_actions', label: 'Defensive Actions', shortLabel: 'Def Actions', category: 'defending', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.defActions, mode) },
   { key: 'kickouts_won', label: 'Kickouts Won', shortLabel: 'KO Won', category: 'restarts', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, (Number(row?.cleanWon) || 0) + (Number(row?.breakWon) || 0), mode) },
   { key: 'to_won', label: 'TO Won', shortLabel: 'TO Won', category: 'defending', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.turnoversWon, mode) },
-  { key: 'to_lost', label: 'TO Lost', shortLabel: 'TO Lost', category: 'passing', decimals: 1, inverse: true, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.turnoversLost, mode) },
+  { key: 'to_lost', label: 'TO Lost', shortLabel: 'TO Lost', category: 'defending', decimals: 1, inverse: true, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.turnoversLost, mode) },
   { key: 'passes', label: 'Passes', shortLabel: 'Passes', category: 'passing', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.passComp, mode) },
   { key: 'shot_assists', label: 'Shot Assists', shortLabel: 'Shot Ast', category: 'passing', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.shotAssists, mode) },
   { key: 'final_third_prog_passes', label: 'Final 1/3 Prog Passes', shortLabel: 'F1/3 Prog', category: 'passing', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, derived?.finalThirdProgressivePasses, mode) },
@@ -4843,7 +4843,7 @@ function PlayersAnalyticsTabContent({
     : (currentColumns[playerBucket] || currentColumns.scoring);
 
   const renderToolbarPlayerSelect = (value, onChange) => (
-    <div className="flex min-w-0 flex-1 items-center sm:w-[165px] sm:flex-none lg:w-[185px]">
+    <div className="order-2 flex min-w-0 flex-[1_1_9rem] items-center sm:order-none sm:w-[165px] sm:flex-none lg:w-[185px]">
       <select
         value={String(value || 'all')}
         onChange={(event) => onChange(event.target.value)}
@@ -4862,18 +4862,18 @@ function PlayersAnalyticsTabContent({
   const availablePlayerCardModes = isLiveMode ? [['player-card', 'Player Card']] : (singlePlayerOnly ? PLAYER_CARD_MODES.slice(0, 1) : PLAYER_CARD_MODES);
 
   const playersNavControls = (
-    <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:gap-1.5" aria-label="Players tab controls">
+    <div className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5" aria-label="Players tab controls">
       {(activeMode === 'player-card' && !singlePlayerOnly) ? (
         renderToolbarPlayerSelect(safeChartPlayerValue, setChartPlayerId)
       ) : null}
       {(activeMode === 'player-card' || activeMode === 'comparison') ? (
-        <div className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5">
+        <div className="order-4 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
           <Button type="button" size="sm" variant={statMode === 'raw' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('raw')}>Total</Button>
           <Button type="button" size="sm" variant={statMode === 'rate' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('rate')}>{rateModeLabel}</Button>
         </div>
       ) : null}
       {availablePlayerCardModes.length > 1 ? (
-      <div className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5">
+      <div className="order-5 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
         {availablePlayerCardModes.map(([value, label]) => (
           <Button
             key={value}
@@ -5387,6 +5387,7 @@ function bucketColumnsBuilder({
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (row) => teamLabelForSide(row.team, homeTeam, awayTeam) },
       { key: 'turnoversWon', label: 'TO Won', numeric: true, render: (row) => countValue(row, row.turnoversWon) },
+      { key: 'turnoversLost', label: 'TO Lost', numeric: true, render: (row) => countValue(row, row.turnoversLost) },
       { key: 'turnoversForced', label: 'TO Forced', numeric: true, render: (row) => countValue(row, row.turnoversForced) },
       { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true, render: (row) => countValue(row, row.turnoversRecovered) },
       { key: 'defActions', label: 'Defensive Actions', numeric: true, render: (row) => countValue(row, row.defActions) },

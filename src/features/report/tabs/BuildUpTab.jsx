@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, CartesianGrid, Legend, LineChart, Line, PieChart, Pie, Cell, Tooltip, ReferenceLine, XAxis, YAxis } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   OPP_45_X,
   PITCH_W,
@@ -609,6 +610,7 @@ function BuildUpTab({
   onOpenVideoAt,
 }) {
   const paneClassName = 'report-pane';
+  const isMobile = useIsMobile();
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['pass', 'carry'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
@@ -930,6 +932,110 @@ function BuildUpTab({
   }, [substitutionPairs, selectedSubPairPlayer]);
 
   const networkTeamColor = (networkSide === 'away' ? awayTeam?.color : homeTeam?.color) || '#111827';
+  const passNetworkOptionControls = (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <MultiSelect
+          label="Network Team"
+          values={[teamMode === 'both' ? pnSide : teamMode]}
+          onChange={(values) => setPnSide(values[0] || pnSide)}
+          options={[
+            { value: 'home', label: homeTeam?.name || 'Home' },
+            { value: 'away', label: awayTeam?.name || 'Away' },
+          ]}
+          singleSelect
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
+        <Input
+          type="number"
+          min={1}
+          step={1}
+          value={String(pnMin)}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) return;
+            setPnMin(Math.max(1, Math.floor(n)));
+          }}
+          className="h-8 text-xs"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Half</Label>
+        <Select value={pnHalf} onValueChange={setPnHalf}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="first">First</SelectItem>
+            <SelectItem value="second">Second</SelectItem>
+            <SelectItem value="et_first">ET1</SelectItem>
+            <SelectItem value="et_second">ET2</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Node Size</Label>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant={pnNodeSizeMode === 'volume' ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 px-2 text-xs"
+            onClick={() => setPnNodeSizeMode('volume')}
+          >
+            Pass Volume
+          </Button>
+          <Button
+            type="button"
+            variant={pnNodeSizeMode === 'fixed' ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 px-2 text-xs"
+            onClick={() => setPnNodeSizeMode('fixed')}
+          >
+            Fixed
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+  const passNetworkSubstitutionControls = substitutionPairs.length > 0 ? (
+    <div className="space-y-2">
+      <Label className="text-xs text-slate-600">Substitution Pairs</Label>
+      <div className="space-y-2">
+        {substitutionPairs.map((pair) => {
+          const selected = selectedSubPairPlayer[pair.id] || 'out';
+          const sideColor = pair.side === 'away' ? (awayTeam?.color || '#7f1d1d') : (homeTeam?.color || '#ea580c');
+          return (
+            <div key={pair.id} className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant={selected === 'out' ? 'default' : 'outline'}
+                size="sm"
+                className="h-8 min-w-10 px-2 text-xs"
+                style={selected === 'out' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
+                onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'out' }))}
+                title={pair.outLabel}
+              >
+                {pair.outNumber ?? 'Out'}
+              </Button>
+              <Button
+                type="button"
+                variant={selected === 'in' ? 'default' : 'outline'}
+                size="sm"
+                className="h-8 min-w-10 px-2 text-xs"
+                style={selected === 'in' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
+                onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'in' }))}
+                title={pair.inLabel}
+              >
+                {pair.inNumber ?? 'In'}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
   const homeSonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: 'home', includeOverall: true }), [calcFiltered]);
   const awaySonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: 'away', includeOverall: true }), [calcFiltered]);
   const singleTeamSonarZones = useMemo(() => buildPassSonarData(calcFiltered, { side: teamMode === 'both' ? null : teamMode, includeOverall: true }), [calcFiltered, teamMode]);
@@ -1223,109 +1329,13 @@ function BuildUpTab({
             <Card className={paneClassName}>
               <CardContent className="p-4 space-y-3">
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] items-start">
-                  <div className="min-w-0 space-y-3">
-                    <div className="space-y-1">
-                      <MultiSelect
-                        label="Network Team"
-                        values={[teamMode === 'both' ? pnSide : teamMode]}
-                        onChange={(values) => setPnSide(values[0] || pnSide)}
-                        options={[
-                          { value: 'home', label: homeTeam?.name || 'Home' },
-                          { value: 'away', label: awayTeam?.name || 'Away' },
-                        ]}
-                        singleSelect
-                      />
+                  <div className="order-2 min-w-0 lg:order-1">
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:block lg:space-y-3">
+                      <div className="min-w-0">{passNetworkOptionControls}</div>
+                      <div className="min-w-0">{passNetworkSubstitutionControls}</div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Minimum Passes For A Connection</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={String(pnMin)}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          if (!Number.isFinite(n)) return;
-                          setPnMin(Math.max(1, Math.floor(n)));
-                        }}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Half</Label>
-                      <Select value={pnHalf} onValueChange={setPnHalf}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          <SelectItem value="first">First</SelectItem>
-                          <SelectItem value="second">Second</SelectItem>
-                          <SelectItem value="et_first">ET1</SelectItem>
-                          <SelectItem value="et_second">ET2</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Node Size</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          variant={pnNodeSizeMode === 'volume' ? 'default' : 'outline'}
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          onClick={() => setPnNodeSizeMode('volume')}
-                        >
-                          Pass Volume
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={pnNodeSizeMode === 'fixed' ? 'default' : 'outline'}
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          onClick={() => setPnNodeSizeMode('fixed')}
-                        >
-                          Fixed
-                        </Button>
-                      </div>
-                    </div>
-                    {substitutionPairs.length > 0 && (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-slate-600">Substitution Pairs</Label>
-                        <div className="space-y-2">
-                          {substitutionPairs.map((pair) => {
-                            const selected = selectedSubPairPlayer[pair.id] || 'out';
-                            const sideColor = pair.side === 'away' ? (awayTeam?.color || '#7f1d1d') : (homeTeam?.color || '#ea580c');
-                            return (
-                              <div key={pair.id} className="flex items-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant={selected === 'out' ? 'default' : 'outline'}
-                                  size="sm"
-                                  className="h-8 min-w-10 px-2 text-xs"
-                                  style={selected === 'out' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
-                                  onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'out' }))}
-                                  title={pair.outLabel}
-                                >
-                                  {pair.outNumber ?? 'Out'}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant={selected === 'in' ? 'default' : 'outline'}
-                                  size="sm"
-                                  className="h-8 min-w-10 px-2 text-xs"
-                                  style={selected === 'in' ? { backgroundColor: sideColor, borderColor: sideColor, color: '#fff' } : { borderColor: sideColor, color: sideColor }}
-                                  onClick={() => setSelectedSubPairPlayer((current) => ({ ...current, [pair.id]: 'in' }))}
-                                  title={pair.inLabel}
-                                >
-                                  {pair.inNumber ?? 'In'}
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
-                  <div className="min-w-0 space-y-3">
+                  <div className="order-1 min-w-0 space-y-3 lg:order-2">
                     <PassNetwork
                       passes={networkPasses}
                       side={networkSide}
@@ -1333,12 +1343,29 @@ function BuildUpTab({
                       teamLabel={networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
                       teamColor={networkTeamColor}
                       headerHelpId="build_up_pass_network"
-                      showTable
-                      pitchScale="88%"
+                      showTable={!isMobile}
+                      pitchScale={isMobile ? '100%' : '88%'}
                       hiddenPlayerIds={hiddenPlayerIds}
                       nodeSizeMode={pnNodeSizeMode}
                     />
                   </div>
+                  {isMobile ? (
+                    <div className="order-3 min-w-0 lg:hidden">
+                      <PassNetwork
+                        passes={networkPasses}
+                        side={networkSide}
+                        minCount={pnMin}
+                        teamLabel={networkSide === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home')}
+                        teamColor={networkTeamColor}
+                        showPitch={false}
+                        showTable
+                        showHeader={false}
+                        fullscreenEnabled={false}
+                        hiddenPlayerIds={hiddenPlayerIds}
+                        nodeSizeMode={pnNodeSizeMode}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

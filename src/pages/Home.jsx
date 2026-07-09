@@ -35,6 +35,7 @@ import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib
 import { deriveMatchLengthMinutes, getSetDefenceValue, shouldExcludeFromTotals } from '@/lib/reportAnalytics';
 import { buildMatchRosterSnapshotPatch } from '@/lib/matchRosterSnapshots';
 import { useAuth } from '@/lib/AuthContext';
+import { extractShareCodeFromInput } from '@/lib/shareLinks';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import halfPitchImg from '@/assets/halfpitch.png';
 
@@ -583,7 +584,7 @@ export default function Home() {
         createMatchMutation.mutate(newMatch);
     };
     const handleImportSharedMatch = () => {
-        const code = String(importShareCode || '').trim().toUpperCase();
+        const code = extractShareCodeFromInput(importShareCode);
         if (!code) {
             toast.error('Enter a share code');
             return;
@@ -828,7 +829,7 @@ export default function Home() {
                                     </Button>
                                     <Input
                                         value={importShareCode}
-                                        onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
+                                        onChange={(e) => setImportShareCode(String(e.target.value || ''))}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') handleImportSharedMatch();
                                         }}
@@ -883,7 +884,7 @@ export default function Home() {
                             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Import</div>
                             <Input
                                 value={importShareCode}
-                                onChange={(e) => setImportShareCode(String(e.target.value || '').toUpperCase())}
+                                onChange={(e) => setImportShareCode(String(e.target.value || ''))}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleImportSharedMatch();
                                 }}

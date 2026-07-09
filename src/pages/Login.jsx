@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
 import { LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react';
 import { setPostLoginRedirect, consumePostLoginRedirect } from '@/lib/postLoginRedirect';
+import { extractShareCodeFromInput } from '@/lib/shareLinks';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -73,7 +74,7 @@ export default function Login() {
       toast.error('Shared stats are not available on this deployment.');
       return;
     }
-    const code = String(statShareCode || '').trim().toUpperCase();
+    const code = extractShareCodeFromInput(statShareCode);
     if (!code) {
       toast.error('Enter a stat share code');
       return;
@@ -172,7 +173,7 @@ export default function Login() {
                 <Input
                   placeholder="Enter shared stats code"
                   value={statShareCode}
-                  onChange={(e) => setStatShareCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setStatShareCode(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') openSharedStats();
                   }}

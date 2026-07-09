@@ -138,6 +138,14 @@ function derivePossessionOriginLabel(possession, { grouped = true } = {}) {
   return 'Own KO Won';
 }
 
+function formatPossessionOriginDisplayLabel(source) {
+  const value = String(source || '');
+  if (value === 'Turnover Won') return 'Turnover';
+  if (value === 'Kickout Won' || value === 'Own KO Won' || value === 'Opp KO Won') return 'Opp/Own Kickout';
+  if (value === 'Throw In Won') return 'Throw In';
+  return value || 'NA';
+}
+
 function getHalfBreakdownLabel(half) {
   if (half === 'first' || half === 'et_first') return '1st';
   if (half === 'second' || half === 'et_second') return '2nd';
@@ -386,6 +394,7 @@ function buildPossessionSankeyHighlight(data, selectedNodeKey) {
 }
 
 function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSeconds, className = '' }) {
+  const isMobile = useIsMobile();
   const zones = [
     { key: 'Left 45', x: 0, width: 45 },
     { key: 'Middle', x: 45, width: PITCH_W - 90 },
@@ -400,10 +409,10 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
   return (
     <div className={`relative overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 shadow-sm ${className}`.trim()} style={{ aspectRatio: `${PITCH_W} / ${PITCH_H}`, backgroundImage: `url(${pitchImg})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }}>
       <div className="absolute left-2.5 top-2.5 z-10 rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[15px] font-medium tracking-wide shadow-sm backdrop-blur-[2px]" style={{ color: homeColor || '#fb4b14' }}>
-        {homeName} attacks →
+        {isMobile ? `${homeName} →` : `${homeName} attacks →`}
       </div>
       <div className="absolute right-2.5 top-2.5 z-10 rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[15px] font-medium tracking-wide shadow-sm backdrop-blur-[2px]" style={{ color: awayColor || '#5b1f32' }}>
-        ← {awayName} attacks
+        {isMobile ? `← ${awayName}` : `← ${awayName} attacks`}
       </div>
       <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${PITCH_W} ${PITCH_H}`} preserveAspectRatio="none">
         {zones.map((zone, index) => (
@@ -423,19 +432,32 @@ function PossessionZonePitch({ homeTeam, awayTeam, homeColor, awayColor, zoneSec
       <div className="absolute inset-0 grid grid-cols-3">
         {zones.map((zone) => (
           <div key={zone.key} className="flex items-center justify-center px-2 py-8">
-            <div className="min-w-[96px] rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-center shadow-sm backdrop-blur-[3px] sm:min-w-[110px] sm:px-3.5">
-              <div className="space-y-1">
-                <div className="flex items-center justify-center gap-1.5 text-[0.8rem] font-medium text-black sm:text-[0.85rem]">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: homeColor || '#fb4b14', opacity: 0.8 }} />
-                  <span className="truncate text-black">{homeName}:</span>
-                  <span className="tabular-nums text-sm font-bold text-black sm:text-[0.95rem]">{pct(home[zone.key])}</span>
+            <div className="min-w-[72px] rounded-xl border border-white/70 bg-white/90 px-2 py-2 text-center shadow-sm backdrop-blur-[3px] sm:min-w-[110px] sm:px-3.5">
+              {isMobile ? (
+                <div className="grid grid-cols-2 gap-1 text-[0.68rem] font-medium text-black">
+                  <div className="min-w-0">
+                    <div className="truncate" style={{ color: homeColor || '#fb4b14' }}>{homeName}</div>
+                    <div className="tabular-nums text-xs font-bold text-black">{pct(home[zone.key])}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate" style={{ color: awayColor || '#5b1f32' }}>{awayName}</div>
+                    <div className="tabular-nums text-xs font-bold text-black">{pct(away[zone.key])}</div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-center gap-1.5 text-[0.8rem] font-medium text-black sm:text-[0.85rem]">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: awayColor || '#5b1f32', opacity: 0.8 }} />
-                  <span className="truncate text-black">{awayName}:</span>
-                  <span className="tabular-nums text-sm font-bold text-black sm:text-[0.95rem]">{pct(away[zone.key])}</span>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-center gap-1.5 text-[0.8rem] font-medium text-black sm:text-[0.85rem]">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: homeColor || '#fb4b14', opacity: 0.8 }} />
+                    <span className="truncate text-black">{homeName}:</span>
+                    <span className="tabular-nums text-sm font-bold text-black sm:text-[0.95rem]">{pct(home[zone.key])}</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 text-[0.8rem] font-medium text-black sm:text-[0.85rem]">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: awayColor || '#5b1f32', opacity: 0.8 }} />
+                    <span className="truncate text-black">{awayName}:</span>
+                    <span className="tabular-nums text-sm font-bold text-black sm:text-[0.95rem]">{pct(away[zone.key])}</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         ))}
@@ -1635,7 +1657,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                           <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.startTime) ? formatMMSS(p.startTime) : 'NA'}</TableCell>
                           <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.endTime) ? formatMMSS(p.endTime) : 'NA'}</TableCell>
                           {!isLiveMode ? <TableCell className="text-left font-mono text-xs">{Number.isFinite(p.duration) ? `${p.duration.toFixed(1)}s` : 'NA'}</TableCell> : null}
-                          <TableCell>{p.startSource}</TableCell>
+                          <TableCell>{formatPossessionOriginDisplayLabel(p.startSource)}</TableCell>
                             <TableCell className="whitespace-nowrap">{formatPossessionZoneLabel(p.startZone)}</TableCell>
                             <TableCell>{p.outcome}</TableCell>
                             {!isLiveMode ? <TableCell className="text-left tabular-nums">{p.passes}</TableCell> : null}

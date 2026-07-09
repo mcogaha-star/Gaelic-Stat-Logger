@@ -108,6 +108,7 @@ import {
   sanitizeExportFilePart,
 } from '@/features/report/reportExport';
 import { MOBILE_REVIEW_PLAYER_EVENT } from '@/lib/videoWorkflow';
+import { buildStatShareLink } from '@/lib/shareLinks';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -135,6 +136,7 @@ const REPORT_EXPORT_FORMATS = [
   { value: 'pdf', label: 'PDF' },
   { value: 'jpeg', label: 'JPEG' },
 ];
+const REPORT_INTRO_STORAGE_KEY = 'gaeliq_report_intro_seen_v1';
 
 function reportTabVisibleInMode(tabValue, isLiveMode) {
   if (!isLiveMode) return true;
@@ -443,6 +445,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [matchupEditorState, setMatchupEditorState] = useState({ open: false, defenderKey: null });
   const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
   const [manageMenuOpen, setManageMenuOpen] = useState(false);
+  const [reportIntroOpen, setReportIntroOpen] = useState(false);
   const shotArcImportInputRef = useRef(null);
   const exportWorkspaceRef = useRef(null);
   const reportMainRef = useRef(null);
@@ -455,6 +458,20 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   });
 
   const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
+  useEffect(() => {
+    if (!match?.id || typeof window === 'undefined') return;
+    try {
+      if (window.localStorage.getItem(REPORT_INTRO_STORAGE_KEY) === 'seen') return;
+    } catch {
+      return;
+    }
+    const id = window.setTimeout(() => setReportIntroOpen(true), 250);
+    return () => window.clearTimeout(id);
+  }, [match?.id]);
+  const dismissReportIntro = () => {
+    try { window.localStorage.setItem(REPORT_INTRO_STORAGE_KEY, 'seen'); } catch {}
+    setReportIntroOpen(false);
+  };
   useEffect(() => {
     if (!matchId || typeof window === 'undefined') return;
     const rawConfig = match?.video_config;
@@ -1061,6 +1078,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       toast.success('Share code copied');
     } catch {
       toast.error('Could not copy share code');
+    }
+  };
+  const handleCopyStatShareLink = async () => {
+    const link = buildStatShareLink(statViewShareCode);
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Stat share link copied');
+    } catch {
+      toast.error('Could not copy stat share link');
     }
   };
 
@@ -1712,7 +1739,12 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     }
 
     const axisMax = Math.max(5 * 60, displayLayout.axisMax);
-    const lastMinute = Math.max(1, Math.ceil(axisMax / 60));
+    const minuteMarks = Array.from(new Set([
+      ...Array.from({ length: Math.max(1, Math.floor(axisMax / 60)) + 1 }, (_, minuteIndex) => minuteIndex * 60),
+      axisMax,
+    ]))
+      .filter((value) => Number.isFinite(value) && value >= 0 && value <= axisMax)
+      .sort((a, b) => a - b);
     const momentumDecayBins = [
       { startOffset: 0, endOffset: 60, weight: 0.30 },
       { startOffset: 60, endOffset: 120, weight: 0.25 },
@@ -1721,8 +1753,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       { startOffset: 240, endOffset: 300, weight: 0.10 },
     ];
 
-    const minuteRows = Array.from({ length: lastMinute + 1 }, (_, minuteIndex) => {
-      const minuteMark = minuteIndex * 60;
+    const minuteRows = minuteMarks.map((minuteMark) => {
       const statsBySide = {
         home: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
         away: { pts: 0, shots: 0, possSeconds: 0, toWon: 0, kickoutsWon: 0 },
@@ -2445,14 +2476,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 {activeTab === 'video' ? (
                   <div
                     id="report-video-nav-controls"
-                    className="flex w-full max-w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end sm:gap-2"
+                    className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2"
                     aria-label="Video tab controls"
                   />
                 ) : null}
                   {activeTab === 'players_ana' ? (
                     <div
                       id="report-players-nav-controls"
-                      className="flex w-full max-w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end"
+                      className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end"
                       aria-label="Players tab controls"
                     />
                   ) : null}
@@ -3016,6 +3047,26 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         onDeleteMatchupStint={handleDeleteMatchupStint}
       />
 
+      <Dialog open={reportIntroOpen} onOpenChange={(open) => (open ? setReportIntroOpen(true) : dismissReportIntro())}>
+        <DialogContent className="w-[min(92vw,34rem)] max-w-[min(92vw,34rem)] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Quick Report Guide</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm leading-6 text-slate-700">
+            <p>Use the tabs to move between Overview, Shooting, Possessions, Restarts, Defense, Players, and Video.</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Filters narrow the whole tab; info buttons explain the stat or chart beside them.</li>
+              <li>Charts are interactive: click bars or map points for breakdowns, and scroll or sort tables where available.</li>
+              <li>Players has two views: Player Card for one player, Comparison for player-v-player and scatter/radar work.</li>
+              <li>Video links clips to events and possessions. On maps, tap/click once for detail and double tap/click for video.</li>
+            </ul>
+            <Button type="button" className="w-full" onClick={dismissReportIntro}>
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -3048,6 +3099,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
+              {statViewShareCode ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" className="w-full" onClick={() => handleCopyShareCode(statViewShareCode)}>
+                    Copy Code
+                  </Button>
+                  <Button type="button" variant="outline" className="w-full" onClick={handleCopyStatShareLink}>
+                    Copy Link
+                  </Button>
+                </div>
+              ) : null}
                 <Button type="button" className="w-full bg-slate-900 hover:bg-slate-800" onClick={() => handleCreateShareCode('stat_view')} disabled={shareBusy}>
                   {shareBusy ? 'Saving...' : (statViewShareCode ? 'Refresh Stat Share' : 'Generate Stat Share Code')}
                 </Button>

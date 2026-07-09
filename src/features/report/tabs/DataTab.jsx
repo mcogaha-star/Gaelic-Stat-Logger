@@ -1665,22 +1665,22 @@ function DataTab({
   const videoNavControls = useMemo(() => {
     if (!isVideoMode) return null;
     return (
-      <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-        <div className="col-span-2 inline-flex min-w-0 sm:col-span-1">
+      <div className="contents sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
+        <div className="order-2 inline-flex min-w-0 flex-[1_1_9rem] rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none sm:flex-none">
           <Button
             type="button"
-            variant={videoBrowseMode === 'play' ? 'default' : 'outline'}
+            variant={videoBrowseMode === 'play' ? 'default' : 'ghost'}
             size="sm"
-            className="h-8 flex-1 px-2 text-xs sm:flex-none sm:px-4"
+            className="h-7 flex-1 rounded-full px-2 text-xs sm:flex-none sm:px-4"
             onClick={() => setVideoBrowseMode('play')}
           >
             Events
           </Button>
           <Button
             type="button"
-            variant={videoBrowseMode === 'possession' ? 'default' : 'outline'}
+            variant={videoBrowseMode === 'possession' ? 'default' : 'ghost'}
             size="sm"
-            className="h-8 flex-1 px-2 text-xs sm:flex-none sm:px-4"
+            className="h-7 flex-1 rounded-full px-2 text-xs sm:flex-none sm:px-4"
             onClick={() => setVideoBrowseMode('possession')}
           >
             Possessions
@@ -1690,7 +1690,7 @@ function DataTab({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 px-2 text-xs sm:px-4"
+          className="order-4 h-8 px-2 text-xs sm:order-none sm:px-4"
           onClick={handleWatchCurrentVideoSet}
           disabled={!currentClipCandidates.length}
           aria-label="Watch selected rows, or current filtered rows if nothing is selected"
@@ -1700,7 +1700,7 @@ function DataTab({
         </Button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs sm:px-4">
+            <Button type="button" variant="outline" size="sm" className="order-5 h-8 px-2 text-xs sm:order-none sm:px-4">
               {!isMobile ? <ListVideo className="mr-2 h-4 w-4" /> : null}
               Options
             </Button>

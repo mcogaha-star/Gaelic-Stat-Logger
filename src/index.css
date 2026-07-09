@@ -247,6 +247,16 @@ button:focus-visible {
       width: 100%;
       max-width: none;
       min-width: 0;
+      overflow-x: hidden;
+    }
+
+    .report-pane > *,
+    .report-panel > *,
+    .report-panel-muted > *,
+    .report-metric-split > *,
+    .report-companion-grid > * {
+      min-width: 0;
+      max-width: 100%;
     }
 
     .report-metric-split,
@@ -288,7 +298,40 @@ button:focus-visible {
     .report-pane .recharts-responsive-container,
     .report-pane .recharts-wrapper,
     .report-pane .recharts-surface {
+      width: 100% !important;
       max-width: 100% !important;
+    }
+
+    .report-pane svg,
+    .report-panel svg,
+    .report-panel-muted svg {
+      max-width: 100%;
+    }
+
+    .overflow-x-auto,
+    .overflow-auto {
+      scrollbar-color: #475569 #e2e8f0;
+      scrollbar-width: thin;
+      scrollbar-gutter: stable both-edges;
+    }
+
+    .overflow-x-auto::-webkit-scrollbar,
+    .overflow-auto::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .overflow-x-auto::-webkit-scrollbar-thumb,
+    .overflow-auto::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 999px;
+      border: 2px solid #e2e8f0;
+    }
+
+    .overflow-x-auto::-webkit-scrollbar-track,
+    .overflow-auto::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 999px;
     }
   }
 

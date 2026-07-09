@@ -480,7 +480,7 @@ function FullscreenMapShell({ title = 'Map', enabled = true, children }) {
       {enabled && isMobile ? (
         <Dialog open={mobileExpanded} onOpenChange={setMobileExpanded}>
           <DialogContent className="h-[100dvh] w-screen max-w-none rounded-none border-0 bg-black p-0 shadow-none sm:rounded-none">
-            <div className="flex h-full w-full items-center justify-center overflow-hidden bg-black">
+            <div className="flex h-full w-full items-center justify-center overflow-hidden bg-black [&_[data-fullscreen-block='true']]:hidden">
               {typeof children === 'function' ? children(true) : children}
             </div>
           </DialogContent>
@@ -774,14 +774,26 @@ function computeImputedNormalizedTimes(stats) {
     for (let i = 0; i < sorted.length; i += 1) {
       prev[i] = lastT;
       const t = Number(sorted[i]?.stat?.normalized_time_s);
-      if (Number.isFinite(t)) lastT = Math.max(0, t);
+      const isZeroAdminMarker =
+        (String(sorted[i]?.stat?.stat_type || '') === 'substitution' || String(sorted[i]?.stat?.stat_type || '') === 'period_end')
+        && Number.isFinite(t)
+        && t <= 0
+        && Number.isFinite(lastT)
+        && lastT > 0;
+      if (Number.isFinite(t) && !isZeroAdminMarker) lastT = Math.max(0, t);
     }
 
     let nextT = null;
     for (let i = sorted.length - 1; i >= 0; i -= 1) {
       next[i] = nextT;
       const t = Number(sorted[i]?.stat?.normalized_time_s);
-      if (Number.isFinite(t)) nextT = Math.max(0, t);
+      const isZeroAdminMarker =
+        (String(sorted[i]?.stat?.stat_type || '') === 'substitution' || String(sorted[i]?.stat?.stat_type || '') === 'period_end')
+        && Number.isFinite(t)
+        && t <= 0
+        && Number.isFinite(nextT)
+        && nextT > 0;
+      if (Number.isFinite(t) && !isZeroAdminMarker) nextT = Math.max(0, t);
     }
 
     for (let i = 0; i < sorted.length; i += 1) {
@@ -789,16 +801,24 @@ function computeImputedNormalizedTimes(stats) {
       const id = s?.id;
       if (!id) continue;
       const t = Number(s?.normalized_time_s);
+      const statType = String(s?.stat_type || '');
       const suspiciousZeroSubstitution =
-        String(s?.stat_type || '') === 'substitution'
+        statType === 'substitution'
         && Number.isFinite(t)
         && t <= 0
         && Number.isFinite(prev[i])
         && prev[i] > 0
         && Number.isFinite(next[i])
         && next[i] > 0;
+      const suspiciousZeroPeriodEnd =
+        statType === 'period_end'
+        && Number.isFinite(t)
+        && t <= 0
+        && Number.isFinite(prev[i])
+        && prev[i] > 0;
       if (Number.isFinite(t)) {
         if (suspiciousZeroSubstitution) out.set(id, Math.max(0, Math.round((prev[i] + next[i]) / 2)));
+        else if (suspiciousZeroPeriodEnd) out.set(id, Math.max(0, Math.round(prev[i])));
         else out.set(id, Math.max(0, t));
         continue;
       }
@@ -2236,6 +2256,8 @@ function PitchViz({
     home: homeColor || '#22c55e',
     away: awayColor || '#ef4444',
   }));
+  const [mobileTooltip, setMobileTooltip] = React.useState(null);
+  const isMobile = useIsMobile();
 
   const nextContextById = useMemo(() => {
     const ordered = (Array.isArray(contextStats) && contextStats.length ? contextStats : stats || []).slice().sort((a, b) => {
@@ -2329,6 +2351,13 @@ function PitchViz({
     if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
   };
 
+  const showMobileTooltip = (x, y, text) => {
+    if (!isMobile || !text) return;
+    const safeX = Math.max(8, Math.min(92, (Number(x) / PITCH_W) * 100));
+    const safeY = Math.max(10, Math.min(90, (Number(y) / (PITCH_H * verticalScale)) * 100));
+    setMobileTooltip({ x: safeX, y: safeY, text });
+  };
+
   const renderContent = (isFullscreen = false) => (
     <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
         <div
@@ -2340,6 +2369,9 @@ function PitchViz({
             backgroundImage: `url(${pitchImg})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
+          }}
+          onClick={() => {
+            if (isMobile) setMobileTooltip(null);
           }}
         >
           <DirectionBadge label={directionLabel} />
@@ -2378,6 +2410,7 @@ function PitchViz({
                     key={s.id}
                     onClick={(e) => {
                       e.stopPropagation();
+                      showMobileTooltip(x2, y2, tip);
                       onStatClick?.(s);
                     }}
                     onDoubleClick={(e) => {
@@ -2414,6 +2447,7 @@ function PitchViz({
                     key={s.id}
                     onClick={(e) => {
                       e.stopPropagation();
+                      showMobileTooltip(x2, y2, tip);
                       onStatClick?.(s);
                     }}
                     onDoubleClick={(e) => {
@@ -2433,6 +2467,7 @@ function PitchViz({
                   key={s.id}
                   onClick={(e) => {
                     e.stopPropagation();
+                    showMobileTooltip(x2, y2, tip);
                     onStatClick?.(s);
                   }}
                   onDoubleClick={(e) => {
@@ -2465,6 +2500,7 @@ function PitchViz({
                 key={s.id}
                 onClick={(e) => {
                   e.stopPropagation();
+                  showMobileTooltip(x1, y1, tip);
                   onStatClick?.(s);
                 }}
                 onDoubleClick={(e) => {
@@ -2479,6 +2515,14 @@ function PitchViz({
             );
           })}
         </svg>
+        {mobileTooltip ? (
+          <div
+            className="pointer-events-none absolute z-20 max-w-[72%] -translate-x-1/2 -translate-y-full whitespace-pre-line rounded-xl bg-white/95 px-3 py-2 text-left text-[11px] leading-4 text-slate-800 shadow-lg ring-1 ring-slate-200"
+            style={{ left: `${mobileTooltip.x}%`, top: `${mobileTooltip.y}%` }}
+          >
+            {mobileTooltip.text}
+          </div>
+        ) : null}
       </div>
 
       {!isFullscreen && showColorControls && (colorBy === 'action' || colorBy === 'outcome' || colorBy === 'team') && (
@@ -2622,7 +2666,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
       pct: side === 'home' ? rowFor(channel).homePct : rowFor(channel).awayPct,
     }));
     return (
-      <div className={`report-pane flex h-full w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-none lg:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
+      <div className={`report-pane flex h-full min-h-[320px] w-full max-w-full flex-col rounded-2xl bg-slate-50/70 p-3 ${compact ? 'sm:max-w-none lg:max-w-[310px]' : 'lg:max-w-[440px]'}`}>
         <div className="flex h-full flex-col space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-slate-900">{title} Attack Entry Channels</div>
@@ -2657,7 +2701,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
 
   return (
     <div className={`h-full w-full ${cardClassName}`.trim()}>
-      <div className={`grid h-full gap-4 justify-items-start ${compact ? 'sm:grid-cols-2' : 'lg:grid-cols-2'}`}>
+      <div className={`grid h-full gap-4 justify-items-stretch ${compact ? 'sm:grid-cols-2' : 'lg:grid-cols-2'}`}>
         <TeamHalf side="home" title={homeTeam?.name || 'Home'} color={homeColor || '#2563eb'} />
         <TeamHalf side="away" title={awayTeam?.name || 'Away'} color={awayColor || '#ef4444'} />
       </div>
@@ -2665,7 +2709,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
   );
 }
 
-function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null }) {
+function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null, showHeader = true }) {
   const isMobile = useIsMobile();
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
@@ -2856,7 +2900,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
 
   const renderContent = (isFullscreen = false) => (
     <div className="w-full space-y-3">
-        {!isFullscreen && (
+        {!isFullscreen && showHeader && (
           <ReportInfoTitle
             title={`${teamLabel || toTitleCase(side)} Pass Network`}
             helpId={headerHelpId}
