@@ -455,6 +455,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   });
 
   const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
+  useEffect(() => {
+    if (!matchId || typeof window === 'undefined') return;
+    const rawConfig = match?.video_config;
+    if (!rawConfig) return;
+    try {
+      window.sessionStorage.setItem(`gstl_video_match_config:${matchId}`, String(rawConfig));
+      window.localStorage.setItem(`gstl_video_match_config:${matchId}`, String(rawConfig));
+    } catch {
+      // Best-effort bridge for shared/mobile review players.
+    }
+  }, [matchId, match?.video_config]);
   const { data: homeTeamArr = [] } = useQuery({
     queryKey: ['team', match?.home_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.home_team_id }),
@@ -1527,6 +1538,24 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       });
     }
 
+    if (mode === 'time') {
+      const finalX = Number(displayLayout.axisMax || 0);
+      const lastX = Number(points[points.length - 1]?.x || 0);
+      if (Number.isFinite(finalX) && finalX > lastX) {
+        points.push({
+          x: finalX,
+          home_total: homeTotal,
+          away_total: awayTotal,
+          home_goals: homeGoals,
+          away_goals: awayGoals,
+          home_points: homePts,
+          away_points: awayPts,
+          label: displayLayout.formatTick(finalX),
+          eventLabel: 'Full Time',
+        });
+      }
+    }
+
     return {
       mode,
       points,
@@ -2383,7 +2412,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   ))}
                 </TabsList>
               </div>
-              <div className="min-w-0 flex-1 xl:hidden">
+              <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'flex-none' : 'min-w-0 flex-1'} xl:hidden`}>
                 <Button
                   type="button"
                   variant="outline"
@@ -2395,7 +2424,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Menu className="h-4 w-4" />
                 </Button>
               </div>
-              <div className={`ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-full sm:w-auto'}`}>
+              <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'ml-0 flex-1 justify-start' : 'ml-auto justify-end'} flex max-w-full flex-wrap items-center gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-full sm:w-auto'}`}>
                 {activeTab === 'summary' ? (
                   <MultiSelect
                     label="Overview Half"
@@ -2416,14 +2445,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 {activeTab === 'video' ? (
                   <div
                     id="report-video-nav-controls"
-                    className="flex w-full max-w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:gap-2"
+                    className="flex w-full max-w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end sm:gap-2"
                     aria-label="Video tab controls"
                   />
                 ) : null}
                   {activeTab === 'players_ana' ? (
                     <div
                       id="report-players-nav-controls"
-                      className="flex w-full max-w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto"
+                      className="flex w-full max-w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end"
                       aria-label="Players tab controls"
                     />
                   ) : null}
@@ -2431,7 +2460,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                     <PopoverTrigger asChild>
                       {isPlayersAnalyticsTab ? (
-                        <Button type="button" variant="outline" size="sm" className={`w-full gap-1 sm:w-auto sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <Button type="button" variant="outline" size="sm" className={`order-first w-auto flex-none gap-1 sm:order-none sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
                           <span className="truncate">{activeTopFilterCount > 0 ? `Filters (${activeTopFilterCount})` : 'Filters'}</span>
                         </Button>
                       ) : (

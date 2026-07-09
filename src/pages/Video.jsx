@@ -49,6 +49,24 @@ function extractYouTubeId(url) {
   return '';
 }
 
+function readStoredVideoConfig(matchId) {
+  if (!matchId || typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(`gstl_video_match_config:${matchId}`)
+      || window.localStorage.getItem(`gstl_video_match_config:${matchId}`);
+    return raw ? safeParseJSON(raw, null) : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyVideoConfig(cfg, { setYoutubeUrl, setSourceType }) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  if (typeof cfg.youtubeUrl === 'string') setYoutubeUrl(cfg.youtubeUrl);
+  setSourceType('youtube');
+  return !!String(cfg.youtubeUrl || '').trim();
+}
+
 function ensureYouTubeAPI() {
   return new Promise((resolve) => {
     if (window.YT && window.YT.Player) return resolve(window.YT);
@@ -116,6 +134,7 @@ export default function Video() {
   const { data: settingsRecords = [] } = useQuery({
     queryKey: ['app-settings'],
     queryFn: () => db.entities.AppSettings.list(),
+    enabled: !!user,
   });
   const shortcutConfig = useMemo(
     () => parseShortcutConfig(settingsRecords?.[0]?.keyboard_shortcuts_config),
@@ -124,22 +143,22 @@ export default function Video() {
   const { data: reviewReel = null } = useQuery({
     queryKey: ['review-reel', activeReelId],
     queryFn: () => db.entities.HighlightReel.get(activeReelId),
-    enabled: reviewMode && !!activeReelId,
+    enabled: reviewMode && !!activeReelId && !!user,
   });
   const { data: reviewClipsRaw = [] } = useQuery({
     queryKey: ['review-clips', activeReelId],
     queryFn: () => db.entities.HighlightReelClip.filter({ reel_id: activeReelId }),
-    enabled: reviewMode && !!activeReelId,
+    enabled: reviewMode && !!activeReelId && !!user,
   });
   const { data: reviewNotes = [] } = useQuery({
     queryKey: ['review-notes', matchId],
     queryFn: () => db.entities.VideoNote.filter({ match_id: matchId }),
-    enabled: reviewMode && !!matchId,
+    enabled: reviewMode && !!matchId && !!user,
   });
   const { data: reviewStats = [] } = useQuery({
     queryKey: ['review-stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
-    enabled: reviewMode && !!matchId,
+    enabled: reviewMode && !!matchId && !!user,
   });
   const reviewSelectionPayload = useMemo(() => {
     if (!reviewMode || !activeSelectionKey) return { clips: [], sourceLabel: 'Selection' };
@@ -360,28 +379,26 @@ export default function Video() {
   useEffect(() => {
     if (!matchId) return;
     let cancelled = false;
+    const storedConfig = readStoredVideoConfig(matchId);
+    if (storedConfig) {
+      applyVideoConfig(storedConfig, { setYoutubeUrl, setSourceType });
+    }
+    if (!user) return () => { cancelled = true; };
     (async () => {
       const rec = await db.entities.Match.get(matchId);
       if (cancelled) return;
       const cfg = safeParseJSON(rec?.video_config || '{}', {});
-      if (typeof cfg?.youtubeUrl === 'string') setYoutubeUrl(cfg.youtubeUrl);
-      // A local file cannot be restored across sessions/popouts, so always fall back
-      // to a usable YouTube/default state instead of reopening the video page blank.
-      if (cfg?.sourceType === 'youtube' && typeof cfg?.youtubeUrl === 'string' && cfg.youtubeUrl.trim()) {
-        setSourceType('youtube');
-      } else {
-        setSourceType('youtube');
-      }
+      applyVideoConfig(cfg, { setYoutubeUrl, setSourceType });
     })();
     return () => { cancelled = true; };
-  }, [matchId]);
+  }, [matchId, user]);
 
   useEffect(() => {
-    if (!matchId) return;
+    if (!matchId || !user) return;
     // Persist only YouTube URL. Local-file mode is session-only and should not reopen blank.
     const payload = { sourceType: 'youtube', youtubeUrl };
     db.entities.Match.update(matchId, { video_config: JSON.stringify(payload) }).catch(() => {});
-  }, [matchId, youtubeUrl]);
+  }, [matchId, youtubeUrl, user]);
 
   // Open a BroadcastChannel for communicating with the match window.
   useEffect(() => {

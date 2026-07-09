@@ -1391,15 +1391,15 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                       {possessionFlowRenderPanels.map((panel) => (
                         <div key={panel.side} className="space-y-2">
                           <div className="font-semibold text-slate-900">{panel.title}</div>
-                          <div className="h-[300px] w-full">
+                          <div className="h-[300px] min-w-0 w-full max-w-full overflow-hidden">
                             <ResponsiveContainer width="100%" height="100%">
                               <Sankey
                                 data={panel.data}
                                 node={renderSankeyNode}
                                 link={renderSankeyLink}
-                                nodePadding={18}
-                                nodeWidth={12}
-                                margin={{ top: 12, right: 88, bottom: 12, left: 88 }}
+                                nodePadding={isMobile ? 8 : 18}
+                                nodeWidth={isMobile ? 8 : 12}
+                                margin={isMobile ? { top: 8, right: 2, bottom: 8, left: 2 } : { top: 12, right: 88, bottom: 12, left: 88 }}
                                 sort={false}
                               >
                                 <Tooltip content={renderSankeyTooltip} />
@@ -1414,7 +1414,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                   )
                 ) : (
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:items-stretch">
-                    <div className="flex h-full flex-col space-y-3">
+                    <div className="flex h-full min-w-0 flex-col space-y-3 overflow-hidden">
                       <div className="min-h-[42px] flex items-start">
                             <div className="pt-0.5 font-semibold text-slate-900">Possession Origins</div>
                         </div>
@@ -1431,8 +1431,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                               </button>
                             ))}
                       </div>
-                      <ChartContainer id="possession-origins" className="h-[280px] w-full flex-1" config={{}}>
-                        <BarChart data={possessionOriginData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 18 : 28}>
+                      <ChartContainer id="possession-origins" className="h-[280px] min-w-0 w-full max-w-full flex-1 overflow-hidden" config={{}}>
+                        <BarChart data={possessionOriginData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 8 : 28}>
                           <CartesianGrid vertical={false} />
                           <XAxis dataKey="team" className="text-xs" />
                           <YAxis allowDecimals={false} width={34} className="text-xs" domain={[0, sharedOutcomeAxisMax]} />
@@ -1444,7 +1444,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                         </ChartContainer>
                       </div>
                     <div className="hidden lg:block self-stretch w-px bg-slate-200/90" />
-                    <div className="flex h-full flex-col space-y-3">
+                    <div className="flex h-full min-w-0 flex-col space-y-3 overflow-hidden">
                       <div className="flex min-h-[42px] items-start">
                         <div className="pt-0.5 font-semibold text-slate-900">{isLiveMode ? 'Possession Outcomes' : (outcomeMode === 'attacks' ? 'Attack Outcomes' : 'Possession Outcomes')}</div>
                       </div>
@@ -1486,8 +1486,8 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                           )
                         ) : null}
                       </div>
-                      <ChartContainer id="possession-outcomes" className="h-[280px] w-full flex-1" config={{}}>
-                        <BarChart data={activeOutcomeData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 18 : 28}>
+                      <ChartContainer id="possession-outcomes" className="h-[280px] min-w-0 w-full max-w-full flex-1 overflow-hidden" config={{}}>
+                        <BarChart data={activeOutcomeData} margin={{ top: 12, right: isMobile ? 6 : 16, left: 0, bottom: 6 }} barCategoryGap={isMobile ? 8 : 28}>
                           <CartesianGrid vertical={false} />
                           <XAxis dataKey="team" className="text-xs" />
                           <YAxis allowDecimals={false} width={34} className="text-xs" domain={[0, sharedOutcomeAxisMax]} />

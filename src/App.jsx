@@ -27,7 +27,7 @@ const AuthenticatedApp = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location?.pathname || '/';
-  const isPublicRoute = path === '/Login' || path === '/Privacy' || path === '/StatShare';
+  const isPublicRoute = path === '/Login' || path === '/Privacy' || path === '/StatShare' || path === '/Video';
 
   React.useEffect(() => {
     if (isLoadingPublicSettings || isLoadingAuth || !isAuthenticated) return;

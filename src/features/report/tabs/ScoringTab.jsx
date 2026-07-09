@@ -391,11 +391,14 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
   const awayFill = awayColor || '#7f1d3a';
   const homeLabel = homeTeam?.name || 'Home';
   const awayLabel = awayTeam?.name || 'Away';
+  const homePct = Number(sim?.homeWinProb || 0) * 100;
+  const drawPct = Number(sim?.drawProb || 0) * 100;
+  const awayPct = Number(sim?.awayWinProb || 0) * 100;
   const chartData = sim ? [{
     label: 'Win Probability',
-    home: sim.homeWinProb * 100,
-    draw: sim.drawProb * 100,
-    away: sim.awayWinProb * 100,
+    home: homePct,
+    draw: drawPct,
+    away: awayPct,
   }] : [];
 
   return (
@@ -403,7 +406,7 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
       <CardContent className="px-4 pt-3 pb-2 space-y-0.5">
         {React.isValidElement(title) ? title : <div className="font-semibold text-slate-900">{title}</div>}
         {sim ? (
-          <div className="space-y-0">
+          <div className="space-y-2">
             <div className="flex items-center justify-between gap-3 pb-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <span className="truncate">{homeLabel}</span>
               <span className="truncate text-right">{awayLabel}</span>
@@ -430,17 +433,25 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
                   formatter={(value, name) => [`${Number(value).toFixed(1)}%`, name]}
                   contentStyle={{ borderRadius: 8, borderColor: '#cbd5e1' }}
                 />
-                <Bar dataKey="home" stackId="wp" fill="var(--color-home)" radius={[8, 0, 0, 8]}>
-                  <LabelList dataKey="home" position="insideLeft" offset={14} className="fill-white text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
-                </Bar>
-                <Bar dataKey="draw" stackId="wp" fill="var(--color-draw)">
-                  <LabelList dataKey="draw" position="inside" className="fill-slate-700 text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
-                </Bar>
-                <Bar dataKey="away" stackId="wp" fill="var(--color-away)" radius={[0, 8, 8, 0]}>
-                  <LabelList dataKey="away" position="insideRight" offset={14} className="fill-white text-[11px] font-semibold" formatter={(value) => `${Number(value).toFixed(1)}%`} />
-                </Bar>
+                <Bar dataKey="home" stackId="wp" fill="var(--color-home)" radius={[8, 0, 0, 8]} />
+                <Bar dataKey="draw" stackId="wp" fill="var(--color-draw)"/>
+                <Bar dataKey="away" stackId="wp" fill="var(--color-away)" radius={[0, 8, 8, 0]} />
               </BarChart>
             </ChartContainer>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="px-1 text-left">
+                <div className="truncate font-medium text-slate-600">{homeLabel}</div>
+                <div className="font-semibold tabular-nums text-slate-900">{homePct.toFixed(1)}%</div>
+              </div>
+              <div className="px-1 text-center">
+                <div className="font-medium text-slate-600">Draw</div>
+                <div className="font-semibold tabular-nums text-slate-900">{drawPct.toFixed(1)}%</div>
+              </div>
+              <div className="px-1 text-right">
+                <div className="truncate font-medium text-slate-600">{awayLabel}</div>
+                <div className="font-semibold tabular-nums text-slate-900">{awayPct.toFixed(1)}%</div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="text-sm text-slate-600">

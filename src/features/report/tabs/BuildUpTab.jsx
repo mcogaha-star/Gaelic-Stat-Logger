@@ -1222,8 +1222,8 @@ function BuildUpTab({
 
             <Card className={paneClassName}>
               <CardContent className="p-4 space-y-3">
-                <div className="grid lg:grid-cols-[180px_minmax(0,1fr)] gap-4 items-start">
-                  <div className="space-y-3">
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] items-start">
+                  <div className="min-w-0 space-y-3">
                     <div className="space-y-1">
                       <MultiSelect
                         label="Network Team"
@@ -1325,7 +1325,7 @@ function BuildUpTab({
                       </div>
                     )}
                   </div>
-                  <div className="space-y-3">
+                  <div className="min-w-0 space-y-3">
                     <PassNetwork
                       passes={networkPasses}
                       side={networkSide}

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, ResponsiveContainer, Sankey } from 'recharts';
 import pitchImg from '@/assets/pitch.png';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   PITCH_W,
   PITCH_H,
@@ -814,6 +815,7 @@ function DefenseTab({
   showXpData = true,
   onOpenVideoAt,
 }) {
+  const isMobile = useIsMobile();
   const showXp = !isLiveMode || showXpData;
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul', 'pass', 'carry', 'shot'] }), [reportFilters]);
   const base = useMemo(() => applyNonTeamReportFilters(stats, analysisFilters), [stats, analysisFilters]);
@@ -1169,7 +1171,7 @@ function DefenseTab({
       if (!id) return null;
       const key = String(id);
       if (!rows.has(key)) {
-        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set() });
+        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, toWon: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set(), _seenTurnoversWon: new Set() });
       }
       return rows.get(key);
     };
@@ -1203,8 +1205,21 @@ function DefenseTab({
       const savedRow = ensure(action?.savedById, action?.savedByLabel, action?.teamSide);
 
       if ((action?.primaryCategory || action?.actionCategory) === 'turnover') {
-        if (forcedRow) forcedRow.toForced += 1;
-        if (recoveredRow) recoveredRow.toRecovered += 1;
+        const turnoverKey = String(statId || action?.id || `${action?.forcedById || ''}:${action?.recoveredById || ''}:${action?.timeS || action?.normalizedTimeS || ''}`);
+        if (forcedRow) {
+          forcedRow.toForced += 1;
+          if (!forcedRow._seenTurnoversWon.has(turnoverKey)) {
+            forcedRow._seenTurnoversWon.add(turnoverKey);
+            forcedRow.toWon += 1;
+          }
+        }
+        if (recoveredRow) {
+          recoveredRow.toRecovered += 1;
+          if (!recoveredRow._seenTurnoversWon.has(turnoverKey)) {
+            recoveredRow._seenTurnoversWon.add(turnoverKey);
+            recoveredRow.toWon += 1;
+          }
+        }
       }
       if (Array.isArray(action?.filterTags) && action.filterTags.includes('foul') && foulRow) {
         foulRow.fouls += 1;
@@ -1217,13 +1232,14 @@ function DefenseTab({
     return Array.from(rows.values())
       .filter((row) => isMeaningfulPlayerLabel(row?.player))
       .map((row) => ({ ...row, teamLabel: row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') }))
-      .sort((a, b) => b.defensiveActions - a.defensiveActions || b.toForced - a.toForced || String(a.player).localeCompare(String(b.player)));
+      .sort((a, b) => b.defensiveActions - a.defensiveActions || b.toWon - a.toWon || b.toForced - a.toForced || String(a.player).localeCompare(String(b.player)));
   }, [defensiveActions, resolvedDefensiveTeamActions, homeTeam, awayTeam]);
 
   const [playerDefenseSort, setPlayerDefenseSort] = useState({ key: 'defensiveActions', dir: 'desc' });
   const playerDefenseColumns = useMemo(() => ([
     { key: 'player', label: 'Player', sortValue: (r) => r.player },
     { key: 'teamLabel', label: 'Team', sortValue: (r) => r.teamLabel },
+    { key: 'toWon', label: 'TO Won', sortValue: (r) => r.toWon },
     { key: 'toForced', label: 'TO Forced', sortValue: (r) => r.toForced },
     { key: 'toRecovered', label: 'TO Recovered', sortValue: (r) => r.toRecovered },
     { key: 'defensiveActions', label: 'Defensive Actions', sortValue: (r) => r.defensiveActions },
@@ -1349,13 +1365,13 @@ function DefenseTab({
             <div className="space-y-3 rounded-xl border border-slate-200 bg-white/80 p-3">
               <div className="font-semibold text-slate-900">{defenseSankeyTeam === 'home' ? (homeTeam?.name || 'Home') : (awayTeam?.name || 'Away')}</div>
               {defenseSankeyRenderByTeam[defenseSankeyTeam]?.totalTurnovers > 0 && defenseSankeyRenderByTeam[defenseSankeyTeam]?.links?.length > 0 ? (
-                <div className="h-[360px] w-full overflow-visible" onClick={() => setSelectedDefenseSankeyNodeKeys((current) => ({ ...current, [defenseSankeyTeam]: null }))}>
+                <div className={`${isMobile ? 'h-[340px]' : 'h-[360px]'} min-w-0 w-full max-w-full overflow-visible`} onClick={() => setSelectedDefenseSankeyNodeKeys((current) => ({ ...current, [defenseSankeyTeam]: null }))}>
                   <ResponsiveContainer width="100%" height="100%">
                     <Sankey
                       data={defenseSankeyRenderByTeam[defenseSankeyTeam]}
-                      nodePadding={26}
-                      nodeWidth={18}
-                      margin={{ top: 16, right: 100, bottom: 16, left: 120 }}
+                      nodePadding={isMobile ? 8 : 26}
+                      nodeWidth={isMobile ? 8 : 18}
+                      margin={isMobile ? { top: 10, right: 2, bottom: 10, left: 2 } : { top: 16, right: 100, bottom: 16, left: 120 }}
                       linkCurvature={0.45}
                       sort={false}
                       node={DefenseSankeyNode}
@@ -1824,9 +1840,6 @@ function DefenseTab({
                           onClick={() => togglePlayerDefenseSort(column.key)}
                         >
                           <span>{column.label}</span>
-                          <span className="text-[10px] text-slate-500">
-                            {playerDefenseSort.key === column.key ? (playerDefenseSort.dir === 'asc' ? '▲' : '▼') : '↕'}
-                          </span>
                         </button>
                       </TableHead>
                     ))}
@@ -1837,6 +1850,7 @@ function DefenseTab({
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.player || '—'}</TableCell>
                       <TableCell>{row.teamLabel || '—'}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.toWon}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toForced}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toRecovered}</TableCell>
                       {!isLiveMode ? <TableCell className="text-center tabular-nums">{row.defensiveActions}</TableCell> : null}

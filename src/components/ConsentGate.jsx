@@ -54,7 +54,7 @@ export default function ConsentGate({ children }) {
 
   const accepted = consentVersion === CONSENT_VERSION;
   const path = location?.pathname || '/';
-  const allowWithoutConsent = path === '/' || path === '/Home' || path === '/Privacy' || path === '/Login' || path === '/StatShare';
+  const allowWithoutConsent = path === '/' || path === '/Home' || path === '/Privacy' || path === '/Login' || path === '/StatShare' || path === '/Video';
 
   // If the user accepted previously while logged out, sync it to the server
   // once auth becomes available.

@@ -944,10 +944,9 @@ function PlayerShootingPanel({
                           key={shot.id}
                           className="cursor-pointer"
                           onClick={(event) => {
-                            if (isMobile) handleOpenVideo(event);
-                            else event.stopPropagation();
+                            event.stopPropagation();
                           }}
-                          onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                          onDoubleClick={handleOpenVideo}
                         >
                           <rect
                             x={shot.x - size}
@@ -987,10 +986,9 @@ function PlayerShootingPanel({
                           key={shot.id}
                           className="cursor-pointer"
                           onClick={(event) => {
-                            if (isMobile) handleOpenVideo(event);
-                            else event.stopPropagation();
+                            event.stopPropagation();
                           }}
-                          onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                          onDoubleClick={handleOpenVideo}
                         >
                           <rect
                             x={shot.x - size}
@@ -1032,10 +1030,9 @@ function PlayerShootingPanel({
                         key={shot.id}
                         className="cursor-pointer"
                         onClick={(event) => {
-                          if (isMobile) handleOpenVideo(event);
-                          else event.stopPropagation();
+                          event.stopPropagation();
                         }}
-                        onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                        onDoubleClick={handleOpenVideo}
                       >
                         <circle
                           cx={shot.x}
@@ -1266,10 +1263,9 @@ function PlayerPassingPanel({
                       key={pass.id}
                       className="cursor-pointer"
                       onClick={(event) => {
-                        if (isMobile) handleOpenVideo(event);
-                        else event.stopPropagation();
+                        event.stopPropagation();
                       }}
-                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                      onDoubleClick={handleOpenVideo}
                     >
                       <line
                         x1={pass.start.x}
@@ -1501,10 +1497,9 @@ function PlayerCarryingPanel({
                     key={carry.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) handleOpenVideo(event);
-                      else event.stopPropagation();
+                      event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onDoubleClick={handleOpenVideo}
                   >
                     <line
                       x1={carry.start.x}
@@ -1643,10 +1638,9 @@ function PlayerRestartPanel({
                     key={item.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) handleOpenVideo(event);
-                      else event.stopPropagation();
+                      event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onDoubleClick={handleOpenVideo}
                   >
                     <line
                       x1={startPoint.x}
@@ -1851,10 +1845,9 @@ function PlayerProgressionPanel({
                     key={reception.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) handleOpenVideo(event);
-                      else event.stopPropagation();
+                      event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onDoubleClick={handleOpenVideo}
                   >
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill={reception.color} opacity="0.92">
@@ -1991,10 +1984,9 @@ function PlayerDefensePanel({
                     key={action.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) handleOpenVideo(event);
-                      else event.stopPropagation();
+                      event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onDoubleClick={handleOpenVideo}
                   >
                     {action.shape === 'cross' ? (
                       <>
@@ -2118,10 +2110,9 @@ function PlayerDefendingAllowedPanel({
                       key={touch.id}
                       className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) handleOpenVideo(event);
-                      else event.stopPropagation();
+                      event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onDoubleClick={handleOpenVideo}
                   >
                       <circle cx={point.x} cy={point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                       <circle cx={point.x} cy={point.y} r="1.9" fill={touch.color || '#2563eb'} opacity="0.92">
@@ -2459,19 +2450,13 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                   key={item.id}
                   className={item.raw ? 'cursor-pointer' : undefined}
                   onClick={(event) => {
-                    if (!item.raw) return event.stopPropagation();
-                    if (isMobile) {
-                      event.stopPropagation();
-                      onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                      return;
-                    }
                     event.stopPropagation();
                   }}
-                  onDoubleClick={isMobile ? undefined : ((event) => {
+                  onDoubleClick={(event) => {
                     if (!item.raw) return;
                     event.stopPropagation();
                     onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                  })}
+                  }}
                 >
                   {item.tooltip ? <title>{item.tooltip}</title> : null}
                   <line
@@ -2495,19 +2480,13 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                 key={item.id}
                 className={item.raw ? 'cursor-pointer' : undefined}
                 onClick={(event) => {
-                  if (!item.raw) return event.stopPropagation();
-                  if (isMobile) {
-                    event.stopPropagation();
-                    onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                    return;
-                  }
                   event.stopPropagation();
                 }}
-                onDoubleClick={isMobile ? undefined : ((event) => {
+                onDoubleClick={(event) => {
                   if (!item.raw) return;
                   event.stopPropagation();
                   onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                })}
+                }}
               >
                 {item.tooltip ? <title>{item.tooltip}</title> : null}
                 <circle
@@ -2689,17 +2668,12 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                     key={shot.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if (isMobile) {
-                        event.stopPropagation();
-                        onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
-                        return;
-                      }
                       event.stopPropagation();
                     }}
-                    onDoubleClick={isMobile ? undefined : ((event) => {
+                    onDoubleClick={(event) => {
                       event.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
-                    })}
+                    }}
                   >
                     <circle cx={point.x} cy={point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                     <circle
@@ -4815,16 +4789,28 @@ function PlayersAnalyticsTabContent({
         <TableHeader>
           <TableRow>
             {columns.map((column) => (
-              <SortableTableHead
-                key={column.key}
-                column={{ key: column.key, label: column.label }}
-                sortState={lbSort}
-                onToggle={toggleSort}
-                className={[
-                  options.compactHeaders ? 'px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 whitespace-normal leading-tight' : '',
-                  column.numeric ? 'text-right' : '',
-                ].filter(Boolean).join(' ')}
-              />
+              options.plainHeaders ? (
+                <TableHead
+                  key={column.key}
+                  className={[
+                    options.compactHeaders ? 'px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 whitespace-normal leading-tight' : '',
+                    column.numeric ? 'text-right' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  {column.label}
+                </TableHead>
+              ) : (
+                <SortableTableHead
+                  key={column.key}
+                  column={{ key: column.key, label: column.label }}
+                  sortState={lbSort}
+                  onToggle={toggleSort}
+                  className={[
+                    options.compactHeaders ? 'px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 whitespace-normal leading-tight' : '',
+                    column.numeric ? 'text-right' : '',
+                  ].filter(Boolean).join(' ')}
+                />
+              )
             ))}
           </TableRow>
         </TableHeader>
@@ -5261,7 +5247,7 @@ function PlayersAnalyticsTabContent({
                     </div>
                   </div>
 
-                  {renderSimpleTable(sortedLeaderboard, comparisonTableColumns, { compactHeaders: true })}
+                  {renderSimpleTable(sortedLeaderboard, comparisonTableColumns, { compactHeaders: true, plainHeaders: playerBucket === 'defending' })}
                 </CardContent>
               </Card>
 
@@ -5400,6 +5386,7 @@ function bucketColumnsBuilder({
     defending: [
       { key: 'player', label: 'Player', render: renderPlayerCell },
       { key: 'team', label: 'Team', render: (row) => teamLabelForSide(row.team, homeTeam, awayTeam) },
+      { key: 'turnoversWon', label: 'TO Won', numeric: true, render: (row) => countValue(row, row.turnoversWon) },
       { key: 'turnoversForced', label: 'TO Forced', numeric: true, render: (row) => countValue(row, row.turnoversForced) },
       { key: 'turnoversRecovered', label: 'TO Recovered', numeric: true, render: (row) => countValue(row, row.turnoversRecovered) },
       { key: 'defActions', label: 'Defensive Actions', numeric: true, render: (row) => countValue(row, row.defActions) },

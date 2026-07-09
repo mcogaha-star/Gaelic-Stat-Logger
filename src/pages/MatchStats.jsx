@@ -1124,6 +1124,7 @@ export default function MatchStats() {
                 onDataClick={() => setDataOpen(true)}
                 settingsUrl={createPageUrl('Settings?tab=logging')}
                 settingsLabel="Logging Settings"
+                sticky={!isLiveMode}
             />
 
             <div className="max-w-7xl mx-auto px-4 pt-1 pb-5">

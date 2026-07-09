@@ -257,8 +257,10 @@ button:focus-visible {
     .report-pane [class*='overflow-x-auto'],
     .report-pane [class*='overflow-y-auto'],
     .report-pane [class*='overflow-auto'] {
+      overflow-x: scroll;
       scrollbar-color: #475569 #e2e8f0;
       scrollbar-width: thin;
+      scrollbar-gutter: stable both-edges;
     }
 
     .report-pane [class*='overflow-x-auto']::-webkit-scrollbar,
@@ -281,6 +283,12 @@ button:focus-visible {
     .report-pane [class*='overflow-auto']::-webkit-scrollbar-track {
       background: #e2e8f0;
       border-radius: 999px;
+    }
+
+    .report-pane .recharts-responsive-container,
+    .report-pane .recharts-wrapper,
+    .report-pane .recharts-surface {
+      max-width: 100% !important;
     }
   }
 

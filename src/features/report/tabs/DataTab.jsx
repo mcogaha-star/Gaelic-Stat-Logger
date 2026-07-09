@@ -1666,7 +1666,7 @@ function DataTab({
     if (!isVideoMode) return null;
     return (
       <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-        <div className="inline-flex min-w-0">
+        <div className="col-span-2 inline-flex min-w-0 sm:col-span-1">
           <Button
             type="button"
             variant={videoBrowseMode === 'play' ? 'default' : 'outline'}

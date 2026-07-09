@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatPct, ReportInfoTitle } from '../shared';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 
 function teamBandStyle(color, side) {
@@ -30,6 +31,7 @@ export default function OverviewTab({
     { k: 'Half End', c: '#64748b' },
   ];
   const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover']);
+  const isMobile = useIsMobile();
   const [breakdownOpen, setBreakdownOpen] = React.useState(false);
   const [breakdownCategory, setBreakdownCategory] = React.useState('');
   const momentumRows = React.useMemo(
@@ -294,13 +296,14 @@ export default function OverviewTab({
                           );
                         }}
                       />
+                      <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
                       <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
                       {(overviewMomentum.boundaryMarks || []).map((marker) => (
                         <ReferenceLine key={marker.key} x={Number(marker.x)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: marker.label, position: 'insideTop', fill: '#475569', fontSize: 10 }} />
                       ))}
                       <Area type="monotone" dataKey="homeSwing" stroke="none" fill={homeTeam?.color || '#22c55e'} fillOpacity={0.18} isAnimationActive={false} />
                       <Area type="monotone" dataKey="awaySwing" stroke="none" fill={awayTeam?.color || '#ef4444'} fillOpacity={0.18} isAnimationActive={false} />
-                      <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4 }} />
+                      <Line type="monotone" dataKey="swing" stroke="#0f172a" strokeWidth={2} dot={false} isAnimationActive={false} activeDot={isMobile ? false : { r: 4 }} />
                     </ComposedChart>
                   </ChartContainer>
                 </div>
@@ -339,6 +342,7 @@ export default function OverviewTab({
                         dataKey={o.k}
                         stackId="a"
                         fill={o.c}
+                        isAnimationActive={false}
                         onClick={() => openBreakdown(o.k)}
                         cursor={clickableOutcomeKeys.has(o.k) ? 'pointer' : 'default'}
                       />
@@ -367,7 +371,7 @@ export default function OverviewTab({
                 <Tooltip />
                 <Legend />
                 {breakdownSeries.map((series) => (
-                  <Bar key={series.key} dataKey={series.key} stackId="a" fill={series.color} />
+                  <Bar key={series.key} dataKey={series.key} stackId="a" fill={series.color} isAnimationActive={false} />
                 ))}
               </BarChart>
             </ChartContainer>

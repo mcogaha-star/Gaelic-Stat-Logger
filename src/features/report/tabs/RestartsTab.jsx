@@ -1806,13 +1806,13 @@ function RestartsTab({
                 </div>
                 {kickoutSankeyRenderData.totalKickouts > 0 && kickoutSankeyRenderData.links.length > 0 ? (
                   <>
-                    <div className="h-[420px] w-full overflow-visible" onClick={() => setSelectedKickoutSankeyNodeKey(null)}>
+                    <div className={`${isMobile ? 'h-[360px]' : 'h-[420px]'} min-w-0 w-full max-w-full overflow-hidden`} onClick={() => setSelectedKickoutSankeyNodeKey(null)}>
                       <ResponsiveContainer width="100%" height="100%">
                         <Sankey
                           data={kickoutSankeyRenderData}
-                          nodePadding={26}
-                          nodeWidth={18}
-                          margin={{ top: 16, right: 100, bottom: 16, left: 120 }}
+                          nodePadding={isMobile ? 8 : 26}
+                          nodeWidth={isMobile ? 8 : 18}
+                          margin={isMobile ? { top: 10, right: 2, bottom: 10, left: 2 } : { top: 16, right: 100, bottom: 16, left: 120 }}
                           linkCurvature={0.45}
                           sort={false}
                           node={KickoutSankeyNode}

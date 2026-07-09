@@ -2666,6 +2666,7 @@ function AttackChannelPitch({ homeTeam, awayTeam, teamMode, homeColor, awayColor
 }
 
 function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable = true, showPitch = true, pitchScale = REPORT_PITCH_SCALE, centralityRowsOverride = null, hiddenPlayerIds = null, fullscreenEnabled = true, nodeSizeMode = 'volume', headerHelpId = null }) {
+  const isMobile = useIsMobile();
   // Build undirected edges between passer and intended recipient for completed passes.
   const edges = new Map(); // key "a|b" -> { a, b, count_ab, count_ba, total }
   const passesMade = new Map(); // playerId -> count
@@ -2867,7 +2868,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               data-fullscreen-trigger="true"
               className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
               style={{
-                ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: pitchScale }),
+                ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: isMobile ? '100%' : pitchScale, maxWidth: '100%' }),
                 aspectRatio: `${PITCH_W} / ${PITCH_H}`,
                 backgroundImage: `url(${pitchImg})`,
                 backgroundSize: 'cover',
@@ -2972,7 +2973,8 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               </Button>
             ) : null}
           </div>
-          <Table>
+          <div className="w-full overflow-x-auto">
+          <Table className="min-w-[560px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Rank</TableHead>
@@ -3010,6 +3012,7 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
               )})}
             </TableBody>
           </Table>
+          </div>
           </div>
         )}
     </div>
@@ -3640,8 +3643,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                   return (
                     <g
                       key={s.id}
-                      onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
-                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={handleOpenVideo}
                     >
                       <rect
                         x={x - size}
@@ -3693,8 +3696,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                   return (
                     <g
                       key={s.id}
-                      onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
-                      onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={handleOpenVideo}
                     >
                       <rect
                         x={x - size}
@@ -3749,8 +3752,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 return (
                   <g
                     key={s.id}
-                    onClick={isMobile ? handleOpenVideo : (e) => e.stopPropagation()}
-                    onDoubleClick={isMobile ? undefined : handleOpenVideo}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={handleOpenVideo}
                   >
                     <circle
                       cx={x}
