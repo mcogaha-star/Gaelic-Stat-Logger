@@ -367,9 +367,9 @@ function sortRows(rows, sortState, columns = [], fallbackKey = 'key') {
   return list;
 }
 
-function SortableTableHead({ column, sortState, onToggle, className = '', children }) {
+function SortableTableHead({ column, sortState, onToggle, className = '', children, hideSortIcon = false }) {
   const active = sortState?.key === column?.key;
-  const Icon = !column?.sortable ? null : active ? (sortState?.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const Icon = hideSortIcon || !column?.sortable ? null : active ? (sortState?.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
   const rightAligned = className.includes('text-right');
   const centerAligned = className.includes('text-center');
   return (
@@ -386,9 +386,11 @@ function SortableTableHead({ column, sortState, onToggle, className = '', childr
           onClick={() => onToggle?.(column?.key)}
         >
           <span>{children ?? column?.label}</span>
-          <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
-            {Icon ? <Icon className="h-3.5 w-3.5 text-slate-500" /> : null}
-          </span>
+          {!hideSortIcon ? (
+            <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+              {Icon ? <Icon className="h-3.5 w-3.5 text-slate-500" /> : null}
+            </span>
+          ) : null}
         </button>
       )}
     </TableHead>
@@ -2411,10 +2413,6 @@ function PitchViz({
                   <g
                     key={s.id}
                     data-mobile-tooltip-point="true"
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      showMobileTooltip(x2, y2, tip);
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       showMobileTooltip(x2, y2, tip);
@@ -2453,10 +2451,6 @@ function PitchViz({
                   <g
                     key={s.id}
                     data-mobile-tooltip-point="true"
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      showMobileTooltip(x2, y2, tip);
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       showMobileTooltip(x2, y2, tip);
@@ -2478,10 +2472,6 @@ function PitchViz({
                 <g
                   key={s.id}
                   data-mobile-tooltip-point="true"
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    showMobileTooltip(x2, y2, tip);
-                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     showMobileTooltip(x2, y2, tip);
@@ -2516,10 +2506,6 @@ function PitchViz({
               <g
                 key={s.id}
                 data-mobile-tooltip-point="true"
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  showMobileTooltip(x1, y1, tip);
-                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   showMobileTooltip(x1, y1, tip);

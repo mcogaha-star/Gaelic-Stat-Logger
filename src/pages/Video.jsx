@@ -143,12 +143,12 @@ export default function Video() {
   const { data: reviewReel = null } = useQuery({
     queryKey: ['review-reel', activeReelId],
     queryFn: () => db.entities.HighlightReel.get(activeReelId),
-    enabled: reviewMode && !!activeReelId && !!user,
+    enabled: reviewMode && !!activeReelId,
   });
   const { data: reviewClipsRaw = [] } = useQuery({
     queryKey: ['review-clips', activeReelId],
     queryFn: () => db.entities.HighlightReelClip.filter({ reel_id: activeReelId }),
-    enabled: reviewMode && !!activeReelId && !!user,
+    enabled: reviewMode && !!activeReelId,
   });
   const { data: reviewNotes = [] } = useQuery({
     queryKey: ['review-notes', matchId],
@@ -158,7 +158,7 @@ export default function Video() {
   const { data: reviewStats = [] } = useQuery({
     queryKey: ['review-stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
-    enabled: reviewMode && !!matchId && !!user,
+    enabled: reviewMode && !!matchId,
   });
   const reviewSelectionPayload = useMemo(() => {
     if (!reviewMode || !activeSelectionKey) return { clips: [], sourceLabel: 'Selection' };

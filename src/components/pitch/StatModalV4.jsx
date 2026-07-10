@@ -1465,6 +1465,53 @@ export default function StatModalV4({
     />
   );
 
+  const roleSelectOptions = (roleKey) => {
+    const restrict = getRestrictSideForRole(roleKey);
+    const sides = restrict === 'home' || restrict === 'away' ? [restrict] : ['home', 'away'];
+    const options = [{ value: NONE, label: 'None' }];
+    for (const side of sides) {
+      options.push({ value: side === 'home' ? TEAM_HOME : TEAM_AWAY, label: side === 'home' ? 'Home Team' : 'Away Team' });
+      for (const player of rosters[side] || []) {
+        options.push({
+          value: `player:${player.id}`,
+          label: `#${player.number ?? ''} ${player.name || ''}`.trim(),
+        });
+      }
+    }
+    return options;
+  };
+
+  const roleSelect = (roleKey) => {
+    const def = roleDefs?.[roleKey];
+    if (!def) return null;
+    return (
+      <div key={roleKey} className="space-y-1">
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">
+          {def.label}
+        </Label>
+        <Select
+          value={getRoleValue(roleKey) || NONE}
+          onOpenChange={(isOpen) => { if (isOpen) setActiveRole(roleKey); }}
+          onValueChange={(value) => {
+            setTouchedRoles((prev) => ({ ...(prev || {}), [roleKey]: true }));
+            assignRole(roleKey, value);
+          }}
+        >
+          <SelectTrigger className="h-10 text-sm">
+            <SelectValue placeholder={`Select ${def.label.toLowerCase()}...`} />
+          </SelectTrigger>
+          <SelectContent className="max-h-80">
+            {roleSelectOptions(roleKey).map((option) => (
+              <SelectItem key={`${roleKey}-${option.value}`} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  };
+
   // Always keep an "armed" role so the UI can highlight what the next click will fill.
   useEffect(() => {
     if (!open) return;
@@ -1903,11 +1950,11 @@ export default function StatModalV4({
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
-      <DialogContent className="!top-[8px] !translate-y-0 w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-2 sm:p-3">
+      <DialogContent className="live-stat-modal-content !top-[8px] !translate-y-0 w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-2 sm:p-3">
         {/* Only scroll if viewport is too small; otherwise stays fixed (no-scroll). */}
         <div className="flex-1 min-h-0 overflow-y-scroll pr-1" style={{ scrollbarGutter: 'stable' }}>
-          <div className="grid gap-3 items-stretch md:grid-cols-[240px_1fr_240px]">
-            <div className="order-2 md:order-1">
+          <div className="live-stat-modal-grid grid gap-3 items-stretch md:grid-cols-[240px_1fr_240px]">
+            <div className="live-stat-roster-panel order-2 md:order-1">
             <RosterPanel
               title="Home"
               side="home"
@@ -1961,6 +2008,14 @@ export default function StatModalV4({
                 />
               )}
             </>
+          )}
+
+          {roleOrder.length > 0 && (
+            <div className="live-stat-mobile-player-fields hidden rounded-lg border border-slate-200 bg-slate-50 p-2">
+              <div className="grid grid-cols-1 gap-2">
+                {roleOrder.map((roleKey) => roleSelect(roleKey))}
+              </div>
+            </div>
           )}
 
           {/* Forms */}
@@ -2142,7 +2197,7 @@ export default function StatModalV4({
               )}
             </div>
 
-            <div className="space-y-2">
+            <div className="live-stat-role-buttons space-y-2">
               {action === 'shot' && !isDrag && roleButton('player')}
               {action === 'shot' && !isDrag && ['short', 'post', 'saved', 'blocked'].includes(shotOutcome) && (
                 <Buttons label="Result" value={shotResult} onChange={setShotResult} options={[{ value: 'retained', label: 'Retained' }, { value: 'opposition', label: 'Opposition' }, { value: '45', label: '45' }, { value: 'wide', label: 'Wide' }]} />
@@ -2269,7 +2324,7 @@ export default function StatModalV4({
           )}
             </div>
 
-            <div className="order-3">
+            <div className="live-stat-roster-panel order-3">
             <RosterPanel
               title="Away"
               side="away"

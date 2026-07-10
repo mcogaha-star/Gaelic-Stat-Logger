@@ -367,7 +367,11 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             size="sm"
             variant="outline"
             className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
             onClick={(event) => {
+              event.preventDefault();
               event.stopPropagation();
               onOpenVideo();
             }}
@@ -381,6 +385,31 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
       </div>
     </>
   );
+}
+
+function MobilePlayerMapTooltip({ text, onClose, title = 'Event details' }) {
+  if (!text) return null;
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={onClose}>
+      <div
+        className="max-h-[70vh] w-full max-w-sm overflow-y-auto whitespace-pre-line rounded-2xl bg-white p-4 text-left text-sm leading-6 text-slate-800 shadow-2xl ring-1 ring-slate-200"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</div>
+          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function handlePlayerMapTap(event, isMobile, setTooltip, text) {
+  event.stopPropagation();
+  if (isMobile && text) setTooltip(text);
 }
 
 function formatComparisonMetricRawValue(metric, value) {
@@ -690,6 +719,7 @@ function PlayerShootingPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   const summary = useMemo(() => {
     const sourceShots = Array.isArray(shots) ? shots : [];
     const filteredShots = sourceShots.filter((stat) => {
@@ -943,9 +973,7 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
+                          onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
                           onDoubleClick={handleOpenVideo}
                         >
                           <rect
@@ -985,9 +1013,7 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
+                          onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
                           onDoubleClick={handleOpenVideo}
                         >
                           <rect
@@ -1029,9 +1055,7 @@ function PlayerShootingPanel({
                       <g
                         key={shot.id}
                         className="cursor-pointer"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                        }}
+                        onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
                         onDoubleClick={handleOpenVideo}
                       >
                         <circle
@@ -1069,6 +1093,7 @@ function PlayerShootingPanel({
               arrowText="Attacking ↑"
               onOpenVideo={summary.mapShots.length ? () => onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
         </CardContent>
       </Card>
@@ -1086,6 +1111,7 @@ function PlayerPassingPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   const summary = useMemo(() => {
     const sourcePasses = Array.isArray(passes) ? passes : [];
     let completedPasses = 0;
@@ -1262,9 +1288,7 @@ function PlayerPassingPanel({
                     <g
                       key={pass.id}
                       className="cursor-pointer"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                      }}
+                      onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, pass.tooltip)}
                       onDoubleClick={handleOpenVideo}
                     >
                       <line
@@ -1296,6 +1320,7 @@ function PlayerPassingPanel({
               title="Passes"
               onOpenVideo={summary.mapPasses.length ? () => onOpenVideoSelection?.(summary.mapPasses, { sourceLabel: 'Player Passes' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
           <div className="space-y-2 pt-1">
             <div className="text-sm font-medium uppercase tracking-wide text-slate-500">Pass Method Split</div>
@@ -1337,6 +1362,7 @@ function PlayerCarryingPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   const summary = useMemo(() => {
     const sourceCarries = Array.isArray(carries) ? carries : [];
     let completedCarries = 0;
@@ -1496,9 +1522,7 @@ function PlayerCarryingPanel({
                   <g
                     key={carry.id}
                     className="cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
+                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, carry.tooltip)}
                     onDoubleClick={handleOpenVideo}
                   >
                     <line
@@ -1555,6 +1579,7 @@ function PlayerCarryingPanel({
               title="Carries"
               onOpenVideo={summary.mapCarries.length ? () => onOpenVideoSelection?.(summary.mapCarries, { sourceLabel: 'Player Carries' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
         </CardContent>
       </Card>
@@ -1572,6 +1597,7 @@ function PlayerRestartPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   if (!row) return null;
 
   const metrics = [
@@ -1637,9 +1663,7 @@ function PlayerRestartPanel({
                   <g
                     key={item.id}
                     className="cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
+                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
                     onDoubleClick={handleOpenVideo}
                   >
                     <line
@@ -1674,6 +1698,7 @@ function PlayerRestartPanel({
               arrowSide={teamSide === 'away' ? 'right' : 'left'}
               onOpenVideo={safeKickoutItems.length ? () => onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
             {!safeKickoutItems.length ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-500">
                 No kickout involvements in the current filter.
@@ -1700,6 +1725,7 @@ function PlayerProgressionPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   if (!row) return null;
 
   const summary = useMemo(() => {
@@ -1844,9 +1870,7 @@ function PlayerProgressionPanel({
                   <g
                     key={reception.id}
                     className="cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
+                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, reception.tooltip)}
                     onDoubleClick={handleOpenVideo}
                   >
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
@@ -1862,6 +1886,7 @@ function PlayerProgressionPanel({
               title="Receptions"
               onOpenVideo={summary.mapReceptions.length ? () => onOpenVideoSelection?.(summary.mapReceptions, { sourceLabel: 'Player Receptions' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
         </CardContent>
       </Card>
@@ -1879,6 +1904,7 @@ function PlayerDefensePanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   if (!row) return null;
 
   const summary = useMemo(() => {
@@ -1983,9 +2009,7 @@ function PlayerDefensePanel({
                   <g
                     key={action.id}
                     className="cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
+                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, action.tooltip)}
                     onDoubleClick={handleOpenVideo}
                   >
                     {action.shape === 'cross' ? (
@@ -2012,6 +2036,7 @@ function PlayerDefensePanel({
               title="Defensive Actions"
               onOpenVideo={summary.mapActions.length ? () => onOpenVideoSelection?.(summary.mapActions, { sourceLabel: 'Player Defensive Actions' }) : null}
             />
+            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
         </CardContent>
       </Card>
@@ -2150,7 +2175,17 @@ function PlayerDefendingAllowedPanel({
                   </Button>
                 ) : null}
                 {typeof onOpenMatchupEditor === 'function' ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => onOpenMatchupEditor(row.key)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onPointerDown={(event) => { event.stopPropagation(); }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onOpenMatchupEditor(row.key);
+                    }}
+                  >
                     {isMobile ? 'Manage' : 'Manage Matchups'}
                   </Button>
                 ) : null}
@@ -2420,6 +2455,7 @@ function PlayerInvolvementHeatmap({ points = [], teamSide = 'home', match = null
 
 function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title = 'Kickouts', arrowText = 'Attacking ->', arrowSide = 'left', onOpenVideoSelection = null }) {
   const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   const safeItems = Array.isArray(items) ? items : [];
 
   return (
@@ -2449,9 +2485,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                 <g
                   key={item.id}
                   className={item.raw ? 'cursor-pointer' : undefined}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
+                  onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
                   onDoubleClick={(event) => {
                     if (!item.raw) return;
                     event.stopPropagation();
@@ -2479,9 +2513,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
               <g
                 key={item.id}
                 className={item.raw ? 'cursor-pointer' : undefined}
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
+                onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
                 onDoubleClick={(event) => {
                   if (!item.raw) return;
                   event.stopPropagation();
@@ -2508,6 +2540,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
           arrowSide={arrowSide}
           onOpenVideo={safeItems.length ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title }) : null}
         />
+        <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
       </div>
     </div>
   );
@@ -2629,6 +2662,8 @@ function GoalkeeperPressPanel({ card, cardStyle = undefined }) {
 }
 
 function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpenVideoSelection = null, cardStyle = undefined }) {
+  const isMobile = useIsMobile();
+  const [mobileTooltip, setMobileTooltip] = useState('');
   const safeShots = Array.isArray(shots) ? shots : [];
   const zoneDepth = 45;
   const visibleDepth = zoneDepth * 0.75;
@@ -2667,9 +2702,7 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                   <g
                     key={shot.id}
                     className="cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
+                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
@@ -2702,6 +2735,7 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
             arrowText="Attacking ^"
             onOpenVideo={safeShots.length ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal' }) : null}
           />
+          <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
         </div>
       </CardContent>
     </Card>
@@ -4804,6 +4838,7 @@ function PlayersAnalyticsTabContent({
                   column={{ key: column.key, label: column.label }}
                   sortState={lbSort}
                   onToggle={toggleSort}
+                  hideSortIcon={options.hideSortIcons}
                   className={[
                     options.compactHeaders ? 'px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 whitespace-normal leading-tight' : '',
                     column.numeric ? 'text-right' : '',
@@ -5246,7 +5281,7 @@ function PlayersAnalyticsTabContent({
                     </div>
                   </div>
 
-                  {renderSimpleTable(sortedLeaderboard, comparisonTableColumns, { compactHeaders: true, plainHeaders: playerBucket === 'defending' })}
+                  {renderSimpleTable(sortedLeaderboard, comparisonTableColumns, { compactHeaders: true, hideSortIcons: playerBucket === 'defending' })}
                 </CardContent>
               </Card>
 

@@ -358,4 +358,41 @@ button:focus-visible {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+
+  @media (max-width: 900px) and (orientation: portrait) {
+    .live-stat-modal-content {
+      width: calc(100vw - 8px) !important;
+      max-width: calc(100vw - 8px) !important;
+      max-height: calc(100dvh - 12px) !important;
+    }
+
+    .live-stat-modal-grid {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .live-stat-roster-panel,
+    .live-stat-role-buttons {
+      display: none !important;
+    }
+
+    .live-stat-mobile-player-fields {
+      display: block !important;
+    }
+  }
+
+  @media (max-width: 900px) and (orientation: landscape) {
+    .live-stat-modal-content {
+      width: calc(100vw - 8px) !important;
+      max-width: calc(100vw - 8px) !important;
+      max-height: calc(100dvh - 12px) !important;
+    }
+
+    .live-stat-modal-grid {
+      grid-template-columns: minmax(140px, 0.75fr) minmax(360px, 1.7fr) minmax(140px, 0.75fr) !important;
+    }
+
+    .live-stat-roster-panel {
+      min-width: 0;
+    }
+  }
 }
