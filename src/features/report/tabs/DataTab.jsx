@@ -2920,16 +2920,15 @@ function DataTab({
                 </div>
               </div>
               <div className="flex min-h-[32px] w-full flex-wrap items-center justify-end gap-2 lg:min-w-[520px] lg:w-auto">
-                <div className="flex h-8 min-w-[120px] items-center justify-end gap-1.5 text-xs text-slate-600">
-                  {currentSelectedCount ? (
-                    <>
-                      <span>{currentSelectedCount} selected</span>
-                      <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={clearCurrentSelection}>
-                        Clear
-                      </Button>
-                    </>
-                  ) : null}
-                </div>
+                {currentSelectedCount ? (
+                  <div className="flex h-8 items-center justify-end gap-1.5 text-xs text-slate-600">
+                    <span>{currentSelectedCount} selected</span>
+                    <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={clearCurrentSelection}>
+                      Clear
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="flex min-w-0 flex-row items-center justify-end gap-2">
                 {isMobile ? (
                   <Select value={videoViewMode} onValueChange={setVideoViewMode}>
                     <SelectTrigger className="h-8 w-[118px] rounded-xl text-xs">
@@ -2959,6 +2958,7 @@ function DataTab({
                     {(videoBrowseMode === 'play' ? videoPlayExpanded : videoPossessionExpanded) ? 'Collapse' : 'Expand'}
                   </Button>
                 ) : <div className="h-8 w-[92px]" />}
+                </div>
               </div>
             </div>
 

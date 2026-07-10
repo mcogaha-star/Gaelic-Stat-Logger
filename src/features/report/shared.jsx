@@ -2537,7 +2537,22 @@ function PitchViz({
             );
           })}
         </svg>
-        {mobileTooltip ? (
+        {mobileTooltip && isMobile ? (
+          <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={() => setMobileTooltip(null)}>
+            <div
+              className="max-h-[70vh] w-full max-w-sm overflow-y-auto whitespace-pre-line rounded-2xl bg-white p-4 text-left text-sm leading-6 text-slate-800 shadow-2xl ring-1 ring-slate-200"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Event details</div>
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileTooltip(null)}>
+                  Close
+                </Button>
+              </div>
+              {mobileTooltip.text}
+            </div>
+          </div>
+        ) : mobileTooltip ? (
           <div
             className="pointer-events-none absolute z-20 max-w-[72%] -translate-x-1/2 -translate-y-full whitespace-pre-line rounded-xl bg-white/95 px-3 py-2 text-left text-[11px] leading-4 text-slate-800 shadow-lg ring-1 ring-slate-200"
             style={{ left: `${mobileTooltip.x}%`, top: `${mobileTooltip.y}%` }}

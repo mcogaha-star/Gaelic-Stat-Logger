@@ -2149,7 +2149,7 @@ function PlayerDefendingAllowedPanel({
                     Expand
                   </Button>
                 ) : null}
-                {!readOnly && typeof onOpenMatchupEditor === 'function' ? (
+                {typeof onOpenMatchupEditor === 'function' ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => onOpenMatchupEditor(row.key)}>
                     {isMobile ? 'Manage' : 'Manage Matchups'}
                   </Button>

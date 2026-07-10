@@ -1857,6 +1857,7 @@ function DefenseTab({
                       <TableCell className="font-medium">{row.player || '—'}</TableCell>
                       <TableCell>{row.teamLabel || '—'}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toWon}</TableCell>
+                      <TableCell className="text-center tabular-nums">{row.toLost}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toForced}</TableCell>
                       <TableCell className="text-center tabular-nums">{row.toRecovered}</TableCell>
                       {!isLiveMode ? <TableCell className="text-center tabular-nums">{row.defensiveActions}</TableCell> : null}
