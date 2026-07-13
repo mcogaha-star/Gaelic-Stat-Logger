@@ -388,7 +388,19 @@ button:focus-visible {
     }
 
     .live-stat-modal-grid {
-      grid-template-columns: minmax(140px, 0.75fr) minmax(360px, 1.7fr) minmax(140px, 0.75fr) !important;
+      grid-template-columns: minmax(180px, 0.9fr) minmax(320px, 1.45fr) minmax(180px, 0.9fr) !important;
+    }
+
+    .live-stat-home-roster {
+      order: 1 !important;
+    }
+
+    .live-stat-main-panel {
+      order: 2 !important;
+    }
+
+    .live-stat-away-roster {
+      order: 3 !important;
     }
 
     .live-stat-roster-panel {

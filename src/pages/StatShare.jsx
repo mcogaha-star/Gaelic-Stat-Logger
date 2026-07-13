@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { Component, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowLeft } from 'lucide-react';
@@ -22,12 +22,59 @@ function parsePayload(snapshot) {
   }
 }
 
+function snapshotMatchesCode(snapshot, code) {
+  if (!snapshot || !code) return false;
+  return String(snapshot.share_code || '').trim().toUpperCase() === String(code || '').trim().toUpperCase()
+    && String(snapshot.share_type || '').trim() === 'stat_view';
+}
+
+class StatShareReportBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error) {
+    console.error('Stat share report crashed', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+          <Card className="w-full max-w-lg">
+            <CardContent className="p-6 text-center space-y-4">
+              <div className="w-12 h-12 rounded-xl bg-slate-900 mx-auto flex items-center justify-center">
+                <Activity className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-slate-900 font-semibold">This shared report could not be rendered</div>
+              <div className="text-sm text-slate-600">
+                A saved browser snapshot may be stale. Reload the link or open it from the shared code again.
+              </div>
+              <Button type="button" onClick={() => window.location.reload()}>
+                Reload report
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function StatShare() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
-  const initialSnapshot = location?.state?.sharedSnapshot || null;
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
+  const initialSnapshot = snapshotMatchesCode(location?.state?.sharedSnapshot, code)
+    ? location.state.sharedSnapshot
+    : null;
   const demoMode = params.get('demo') === '1';
   const backUrl = isAuthenticated ? createPageUrl('Home') : createPageUrl('Login');
 
@@ -108,5 +155,9 @@ export default function StatShare() {
     );
   }
 
-  return <MatchReport sharedPayload={payload} statShareCode={demoMode ? 'DEMO' : code} readOnly />;
+  return (
+    <StatShareReportBoundary key={demoMode ? 'DEMO' : code}>
+      <MatchReport sharedPayload={payload} statShareCode={demoMode ? 'DEMO' : code} readOnly />
+    </StatShareReportBoundary>
+  );
 }

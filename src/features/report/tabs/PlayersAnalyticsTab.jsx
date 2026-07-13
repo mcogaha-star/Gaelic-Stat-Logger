@@ -370,6 +370,11 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             onPointerDown={(event) => {
               event.stopPropagation();
             }}
+            onTouchEnd={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenVideo();
+            }}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -410,6 +415,24 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details' }) {
 function handlePlayerMapTap(event, isMobile, setTooltip, text) {
   event.stopPropagation();
   if (isMobile && text) setTooltip(text);
+}
+
+let lastPlayerMapMobileTap = { key: '', time: 0 };
+
+function handlePlayerMapPointerUp(event, isMobile, setTooltip, text, onDoubleTap, key = '') {
+  if (!isMobile) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const now = Date.now();
+  const tapKey = String(key || event.currentTarget?.dataset?.tapKey || '');
+  const isDouble = tapKey && lastPlayerMapMobileTap.key === tapKey && now - lastPlayerMapMobileTap.time < 360;
+  lastPlayerMapMobileTap = { key: tapKey, time: now };
+  if (isDouble && typeof onDoubleTap === 'function') {
+    setTooltip('');
+    onDoubleTap(event);
+    return;
+  }
+  if (text) setTooltip(text);
 }
 
 function formatComparisonMetricRawValue(metric, value) {
@@ -972,8 +995,12 @@ function PlayerShootingPanel({
                       return (
                         <g
                           key={shot.id}
+                          data-tap-key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                          onClick={(event) => {
+                            if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
+                          }}
                           onDoubleClick={handleOpenVideo}
                         >
                           <rect
@@ -1012,8 +1039,12 @@ function PlayerShootingPanel({
                       return (
                         <g
                           key={shot.id}
+                          data-tap-key={shot.id}
                           className="cursor-pointer"
-                          onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                          onClick={(event) => {
+                            if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
+                          }}
                           onDoubleClick={handleOpenVideo}
                         >
                           <rect
@@ -1054,8 +1085,12 @@ function PlayerShootingPanel({
                     return (
                       <g
                         key={shot.id}
+                        data-tap-key={shot.id}
                         className="cursor-pointer"
-                        onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
+                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                        onClick={(event) => {
+                          if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
+                        }}
                         onDoubleClick={handleOpenVideo}
                       >
                         <circle
@@ -1287,8 +1322,12 @@ function PlayerPassingPanel({
                   return (
                     <g
                       key={pass.id}
+                      data-tap-key={pass.id}
                       className="cursor-pointer"
-                      onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, pass.tooltip)}
+                      onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, pass.tooltip, handleOpenVideo, pass.id)}
+                      onClick={(event) => {
+                        if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, pass.tooltip);
+                      }}
                       onDoubleClick={handleOpenVideo}
                     >
                       <line
@@ -1521,8 +1560,12 @@ function PlayerCarryingPanel({
                 return (
                   <g
                     key={carry.id}
+                    data-tap-key={carry.id}
                     className="cursor-pointer"
-                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, carry.tooltip)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, carry.tooltip, handleOpenVideo, carry.id)}
+                    onClick={(event) => {
+                      if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, carry.tooltip);
+                    }}
                     onDoubleClick={handleOpenVideo}
                   >
                     <line
@@ -1662,8 +1705,12 @@ function PlayerRestartPanel({
                 return (
                   <g
                     key={item.id}
+                    data-tap-key={item.id}
                     className="cursor-pointer"
-                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, handleOpenVideo, item.id)}
+                    onClick={(event) => {
+                      if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
+                    }}
                     onDoubleClick={handleOpenVideo}
                   >
                     <line
@@ -1869,8 +1916,12 @@ function PlayerProgressionPanel({
                 return (
                   <g
                     key={reception.id}
+                    data-tap-key={reception.id}
                     className="cursor-pointer"
-                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, reception.tooltip)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, reception.tooltip, handleOpenVideo, reception.id)}
+                    onClick={(event) => {
+                      if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, reception.tooltip);
+                    }}
                     onDoubleClick={handleOpenVideo}
                   >
                     <circle cx={reception.point.x} cy={reception.point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
@@ -2008,8 +2059,12 @@ function PlayerDefensePanel({
                 return (
                   <g
                     key={action.id}
+                    data-tap-key={action.id}
                     className="cursor-pointer"
-                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, action.tooltip)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, action.tooltip, handleOpenVideo, action.id)}
+                    onClick={(event) => {
+                      if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, action.tooltip);
+                    }}
                     onDoubleClick={handleOpenVideo}
                   >
                     {action.shape === 'cross' ? (
@@ -2058,8 +2113,8 @@ function PlayerDefendingAllowedPanel({
   cardStyle = undefined,
 }) {
   const isMobile = useIsMobile();
-  if (!row) return null;
   const [stintsOpen, setStintsOpen] = useState(false);
+  if (!row) return null;
 
   const matchupMinutesLabel = formatMetricValue(row.matchupMinutes, { decimals: 1, suffix: ' mins' });
   const metrics = [
@@ -2180,6 +2235,11 @@ function PlayerDefendingAllowedPanel({
                     variant="outline"
                     size="sm"
                     onPointerDown={(event) => { event.stopPropagation(); }}
+                    onTouchEnd={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onOpenMatchupEditor(row.key);
+                    }}
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -2214,7 +2274,7 @@ function PlayerDefendingAllowedPanel({
         </Card>
       </div>
     </div>
-    <Dialog open={stintsOpen} onOpenChange={setStintsOpen} modal={false}>
+    <Dialog open={stintsOpen} onOpenChange={setStintsOpen}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Matchup Stints</DialogTitle>
@@ -2484,8 +2544,16 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
               return (
                 <g
                   key={item.id}
+                  data-tap-key={item.id}
                   className={item.raw ? 'cursor-pointer' : undefined}
-                  onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
+                  onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, (openEvent) => {
+                    if (!item.raw) return;
+                    openEvent.stopPropagation();
+                    onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
+                  }, item.id)}
+                  onClick={(event) => {
+                    if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
+                  }}
                   onDoubleClick={(event) => {
                     if (!item.raw) return;
                     event.stopPropagation();
@@ -2512,8 +2580,16 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
             return (
               <g
                 key={item.id}
+                data-tap-key={item.id}
                 className={item.raw ? 'cursor-pointer' : undefined}
-                onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip)}
+                onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, (openEvent) => {
+                  if (!item.raw) return;
+                  openEvent.stopPropagation();
+                  onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
+                }, item.id)}
+                onClick={(event) => {
+                  if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
+                }}
                 onDoubleClick={(event) => {
                   if (!item.raw) return;
                   event.stopPropagation();
@@ -2701,8 +2777,15 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                 return (
                   <g
                     key={shot.id}
+                    data-tap-key={shot.id}
                     className="cursor-pointer"
-                    onClick={(event) => handlePlayerMapTap(event, isMobile, setMobileTooltip, tip)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, (openEvent) => {
+                      openEvent.stopPropagation();
+                      onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
+                    }, shot.id)}
+                    onClick={(event) => {
+                      if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
+                    }}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });

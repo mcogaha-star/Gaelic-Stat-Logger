@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
@@ -1147,7 +1147,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     resetAllFilters,
   } = reportState;
 
-  const [mobileTabsOpen, setMobileTabsOpen] = useState(false);
   const [mobileReviewOpen, setMobileReviewOpen] = useState(false);
   const [mobileReviewUrl, setMobileReviewUrl] = useState('');
   const mobileReviewMatchIdRef = useRef('');
@@ -2445,16 +2444,21 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 </TabsList>
               </div>
               <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'flex-none' : 'min-w-0 flex-1'} xl:hidden`}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 rounded-full border-slate-200 bg-white px-3 shadow-sm"
-                  aria-label="Open report tabs"
-                  onClick={() => setMobileTabsOpen(true)}
-                >
-                  <Menu className="h-4 w-4" />
-                </Button>
+                <label className="relative block h-9 min-w-[112px]">
+                  <span className="sr-only">Report tab</span>
+                  <Menu className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-700" />
+                  <select
+                    value={activeTab}
+                    onChange={(event) => setActiveTab(event.target.value)}
+                    className="h-9 w-full appearance-none rounded-full border border-slate-200 bg-white py-1 pl-9 pr-7 text-sm font-semibold text-slate-900 shadow-sm outline-none transition-colors focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                    aria-label="Report tab"
+                  >
+                    {visibleReportTabOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                </label>
               </div>
               <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'ml-0 flex-1 justify-start' : 'ml-auto justify-end'} flex max-w-full flex-wrap items-center gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-full sm:w-auto'}`}>
                 {activeTab === 'summary' ? (
@@ -2757,33 +2761,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             </div>
           </div>
         </div>
-
-        <Sheet open={mobileTabsOpen} onOpenChange={setMobileTabsOpen} modal={false}>
-          <SheetContent side="left" className="w-[280px] border-slate-200 bg-white px-4 py-5 sm:max-w-[280px]">
-            <SheetHeader className="mb-4 pr-8">
-              <SheetTitle>Report Tabs</SheetTitle>
-            </SheetHeader>
-            <div className="space-y-2">
-              {visibleReportTabOptions.map((option) => {
-                const isActive = option.value === activeTab;
-                return (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    variant={isActive ? 'default' : 'ghost'}
-                    className="w-full justify-start rounded-xl px-3 text-sm"
-                    onClick={() => {
-                      setActiveTab(option.value);
-                      setMobileTabsOpen(false);
-                    }}
-                  >
-                    {option.label}
-                  </Button>
-                );
-              })}
-            </div>
-          </SheetContent>
-        </Sheet>
 
         <Sheet open={mobileReviewOpen} onOpenChange={setMobileReviewOpen} modal>
           <SheetContent

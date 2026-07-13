@@ -1954,7 +1954,7 @@ export default function StatModalV4({
         {/* Only scroll if viewport is too small; otherwise stays fixed (no-scroll). */}
         <div className="flex-1 min-h-0 overflow-y-scroll pr-1" style={{ scrollbarGutter: 'stable' }}>
           <div className="live-stat-modal-grid grid gap-3 items-stretch md:grid-cols-[240px_1fr_240px]">
-            <div className="live-stat-roster-panel order-2 md:order-1">
+            <div className="live-stat-roster-panel live-stat-home-roster order-2 md:order-1">
             <RosterPanel
               title="Home"
               side="home"
@@ -1977,7 +1977,7 @@ export default function StatModalV4({
             />
             </div>
 
-            <div className="order-1 space-y-2 md:order-2">
+            <div className="live-stat-main-panel order-1 space-y-2 md:order-2">
           {/* Action selector (locked in edit mode) */}
           {initialStat?.id ? (
             <div className="space-y-1">
@@ -2324,7 +2324,7 @@ export default function StatModalV4({
           )}
             </div>
 
-            <div className="live-stat-roster-panel order-3">
+            <div className="live-stat-roster-panel live-stat-away-roster order-3">
             <RosterPanel
               title="Away"
               side="away"

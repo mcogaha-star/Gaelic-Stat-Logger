@@ -3586,6 +3586,8 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
   const list = Array.isArray(shots) ? shots : [];
   const isMobile = useIsMobile();
   const [legendOpen, setLegendOpen] = useState(!isMobile);
+  const [mobileShotTooltip, setMobileShotTooltip] = useState(null);
+  const lastMobileShotTapRef = useRef({ key: '', time: 0 });
 
   useEffect(() => {
     setLegendOpen(!isMobile);
@@ -3617,6 +3619,30 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
     ['misses', 'Misses Only'],
     ['blocked_saved', 'Blocked/Saved'],
   ];
+
+  const openVideoForShot = (shot, event) => {
+    event?.stopPropagation?.();
+    const timeS = Number(shot?.raw?.time_s ?? shot?.time_s);
+    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
+  };
+
+  const handleMobileShotPointerUp = (event, shot, tip, key) => {
+    if (!isMobile) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const now = Date.now();
+    const tapKey = String(key || shot?.id || '');
+    const isDoubleTap = tapKey
+      && lastMobileShotTapRef.current.key === tapKey
+      && now - lastMobileShotTapRef.current.time < 360;
+    lastMobileShotTapRef.current = { key: tapKey, time: now };
+    if (isDoubleTap) {
+      setMobileShotTooltip(null);
+      openVideoForShot(shot, event);
+      return;
+    }
+    setMobileShotTooltip(tip);
+  };
 
   const renderContent = (isFullscreen = false) => (
     <div className="space-y-3 w-full">
@@ -3709,14 +3735,12 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 ].filter(Boolean).join('\n');
 
                 if (shape === 'goal') {
-                  const handleOpenVideo = (event) => {
-                    event.stopPropagation();
-                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                  };
+                  const handleOpenVideo = (event) => openVideoForShot(s, event);
                   return (
                     <g
                       key={s.id}
+                      data-mobile-shot-point="true"
+                      onPointerUp={(event) => handleMobileShotPointerUp(event, s, tip, s.id)}
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={handleOpenVideo}
                     >
@@ -3762,14 +3786,12 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                   );
                 }
                 if (shape === '2_point') {
-                  const handleOpenVideo = (event) => {
-                    event.stopPropagation();
-                    const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                    if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                  };
+                  const handleOpenVideo = (event) => openVideoForShot(s, event);
                   return (
                     <g
                       key={s.id}
+                      data-mobile-shot-point="true"
+                      onPointerUp={(event) => handleMobileShotPointerUp(event, s, tip, s.id)}
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={handleOpenVideo}
                     >
@@ -3818,14 +3840,12 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                     </g>
                   );
                 }
-                const handleOpenVideo = (event) => {
-                  event.stopPropagation();
-                  const timeS = Number(s?.raw?.time_s ?? s?.time_s);
-                  if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
-                };
+                const handleOpenVideo = (event) => openVideoForShot(s, event);
                 return (
                   <g
                     key={s.id}
+                    data-mobile-shot-point="true"
+                    onPointerUp={(event) => handleMobileShotPointerUp(event, s, tip, s.id)}
                     onClick={(e) => e.stopPropagation()}
                     onDoubleClick={handleOpenVideo}
                   >
@@ -3867,6 +3887,22 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 );
               })}
             </svg>
+            {mobileShotTooltip && isMobile ? (
+              <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={() => setMobileShotTooltip(null)}>
+                <div
+                  className="max-h-[70vh] w-full max-w-sm overflow-y-auto whitespace-pre-line rounded-2xl bg-white p-4 text-left text-sm leading-6 text-slate-800 shadow-2xl ring-1 ring-slate-200"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Shot details</div>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileShotTooltip(null)}>
+                      Close
+                    </Button>
+                  </div>
+                  {mobileShotTooltip}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {!isFullscreen && (!isMobile || legendOpen) ? (
