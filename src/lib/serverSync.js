@@ -680,7 +680,7 @@ export async function updateServerStat(statId, patch) {
   return { ok: true };
 }
 
-export async function fetchServerMatches({ limit = 100 } = {}) {
+export async function fetchServerMatches({ limit = 1000 } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', matches: [] };
 
@@ -688,6 +688,7 @@ export async function fetchServerMatches({ limit = 100 } = {}) {
     .from('matches')
     .select('*')
     .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
     .limit(limit);
 
   if (error) return { ok: false, reason: error.message, matches: [] };

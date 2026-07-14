@@ -2225,7 +2225,7 @@ function PlayerDefendingAllowedPanel({
                   {matchupMinutesLabel}
                 </div>
                 {safeStints.length > 2 ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setStintsOpen(true)}>
+                  <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => setStintsOpen(true)}>
                     Expand
                   </Button>
                 ) : null}
@@ -2234,6 +2234,7 @@ function PlayerDefendingAllowedPanel({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="h-8 px-2.5 text-xs"
                     onPointerDown={(event) => { event.stopPropagation(); }}
                     onTouchEnd={(event) => {
                       event.preventDefault();
@@ -4960,7 +4961,7 @@ function PlayersAnalyticsTabContent({
     : (currentColumns[playerBucket] || currentColumns.scoring);
 
   const renderToolbarPlayerSelect = (value, onChange) => (
-    <div className="order-2 flex min-w-0 flex-[1_1_9rem] items-center sm:order-none sm:w-[165px] sm:flex-none lg:w-[185px]">
+    <div className="order-5 flex min-w-0 flex-[1_1_9rem] items-center sm:order-none sm:w-[165px] sm:flex-none lg:w-[185px]">
       <select
         value={String(value || 'all')}
         onChange={(event) => onChange(event.target.value)}
@@ -4990,7 +4991,7 @@ function PlayersAnalyticsTabContent({
         </div>
       ) : null}
       {availablePlayerCardModes.length > 1 ? (
-      <div className="order-5 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
+      <div className="order-2 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
         {availablePlayerCardModes.map(([value, label]) => (
           <Button
             key={value}

@@ -305,12 +305,52 @@ export async function fetchSharedMatchSnapshotByCode(shareCode, { requireAuth = 
   return { ok: true, snapshot: data };
 }
 
-export async function importSharedMatchSnapshot({ db, snapshotRow }) {
+async function findExistingImportedSnapshotMatch(db, snapshotRow, importMode = 'game_copy') {
+  if (!db?.entities?.Match || !snapshotRow?.id) return null;
+  const snapshotId = snapshotRow.id;
+  const shareCode = String(snapshotRow?.share_code || '').trim().toUpperCase();
+  const candidates = [];
+  try {
+    const bySnapshot = await db.entities.Match.filter({ imported_from_snapshot_id: snapshotId });
+    candidates.push(...(Array.isArray(bySnapshot) ? bySnapshot : []));
+  } catch {
+    // Best-effort duplicate guard only.
+  }
+  if (shareCode) {
+    try {
+      const byCode = await db.entities.Match.filter({ shared_from_code: shareCode });
+      candidates.push(...(Array.isArray(byCode) ? byCode : []));
+    } catch {
+      // Best-effort duplicate guard only.
+    }
+  }
+  const wantedStatView = importMode === 'stat_view';
+  return candidates.find((match) => {
+    if (!match?.id) return false;
+    const isStatView = match?.is_stat_view_copy === true || match?.is_stat_view_copy === 'true' || match?.read_only_shared_view === true || match?.read_only_shared_view === 'true';
+    return wantedStatView ? isStatView : !isStatView;
+  }) || null;
+}
+
+export async function importSharedMatchSnapshot({ db, snapshotRow, importMode = 'game_copy' }) {
   if (!isSupabaseConfigured || !supabase) return { ok: false, reason: 'Game share import is not available on this deployment.' };
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated' };
   if (!db?.entities || !snapshotRow?.payload) return { ok: false, reason: 'invalid_snapshot' };
-  if (snapshotRow?.share_type !== 'game_copy') return { ok: false, reason: 'invalid_share_type' };
+  const normalizedImportMode = importMode === 'stat_view' ? 'stat_view' : 'game_copy';
+  if (normalizedImportMode === 'game_copy' && snapshotRow?.share_type !== 'game_copy') return { ok: false, reason: 'invalid_share_type' };
+  if (normalizedImportMode === 'stat_view' && snapshotRow?.share_type !== 'stat_view') return { ok: false, reason: 'invalid_share_type' };
+
+  const existingImport = await findExistingImportedSnapshotMatch(db, snapshotRow, normalizedImportMode);
+  if (existingImport?.id) {
+    return {
+      ok: true,
+      alreadyImported: true,
+      matchId: existingImport.id,
+      publicMatchId: existingImport.public_match_id || null,
+      shareCode: snapshotRow?.share_code || null,
+    };
+  }
 
   const payload = parseJsonMaybe(snapshotRow.payload, snapshotRow.payload);
   const sourceMatch = payload?.match || {};
@@ -389,6 +429,8 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
       ? Number(sourceMatch.match_length_minutes)
       : deriveMatchLengthMinutes(sourceMatch),
     is_shared_copy: true,
+    is_stat_view_copy: normalizedImportMode === 'stat_view',
+    read_only_shared_view: normalizedImportMode === 'stat_view',
     shared_from_code: snapshotRow?.share_code || null,
     imported_from_snapshot_id: snapshotRow?.id || null,
     home_starters: remapIdList(sourceMatch.home_starters, playerIdMap),
@@ -526,23 +568,25 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
     }
   }
 
-  const sharedAgain = await createSharedMatchSnapshot({
-    match: { ...createdMatch, server_match_id: matchServer?.ok ? matchServer.id : null },
-    homeTeam: createdHomeTeam?.id ? await db.entities.Team.get(createdHomeTeam.id) : null,
-    awayTeam: createdAwayTeam?.id ? await db.entities.Team.get(createdAwayTeam.id) : null,
-    players: await db.entities.Player.filter({ team_id: createdHomeTeam?.id }).then(async (home) => {
-      const away = createdAwayTeam?.id ? await db.entities.Player.filter({ team_id: createdAwayTeam.id }) : [];
-      return [...home, ...away];
-    }),
-    stats: await db.entities.StatEntry.filter({ match_id: createdMatch.id }),
-    matchupStints: await db.entities.MatchupStint.filter({ match_id: createdMatch.id }),
-    highlightReels: await db.entities.HighlightReel.filter({ match_id: createdMatch.id }),
-    highlightReelClips: await db.entities.HighlightReelClip.filter({ match_id: createdMatch.id }),
-    publicVideoNotes: await db.entities.VideoNote.filter({ match_id: createdMatch.id, visibility: 'public' }),
-    sourceSnapshotId: snapshotRow?.id || null,
-    sharedFromCode: snapshotRow?.share_code || null,
-    shareType: 'game_copy',
-  });
+  const sharedAgain = normalizedImportMode === 'game_copy'
+    ? await createSharedMatchSnapshot({
+      match: { ...createdMatch, server_match_id: matchServer?.ok ? matchServer.id : null },
+      homeTeam: createdHomeTeam?.id ? await db.entities.Team.get(createdHomeTeam.id) : null,
+      awayTeam: createdAwayTeam?.id ? await db.entities.Team.get(createdAwayTeam.id) : null,
+      players: await db.entities.Player.filter({ team_id: createdHomeTeam?.id }).then(async (home) => {
+        const away = createdAwayTeam?.id ? await db.entities.Player.filter({ team_id: createdAwayTeam.id }) : [];
+        return [...home, ...away];
+      }),
+      stats: await db.entities.StatEntry.filter({ match_id: createdMatch.id }),
+      matchupStints: await db.entities.MatchupStint.filter({ match_id: createdMatch.id }),
+      highlightReels: await db.entities.HighlightReel.filter({ match_id: createdMatch.id }),
+      highlightReelClips: await db.entities.HighlightReelClip.filter({ match_id: createdMatch.id }),
+      publicVideoNotes: await db.entities.VideoNote.filter({ match_id: createdMatch.id, visibility: 'public' }),
+      sourceSnapshotId: snapshotRow?.id || null,
+      sharedFromCode: snapshotRow?.share_code || null,
+      shareType: 'game_copy',
+    })
+    : null;
 
   if (sharedAgain?.ok) {
     await db.entities.Match.update(createdMatch.id, {
@@ -555,6 +599,6 @@ export async function importSharedMatchSnapshot({ db, snapshotRow }) {
     ok: true,
     matchId: createdMatch.id,
     publicMatchId: createdMatch.public_match_id,
-    shareCode: sharedAgain?.shareCode || null,
+    shareCode: sharedAgain?.shareCode || snapshotRow?.share_code || null,
   };
 }

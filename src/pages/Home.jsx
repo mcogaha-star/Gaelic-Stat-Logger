@@ -553,17 +553,20 @@ export default function Home() {
                 return { flow: 'game_copy', ...imported };
             }
             if (shareType === 'stat_view') {
-                return { ok: true, flow: 'stat_view', shareCode, snapshot: fetched.snapshot };
+                const imported = await importSharedMatchSnapshot({ db, snapshotRow: fetched.snapshot, importMode: 'stat_view' });
+                return { flow: 'stat_view', ...imported };
             }
             throw new Error('Unsupported share code type');
         },
         onSuccess: (result) => {
             setImportShareCode('');
             if (result?.flow === 'stat_view') {
-                toast.success('Opening shared stats');
-                navigate(createPageUrl(`StatShare?code=${encodeURIComponent(result.shareCode || '')}`), {
-                    state: result?.snapshot ? { sharedSnapshot: result.snapshot } : undefined,
-                });
+                queryClient.invalidateQueries({ queryKey: ['matches'] });
+                queryClient.invalidateQueries({ queryKey: ['teams'] });
+                queryClient.invalidateQueries({ queryKey: ['players'] });
+                queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+                toast.success(result?.alreadyImported ? 'Opening saved shared stats' : 'Shared stats saved to your account');
+                navigate(createPageUrl(`MatchReport?id=${encodeURIComponent(result.matchId || '')}`));
                 return;
             }
             queryClient.invalidateQueries({ queryKey: ['matches'] });

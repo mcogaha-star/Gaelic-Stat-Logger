@@ -278,13 +278,14 @@ function getToneClasses(tone, selected) {
   return tones[tone] || '';
 }
 
-function Buttons({ label, value, onChange, options }) {
-  const gridCols =
+function Buttons({ label, value, onChange, options, gridClassName = '', buttonClassName = '' }) {
+  const gridCols = gridClassName || (
     options.length === 3
       ? 'grid-cols-3'
       : options.length >= 4
         ? 'grid-cols-2 sm:grid-cols-4'
-        : 'grid-cols-2';
+        : 'grid-cols-2'
+  );
   return (
     <div className="space-y-1">
       <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">{label}</Label>
@@ -300,6 +301,8 @@ function Buttons({ label, value, onChange, options }) {
               size="sm"
               className={[
                 'h-8 px-2 text-xs whitespace-nowrap',
+                buttonClassName,
+                opt.className || '',
                 toneClasses,
                 opt.tone && selected ? 'ring-2 ring-slate-900/20' : '',
               ].filter(Boolean).join(' ')}
@@ -2079,12 +2082,13 @@ export default function StatModalV4({
                           });
                         }
                       }}
+                    gridClassName="grid-cols-6"
                     options={[
-                      { value: 'clean', label: 'Clean' },
-                      { value: 'break', label: 'Break' },
-                      { value: 'foul', label: 'Foul' },
-                      { value: 'sideline_for', label: 'Line For' },
-                      { value: 'sideline_against', label: 'Line Against' },
+                      { value: 'clean', label: 'Clean', className: 'col-span-2' },
+                      { value: 'break', label: 'Break', className: 'col-span-2' },
+                      { value: 'foul', label: 'Foul', className: 'col-span-2' },
+                      { value: 'sideline_for', label: 'Line For', className: 'col-span-3 min-w-[7rem]' },
+                      { value: 'sideline_against', label: 'Line Against', className: 'col-span-3 min-w-[7rem]' },
                     ]}
                   />
                   {!liveMode && <YesNo label="Mark" value={kickoutMark} onChange={setKickoutMark} />}

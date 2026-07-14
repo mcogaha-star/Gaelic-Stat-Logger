@@ -161,7 +161,7 @@ async function hydratePrivateTeamsAndPlayers(db, { localTeams, localPlayers }) {
 export async function hydrateServerAccountData(db, { localMatches = [], localStats = [], localTeams = [], localPlayers = [] } = {}) {
   const identity = await hydratePrivateTeamsAndPlayers(db, { localTeams, localPlayers });
   const localMatchupStints = await db.entities.MatchupStint.filter({});
-  const serverMatchesResult = await fetchServerMatches({ limit: 150 });
+  const serverMatchesResult = await fetchServerMatches({ limit: 1000 });
   if (!serverMatchesResult.ok) {
     if (serverMatchesResult.reason === 'not_authenticated') return { importedMatches: 0, importedStats: 0, skipped: true };
     throw new Error(serverMatchesResult.reason || 'Failed to fetch server matches');

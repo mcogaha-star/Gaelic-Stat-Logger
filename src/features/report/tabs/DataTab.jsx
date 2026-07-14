@@ -1665,8 +1665,8 @@ function DataTab({
   const videoNavControls = useMemo(() => {
     if (!isVideoMode) return null;
     return (
-      <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
-        <div className="inline-flex min-w-0 flex-[1_1_10rem] rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:flex-none">
+      <div className="flex w-full min-w-0 flex-nowrap items-center justify-end gap-2 sm:w-auto">
+        <div className="inline-flex min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:flex-none">
           <Button
             type="button"
             variant={videoBrowseMode === 'play' ? 'default' : 'ghost'}
@@ -1690,7 +1690,7 @@ function DataTab({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 min-w-[5rem] flex-1 px-2 text-xs sm:flex-none sm:px-4"
+          className="h-8 min-w-[5rem] flex-none px-2 text-xs sm:px-4"
           onClick={handleWatchCurrentVideoSet}
           disabled={!currentClipCandidates.length}
           aria-label="Watch selected rows, or current filtered rows if nothing is selected"
@@ -1700,7 +1700,7 @@ function DataTab({
         </Button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 min-w-[5rem] flex-1 px-2 text-xs sm:flex-none sm:px-4">
+            <Button type="button" variant="outline" size="sm" className="h-8 min-w-[5rem] flex-none px-2 text-xs sm:px-4">
               {!isMobile ? <ListVideo className="mr-2 h-4 w-4" /> : null}
               Options
             </Button>

@@ -976,8 +976,68 @@ export function buildPlayerTimeAndPossessionStats({
     const foulBy = normalizeSelectionToPlayerLocal(extra?.foul?.foul_by, playerMaps, normalizeTeamSideLocal(stat?.team_side));
     const key = makePlayerKeyLocal(foulBy);
     if (!key) continue;
-    blackCardsByPlayer.set(key, (blackCardsByPlayer.get(key) || 0) + 1);
+    if (!blackCardsByPlayer.has(key)) blackCardsByPlayer.set(key, []);
+    blackCardsByPlayer.get(key).push({
+      periodKey: getStatPeriodKey(stat),
+      timeMinutes: clampMinZero(getStatLoggedTimeSLocal(stat) / 60),
+      statId: stat?.id || null,
+    });
   }
+
+  const calculateBlackCardMinutes = (row, cardEvents = []) => {
+    if (!row || !Array.isArray(cardEvents) || cardEvents.length === 0) return 0;
+    const unavailableWindows = [];
+    for (const cardEvent of cardEvents) {
+      const periodKey = cardEvent?.periodKey;
+      const cardMinute = Number(cardEvent?.timeMinutes);
+      if (!periodKey || !Number.isFinite(cardMinute)) continue;
+      const overlappingStint = row.stints.find((stint) => (
+        stint.periodKey === periodKey
+        && cardMinute >= Number(stint.startLoggedMinute || 0)
+        && cardMinute < Number(stint.endLoggedMinute || 0)
+      ));
+      if (!overlappingStint) {
+        row.warnings.push('Black card row could not be matched to an on-pitch stint; no minutes were subtracted for that card.');
+        row.confidence = row.confidence === 'low' ? 'low' : 'medium';
+        continue;
+      }
+      const start = Math.max(Number(overlappingStint.startLoggedMinute || 0), cardMinute);
+      const end = Math.min(Number(overlappingStint.endLoggedMinute || start), start + 10);
+      if (end <= start) continue;
+      unavailableWindows.push({
+        periodKey,
+        start,
+        end,
+        scaleFactor: Number(overlappingStint.scaleFactor || 1) > 0 ? Number(overlappingStint.scaleFactor || 1) : 1,
+      });
+    }
+
+    let total = 0;
+    const byPeriod = new Map();
+    for (const window of unavailableWindows) {
+      const key = `${window.periodKey}|${window.scaleFactor}`;
+      if (!byPeriod.has(key)) byPeriod.set(key, []);
+      byPeriod.get(key).push(window);
+    }
+    for (const windows of byPeriod.values()) {
+      windows.sort((a, b) => a.start - b.start);
+      let current = null;
+      for (const window of windows) {
+        if (!current) {
+          current = { ...window };
+          continue;
+        }
+        if (window.start <= current.end) {
+          current.end = Math.max(current.end, window.end);
+          continue;
+        }
+        total += Math.max(0, current.end - current.start) * current.scaleFactor;
+        current = { ...window };
+      }
+      if (current) total += Math.max(0, current.end - current.start) * current.scaleFactor;
+    }
+    return total;
+  };
 
   const possessions = buildPossessionWindows(stats);
   const possessionIdsByPlayer = new Map();
@@ -1002,8 +1062,9 @@ export function buildPlayerTimeAndPossessionStats({
     row.minutesPlayedRawLogged = row.stints.reduce((sum, stint) => sum + (Number(stint.loggedDurationMinutes) || 0), 0);
     row.minutesPlayedScaledBeforeCards = row.stints.reduce((sum, stint) => sum + (Number(stint.scaledDurationMinutes) || 0), 0);
     row.confidence = lowerConfidenceLocal(row.confidence, teamConfidenceBySide[row.teamSide] || 'high');
-    row.blackCards = blackCardsByPlayer.get(row.playerKey) || 0;
-    row.blackCardMinutesSubtracted = row.blackCards * 10;
+    const blackCardEvents = blackCardsByPlayer.get(row.playerKey) || [];
+    row.blackCards = blackCardEvents.length;
+    row.blackCardMinutesSubtracted = calculateBlackCardMinutes(row, blackCardEvents);
     row.minutesPlayed = Math.max(0, row.minutesPlayedScaledBeforeCards - row.blackCardMinutesSubtracted);
     row.rateMinutesBase = getPlayerRateMinutesBase(match);
     row.minutesRateFactor = row.minutesPlayed > 0 ? row.rateMinutesBase / row.minutesPlayed : null;

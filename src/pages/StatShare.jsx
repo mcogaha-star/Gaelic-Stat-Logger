@@ -1,15 +1,28 @@
-import React, { Component, useMemo } from 'react';
+import React, { Component, useEffect, useMemo, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import MatchReport from '@/pages/MatchReport';
-import { fetchSharedMatchSnapshotByCode } from '@/lib/sharedMatchCopies';
+import { fetchSharedMatchSnapshotByCode, importSharedMatchSnapshot } from '@/lib/sharedMatchCopies';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
 import demoBundle from '@/data/demoMatch.json';
+
+const db = globalThis.__B44_DB__ || {
+  entities: new Proxy({}, {
+    get: () => ({
+      filter: async () => [],
+      get: async () => null,
+      create: async () => ({}),
+      update: async () => ({}),
+      delete: async () => ({}),
+    }),
+  }),
+};
 
 function parsePayload(snapshot) {
   const raw = snapshot?.payload;
@@ -69,7 +82,9 @@ class StatShareReportBoundary extends Component {
 
 export default function StatShare() {
   const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
   const location = useLocation();
+  const savedSnapshotRef = useRef('');
   const params = new URLSearchParams(location?.search || '');
   const code = String(params.get('code') || '').trim().toUpperCase();
   const initialSnapshot = snapshotMatchesCode(location?.state?.sharedSnapshot, code)
@@ -86,6 +101,25 @@ export default function StatShare() {
 
   const snapshot = data?.ok ? data.snapshot : initialSnapshot;
   const payload = useMemo(() => (demoMode ? demoBundle : parsePayload(snapshot)), [demoMode, snapshot]);
+  const saveStatViewMutation = useMutation({
+    mutationFn: (snapshotRow) => importSharedMatchSnapshot({ db, snapshotRow, importMode: 'stat_view' }),
+    onSuccess: (result) => {
+      if (!result?.ok) return;
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['players'] });
+      queryClient.invalidateQueries({ queryKey: ['all-stats'] });
+      if (!result.alreadyImported) toast.success('Shared stats saved to your account');
+    },
+  });
+
+  useEffect(() => {
+    if (!isAuthenticated || demoMode || !snapshot?.id || !payload) return;
+    if (String(snapshot?.share_type || '') !== 'stat_view') return;
+    if (savedSnapshotRef.current === String(snapshot.id)) return;
+    savedSnapshotRef.current = String(snapshot.id);
+    saveStatViewMutation.mutate(snapshot);
+  }, [demoMode, isAuthenticated, payload, saveStatViewMutation, snapshot]);
 
   if (!code && !demoMode) {
     return (

@@ -458,6 +458,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   });
 
   const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
+  const reportReadOnly = readOnly
+    || match?.is_stat_view_copy === true
+    || match?.is_stat_view_copy === 'true'
+    || match?.read_only_shared_view === true
+    || match?.read_only_shared_view === 'true';
   const reportIntroTriggerKey = match?.id || (isSharedView ? (statShareCode || sharedData?.match?.id || 'shared-report') : '');
   useEffect(() => {
     if (!reportIntroTriggerKey || typeof window === 'undefined') return;
@@ -804,7 +809,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     )) || null;
   }, [playerOptions, selectedPlayerProfile]);
   const openMatchupEditor = (defenderKey = null) => {
-    if (readOnly) return;
+    if (reportReadOnly) return;
     setMatchupEditorState({ open: true, defenderKey: defenderKey || null });
   };
   const closeMatchupEditor = (open) => {
@@ -813,7 +818,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const ensureMatchupSyncIdentity = async () => {
-    if (!match || readOnly || !isAuthenticated) return { serverMatchId: match?.server_match_id || null, playerRefByLocalId: {} };
+    if (!match || reportReadOnly || !isAuthenticated) return { serverMatchId: match?.server_match_id || null, playerRefByLocalId: {} };
     const currentHomeTeam = homeTeam?.id ? (await db.entities.Team.get(homeTeam.id)) || homeTeam : homeTeam;
     const currentAwayTeam = awayTeam?.id ? (await db.entities.Team.get(awayTeam.id)) || awayTeam : awayTeam;
     const homeSync = currentHomeTeam ? await upsertPrivateTeamFromLocal(currentHomeTeam) : null;
@@ -864,7 +869,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleCreateMatchupStint = async (payload) => {
-    if (!match?.id || readOnly) return;
+    if (!match?.id || reportReadOnly) return;
     const created = await db.entities.MatchupStint.create({
       ...payload,
       match_id: match.id,
@@ -889,7 +894,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleUpdateMatchupStint = async (stintId, payload) => {
-    if (!stintId || readOnly) return;
+    if (!stintId || reportReadOnly) return;
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
     await db.entities.MatchupStint.update(stintId, {
@@ -915,7 +920,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleDeleteMatchupStint = async (stintId) => {
-    if (!stintId || readOnly) return;
+    if (!stintId || reportReadOnly) return;
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
     await db.entities.MatchupStint.delete(stintId);
@@ -961,7 +966,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleShotArcImportClick = () => {
-    if (readOnly || isSharedView) {
+    if (reportReadOnly || isSharedView) {
       toast.error('xP import is only available on your editable private match copy');
       return;
     }
@@ -2075,7 +2080,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           showXpData={showXpData}
           matchupStints={effectiveMatchupStints}
           playerTimeAndPossessionStats={playerTimeAndPossessionStats}
-          readOnly={readOnly}
+          readOnly={reportReadOnly}
           onPlayerSelect={openPlayerProfile}
           onOpenVideoAt={openSharedVideoAt}
           onOpenVideoSelection={openSharedVideoSelection}
@@ -2101,7 +2106,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           sharedHighlightReels={sharedData.highlightReels}
           sharedHighlightReelClips={sharedData.highlightReelClips}
           sharedVideoNotes={sharedData.videoNotes}
-          readOnly={readOnly}
+          readOnly={reportReadOnly}
           mode="video"
           {...options}
         />
@@ -2313,10 +2318,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     );
   }
 
-  const canManageReport = !readOnly;
+  const canManageReport = !reportReadOnly;
   const filterButtonLabel = buildFilterButtonLabel(activeTopFilterCount);
   const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
   const isPlayersAnalyticsTab = activeTab === 'players_ana';
+  const isVideoTab = activeTab === 'video';
 
   return (
     <div className="relative min-h-screen" style={reportAmbient.shell}>
@@ -2394,7 +2400,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                           }}>Game Info</DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      {!readOnly ? (
+                      {!reportReadOnly ? (
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={(event) => {
@@ -2409,7 +2415,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ) : readOnly && !isAuthenticated && statShareCode ? (
+              ) : reportReadOnly && !isAuthenticated && statShareCode ? (
                 <div className="flex items-center gap-2">
                   <Link
                     to={`${createPageUrl('Login')}?next=${encodeURIComponent(createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`))}`}
@@ -2443,7 +2449,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   ))}
                 </TabsList>
               </div>
-              <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'flex-none' : 'min-w-0 flex-1'} xl:hidden`}>
+              <div className={`${isVideoTab ? 'w-full' : isPlayersAnalyticsTab ? 'flex-none' : 'min-w-0 flex-1'} xl:hidden`}>
                 <label className="relative block h-9 min-w-[112px]">
                   <span className="sr-only">Report tab</span>
                   <Menu className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-700" />
@@ -2460,7 +2466,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
                 </label>
               </div>
-              <div className={`${isPlayersAnalyticsTab || activeTab === 'video' ? 'ml-0 flex-1 justify-start' : 'ml-auto justify-end'} flex max-w-full flex-wrap items-center gap-2 ${activeTab === 'summary' ? 'w-[120px] sm:w-auto sm:min-w-[124px]' : 'w-full sm:w-auto'}`}>
+              <div className={`${isVideoTab || isPlayersAnalyticsTab ? 'ml-0 w-full justify-start' : 'ml-auto w-auto flex-none justify-end'} flex max-w-full flex-wrap items-center gap-2 sm:w-auto`}>
                 {activeTab === 'summary' ? (
                   <MultiSelect
                     label="Overview Half"
@@ -2496,11 +2502,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                     <PopoverTrigger asChild>
                       {isPlayersAnalyticsTab ? (
-                        <Button type="button" variant="outline" size="sm" className={`order-first w-auto flex-none gap-1 sm:order-none sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <Button type="button" variant="outline" size="sm" className={`order-6 w-auto flex-none gap-1 sm:order-none sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
                           <span className="truncate">{activeTopFilterCount > 0 ? `Filters (${activeTopFilterCount})` : 'Filters'}</span>
                         </Button>
                       ) : (
-                        <Button type="button" variant="outline" size="sm" className={`w-full gap-1.5 sm:w-[116px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <Button type="button" variant="outline" size="sm" className={`w-auto min-w-[116px] gap-1.5 sm:w-[116px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
                           <span className="flex min-w-0 items-center gap-2">
                             <SlidersHorizontal className="h-4 w-4 shrink-0" />
                             <span className="truncate">Filters</span>
@@ -2960,7 +2966,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               sharedHighlightReels={sharedData.highlightReels}
               sharedHighlightReelClips={sharedData.highlightReelClips}
               sharedVideoNotes={sharedData.videoNotes}
-              readOnly={readOnly}
+              readOnly={reportReadOnly}
               mode="data"
             />
           </div>
@@ -3006,7 +3012,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               rawStats={rawStatsForPlayerProfile}
               matchupStints={matchupStintsForPlayerProfile}
               selectedPlayer={selectedPlayerProfileOption}
-              readOnly={readOnly}
+              readOnly={reportReadOnly}
             />
           </div>
         </DialogContent>
