@@ -6,6 +6,7 @@ import {
   getOfficialPeriodLengthMinutes,
   getProgressiveMeters,
   isProgressive,
+  resolveTurnoverLostBySelection,
   shotPointsForOutcome,
 } from '@/lib/reportAnalytics';
 
@@ -950,7 +951,7 @@ export function buildDefendingAllowedRows({
 
     if (stat.stat_type === 'turnover' || extra?.turnover) {
       const turnoverId = String(stat.id || '');
-      const lostBy = extra?.turnover?.lost_by || null;
+      const lostBy = resolveTurnoverLostBySelection(stat, extra);
       addForMatchingStints(lostBy, stat, (row) => {
         addMetric(row, 'turnoversLost', turnoverId, 1, 'daTurnoversLost');
       });

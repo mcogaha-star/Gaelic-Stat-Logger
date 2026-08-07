@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { Select } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles, ChevronDown, Check, Menu } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trophy, ChevronRight, Activity, Settings, Trash2, BarChart3, Sparkles, ChevronDown, Check, Menu, BookOpen } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -37,6 +37,7 @@ import { buildMatchRosterSnapshotPatch } from '@/lib/matchRosterSnapshots';
 import { useAuth } from '@/lib/AuthContext';
 import { extractShareCodeFromInput } from '@/lib/shareLinks';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import GuidedTour from '@/components/tutorials/GuidedTour';
 import halfPitchImg from '@/assets/halfpitch.png';
 
 const CreateMatchSelect = ({ children, ...props }) => (
@@ -47,6 +48,12 @@ const CreateMatchSelect = ({ children, ...props }) => (
 
 function isStoredTrue(value) {
     return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function isNonLoggableImportedMatch(match) {
+    return isStoredTrue(match?.is_synced_import)
+        || isStoredTrue(match?.is_stat_view_copy)
+        || isStoredTrue(match?.read_only_shared_view);
 }
 
 function CreateMatchPicker({ value, onChange, placeholder, options = [] }) {
@@ -303,9 +310,12 @@ async function hydrateServerAccountData({ localMatches, localStats, localTeams, 
 
 export default function Home() {
     const navigate = useNavigate();
-    const { isAuthenticated } = useAuth();
+    const location = useLocation();
+    const { isAuthenticated, user } = useAuth();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+    const [homeTourOpen, setHomeTourOpen] = useState(false);
+    const [createMatchTourOpen, setCreateMatchTourOpen] = useState(false);
     const [importShareCode, setImportShareCode] = useState('');
     const [deleteDialog, setDeleteDialog] = useState({ open: false, match: null });
     const [newMatch, setNewMatch] = useState({
@@ -321,6 +331,8 @@ export default function Home() {
         wind_direction: '',
     });
     const queryClient = useQueryClient();
+    const demoIntentHandledRef = React.useRef(false);
+    const homeTourAutoOpenedRef = React.useRef(false);
     const windDegrees = Number(newMatch.wind_direction);
     const windPreviewRotation = Number.isFinite(windDegrees) ? windDegrees : 0;
     const matchLengthMinutes = deriveMatchLengthMinutes(newMatch);
@@ -542,6 +554,14 @@ export default function Home() {
         },
     });
 
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || '');
+        if (params.get('intent') !== 'demo') return;
+        if (demoIntentHandledRef.current || openDemoMutation.isPending) return;
+        demoIntentHandledRef.current = true;
+        openDemoMutation.mutate();
+    }, [location.search, openDemoMutation.isPending]);
+
     const importSharedMatchMutation = useMutation({
         mutationFn: async (shareCode) => {
             if (!isAuthenticated) throw new Error('Sign in to import a shared match');
@@ -586,14 +606,224 @@ export default function Home() {
         if (!newMatch.home_team_id || !newMatch.away_team_id) { toast.error('Please select both teams'); return; }
         createMatchMutation.mutate(newMatch);
     };
-    const handleImportSharedMatch = () => {
+    const handleImportSharedMatch = async () => {
         const code = extractShareCodeFromInput(importShareCode);
         if (!code) {
-            toast.error('Enter a share code');
+            toast.error('Enter a code');
             return;
+        }
+        try {
+            const teamWorkspaceMatches = await db.entities.TeamWorkspace.filter({ team_code: code });
+            const workspace = Array.isArray(teamWorkspaceMatches)
+                ? teamWorkspaceMatches.find((row) => row?.id && !row?.archived_at)
+                : null;
+            if (workspace?.id) {
+                setImportShareCode('');
+                setMobileActionsOpen(false);
+                navigate(createPageUrl(`SeasonStats?teamCode=${encodeURIComponent(code)}`));
+                return;
+            }
+        } catch {
+            // Fall back to match-share import if the workspace lookup is unavailable.
         }
         importSharedMatchMutation.mutate(code);
     };
+
+    const homeTourSeenKey = React.useMemo(
+        () => `gaeliq-home-tour-seen:${user?.id || 'guest'}`,
+        [user?.id]
+    );
+
+    const firstVisibleMatch = React.useMemo(
+        () => (matches || []).find((match) => match?.id) || null,
+        [matches]
+    );
+
+    const firstLoggableMatch = React.useMemo(
+        () => (matches || []).find((match) => match?.id && !isNonLoggableImportedMatch(match)) || null,
+        [matches]
+    );
+
+    const handleHomeTourFinish = React.useCallback(() => {
+        try {
+            window.localStorage.setItem(homeTourSeenKey, 'seen');
+        } catch {}
+    }, [homeTourSeenKey]);
+
+    const closeHomeTour = React.useCallback(() => {
+        handleHomeTourFinish();
+        setHomeTourOpen(false);
+        setMobileActionsOpen(false);
+    }, [handleHomeTourFinish]);
+
+    const startHomeTour = React.useCallback(() => {
+        setDialogOpen(false);
+        setCreateMatchTourOpen(false);
+        setMobileActionsOpen(false);
+        setHomeTourOpen(true);
+    }, []);
+
+    const closeCreateMatchTour = React.useCallback(() => {
+        setCreateMatchTourOpen(false);
+    }, []);
+
+    useEffect(() => {
+        if (!isAuthenticated || !user?.id || isLoading || isLoadingStats) return;
+        if (homeTourAutoOpenedRef.current) return;
+        try {
+            if (window.localStorage.getItem(homeTourSeenKey) === 'seen') {
+                homeTourAutoOpenedRef.current = true;
+                return;
+            }
+        } catch {}
+
+        homeTourAutoOpenedRef.current = true;
+        setDialogOpen(false);
+        setMobileActionsOpen(false);
+        setHomeTourOpen(true);
+    }, [homeTourSeenKey, isAuthenticated, isLoading, isLoadingStats, user?.id]);
+
+    const homeTourSteps = React.useMemo(() => {
+        const matchCardTargetId = firstVisibleMatch?.id ? `home-match-card-${firstVisibleMatch.id}` : 'home-empty-state';
+        const logTargetId = firstLoggableMatch?.id ? `home-match-log-${firstLoggableMatch.id}` : 'home-empty-state';
+
+        return [
+            {
+                placement: 'center',
+                title: 'Home screen overview',
+                body: 'This is the quickest way for a new analyst to understand what each home action does before touching live data.',
+                details: [
+                    'Use this screen to create matches, open the demo, import shared work, and jump into reports or logging.',
+                    'The Help button replays this tour any time you want another pass through it.',
+                ],
+                onEnter: () => setMobileActionsOpen(false),
+            },
+            {
+                targetId: 'home-create-match',
+                placement: 'bottom',
+                title: 'Create Match starts a real working game',
+                body: 'Use Create Match when you want a fresh fixture shell for your own team analysis.',
+                details: [
+                    'Create teams first so the home and away squad pickers are ready.',
+                    'The Create Match dialog now has its own help icon with a separate setup walkthrough.',
+                ],
+                onEnter: () => setMobileActionsOpen(false),
+            },
+            {
+                targetId: 'home-demo-button',
+                mobileTargetId: 'home-mobile-menu-button',
+                placement: 'bottom',
+                mobilePlacement: 'left',
+                title: 'Demo is the safe practice match',
+                mobileTitle: 'Mobile actions live behind this menu',
+                body: 'Open Demo to practice reports and review flows without changing a real fixture.',
+                mobileBody: 'On mobile, Demo, import, teams, settings, and this Help entry live in the actions menu.',
+                details: [
+                    'The demo match is the best place to let a new user click around without worrying about real data.',
+                ],
+                onEnter: ({ isMobile }) => {
+                    setMobileActionsOpen(false);
+                    if (!isMobile) return;
+                },
+            },
+            {
+                targetId: 'home-import-group',
+                mobileTargetId: 'home-mobile-demo-button',
+                placement: 'bottom',
+                mobilePlacement: 'left',
+                title: 'Import match or team codes from here',
+                mobileTitle: 'The mobile sheet groups the key home actions',
+                body: 'Paste a match share code to import a game or stat view, or paste a team code to open the season workspace.',
+                mobileBody: 'This sheet is where mobile users will usually find Demo, Import, Teams, Season, Settings, and Help.',
+                details: [
+                    'Teams is where you build your squad list before creating real matches.',
+                    'Season is for broader reporting after you have matches logged.',
+                ],
+                onEnter: ({ isMobile }) => {
+                    setMobileActionsOpen(!!isMobile);
+                },
+            },
+            {
+                targetId: matchCardTargetId,
+                placement: firstVisibleMatch ? 'top' : 'left',
+                mobilePlacement: 'top',
+                maxWidth: 320,
+                mobileMaxWidth: 300,
+                title: firstVisibleMatch ? 'Tap the match tile to open the stat report' : 'Once matches exist, the tile body opens the report',
+                body: firstVisibleMatch
+                    ? 'Clicking the main match pane opens the report workspace where you review stats, players, video, and shared outputs.'
+                    : 'You do not have a visible match tile yet. After you open Demo or create a match, tapping the main tile opens the report view.',
+                details: [
+                    'Use the report when the game is already logged and you want to review outputs rather than add new events.',
+                ],
+                onEnter: () => setMobileActionsOpen(false),
+            },
+            {
+                targetId: logTargetId,
+                placement: firstLoggableMatch ? 'top' : 'left',
+                mobilePlacement: 'top',
+                maxWidth: 320,
+                mobileMaxWidth: 300,
+                title: firstLoggableMatch ? 'The small Log button opens the logger' : 'The Log button is separate from the report',
+                body: firstLoggableMatch
+                    ? 'Use Log when you want to tag new events. This is different from tapping the card itself, which opens the report.'
+                    : 'After you create or open a loggable match, use the small Log button for tagging. The rest of the tile still opens the report.',
+                details: [
+                    'Imported stat-view copies and synced read-only shells hide Log because those rows are not meant to be tagged locally.',
+                ],
+                onEnter: () => setMobileActionsOpen(false),
+            },
+        ];
+    }, [firstLoggableMatch, firstVisibleMatch]);
+
+    const createMatchTourSteps = React.useMemo(() => ([
+        {
+            targetId: 'create-match-mode',
+            placement: 'top',
+            maxWidth: 310,
+            mobileMaxWidth: 290,
+            title: 'Choose the mode first',
+            body: 'Analysis is best for post-match coding on a PC. Live is for matchday tagging when speed matters.',
+            details: [
+                'Mode is locked after creation, so pick it before filling the rest of the form.',
+                'If the user will mainly work on mobile, live mode is the safer recommendation.',
+            ],
+        },
+        {
+            targetId: 'create-match-code',
+            placement: 'bottom',
+            title: 'Code and level control match setup',
+            body: 'Code switches between GAA and LGFA, while level affects the expected match length shown beside it.',
+            details: [
+                'Check the match length badge before saving so the report timing logic lines up with the fixture.',
+            ],
+        },
+        {
+            targetId: 'create-match-team-section',
+            placement: 'bottom',
+            title: 'Pick teams before creating the fixture',
+            body: 'Home team, away team, and date are the minimum fields for a real match shell.',
+            details: [
+                'Create teams first if the squad lists are not ready yet.',
+                'Venue and competition are optional but useful for filtering later.',
+            ],
+        },
+        {
+            targetId: 'create-match-wind',
+            placement: 'top',
+            title: 'Wind details are optional but valuable',
+            body: 'Wind direction and wind speed help you capture context that matters when reviewing kicking and shot decisions.',
+            details: [
+                'Direction is shown for the home team attacking up in the first half.',
+            ],
+        },
+        {
+            targetId: 'create-match-submit',
+            placement: 'top',
+            title: 'Create the shell when the fixture details look right',
+            body: 'After saving, the match appears on Home. The tile opens the report, while the Log button opens the logger.',
+        },
+    ]), []);
 
     const getMatchTitle = (match) => {
         const homeTeam = teams.find(t => t.id === match.home_team_id);
@@ -648,16 +878,32 @@ export default function Home() {
                             <p className="text-slate-500 mt-1">Match analysis & performance tracking</p>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                            <Dialog
+                                open={dialogOpen}
+                                onOpenChange={(open) => {
+                                    setDialogOpen(open);
+                                    if (!open) setCreateMatchTourOpen(false);
+                                }}
+                            >
                                 <DialogTrigger asChild>
-                                    <Button className="gap-2 bg-green-600 hover:bg-green-700">
+                                    <Button className="gap-2 bg-green-600 hover:bg-green-700" data-tour-id="home-create-match">
                                         <Plus className="w-4 h-4" /> Create Match
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="w-[min(92vw,620px)] max-w-[min(92vw,620px)] max-h-[92vh] overflow-hidden flex flex-col p-5 sm:p-6">
-                                    <DialogHeader><DialogTitle>Create Match</DialogTitle></DialogHeader>
+                                <DialogContent
+                                    className="w-[min(92vw,620px)] max-w-[min(92vw,620px)] max-h-[92vh] overflow-hidden flex flex-col p-5 sm:p-6"
+                                    onInteractOutside={(event) => {
+                                        if (createMatchTourOpen) event.preventDefault();
+                                    }}
+                                >
+                                    <DialogHeader className="flex-row items-center justify-between space-y-0">
+                                        <DialogTitle>Create Match</DialogTitle>
+                                        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => setCreateMatchTourOpen(true)}>
+                                            <BookOpen className="h-4 w-4" /> Help
+                                        </Button>
+                                    </DialogHeader>
                                     <div className="flex-1 overflow-y-scroll pr-1 space-y-4 py-4" style={{ scrollbarGutter: 'stable' }}>
-                                        <div className="space-y-2">
+                                        <div className="space-y-2" data-tour-id="create-match-mode">
                                             <Label>Mode</Label>
                                             <div className="grid grid-cols-2 gap-2">
                                                 <Button
@@ -680,7 +926,7 @@ export default function Home() {
                                             </p>
                                         </div>
 
-                                        <div className="space-y-2">
+                                        <div className="space-y-2" data-tour-id="create-match-code">
                                             <Label>Code</Label>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <div className="flex gap-2">
@@ -705,7 +951,7 @@ export default function Home() {
                                             </div>
                                         </div>
 
-                                        <div className="space-y-2">
+                                        <div className="space-y-2" data-tour-id="create-match-level">
                                             <Label>Level</Label>
                                             <CreateMatchPicker
                                                 value={newMatch.level}
@@ -715,7 +961,7 @@ export default function Home() {
                                             />
                                         </div>
 
-                                        <div className="space-y-2">
+                                        <div className="space-y-2" data-tour-id="create-match-team-section">
                                             <Label>Home Team *</Label>
                                             <CreateMatchPicker
                                                 value={newMatch.home_team_id}
@@ -750,7 +996,7 @@ export default function Home() {
                                             <Label>Competition</Label>
                                             <Input placeholder="e.g. All-Ireland Championship" value={newMatch.competition} onChange={(e) => setNewMatch({ ...newMatch, competition: e.target.value })} />
                                         </div>
-                                        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4" data-tour-id="create-match-wind">
                                             <div className="space-y-4">
                                                 <div className="text-sm font-semibold text-slate-900">Wind Details</div>
                                                 <div className="space-y-2">
@@ -802,7 +1048,7 @@ export default function Home() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="pt-3 border-t">
+                                    <div className="pt-3 border-t" data-tour-id="create-match-submit">
                                         <Button onClick={handleCreateMatch} className="w-full bg-green-600 hover:bg-green-700" disabled={createMatchMutation.isPending}>
                                             Create Match
                                         </Button>
@@ -814,13 +1060,14 @@ export default function Home() {
                                     type="button"
                                     variant="outline"
                                     className="gap-2"
+                                    data-tour-id="home-demo-button"
                                     onClick={() => openDemoMutation.mutate()}
                                     disabled={openDemoMutation.isPending}
                                     title="Open the bundled Armagh vs Galway demo match"
                                 >
                                     Demo
                                 </Button>
-                                <div className="flex items-center">
+                                <div className="flex items-center" data-tour-id="home-import-group">
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -828,7 +1075,7 @@ export default function Home() {
                                         onClick={handleImportSharedMatch}
                                         disabled={importSharedMatchMutation.isPending}
                                     >
-                                        {importSharedMatchMutation.isPending ? 'Importing...' : 'Import'}
+                                        {importSharedMatchMutation.isPending ? 'Opening...' : 'Import Code'}
                                     </Button>
                                     <Input
                                         value={importShareCode}
@@ -836,7 +1083,7 @@ export default function Home() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') handleImportSharedMatch();
                                         }}
-                                        placeholder="Enter share code"
+                                        placeholder="Enter match or team code"
                                         className="h-9 w-40 rounded-l-none bg-white shadow-none sm:w-44"
                                     />
                                 </div>
@@ -846,6 +1093,9 @@ export default function Home() {
                                 <Link to={createPageUrl('SeasonStats')}>
                                     <Button variant="outline" className="gap-2"><BarChart3 className="w-4 h-4" /> Season</Button>
                                 </Link>
+                                <Button type="button" variant="outline" className="gap-2" onClick={startHomeTour}>
+                                    <BookOpen className="w-4 h-4" /> Help
+                                </Button>
                                 <Link to={createPageUrl('Settings')}>
                                     <Button variant="outline" size="icon" title="Settings" aria-label="Settings"><Settings className="w-4 h-4" /></Button>
                                 </Link>
@@ -856,6 +1106,7 @@ export default function Home() {
                                 size="icon"
                                 className="h-10 w-10 rounded-full md:hidden"
                                 aria-label="Open home actions"
+                                data-tour-id="home-mobile-menu-button"
                                 onClick={() => setMobileActionsOpen(true)}
                             >
                                 <Menu className="h-4 w-4" />
@@ -867,14 +1118,17 @@ export default function Home() {
 
             <Sheet open={mobileActionsOpen} onOpenChange={setMobileActionsOpen}>
                 <SheetContent side="right" className="w-[300px] border-slate-200 bg-white px-4 py-5 sm:max-w-[300px]">
-                    <SheetHeader className="mb-4 pr-8">
-                        <SheetTitle>Home Actions</SheetTitle>
-                    </SheetHeader>
-                    <div className="space-y-3">
+                    <div className="mb-4 pr-8" data-tour-id="home-mobile-actions-header">
+                        <SheetHeader>
+                            <SheetTitle>Home Actions</SheetTitle>
+                        </SheetHeader>
+                    </div>
+                    <div className="space-y-3" data-tour-id="home-mobile-actions-sheet">
                         <Button
                             type="button"
                             variant="outline"
                             className="w-full justify-start"
+                            data-tour-id="home-mobile-demo-button"
                             onClick={() => {
                                 setMobileActionsOpen(false);
                                 openDemoMutation.mutate();
@@ -884,14 +1138,14 @@ export default function Home() {
                             Demo
                         </Button>
                         <div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Import</div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Import Code</div>
                             <Input
                                 value={importShareCode}
                                 onChange={(e) => setImportShareCode(String(e.target.value || ''))}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleImportSharedMatch();
                                 }}
-                                placeholder="Enter share code"
+                                placeholder="Enter match or team code"
                                 className="h-9 bg-white shadow-none"
                             />
                             <Button
@@ -901,7 +1155,7 @@ export default function Home() {
                                 onClick={handleImportSharedMatch}
                                 disabled={importSharedMatchMutation.isPending}
                             >
-                                {importSharedMatchMutation.isPending ? 'Importing...' : 'Import'}
+                                {importSharedMatchMutation.isPending ? 'Opening...' : 'Import Code'}
                             </Button>
                         </div>
                         <Link to={createPageUrl('Teams')} onClick={() => setMobileActionsOpen(false)}>
@@ -910,6 +1164,17 @@ export default function Home() {
                         <Link to={createPageUrl('SeasonStats')} onClick={() => setMobileActionsOpen(false)}>
                             <Button variant="outline" className="w-full justify-start gap-2"><BarChart3 className="w-4 h-4" /> Season</Button>
                         </Link>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-start gap-2"
+                            onClick={() => {
+                                setMobileActionsOpen(false);
+                                startHomeTour();
+                            }}
+                        >
+                            <BookOpen className="w-4 h-4" /> Help
+                        </Button>
                         <Link to={createPageUrl('Settings')} onClick={() => setMobileActionsOpen(false)}>
                             <Button variant="outline" className="w-full justify-start gap-2"><Settings className="w-4 h-4" /> Settings</Button>
                         </Link>
@@ -923,7 +1188,7 @@ export default function Home() {
                         {[1, 2, 3].map(i => <div key={i} className="h-48 bg-white rounded-xl animate-pulse" />)}
                     </div>
                 ) : matches.length === 0 ? (
-                    <Card className="max-w-md mx-auto text-center py-12">
+                    <Card className="max-w-md mx-auto text-center py-12" data-tour-id="home-empty-state">
                         <CardContent>
                             <Activity className="w-12 h-12 text-slate-300 mx-auto mb-4" />
                             <h3 className="text-lg font-semibold text-slate-900 mb-2">No matches yet</h3>
@@ -948,7 +1213,7 @@ export default function Home() {
                 ) : (
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {matches.map(match => (
-                            <Link key={match.id} to={createPageUrl(`MatchReport?id=${match.id}`)}>
+                            <Link key={match.id} to={createPageUrl(`MatchReport?id=${match.id}`)} data-tour-id={`home-match-card-${match.id}`}>
                                 <Card className="h-full hover:shadow-lg transition-all duration-300 hover:border-green-200 group cursor-pointer">
                                     <CardHeader className="pb-3">
                                         <div className="flex items-start justify-between">
@@ -978,21 +1243,24 @@ export default function Home() {
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-9 px-3 gap-2"
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        navigate(createPageUrl(`MatchStats?id=${match.id}`));
-                                                    }}
-                                                    title="Open match logger"
-                                                >
-                                                    <Activity className="w-4 h-4" />
-                                                    <span className="hidden sm:inline">Log</span>
-                                                </Button>
+                                                {!isNonLoggableImportedMatch(match) ? (
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-9 px-3 gap-2"
+                                                        data-tour-id={`home-match-log-${match.id}`}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            navigate(createPageUrl(`MatchStats?id=${match.id}`));
+                                                        }}
+                                                        title="Open match logger"
+                                                    >
+                                                        <Activity className="w-4 h-4" />
+                                                        <span className="hidden sm:inline">Log</span>
+                                                    </Button>
+                                                ) : null}
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
@@ -1055,6 +1323,20 @@ export default function Home() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <GuidedTour
+                open={homeTourOpen}
+                steps={homeTourSteps}
+                title="Home Walkthrough"
+                onFinish={handleHomeTourFinish}
+                onClose={closeHomeTour}
+            />
+            <GuidedTour
+                open={createMatchTourOpen}
+                steps={createMatchTourSteps}
+                title="Create Match"
+                onClose={closeCreateMatchTour}
+            />
 
         </div>
     );

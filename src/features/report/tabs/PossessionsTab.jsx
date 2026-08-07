@@ -551,6 +551,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
       const startTime = Number.isFinite(liveStartAnchor) ? liveStartAnchor : firstEventTime;
       const rawVideoTimes = evs.map((s) => Number(s?.time_s)).filter(Number.isFinite);
       const videoStartTime = rawVideoTimes.length ? Math.min(...rawVideoTimes) : NaN;
+      const videoEndTime = rawVideoTimes.length ? Math.max(...rawVideoTimes) : NaN;
       const timeSummary = getPossessionTimeSummary(evs, teamSide, reportFilters?.match, reportFilters?.imputedTimeById, { startAnchorTimeS: liveStartAnchor });
       const physicalZoneSeconds = getPhysicalPossessionZoneSeconds(evs, reportFilters?.match, reportFilters?.imputedTimeById, liveStartAnchor, teamSide);
       const anchorGap =
@@ -605,6 +606,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         half: acting[0]?.half || '',
         startTime,
         videoStartTime,
+        videoEndTime,
         endTime,
         duration,
         timeToAttack,
@@ -1052,7 +1054,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
     const total = originSeries.reduce((sum, item) => sum + Number(row?.[item.key] || 0), 0);
     return (
       <div className="grid min-w-[11rem] gap-1.5 rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-        <div className="font-medium">{label || row.team || 'Origins'}</div>
+        <div className="font-medium">{label || row.team || 'Sources'}</div>
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">Total Possessions</span>
           <span className="font-mono font-medium tabular-nums text-foreground">{total}</span>
@@ -1076,7 +1078,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
       { key: 'startTime', label: 'Start', sortValue: (r) => r.startTime },
       { key: 'endTime', label: 'End', sortValue: (r) => r.endTime },
       { key: 'duration', label: 'Dur', sortValue: (r) => r.duration },
-      { key: 'startSource', label: 'Origin', sortValue: (r) => r.startSource },
+      { key: 'startSource', label: 'Source', sortValue: (r) => r.startSource },
       { key: 'startZone', label: 'Start Zone', sortValue: (r) => r.startZone },
       { key: 'outcome', label: 'Outcome', sortValue: (r) => r.outcome },
       { key: 'passes', label: 'Passes', sortValue: (r) => r.passes },
@@ -1173,11 +1175,11 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
     const panels = [];
     if (teamMode === 'both' || teamMode === 'home') {
       const data = buildPossessionFlowData('home');
-      if (data) panels.push({ side: 'home', title: `${homeTeam?.name || 'Home'} Origin to Outcome Flow`, data });
+      if (data) panels.push({ side: 'home', title: `${homeTeam?.name || 'Home'} Source to Outcome Flow`, data });
     }
     if (teamMode === 'both' || teamMode === 'away') {
       const data = buildPossessionFlowData('away');
-      if (data) panels.push({ side: 'away', title: `${awayTeam?.name || 'Away'} Origin to Outcome Flow`, data });
+      if (data) panels.push({ side: 'away', title: `${awayTeam?.name || 'Away'} Source to Outcome Flow`, data });
     }
     return panels;
   }, [teamMode, buildPossessionFlowData, homeTeam, awayTeam]);
@@ -1292,7 +1294,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         </div>
         {origins.length ? (
           <div className="mb-2 space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Origins</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sources</div>
             <div className="grid gap-1">
               {origins.map((origin) => (
                 <div key={origin.label} className="flex justify-between gap-3 text-[11px]">
@@ -1440,7 +1442,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:items-stretch">
                     <div className="flex h-full min-w-0 flex-col space-y-3 overflow-hidden">
                       <div className="min-h-[42px] flex items-start">
-                            <div className="pt-0.5 font-semibold text-slate-900">Possession Origins</div>
+                            <div className="pt-0.5 font-semibold text-slate-900">Possession Sources</div>
                         </div>
                         <div className="flex min-h-[40px] flex-wrap gap-2 text-[11px]">
                            {originSeries.map((item) => (
@@ -1537,7 +1539,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="origin">Origin</SelectItem>
+                        <SelectItem value="origin">Start Zone</SelectItem>
                         <SelectItem value="source">Source</SelectItem>
                         {!isLiveMode ? <SelectItem value="length">Length</SelectItem> : null}
                         {!isLiveMode ? <SelectItem value="attackType">Attack Type</SelectItem> : null}
@@ -1547,7 +1549,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                     <div className="inline-flex rounded-xl bg-slate-100 p-1">
                       {[
                         { value: 'all', label: 'All' },
-                        { value: 'origin', label: 'Origin' },
+                        { value: 'origin', label: 'Start Zone' },
                         { value: 'source', label: 'Source' },
                         ...(!isLiveMode ? [{ value: 'length', label: 'Length' }, { value: 'attackType', label: 'Attack Type' }] : []),
                       ].map((option) => (
@@ -1736,7 +1738,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         <Dialog open={originBreakdownOpen} onOpenChange={setOriginBreakdownOpen}>
           <DialogContent className={isMobile ? 'w-[92vw] max-w-[92vw] max-h-[80dvh] overflow-y-auto' : 'max-w-3xl'}>
             <DialogHeader>
-              <DialogTitle>{originBreakdownCategory || 'Origin'} Breakdown</DialogTitle>
+              <DialogTitle>{originBreakdownCategory || 'Source'} Breakdown</DialogTitle>
             </DialogHeader>
             {originBreakdownRows.length ? (
               <ChartContainer id="possession-origin-breakdown" className="h-[320px] w-full" config={{}}>
@@ -1752,7 +1754,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
                 </BarChart>
               </ChartContainer>
             ) : (
-              <div className="text-sm text-slate-500">No detailed rows available for this origin.</div>
+              <div className="text-sm text-slate-500">No detailed rows available for this source.</div>
             )}
           </DialogContent>
         </Dialog>

@@ -181,6 +181,17 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
       (serverMatch?.id ? localByServerId.get(serverMatch.id) : null)
       || (publicMatchId ? localByPublicId.get(publicMatchId) : null);
 
+    const serverStatsResult = await fetchServerStatsForMatch({
+      serverMatchId: serverMatch?.id,
+      publicMatchId,
+      limit: 10000,
+    });
+
+    // Avoid creating a local match shell when the stat pull fails; it can be retried cleanly later.
+    if (!localMatch && !serverStatsResult.ok) {
+      continue;
+    }
+
     if (!localMatch) {
       const homeTeam = serverMatch?.home_team_ref ? identity.teamByServerId.get(serverMatch.home_team_ref) : null;
       const awayTeam = serverMatch?.away_team_ref ? identity.teamByServerId.get(serverMatch.away_team_ref) : null;
@@ -271,14 +282,13 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
       }
     }
 
-    const serverStatsResult = await fetchServerStatsForMatch({ serverMatchId: serverMatch?.id, publicMatchId, limit: 10000 });
-    if (!serverStatsResult.ok) continue;
-
-    for (const serverStat of (serverStatsResult.stats || [])) {
-      if (serverStat?.id && localServerStatIds.has(serverStat.id)) continue;
-      const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id, identity.playerByServerId));
-      if (serverStat?.id) localServerStatIds.add(serverStat.id);
-      if (created?.id) importedStats += 1;
+    if (serverStatsResult.ok) {
+      for (const serverStat of (serverStatsResult.stats || [])) {
+        if (serverStat?.id && localServerStatIds.has(serverStat.id)) continue;
+        const created = await db.entities.StatEntry.create(localStatFromServer(serverStat, localMatch.id, identity.playerByServerId));
+        if (serverStat?.id) localServerStatIds.add(serverStat.id);
+        if (created?.id) importedStats += 1;
+      }
     }
 
     const serverMatchupResult = await fetchPrivateMatchupStints({ serverMatchId: serverMatch?.id, limit: 5000 });

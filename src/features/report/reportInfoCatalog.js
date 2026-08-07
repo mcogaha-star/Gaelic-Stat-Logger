@@ -140,7 +140,7 @@ export const reportInfoCatalog = {
     ],
     calculationOrChartLabel: 'What the chart shows',
     calculationOrChart: [
-      'In chart mode, the bars group possession origins and outcomes for the current filters.',
+      'In chart mode, the bars group possession sources and outcomes for the current filters.',
       'In mapping mode, the flow view links those stages together so you can see the most common pathways.',
     ],
     howToUse: [
@@ -160,7 +160,7 @@ export const reportInfoCatalog = {
     ],
     calculationOrChartLabel: "How it's calculated",
     calculationOrChart: [
-      'Possessions are grouped by the selected split such as origin, source, length, or attack type.',
+      'Possessions are grouped by the selected split such as start zone, source, length, or attack type.',
       'For each group, the app shows possession count, expected points per possession, and actual points per possession.',
     ],
     howToUse: [

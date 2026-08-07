@@ -16,7 +16,7 @@ export default function MatchStatsToolbar({
   isLiveMode = false,
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-0.5">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-0.5" data-tour-id="logger-toolbar">
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold uppercase tracking-wide text-slate-600">
           Home Attacking
@@ -42,6 +42,7 @@ export default function MatchStatsToolbar({
             onClick={setHalfStartFromVideo}
             title={videoReady ? 'Set the start time for this half from the current video time' : 'Open the video window to set half start'}
             className="gap-2"
+            data-tour-id="logger-half-start-button"
           >
             <Clock className="w-4 h-4" />
             Set Half Start
@@ -54,6 +55,7 @@ export default function MatchStatsToolbar({
           size="sm"
           onClick={() => flipDirectionForHalf(half)}
           title="Flip home attacking direction (affects new stats only)"
+          data-tour-id="logger-flip-button"
         >
           Flip
         </Button>
@@ -65,6 +67,7 @@ export default function MatchStatsToolbar({
           onClick={openEndHalfPrompt}
           title="Log end of half and switch"
           className="gap-2"
+          data-tour-id="logger-end-half-button"
         >
           <Repeat2 className="w-4 h-4" />
           End Half
@@ -77,6 +80,7 @@ export default function MatchStatsToolbar({
           onClick={onOpenSubDialog}
           title="Log a substitution"
           className="gap-2"
+          data-tour-id="logger-sub-button"
         >
           <Users className="w-4 h-4" />
           Sub
@@ -90,6 +94,7 @@ export default function MatchStatsToolbar({
           disabled={!statsCount}
           title="Undo last stat (Ctrl/Cmd+Z)"
           className="gap-2"
+          data-tour-id="logger-undo-button"
         >
           <Undo2 className="w-4 h-4" />
           Undo
@@ -103,6 +108,7 @@ export default function MatchStatsToolbar({
             onClick={openVideoPopout}
             title="Open video window"
             className="gap-2"
+            data-tour-id="logger-video-button"
           >
             <Video className="w-4 h-4" />
             Video

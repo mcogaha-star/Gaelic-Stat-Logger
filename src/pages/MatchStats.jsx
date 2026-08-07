@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from 'sonner';
+import GuidedTour from '@/components/tutorials/GuidedTour';
 
 import GAAPitch from '@/components/pitch/GAAPitch';
 import StatMarkers from '@/components/pitch/StatMarkers';
@@ -176,6 +177,7 @@ export default function MatchStats() {
     const [liveClockRunning, setLiveClockRunning] = useState(false);
     const [liveClockEditValue, setLiveClockEditValue] = useState(formatLiveClock(0));
     const [isEditingLiveClock, setIsEditingLiveClock] = useState(false);
+    const [loggingTourOpen, setLoggingTourOpen] = useState(false);
 
     // Match teams + players
     const homeTeam = teams.find(t => t.id === match?.home_team_id);
@@ -378,6 +380,172 @@ export default function MatchStats() {
         openEditStat,
         closeModal,
     } = useStatLogging({ matchId, stats });
+
+    const openTutorialClickModal = React.useCallback(() => {
+        setEditingStat(null);
+        setIsPassModal(false);
+        setPassEndCoords(null);
+        setClickCoords({ x: 72.5, y: 42.5 });
+        setModalOpen(true);
+    }, [setClickCoords, setEditingStat, setIsPassModal, setModalOpen, setPassEndCoords]);
+
+    const openTutorialDragModal = React.useCallback(() => {
+        setEditingStat(null);
+        setIsPassModal(true);
+        setClickCoords({ x: 48, y: 44 });
+        setPassEndCoords({ x: 86, y: 34 });
+        setModalOpen(true);
+    }, [setClickCoords, setEditingStat, setIsPassModal, setModalOpen, setPassEndCoords]);
+
+    const closeLoggingTour = React.useCallback(() => {
+        setLoggingTourOpen(false);
+        closeModal();
+    }, [closeModal]);
+
+    const loggingTourSteps = React.useMemo(() => {
+        const baseSteps = [
+            {
+                placement: 'center',
+                title: isLiveMode ? 'Live logger walkthrough' : 'Analysis logger walkthrough',
+                body: isLiveMode
+                    ? 'This tour shows the live-tagging layout, the key controls around the pitch, and how the stat modal behaves on matchday.'
+                    : 'This tour shows the post-match analysis logger, including both click logging and click-and-drag logging.',
+                details: isLiveMode
+                    ? ['On phones, live mode is the main recommendation because the controls are tighter and dragging is disabled.']
+                    : ['Analysis mode is strongest on a PC where you can work with video, dragging, and larger dialog layouts more comfortably.'],
+                onEnter: () => closeModal(),
+            },
+            {
+                targetId: 'logger-header-summary',
+                placement: 'bottom',
+                title: 'The header keeps you oriented',
+                body: 'Use the half selector to move between periods, then use Data for row fixes and Logging Settings for workflow defaults.',
+                details: [
+                    'This Help button replays the walkthrough for the current mode.',
+                ],
+                onEnter: () => closeModal(),
+            },
+            {
+                targetId: 'logger-toolbar',
+                placement: 'bottom',
+                title: isLiveMode ? 'These controls support live capture' : 'These controls support coding and review',
+                body: isLiveMode
+                    ? 'Sub, End Half, Flip, and Undo are the main live controls outside the pitch.'
+                    : 'Set Half Start, Flip, End Half, Sub, Undo, and Video support post-match coding around the pitch.',
+                details: isLiveMode
+                    ? ['Substitutions matter because player minutes, on-field logic, and later player outputs all depend on them.']
+                    : ['Set Half Start and Video are the main sync controls when you are coding against footage.'],
+                onEnter: () => closeModal(),
+            },
+            {
+                targetId: 'logger-pitch',
+                placement: 'right',
+                mobilePlacement: 'top',
+                title: isLiveMode ? 'Live mode uses click-only pitch logging' : 'The pitch is where logging starts',
+                body: isLiveMode
+                    ? 'Tap the pitch to open the stat modal at that location. Dragging is intentionally disabled in live mode so the flow stays fast on mobile.'
+                    : 'Click once to open a normal event. Click and drag to log a pass or carry route across the pitch.',
+                onEnter: () => closeModal(),
+            },
+        ];
+
+        if (isLiveMode) {
+            return [
+                ...baseSteps,
+                {
+                    targetId: 'logger-live-clock',
+                    placement: 'left',
+                    mobilePlacement: 'top',
+                    title: 'Keep the live clock honest',
+                    body: 'Start, pause, edit, or reset the live clock here. Live timestamps feed the rows that appear later in reports and player outputs.',
+                    onEnter: () => closeModal(),
+                },
+                {
+                    targetId: 'logger-stat-modal-focus',
+                    placement: 'left',
+                    mobilePlacement: 'center',
+                    waitForTargetMs: 700,
+                    maxWidth: 320,
+                    mobileMaxWidth: 300,
+                    title: 'A pitch click opens the stat entry modal',
+                    body: 'Use the modal to pick the event, attach players, and fill the key live-only fields before saving the row.',
+                    details: [
+                        'For live mode, the modal is streamlined around fast touch entry rather than video review.',
+                    ],
+                    onEnter: () => openTutorialClickModal(),
+                },
+                {
+                    targetId: 'logger-data-button',
+                    placement: 'bottom',
+                    title: 'Use Data for row cleanup after tagging',
+                    body: 'Manage Data is where you fix individual rows if something was logged incorrectly before you move into review workflows.',
+                    onEnter: () => closeModal(),
+                },
+                {
+                    placement: 'center',
+                    title: 'ShotArc comes after the logger',
+                    body: 'After logging, open the match report and use Manage > ShotArc > Export to create the file for shotarc.com. Upload it there, then import the return file back through Manage > ShotArc > Import.',
+                    details: [
+                        'That import is what adds the expected points data back into the report.',
+                        'ShotArc is free to use, so the export-upload-import loop is a safe extra step for analysts who want xPts.',
+                    ],
+                    onEnter: () => closeModal(),
+                },
+            ];
+        }
+
+        return [
+            ...baseSteps,
+            {
+                targetId: 'logger-stat-modal-focus',
+                placement: 'left',
+                mobilePlacement: 'center',
+                waitForTargetMs: 700,
+                maxWidth: 320,
+                mobileMaxWidth: 300,
+                title: 'Click logging opens the normal event modal',
+                body: 'A single click is best for shots, turnovers, kickouts, throw-ins, fouls, and any event that happens at one pitch point.',
+                details: [
+                    'This modal is also where you attach players, review defaults, and save the row.',
+                ],
+                onEnter: () => openTutorialClickModal(),
+            },
+            {
+                targetId: 'logger-stat-modal-focus',
+                placement: 'left',
+                mobilePlacement: 'center',
+                waitForTargetMs: 700,
+                maxWidth: 320,
+                mobileMaxWidth: 300,
+                title: 'Drag logging is for passes and carries',
+                body: 'Click and drag when you need a start point and an end point. The route opens the same modal with drag context already attached.',
+                details: [
+                    'This is one of the reasons analysis mode is much easier on a PC than on a phone.',
+                ],
+                onEnter: () => openTutorialDragModal(),
+            },
+            {
+                targetId: 'logger-data-button',
+                placement: 'bottom',
+                title: 'Data cleans rows, video sync, and follow-up workflows',
+                body: 'Use Data when something needs editing after entry. After logging, move into the match report for review, sharing, and other post-log workflows.',
+                details: [
+                    'Finish row cleanup here before you trust the later report outputs.',
+                ],
+                onEnter: () => closeModal(),
+            },
+            {
+                placement: 'center',
+                title: 'ShotArc is a separate post-log step',
+                body: 'When the logging pass is finished, open the match report and use Manage > ShotArc > Export to create the file for shotarc.com. Upload it there, then import the return file back through Manage > ShotArc > Import.',
+                details: [
+                    'That import is what adds the expected points data back into the report.',
+                    'ShotArc is free to use, so analysts can add xPts without any paid step in the workflow.',
+                ],
+                onEnter: () => closeModal(),
+            },
+        ];
+    }, [closeModal, isLiveMode, openTutorialClickModal, openTutorialDragModal]);
 
     const ensureMatchServerId = async () => {
         if (!match) return null;
@@ -1124,6 +1292,8 @@ export default function MatchStats() {
                 onDataClick={() => setDataOpen(true)}
                 settingsUrl={createPageUrl('Settings?tab=logging')}
                 settingsLabel="Logging Settings"
+                onHelpClick={() => setLoggingTourOpen(true)}
+                helpLabel="Help"
                 sticky={!isLiveMode}
             />
 
@@ -1143,7 +1313,7 @@ export default function MatchStats() {
                             openVideoPopout={openVideoPopout}
                             isLiveMode={isLiveMode}
                         />
-                        <div className="bg-slate-900 rounded-2xl p-1 shadow-xl relative overflow-hidden ml-2 mt-0.5">
+                        <div className="bg-slate-900 rounded-2xl p-1 shadow-xl relative overflow-hidden ml-2 mt-0.5" data-tour-id="logger-pitch">
                             <GAAPitch
                                 onPointClick={handlePointClick}
                                 onPassDraw={isLiveMode ? undefined : handlePassDraw}
@@ -1158,13 +1328,14 @@ export default function MatchStats() {
                     </div>
 
                     <div className="space-y-6">
+                        <div data-tour-id={isLiveMode ? 'logger-live-clock' : 'logger-recent-panel'}>
                         <RecentStats
                             stats={stats}
                             statsCount={stats.length}
                             onEdit={handleEditStat}
                             onDelete={(id) => deleteStatMutation.mutate(id)}
                             topContent={isLiveMode ? (
-                                <div className="space-y-3">
+                                <div className="space-y-3" data-tour-id="logger-live-clock">
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <div className="font-semibold text-slate-900">Live Clock</div>
@@ -1214,6 +1385,7 @@ export default function MatchStats() {
                                 </div>
                             ) : null}
                         />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1303,6 +1475,13 @@ export default function MatchStats() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            <GuidedTour
+                open={loggingTourOpen}
+                steps={loggingTourSteps}
+                title={isLiveMode ? 'Live Logging' : 'Analysis Logging'}
+                onClose={closeLoggingTour}
+            />
         </div>
     );
 }

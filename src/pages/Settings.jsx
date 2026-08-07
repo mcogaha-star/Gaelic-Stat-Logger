@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 import { ArrowLeft, RefreshCw, Save } from 'lucide-react';
@@ -29,68 +30,162 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 import { DEFAULT_SHORTCUTS, mergeShortcutConfig, normalizeShortcutText, prettyShortcut } from '@/lib/shortcuts';
 
 const VIDEO_SETTINGS_INFO = [
-  ['Video Review', 'Video mode supports event queues, possession queues, reels, notes, and map-driven clip launching across the report and players workflows.'],
-  ['Picture-in-Picture', 'Use PiP when supported to keep video visible while tagging or reviewing events in the main app.'],
-  ['Half Start Sync', 'Set half start times from video in the logger to keep timing aligned across stats, report views, and clip jumps.'],
+  ['Video Review', 'Use video mode after logging when you want event queues, possession queues, reels, notes, or fast clip launching.'],
+  ['Picture-in-Picture', 'Use PiP if your browser supports it and you want the video to stay visible while you work elsewhere in the app.'],
+  ['Half Start Sync', 'Set half start from video in the logger so timings line up later in reports, players, and clip jumps.'],
 ];
 
-const STATS_DEFINITIONS = [
-  ['Possession', 'A possession is one spell of the ball for a team. It usually ends with a score, a turnover, a lost shot, or the half ending.'],
-  ['Attack', 'A possession becomes an attack once it enters the opposition 45. One possession can only count as one attack.'],
-  ['Set Defence', 'Set defence shows whether the opposition defence was already organised when the action happened.'],
-  ['Field Tilt', 'Field tilt compares how much of each team’s passing and carrying finishes in the opposition 45.'],
-  ['Scoring Zone', 'The scoring zone is the central high-value shooting area in front of goal used by the shot maps and player outputs.'],
-  ['Scoring Zone Entry', 'A scoring zone entry is a pass or carry that starts outside the scoring zone and ends inside it.'],
-  ['Progressive Meters', 'Progressive meters measure how much closer to goal an action moves the ball. Backward or sideways actions do not add progressive meters.'],
-  ['Progressive Action', 'A progressive pass or carry is one that moves the ball meaningfully closer to goal based on the app’s pass and carry thresholds.'],
-  ['Successful Progressive Passes / Carries', 'These are the completed progressive passes and completed progressive carries, shown as counts rather than percentages.'],
-  ['Switch', 'A switch is a completed pass that moves the ball more than 30 metres across the pitch.'],
-  ['Defensive Action', 'At team level this includes turnovers forced plus high-pressure opposition carries, passes, and shots. At player level it includes turnovers forced or recovered, without double-counting the same turnover, plus high-pressure carry-defender actions.'],
-  ['Average DA Height', 'Average defensive-action height is the average pitch position of a team’s defensive actions.'],
-  ['Passes / Possession Minute', 'This shows how many passes a team plays per minute of live possession time, with dead-ball gaps removed.'],
-  ['Build-Up Speed', 'Build-up speed is the average time it takes an attack to move from the live possession start to its first action inside the opposition 45.'],
-  ['Shot Assist / Shots Created', 'Both currently mean the final completed pass before a shot.'],
-  ['Possession Start Zone', 'This shows whether a possession began in the defensive third, middle third, or attacking third.'],
-  ['Own Kickout Win %', 'Own kickout win percentage is own kickouts won divided by own kickouts taken.'],
-  ['Kickouts Won', 'In player views, kickouts won combines clean won and break won by that player. In defending allowed it is shown as won / total with a win percentage.'],
-  ['TO Lost / 10 Poss', 'Turnovers lost per 10 possessions adjusts ball losses for how many possessions the team or player had.'],
-  ['PPDA', 'PPDA is opponent completed passes divided by your team’s defensive actions.'],
-  ['Turnover Forced / Recovered', 'Player defense outputs split turnover work into turnovers forced and turnovers recovered rather than using one combined TO Won number.'],
-  ['Matchup Stints', 'Matchup stints are defender-versus-attacker time windows used for Defending Allowed in the Players tab.'],
-  ['Defending Allowed', 'Defending Allowed totals what a marked attacker produced during their assigned matchup windows. Per 70 uses matchup minutes, not total minutes played.'],
-  ['Touches', 'Touches count the moments when a player clearly gains or controls the ball, including qualifying wins, recoveries, and certain restart actions.'],
-  ['Touch Map', 'Touch maps plot those touch events. In Defending Allowed, the touch map shows touches by the marked attacker during matchup windows.'],
-  ['Pass Sonar', 'The pass sonar shows where passes started, which direction they went, and the mix of handpasses and kickpasses.'],
-  ['Carry Rate / Pass Rate / Shoot Rate', 'These rates compare how often a player carries, passes, or shoots relative to their touches.'],
-  ['No-Carry Pass Rate', 'This is the rate of passes played before a player has carried the ball in that possession.'],
-  ['Game Share', 'A game share code lets another signed-in user import a full private copy of the match, including names, matchups, reels, and public video notes.'],
-  ['Stat Share', 'A stat share code opens a read-only version of the match report and player analysis without importing a local copy.'],
-  ['Private Sync', 'Private sync keeps your teams, players, matches, matchup stints, and stat rows aligned across devices on your account.'],
-  ['Brought Back Advantage', 'Rows marked Brought Back - Adv. stay visible where useful but are excluded from core stat totals.'],
+const STATS_REFERENCE_GROUPS = [
+  {
+    id: 'stats-flow',
+    title: 'Possession and attack flow',
+    summary: 'Use these when reading possessions, tempo, and build-up outputs.',
+    items: [
+      { term: 'Possession', meaning: 'One spell of the ball for a team. It usually ends with a score, a turnover, a lost shot, or the half ending.', where: 'Used across possessions, turnover rates, and pace metrics.' },
+      { term: 'Attack', meaning: 'A possession becomes an attack once it enters the opposition 45. One possession can only count as one attack.', where: 'Shows how often a team turns possession into a proper attacking phase.' },
+      { term: 'Possession Start Zone', meaning: 'Shows whether the possession began in the defensive third, middle third, or attacking third.', where: 'Useful for understanding where a team starts its ball-winning or restart work.' },
+      { term: 'Passes / Possession Minute', meaning: 'How many passes a team plays per minute of live possession time, with dead-ball gaps removed.', where: 'A quick tempo check rather than a quality score.' },
+      { term: 'Build-Up Speed', meaning: 'Average time it takes an attack to reach its first action inside the opposition 45.', where: 'Helps compare direct attacks with slower build-up phases.' },
+    ],
+  },
+  {
+    id: 'stats-territory',
+    title: 'Territory and progression',
+    summary: 'These explain how the app measures movement, territory, and shot value.',
+    items: [
+      { term: 'Set Defence', meaning: 'Shows whether the opposition defence was already organised when the action happened.', where: 'Important when comparing transition attacks against settled attacks.' },
+      { term: 'Field Tilt', meaning: 'Compares how much of each team\'s passing and carrying ends in the opposition 45.', where: 'A territory indicator, not a score on its own.' },
+      { term: 'Scoring Zone', meaning: 'The central high-value shooting area in front of goal used by shot maps and player outputs.', where: 'Used in shooting charts, scoring-zone entries, and player shot review.' },
+      { term: 'Scoring Zone Entry', meaning: 'A pass or carry that starts outside the scoring zone and ends inside it.', where: 'Tracks how teams create high-value entries, not just shots.' },
+      { term: 'Progressive Meters', meaning: 'How much closer to goal an action moves the ball. Backward or sideways actions do not add progressive meters.', where: 'Useful for identifying players or teams that advance play rather than recycle it.' },
+      { term: 'Progressive Action', meaning: 'A pass or carry that clears the app\'s forward-progress thresholds.', where: 'The count tells you who regularly moves play on in a meaningful way.' },
+      { term: 'Successful Progressive Passes / Carries', meaning: 'Completed progressive passes and completed progressive carries, shown as counts.', where: 'Use these for volume rather than completion percentage.' },
+      { term: 'Switch', meaning: 'A completed pass that moves the ball more than 30 metres across the pitch.', where: 'Useful when reviewing width and shape manipulation.' },
+    ],
+  },
+  {
+    id: 'stats-defence',
+    title: 'Defence and pressure outputs',
+    summary: 'These terms sit behind the defence tab and several team-level pressure metrics.',
+    items: [
+      { term: 'Defensive Action', meaning: 'At team level this includes turnovers forced plus high-pressure opposition carries, passes, and shots. At player level it includes turnovers forced or recovered, without double-counting the same turnover, plus high-pressure carry-defender actions.', where: 'Use this as a pressure-and-disruption output, not only a tackling count.' },
+      { term: 'Average DA Height', meaning: 'The average pitch height of a team\'s defensive actions.', where: 'Shows where a team usually applies defensive pressure.' },
+      { term: 'PPDA', meaning: 'Opponent completed passes divided by your team\'s defensive actions.', where: 'Lower values usually mean more active pressure.' },
+      { term: 'Turnover Forced / Recovered', meaning: 'Player defence outputs split turnover work into forced and recovered rather than one combined number.', where: 'Useful when you want to separate pressure from loose-ball recovery.' },
+      { term: 'Brought Back Advantage', meaning: 'Rows marked Brought Back - Adv. stay visible where useful but are excluded from core totals.', where: 'Important when checking why an event appears in data but not in the main output totals.' },
+    ],
+  },
+  {
+    id: 'stats-players',
+    title: 'Players, matchups, and role outputs',
+    summary: 'These terms matter most in the Players tab and defending-allowed views.',
+    items: [
+      { term: 'Shot Assist / Shots Created', meaning: 'Currently both mean the final completed pass before a shot.', where: 'Use them as the same measure for now.' },
+      { term: 'Kickouts Won', meaning: 'In player views, this combines clean won and break won by that player.', where: 'In defending-allowed views it may appear as won / total with a win rate.' },
+      { term: 'TO Lost / 10 Poss', meaning: 'Turnovers lost adjusted for how many possessions the team or player had.', where: 'Useful for comparing players with very different usage levels.' },
+      { term: 'Matchup Stints', meaning: 'Defender-versus-attacker time windows used for Defending Allowed.', where: 'Only matters if you have assigned matchups.' },
+      { term: 'Defending Allowed', meaning: 'What a marked attacker produced during their assigned matchup windows. Per 70 uses matchup minutes, not total minutes played.', where: 'Do not read it as a normal minutes-played stat.' },
+      { term: 'Touches', meaning: 'Moments when a player clearly gains or controls the ball, including qualifying wins, recoveries, and some restart actions.', where: 'Used heavily in player cards, rates, and touch maps.' },
+      { term: 'Touch Map', meaning: 'A map of those touch events. In Defending Allowed it shows touches by the marked attacker during matchup windows.', where: 'Helpful for role shape and matchup location review.' },
+      { term: 'Pass Sonar', meaning: 'Shows where passes started, the direction they went, and the mix of handpasses and kickpasses.', where: 'Best used for distribution style rather than raw volume.' },
+      { term: 'Carry Rate / Pass Rate / Shoot Rate', meaning: 'How often a player carries, passes, or shoots relative to their touches.', where: 'Useful for understanding role and decision profile.' },
+      { term: 'No-Carry Pass Rate', meaning: 'The rate of passes played before a player has carried the ball in that possession.', where: 'Useful when distinguishing quick release players from carriers.' },
+    ],
+  },
+  {
+    id: 'stats-sharing',
+    title: 'Restarts, sharing, and account context',
+    summary: 'These explain restart outputs and how data moves between users and devices.',
+    items: [
+      { term: 'Own Kickout Win %', meaning: 'Own kickouts won divided by own kickouts taken.', where: 'A restart retention metric rather than a full restart picture.' },
+      { term: 'Game Share', meaning: 'A share code that lets another signed-in user import a full private copy of the match, including names and matchups.', where: 'Best when another analyst needs their own working copy.' },
+      { term: 'Stat Share', meaning: 'A share code that opens a read-only report and player-analysis view without importing a local copy.', where: 'Best for review, not logging.' },
+      { term: 'Private Sync', meaning: 'Keeps your teams, players, matches, matchup stints, and stat rows aligned across devices on your account.', where: 'Use this when you work on more than one machine.' },
+    ],
+  },
 ];
 
-const LOGGING_DEFINITIONS = [
-  ['Pressure', 'Use High when there is contact or tackle pressure. Use Medium when a defender is within 3m but there is no contact. Use Low when the nearest defender is more than 3m away.'],
-  ['Carry Pressure', 'On carries, High pressure should include the defender and that defender should be from the opposition team.'],
-  ['Shot Pressure', 'Use the same low / medium / high scale for shots based on defender proximity and contact at release.'],
-  ['Pass Accuracy ++', 'Perfectly weighted or in stride. The receiver does not need to adjust.'],
-  ['Pass Accuracy +', 'Standard completed pass. The receiver may make only a minor adjustment. This is the default for newly logged passes.'],
-  ['Pass Accuracy -', 'Potentially winnable, but the receiver needs a major adjustment. This can still be a completed pass if the receiver wins it.'],
-  ['Pass Accuracy --', 'Very poor or effectively unwinnable pass. Use this when pass quality, not situation difficulty, is the main problem.'],
-  ['Broken - Retained Passes', 'Use Broken - Retained when the pass is disrupted or broken but the passer team regains possession.'],
-  ['Dispossessed - Retained Carries', 'Use Dispossessed - Retained when the carrier is disrupted but the same team recovers the ball.'],
-  ['Restart Takers And Touches', 'Deadball pass or carry restarts, solo-plus-go carries, and placed-ball shots count as touches for the restart taker. Own kickout takers are not counted as touches unless they also win the kickout.'],
-  ['Set Defence In Logging', 'Yes means the opposition defence was set on that action. No means the action happened before the defence was set.'],
-  ['Brought Back Advantage', 'Use Brought Back - Adv. only when play is brought back and that row should not create a new possession outcome in calculations.'],
-  ['Team-Level Fouls', 'For breach, technical, and other team-level fouls, set Foul By to Home Team or Away Team and set Foul On to the opposite team.'],
+const LOGGING_REFERENCE_GROUPS = [
+  {
+    id: 'logging-pressure',
+    title: 'Pressure and quality fields',
+    summary: 'These are the main judgment calls that shape report quality later.',
+    items: [
+      { term: 'Pressure', meaning: 'Use High for contact or tackle pressure, Medium for a nearby defender without contact, and Low when the nearest defender is comfortably away.', where: 'Stay consistent across matches so comparisons still mean something.' },
+      { term: 'Carry Pressure', meaning: 'On carries, a High pressure row should include the defender and that defender should be from the opposition team.', where: 'This matters because carry defence feeds player and team defensive-action outputs.' },
+      { term: 'Shot Pressure', meaning: 'Use the same low / medium / high logic for shots based on defender proximity and contact at release.', where: 'Do not change the scale match to match.' },
+      { term: 'Pass Accuracy ++', meaning: 'Perfectly weighted or in stride. The receiver does not need to adjust.', where: 'Use when the pass quality itself is excellent.' },
+      { term: 'Pass Accuracy +', meaning: 'A standard completed pass with only a minor adjustment needed by the receiver.', where: 'This is the normal default for completed passes.' },
+      { term: 'Pass Accuracy -', meaning: 'Potentially winnable, but the receiver needs a major adjustment.', where: 'It can still be completed, but the pass quality was poor.' },
+      { term: 'Pass Accuracy --', meaning: 'Very poor or effectively unwinnable.', where: 'Use when the pass quality, not the situation difficulty, is the main issue.' },
+    ],
+  },
+  {
+    id: 'logging-outcomes',
+    title: 'Outcome labels that affect reports',
+    summary: 'These labels change downstream calculations, not just the wording on the row.',
+    items: [
+      { term: 'Broken - Retained Passes', meaning: 'A pass is disrupted or broken, but the passer team regains possession.', where: 'This protects the possession logic while still recording the disruption.' },
+      { term: 'Dispossessed - Retained Carries', meaning: 'The carrier is disrupted, but the same team recovers the ball.', where: 'Use this when the carry fails cleanly but possession does not change teams.' },
+      { term: 'Brought Back Advantage', meaning: 'Use only when play is brought back and the row should not create a fresh possession outcome.', where: 'It keeps the event visible without polluting the main totals.' },
+    ],
+  },
+  {
+    id: 'logging-setup',
+    title: 'Setup and edge-case rules',
+    summary: 'These keep player outputs, restart tables, and defensive logic stable.',
+    items: [
+      { term: 'Restart Takers And Touches', meaning: 'Deadball pass or carry restarts, solo-plus-go carries, and placed-ball shots count as touches for the restart taker. Own kickout takers do not count as touches unless they also win the kickout.', where: 'Important when player touch totals look higher or lower than expected.' },
+      { term: 'Set Defence In Logging', meaning: 'Yes means the opposition defence was set. No means the action happened before the defence was organised.', where: 'This directly affects transition versus settled-attack interpretation.' },
+      { term: 'Team-Level Fouls', meaning: 'For breach, technical, and other team-level fouls, set Foul By to Home Team or Away Team and set Foul On to the opposite team.', where: 'This prevents player-level foul data from being distorted by team infractions.' },
+    ],
+  },
 ];
 
-const LOGGING_GUIDE = [
-  ['Pressure', 'Apply the same pressure scale consistently across passes, carries, and shots so report outputs remain comparable.'],
-  ['Accuracy vs Difficulty', 'Do not increase or decrease pass accuracy just because the pass was difficult. Rate whether the pass itself gave the receiver a fair chance.'],
-  ['Defensive Actions In Logging', 'Team defensive actions come from turnovers forced, high-pressure opposition carries, and high-pressure opposition passes or shots. Individual defensive actions come from turnover force/recovery involvement and high-pressure carry defender actions.'],
-  ['Kickout And Throw-In Outcomes', 'Use clean, break, foul, sideline_for, and sideline_against carefully because they feed restart tables, player restart cards, and defending allowed stats.'],
-  ['Substitutions', 'Use substitutions consistently with correct teams and clock times because minutes, player on-field logic, matchup defaults, and player rates all depend on them.'],
+const LOGGING_GUIDE_STEPS = [
+  {
+    title: 'Keep the pressure scale stable',
+    body: 'Apply the same low / medium / high logic across passes, carries, and shots so report outputs remain comparable from game to game.',
+  },
+  {
+    title: 'Separate pass quality from pass difficulty',
+    body: 'Do not lower or raise pass accuracy just because the pass was risky. Rate the quality of the pass itself.',
+  },
+  {
+    title: 'Protect restart outcomes',
+    body: 'Use clean, break, foul, sideline_for, and sideline_against carefully because restart tables and player restart outputs depend on them.',
+  },
+  {
+    title: 'Log substitutions every time',
+    body: 'Minutes, on-field logic, matchup defaults, and player rates all depend on correct sub timing.',
+  },
+  {
+    title: 'Remember what feeds defensive actions',
+    body: 'Team defensive actions come from turnovers forced plus high-pressure opposition carries, passes, and shots. Player-level defensive actions also use turnover force or recovery involvement and high-pressure carry defender rows.',
+  },
+];
+
+const ACCOUNT_REFERENCE_GROUPS = [
+  {
+    id: 'account-sharing',
+    title: 'Sync and sharing',
+    summary: 'Use these when deciding how to move work between users or devices.',
+    items: [
+      { term: 'Account Sync', meaning: 'Pulls your private teams, players, matches, matchup stints, and stat rows onto the current device.', where: 'Use when you work on more than one machine.' },
+      { term: 'Game Share', meaning: 'Lets another signed-in user import a full private working copy of the match.', where: 'Best when another analyst needs their own editable version.' },
+      { term: 'Stat Share', meaning: 'Opens a read-only report and players view without importing a local match copy.', where: 'Best for review or sign-off, not for logging.' },
+      { term: 'Imported And Synced Matches', meaning: 'Imported or synced matches can behave differently from locally created editable matches.', where: 'Check the card badge before expecting the logger to be available.' },
+    ],
+  },
+  {
+    id: 'account-privacy',
+    title: 'Privacy and identity',
+    summary: 'Use these when managing consent, account identity, and login behavior.',
+    items: [
+      { term: 'Privacy And Consent', meaning: 'Controls whether this device participates in uploads, sync, and sharing. Revoking consent signs you out and stops further uploads from this device.', where: 'A device-level safety setting, not a match-level setting.' },
+      { term: 'Google Linking', meaning: 'Links Google to the same account so future Google sign-ins do not create a separate login path.', where: 'Useful when one person signs in in more than one way.' },
+    ],
+  },
 ];
 
 function SectionCards({ items, columns = 'md:grid-cols-2' }) {
@@ -106,13 +201,77 @@ function SectionCards({ items, columns = 'md:grid-cols-2' }) {
   );
 }
 
-function SectionRows({ items }) {
+function LearnMoreCard({ title, body, label = 'Reference note' }) {
   return (
-    <div className="space-y-4">
-      {items.map(([title, body], index) => (
-        <div key={title} className={index === items.length - 1 ? '' : 'border-b border-slate-200 pb-4'}>
-          <div className="font-semibold text-slate-900">{title}</div>
-          <div className="mt-1 text-sm leading-6 text-slate-600">{body}</div>
+    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="space-y-1">
+        <div className="font-semibold text-slate-900">{title}</div>
+        <div className="text-sm text-slate-600">{body}</div>
+      </div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function ReferenceGroupPreview({ groups }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {groups.map((group) => (
+        <div key={group.id} className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold text-slate-900">{group.title}</div>
+            <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+              {group.items.length} terms
+            </div>
+          </div>
+          <div className="mt-1 text-sm text-slate-600">{group.summary}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReferenceAccordion({ groups }) {
+  return (
+    <Accordion type="multiple" className="space-y-3">
+      {groups.map((group) => (
+        <AccordionItem key={group.id} value={group.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white px-4">
+          <AccordionTrigger className="py-4 text-left hover:no-underline">
+            <div className="space-y-1">
+              <div className="font-semibold text-slate-900">{group.title}</div>
+              <div className="pr-6 text-sm font-normal text-slate-500">{group.summary}</div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              {group.items.map((item) => (
+                <div key={item.term} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="font-semibold text-slate-900">{item.term}</div>
+                  <div className="mt-1 text-sm leading-6 text-slate-600">{item.meaning}</div>
+                  <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Why it matters</div>
+                  <div className="mt-1 text-sm leading-6 text-slate-500">{item.where}</div>
+                </div>
+              ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  );
+}
+
+function GuideChecklist({ items }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {items.map((item, index) => (
+        <div key={item.title} className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+              {index + 1}
+            </div>
+            <div className="font-semibold text-slate-900">{item.title}</div>
+          </div>
+          <div className="mt-3 text-sm leading-6 text-slate-600">{item.body}</div>
         </div>
       ))}
     </div>
@@ -157,6 +316,7 @@ export default function Settings() {
   const { isAuthenticated, user, linkGoogleIdentity, isSupabaseConfigured: authConfigured } = useAuth();
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+  const liveDemoIntentHandledRef = React.useRef(false);
 
   const { data: settingsRecords = [] } = useQuery({
     queryKey: ['app-settings'],
@@ -303,6 +463,14 @@ export default function Settings() {
     return ['stats', 'logging', 'account', 'info'].includes(value) ? value : 'stats';
   }, [location?.search]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location?.search || '');
+    if (params.get('intent') !== 'live-demo') return;
+    if (liveDemoIntentHandledRef.current || openLiveDemoMutation.isPending) return;
+    liveDemoIntentHandledRef.current = true;
+    openLiveDemoMutation.mutate();
+  }, [location?.search, openLiveDemoMutation.isPending]);
+
   const handleLinkGoogle = async () => {
     if (!authConfigured) {
       toast.error('Account linking is not configured for this deployment.');
@@ -332,10 +500,12 @@ export default function Settings() {
               <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
             </div>
           </div>
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-            <Save className="mr-2 h-4 w-4" />
-            {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              <Save className="mr-2 h-4 w-4" />
+              {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -352,6 +522,11 @@ export default function Settings() {
             <Card>
               <CardContent className="space-y-6 p-6">
                 <SectionCards items={VIDEO_SETTINGS_INFO} />
+                <LearnMoreCard
+                  title="This tab changes review behavior, not the logging flow"
+                  body="Use these settings when you want to fine-tune video review and hotkeys after the match has already been logged. For the hands-on walkthrough, start from Home or open a logger and use its Help button."
+                  label="Video reference"
+                />
                 <ShortcutSection
                   section={{
                     key: 'video',
@@ -371,6 +546,9 @@ export default function Settings() {
                   shortcuts={shortcuts}
                   setShortcuts={setShortcuts}
                 />
+                <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+                  These video settings affect post-logging review behavior. They do not replace clean half timing, substitutions, or accurate event tagging in the logger.
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -398,8 +576,13 @@ export default function Settings() {
                       />
                     </div>
                     <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-                      Logging settings affect the match-day logger, live mode fields, keyboard shortcuts, and optional custom stat-entry fields.
+                      Logging settings affect the match-day logger, live mode fields, keyboard shortcuts, and optional custom stat-entry fields. Use them to simplify the workflow for your analysts, not to work around missing core steps like substitutions or half timing.
                     </div>
+                    <LearnMoreCard
+                      title="Use logger Help for the step-by-step tutorial"
+                      body="This page is the control panel for logging defaults. The interactive walkthrough lives inside an actual match logger so users can see the real buttons, pitch, and stat modal."
+                      label="Logging reference"
+                    />
                     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="space-y-1">
                         <Label>Live Demo Match</Label>
@@ -614,7 +797,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
                   <div>
                     <Label>Account Sync</Label>
-                    <p className="mt-1 text-xs text-slate-500">Pull missing private teams, players, matches, matchup stints, and stat rows onto this device.</p>
+                    <p className="mt-1 text-xs text-slate-500">Pull missing private teams, players, matches, matchup stints, and stat rows onto this device so the same account can keep working across machines.</p>
                   </div>
                   <Button
                     type="button"
@@ -643,6 +826,11 @@ export default function Settings() {
                     </Button>
                   </div>
                 </div>
+                <LearnMoreCard
+                  title="Account is a reference surface first"
+                  body="Use this area to understand sync, sharing, consent, and linking. New users should still begin with the Home tutorial before they rely on shared or synced workflows."
+                  label="Account reference"
+                />
               </CardContent>
             </Card>
 
@@ -698,24 +886,51 @@ export default function Settings() {
 
               <TabsContent value="stats-defs">
                 <Card>
-                  <CardContent className="p-6">
-                    <SectionRows items={STATS_DEFINITIONS} />
+                  <CardContent className="space-y-6 p-6">
+                    <LearnMoreCard
+                      title="Use this tab when a stat label is unclear"
+                      body="Start with the category summary, then open only the section you need. The aim here is to explain what the number means and where it matters, without sending users into a wall of text."
+                      label="Stats reference"
+                    />
+                    <ReferenceGroupPreview groups={STATS_REFERENCE_GROUPS} />
+                    <ReferenceAccordion groups={STATS_REFERENCE_GROUPS} />
                   </CardContent>
                 </Card>
               </TabsContent>
 
               <TabsContent value="logging-defs">
                 <Card>
-                  <CardContent className="p-6">
-                    <SectionRows items={LOGGING_DEFINITIONS} />
+                  <CardContent className="space-y-6 p-6">
+                    <LearnMoreCard
+                      title="Use this tab when a logging field is unclear"
+                      body="These definitions are grouped by the judgment calls that usually cause confusion in the logger: pressure, accuracy, outcomes, and setup rules."
+                      label="Logging terms"
+                    />
+                    <ReferenceGroupPreview groups={LOGGING_REFERENCE_GROUPS} />
+                    <ReferenceAccordion groups={LOGGING_REFERENCE_GROUPS} />
                   </CardContent>
                 </Card>
               </TabsContent>
 
               <TabsContent value="logging-guide">
                 <Card>
-                  <CardContent className="p-6">
-                    <SectionRows items={LOGGING_GUIDE} />
+                  <CardContent className="space-y-6 p-6">
+                    <LearnMoreCard
+                      title="Use this tab as the quick quality-control checklist"
+                      body="This is the short version of the logging habits that most often protect minutes, rates, restart outputs, and downstream reports."
+                      label="Best-practice notes"
+                    />
+                    <GuideChecklist items={LOGGING_GUIDE_STEPS} />
+                    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div>
+                        <div className="font-semibold text-slate-900">Account, sharing, and privacy reference</div>
+                        <div className="mt-1 text-sm text-slate-600">
+                          Keep this section for sync and sharing questions. It is written as reference, not onboarding.
+                        </div>
+                      </div>
+                      <ReferenceGroupPreview groups={ACCOUNT_REFERENCE_GROUPS} />
+                      <ReferenceAccordion groups={ACCOUNT_REFERENCE_GROUPS} />
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

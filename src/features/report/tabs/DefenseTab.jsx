@@ -815,6 +815,7 @@ function DefenseTab({
   showXpData = true,
   onOpenVideoAt,
 }) {
+  const videoOpenHandler = isLiveMode ? null : onOpenVideoAt;
   const isMobile = useIsMobile();
   const showXp = !isLiveMode || showXpData;
   const analysisFilters = useMemo(() => ({ ...reportFilters, team: 'both', allowedActionTypes: ['turnover', 'foul', 'pass', 'carry', 'shot'] }), [reportFilters]);
@@ -1433,7 +1434,7 @@ function DefenseTab({
                   awayTeamName={awayTeam?.name}
                   match={reportFilters?.match}
                   imputedTimeById={reportFilters?.imputedTimeById}
-                  onOpenVideoAt={onOpenVideoAt}
+                  onOpenVideoAt={videoOpenHandler}
                 />
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">
@@ -1587,7 +1588,7 @@ function DefenseTab({
                   awayTeamName={awayTeam?.name}
                   match={reportFilters?.match}
                   imputedTimeById={reportFilters?.imputedTimeById}
-                  onOpenVideoAt={onOpenVideoAt}
+                  onOpenVideoAt={videoOpenHandler}
                 />
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-10 text-center text-sm text-slate-600">

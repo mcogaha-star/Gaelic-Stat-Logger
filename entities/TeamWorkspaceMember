@@ -1,0 +1,33 @@
+{
+  "name": "TeamWorkspaceMember",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "viewer"
+      ],
+      "default": "viewer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "revoked"
+      ],
+      "default": "approved"
+    }
+  },
+  "required": [
+    "workspace_id",
+    "user_id",
+    "role"
+  ]
+}

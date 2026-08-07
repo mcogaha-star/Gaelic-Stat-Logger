@@ -1953,7 +1953,7 @@ export default function StatModalV4({
     <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
       {/* Keep the modal comfortably within the viewport so it centers nicely (no "sagging" to the bottom). */}
       {/* Anchor under the ribbon: keep Radix's `fixed` positioning and override top/translate-y. */}
-      <DialogContent className="live-stat-modal-content !top-[8px] !translate-y-0 w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-2 sm:p-3">
+      <DialogContent data-tour-id="logger-stat-modal" className="live-stat-modal-content !top-[8px] !translate-y-0 w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] sm:max-w-xl md:max-w-6xl max-h-[calc(100vh-16px)] overflow-hidden flex flex-col p-2 sm:p-3">
         {/* Only scroll if viewport is too small; otherwise stays fixed (no-scroll). */}
         <div className="flex-1 min-h-0 overflow-y-scroll pr-1" style={{ scrollbarGutter: 'stable' }}>
           <div className="live-stat-modal-grid grid gap-3 items-stretch md:grid-cols-[240px_1fr_240px]">
@@ -1982,6 +1982,7 @@ export default function StatModalV4({
 
             <div className="live-stat-main-panel order-1 space-y-2 md:order-2">
           {/* Action selector (locked in edit mode) */}
+          <div data-tour-id="logger-stat-modal-focus" className="space-y-2">
           {initialStat?.id ? (
             <div className="space-y-1">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight">Action</Label>
@@ -2012,6 +2013,7 @@ export default function StatModalV4({
               )}
             </>
           )}
+          </div>
 
           {roleOrder.length > 0 && (
             <div className="live-stat-mobile-player-fields hidden rounded-lg border border-slate-200 bg-slate-50 p-2">

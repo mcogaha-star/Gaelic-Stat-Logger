@@ -1142,7 +1142,7 @@ function DataTab({
       const times = evs.map((s) => getMatchTimeS(s, match, imputedTimeById)).filter(Number.isFinite);
       const startTime = times.length ? Math.min(...times) : NaN;
       const endTime = times.length ? Math.max(...times) : NaN;
-      const videoStartTimes = evs.map((s) => Number(s?.time_s)).filter(Number.isFinite);
+      const videoTimes = evs.map((s) => Number(s?.time_s)).filter(Number.isFinite);
       const points = acting.reduce((sum, entry) => {
         if (entry?.stat_type !== 'shot' || shouldExcludeFromTotals(entry)) return sum;
         const shotOutcome = safeParseJSON(entry?.extra_data || '{}', {})?.shot?.outcome;
@@ -1165,7 +1165,8 @@ function DataTab({
         startTime,
         endTime,
         duration: Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : NaN,
-        videoStartTime: videoStartTimes.length ? Math.min(...videoStartTimes) : NaN,
+        videoStartTime: videoTimes.length ? Math.min(...videoTimes) : NaN,
+        videoEndTime: videoTimes.length ? Math.max(...videoTimes) : NaN,
         startSource,
         originLabel: formatPossessionOriginLabel({ teamSide, startSource, stats: evs, previousStat }),
         outcome: derivePossessionOutcome(evs, teamSide),
@@ -1246,7 +1247,7 @@ function DataTab({
     { key: 'startTime', label: 'Start', width: '92px', sortValue: (row) => Number.isFinite(row.startTime) ? row.startTime : Number.POSITIVE_INFINITY },
     { key: 'endTime', label: 'End', width: '92px', sortValue: (row) => Number.isFinite(row.endTime) ? row.endTime : Number.POSITIVE_INFINITY },
     { key: 'duration', label: 'Duration', width: '86px', sortValue: (row) => Number.isFinite(row.duration) ? row.duration : Number.POSITIVE_INFINITY },
-    { key: 'originLabel', label: 'Origin', width: '180px', sortValue: (row) => row.originLabel || '' },
+    { key: 'originLabel', label: 'Source', width: '180px', sortValue: (row) => row.originLabel || '' },
     { key: 'groupedOutcome', label: 'Outcome', width: '130px', sortValue: (row) => row.groupedOutcome || '' },
     { key: 'select', label: '', width: '44px', sortable: false },
     { key: 'actions', label: 'Actions', width: '220px', sortable: false },
@@ -1665,8 +1666,21 @@ function DataTab({
   const videoNavControls = useMemo(() => {
     if (!isVideoMode) return null;
     return (
-      <div className="flex w-full min-w-0 flex-nowrap items-center justify-end gap-2 sm:w-auto">
-        <div className="inline-flex min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:flex-none">
+      <>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="order-2 h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none sm:px-4"
+          onClick={handleWatchCurrentVideoSet}
+          disabled={!currentClipCandidates.length}
+          aria-label="Watch selected rows, or current filtered rows if nothing is selected"
+          title={!currentClipCandidates.length ? 'No video rows match the current filters.' : 'Watch selected rows, or current filtered rows if nothing is selected.'}
+        >
+          Watch
+        </Button>
+        <div className="order-3 basis-full lg:hidden" aria-hidden="true" />
+        <div className="order-4 inline-flex min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 p-0.5 lg:order-none lg:flex-none">
           <Button
             type="button"
             variant={videoBrowseMode === 'play' ? 'default' : 'ghost'}
@@ -1686,21 +1700,9 @@ function DataTab({
             Possessions
           </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 min-w-[5rem] flex-none px-2 text-xs sm:px-4"
-          onClick={handleWatchCurrentVideoSet}
-          disabled={!currentClipCandidates.length}
-          aria-label="Watch selected rows, or current filtered rows if nothing is selected"
-          title={!currentClipCandidates.length ? 'No video rows match the current filters.' : 'Watch selected rows, or current filtered rows if nothing is selected.'}
-        >
-          Watch
-        </Button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 min-w-[5rem] flex-none px-2 text-xs sm:px-4">
+            <Button type="button" variant="outline" size="sm" className="order-5 h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none sm:px-4">
               {!isMobile ? <ListVideo className="mr-2 h-4 w-4" /> : null}
               Options
             </Button>
@@ -1727,7 +1729,7 @@ function DataTab({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </>
     );
   }, [currentClipCandidates.length, currentSelectedCount, handleWatchCurrentVideoSet, isMobile, isVideoMode, openAddSelectionToReelDialog, openSaveHighlightDialog, videoBrowseMode]);
   const createCandidateClips = (selectionMode = 'filtered') => {
@@ -2883,7 +2885,7 @@ function DataTab({
                     labelClassName={VIDEO_FIELD_LABEL_CLASS}
                   />
                   <MultiSelect label="Start Zone" placeholder="Any" values={videoPossessionStartZoneFilter} onChange={setVideoPossessionStartZoneFilter} options={POSSESSION_START_ZONES.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
-                  <MultiSelect label="Origin" placeholder="Any" values={videoPossessionOriginFilter} onChange={setVideoPossessionOriginFilter} options={POSSESSION_ORIGIN_GROUPS.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
+                  <MultiSelect label="Source" placeholder="Any" values={videoPossessionOriginFilter} onChange={setVideoPossessionOriginFilter} options={POSSESSION_ORIGIN_GROUPS.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
                   <MultiSelect label="Outcome" placeholder="Any" values={videoPossessionOutcomeFilter} onChange={setVideoPossessionOutcomeFilter} options={POSSESSION_OUTCOME_GROUPS.map((value) => ({ value, label: value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
                   <MultiSelect label="Attack Type" placeholder="Any" values={videoPossessionAttackTypeFilter} onChange={setVideoPossessionAttackTypeFilter} options={POSSESSION_ATTACK_TYPE_OPTIONS.map((value) => ({ value, label: value === 'Transition->Set' ? 'Transition→Set' : value }))} className={VIDEO_MULTISELECT_CLASS} triggerClassName={VIDEO_CONTROL_CLASS} labelClassName={VIDEO_FIELD_LABEL_CLASS} />
                   <MatchTimeRangeSlider
@@ -4047,7 +4049,7 @@ function DataTab({
                       <TableHead className="text-right">Start</TableHead>
                       <TableHead className="text-right">End</TableHead>
                       <TableHead className="text-right">Dur</TableHead>
-                      <TableHead>Start Source</TableHead>
+                      <TableHead>Source</TableHead>
                       <TableHead>End Outcome</TableHead>
                       <TableHead>Attack</TableHead>
                       <TableHead>Entry</TableHead>

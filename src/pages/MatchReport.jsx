@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, ChevronDown, Copy, Menu, Share2, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, BarChart3, BookOpen, ChevronDown, Copy, Menu, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -78,6 +78,7 @@ import MatchupEditorDialog from '@/features/report/components/MatchupEditorDialo
 import useFilteredReportStats from '@/features/report/hooks/useFilteredReportStats';
 import usePossessionVisualiser from '@/features/report/hooks/usePossessionVisualiser';
 import useReportFilterState from '@/features/report/hooks/useReportFilterState';
+import GuidedTour from '@/components/tutorials/GuidedTour';
 import {
   ensureServerMatch,
   softDeletePrivateMatchupStint,
@@ -109,6 +110,7 @@ import {
 } from '@/features/report/reportExport';
 import { MOBILE_REVIEW_PLAYER_EVENT } from '@/lib/videoWorkflow';
 import { buildStatShareLink } from '@/lib/shareLinks';
+import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -136,7 +138,11 @@ const REPORT_EXPORT_FORMATS = [
   { value: 'pdf', label: 'PDF' },
   { value: 'jpeg', label: 'JPEG' },
 ];
-const REPORT_INTRO_STORAGE_KEY = 'gaeliq_report_intro_seen_v1';
+const REPORT_TOUR_STORAGE_KEY_PREFIX = 'gaeliq_report_tour_seen_v2';
+
+function isStoredTrue(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
 
 function reportTabVisibleInMode(tabValue, isLiveMode) {
   if (!isLiveMode) return true;
@@ -419,6 +425,7 @@ function sortRestartFilterOptions(options) {
 export default function MatchReport({ sharedPayload = null, statShareCode = '', readOnly = false }) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const requestedTab = useMemo(() => {
     const params = new URLSearchParams(location?.search || '');
     const value = String(params.get('tab') || '').trim();
@@ -463,21 +470,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     || match?.is_stat_view_copy === 'true'
     || match?.read_only_shared_view === true
     || match?.read_only_shared_view === 'true';
+  const isImportedReportCopy = isSharedView || isStoredTrue(match?.is_shared_copy) || !!match?.imported_from_snapshot_id;
+  const canMentionManageInTour = !reportReadOnly && !isImportedReportCopy;
   const reportIntroTriggerKey = match?.id || (isSharedView ? (statShareCode || sharedData?.match?.id || 'shared-report') : '');
-  useEffect(() => {
-    if (!reportIntroTriggerKey || typeof window === 'undefined') return;
-    try {
-      if (window.localStorage.getItem(REPORT_INTRO_STORAGE_KEY) === 'seen') return;
-    } catch {
-      return;
-    }
-    const id = window.setTimeout(() => setReportIntroOpen(true), 250);
-    return () => window.clearTimeout(id);
-  }, [reportIntroTriggerKey]);
-  const dismissReportIntro = () => {
-    try { window.localStorage.setItem(REPORT_INTRO_STORAGE_KEY, 'seen'); } catch {}
-    setReportIntroOpen(false);
-  };
   useEffect(() => {
     if (!matchId || typeof window === 'undefined') return;
     const rawConfig = match?.video_config;
@@ -521,6 +516,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
     enabled: !!matchId && !isSharedView,
   });
+
+  const { data: settingsRecords = [] } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: () => db.entities.AppSettings.list(),
+    enabled: !isSharedView,
+  });
+  const settingsRecord = settingsRecords[0];
+  const liveModeSettings = useMemo(
+    () => parseLiveModeSettings(settingsRecord?.live_mode_settings_config),
+    [settingsRecord?.live_mode_settings_config],
+  );
   const { data: matchupStintRows = [] } = useQuery({
     queryKey: ['matchup-stints', matchId],
     queryFn: () => db.entities.MatchupStint.filter({ match_id: matchId }),
@@ -593,6 +599,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     [effectiveRawStats, defenceSetMigrationDone, statModelMigrationDone]
   );
   const isLiveMode = String(match?.mode || 'analysis') === 'live';
+  const reportTourStorageKey = `${REPORT_TOUR_STORAGE_KEY_PREFIX}:${isLiveMode ? 'live' : 'analysis'}`;
   const showXpData = useMemo(() => {
     if (!isLiveMode) return true;
     return (Array.isArray(stats) ? stats : []).some((stat) => (
@@ -603,6 +610,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     () => REPORT_TAB_OPTIONS.filter((option) => reportTabVisibleInMode(option.value, isLiveMode)),
     [isLiveMode],
   );
+
+  useEffect(() => {
+    if (!reportIntroTriggerKey || typeof window === 'undefined') return;
+    try {
+      if (window.localStorage.getItem(reportTourStorageKey) === 'seen') return;
+    } catch {
+      return;
+    }
+    const id = window.setTimeout(() => setReportIntroOpen(true), 250);
+    return () => window.clearTimeout(id);
+  }, [reportIntroTriggerKey, reportTourStorageKey]);
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
   const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
@@ -1151,6 +1169,22 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     showTopFiltersButton,
     resetAllFilters,
   } = reportState;
+
+  const closeReportTutorialSurface = React.useCallback(() => {
+    setTopFiltersOpen(false);
+    setManageMenuOpen(false);
+  }, [setTopFiltersOpen, setManageMenuOpen]);
+
+  const dismissReportIntro = React.useCallback(() => {
+    try { window.localStorage.setItem(reportTourStorageKey, 'seen'); } catch {}
+    setReportIntroOpen(false);
+    closeReportTutorialSurface();
+  }, [closeReportTutorialSurface, reportTourStorageKey]);
+
+  const openReportIntro = React.useCallback(() => {
+    closeReportTutorialSurface();
+    setReportIntroOpen(true);
+  }, [closeReportTutorialSurface]);
 
   const [mobileReviewOpen, setMobileReviewOpen] = useState(false);
   const [mobileReviewUrl, setMobileReviewUrl] = useState('');
@@ -2033,6 +2067,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           playerOptions={playerOptions}
           reportFilters={reportFilters}
           isLiveMode={isLiveMode}
+          liveModeSettings={liveModeSettings}
           showXpData={showXpData}
           restartTargetFilter={restartTargetFilter}
           restartWonByFilter={restartWonByFilter}
@@ -2113,6 +2148,138 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       ),
     },
   ].filter((entry) => reportTabVisibleInMode(entry.value, isLiveMode));
+
+  const reportIntroSteps = useMemo(() => {
+    const steps = [
+      {
+        placement: 'center',
+        title: isLiveMode ? 'Live report walkthrough' : 'Report walkthrough',
+        body: isLiveMode
+          ? 'Use this report to review a live-tagged game after the rows already exist. This version stays focused on Overview, Shooting, Possessions, Restarts, Defense, and Players.'
+          : 'Use this report to review a logged match after the rows already exist. This walkthrough keeps the first pass short so a new user can start working quickly.',
+        details: isLiveMode
+          ? ['Live mode removes the Video and Build-Up tabs so the review flow stays tighter on matchday and mobile.']
+          : ['Start with the tab that matches your question instead of trying to read the whole report at once.'],
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab('summary');
+        },
+      },
+      {
+        targetId: 'report-tabs-desktop',
+        mobileTargetId: 'report-tabs-mobile',
+        placement: 'bottom',
+        mobilePlacement: 'bottom',
+        title: 'Tabs switch the report view',
+        body: isLiveMode
+          ? 'Move between Overview, Shooting, Possessions, Restarts, Defense, and Players as you review the live-tagged game.'
+          : 'Move between Overview, Shooting, Possessions, Build-Up, Restarts, Defense, Players, and Video depending on what you want to review.',
+        details: [
+          isLiveMode
+            ? 'Use Overview for the broad team picture, then jump into the specialist tabs when something needs a closer look.'
+            : 'Overview is the broad summary, while the other tabs split the match into specialist views.',
+        ],
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab('summary');
+        },
+      },
+      {
+        targetId: 'report-filters-button',
+        placement: 'bottom',
+        mobilePlacement: 'bottom',
+        title: 'Filters narrow only the current tab',
+        body: 'Filters change the slice of data on the tab you are currently viewing. The small info buttons beside charts explain the metric or map next to them.',
+        details: [
+          'Use Reset All Filters inside the filter panel when you want to get back to the broad match view.',
+        ],
+        waitForTargetMs: 120,
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab('scoring');
+        },
+      },
+      {
+        targetId: 'report-players-controls',
+        placement: 'top',
+        mobilePlacement: 'top',
+        maxWidth: 320,
+        mobileMaxWidth: 300,
+        title: 'Players is for one-player review',
+        body: isLiveMode
+          ? 'Use Players to sense-check one player at a time after live tagging. It is the quickest place to review minutes, defending, shooting, and restart involvement without needing video.'
+          : 'Use Players for one-player cards or player comparison. This is where minutes, role context, defending, shooting, restarts, and player-level outputs come together.',
+        details: [
+          isLiveMode
+            ? 'Start with Player Card, then use the other tabs if the team-level view raises a question.'
+            : 'Start with Player Card, then switch to Comparison when you want player-v-player context.',
+        ],
+        waitForTargetMs: 180,
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab('players_ana');
+        },
+      },
+    ];
+
+    if (!isLiveMode) {
+      steps.push({
+        targetId: 'report-video-controls',
+        placement: 'top',
+        mobilePlacement: 'top',
+        maxWidth: 320,
+        mobileMaxWidth: 300,
+        title: 'Video is the clip review tab',
+        body: 'Use Video when the match has video configured and you want event queues, possession review, clips, reels, or notes alongside the stats.',
+        details: [
+          'If there is no usable video source yet, keep reviewing the stats first and add video later.',
+        ],
+        waitForTargetMs: 180,
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab('video');
+        },
+      });
+    }
+
+    if (canMentionManageInTour) {
+      steps.push({
+        targetId: 'report-manage-button',
+        placement: 'bottom',
+        mobilePlacement: 'bottom',
+        title: 'Manage is for your own logged copy',
+        body: 'Because this is your own logged game, Manage is where you fix rows and run the follow-up workflows that change or export the data.',
+        details: [
+          'Open Manage Data when something looks wrong before you trust the report.',
+          'This menu also holds export, Assign Matchups, and ShotArc.',
+        ],
+        waitForTargetMs: 80,
+        onEnter: () => {
+          closeReportTutorialSurface();
+          setActiveTab(isLiveMode ? 'summary' : 'players_ana');
+        },
+      });
+    }
+
+    steps.push({
+      targetId: 'report-help-button',
+      placement: 'bottom',
+      mobilePlacement: 'bottom',
+      title: 'Replay this any time',
+      body: isLiveMode
+        ? 'Use Help whenever you want another quick pass through the live review flow. A good next step is Overview for the team picture or Players for one-player review.'
+        : 'Use Help whenever you want another quick pass through the report. A good next step is Players for one-player review or Video when you want to connect the stats to clips.',
+      details: canMentionManageInTour
+        ? ['If the numbers look off, go to Manage Data before you draw conclusions from the report.']
+        : [],
+      onEnter: () => {
+        closeReportTutorialSurface();
+        setActiveTab('players_ana');
+      },
+    });
+
+    return steps;
+  }, [canMentionManageInTour, closeReportTutorialSurface, isLiveMode, setActiveTab]);
 
   const selectedExportTargets = useMemo(
     () => exportTargets.filter((target) => selectedExportIds.includes(target.id)),
@@ -2319,10 +2486,17 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   }
 
   const canManageReport = !reportReadOnly;
+  const openSeasonWorkspace = () => {
+    const params = new URLSearchParams();
+    if (match?.team_workspace_id) params.set('workspace', String(match.team_workspace_id));
+    if (match?.id) params.set('matchId', String(match.id));
+    navigate(createPageUrl(`SeasonStats${params.toString() ? `?${params.toString()}` : ''}`));
+  };
   const filterButtonLabel = buildFilterButtonLabel(activeTopFilterCount);
   const navControlClassName = 'h-8 rounded-full border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50';
   const isPlayersAnalyticsTab = activeTab === 'players_ana';
   const isVideoTab = activeTab === 'video';
+  const usesSplitMobileNav = isPlayersAnalyticsTab || isVideoTab;
 
   return (
     <div className="relative min-h-screen" style={reportAmbient.shell}>
@@ -2357,9 +2531,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               </div>
               {canManageReport ? (
                 <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} data-tour-id="report-help-button" onClick={openReportIntro}>
+                    <BookOpen className="h-4 w-4" />
+                    Help
+                  </Button>
                   <DropdownMenu open={manageMenuOpen} onOpenChange={setManageMenuOpen} modal={false}>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} aria-label="Open report management menu">
+                      <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} data-tour-id="report-manage-button" aria-label="Open report management menu">
                         Manage
                         <ChevronDown className="h-4 w-4" />
                       </Button>
@@ -2385,6 +2563,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                       }}>
                         <BarChart3 className="h-4 w-4" />
                         Assign Matchups
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={(event) => {
+                        event.preventDefault();
+                        openManageSurface(openSeasonWorkspace);
+                      }}>
+                        <BarChart3 className="h-4 w-4" />
+                        Season Workspace
                       </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>ShotArc</DropdownMenuSubTrigger>
@@ -2417,6 +2602,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 </div>
               ) : reportReadOnly && !isAuthenticated && statShareCode ? (
                 <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className={`gap-2 ${navControlClassName}`} data-tour-id="report-help-button" onClick={openReportIntro}>
+                    <BookOpen className="h-4 w-4" />
+                    Help
+                  </Button>
                   <Link
                     to={`${createPageUrl('Login')}?next=${encodeURIComponent(createPageUrl(`StatShare?code=${encodeURIComponent(statShareCode)}`))}`}
                     onClick={() => {
@@ -2435,8 +2624,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
         <div className="sticky top-0 z-[70] isolate border-b-2 border-slate-300 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]">
           <div className="max-w-7xl mx-auto px-4 py-1.5">
-            <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 sm:gap-3">
-              <div className="hidden min-w-0 flex-1 xl:block">
+            <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 sm:gap-3 lg:flex-nowrap">
+              <div className="hidden min-w-0 flex-1 xl:block" data-tour-id="report-tabs-desktop">
                 <TabsList className="min-h-10 flex-nowrap items-center justify-start rounded-xl border border-slate-200/80 bg-slate-100 p-0.5 shadow-sm">
                   {visibleReportTabOptions.map((option) => (
                     <TabsTrigger
@@ -2449,14 +2638,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   ))}
                 </TabsList>
               </div>
-              <div className={`${isVideoTab ? 'w-full' : isPlayersAnalyticsTab ? 'flex-none' : 'min-w-0 flex-1'} xl:hidden`}>
-                <label className="relative block h-9 min-w-[112px]">
+              <div className={`${usesSplitMobileNav ? 'order-1 min-w-[11rem] flex-[1_1_11rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none' : 'min-w-[11rem] flex-[1_1_11rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none'} xl:hidden`} data-tour-id="report-tabs-mobile">
+                <label className="relative block h-9 min-w-[112px] md:inline-block md:min-w-0">
                   <span className="sr-only">Report tab</span>
                   <Menu className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-700" />
                   <select
                     value={activeTab}
                     onChange={(event) => setActiveTab(event.target.value)}
-                    className="h-9 w-full appearance-none rounded-full border border-slate-200 bg-white py-1 pl-9 pr-7 text-sm font-semibold text-slate-900 shadow-sm outline-none transition-colors focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                    className="h-9 w-full appearance-none rounded-full border border-slate-200 bg-white py-1 pl-9 pr-7 text-sm font-semibold text-slate-900 shadow-sm outline-none transition-colors focus:border-slate-400 focus:ring-2 focus:ring-slate-200 md:w-[13rem] lg:w-[14rem]"
                     aria-label="Report tab"
                   >
                     {visibleReportTabOptions.map((option) => (
@@ -2466,7 +2655,10 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
                 </label>
               </div>
-              <div className={`${isVideoTab || isPlayersAnalyticsTab ? 'ml-0 w-full justify-start' : 'ml-auto w-auto flex-none justify-end'} flex max-w-full flex-wrap items-center gap-2 sm:w-auto`}>
+              <div className={usesSplitMobileNav
+                ? 'contents lg:ml-auto lg:flex lg:w-auto lg:max-w-full lg:flex-none lg:flex-nowrap lg:items-center lg:justify-end lg:gap-2'
+                : 'ml-auto flex w-auto max-w-full flex-none flex-wrap items-center justify-end gap-2 sm:w-auto'}
+              >
                 {activeTab === 'summary' ? (
                   <MultiSelect
                     label="Overview Half"
@@ -2487,14 +2679,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                 {activeTab === 'video' ? (
                   <div
                     id="report-video-nav-controls"
-                    className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2"
+                    data-tour-id="report-video-controls"
+                    className="flex w-auto max-w-full flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end"
                     aria-label="Video tab controls"
                   />
                 ) : null}
                   {activeTab === 'players_ana' ? (
                     <div
                       id="report-players-nav-controls"
-                      className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end"
+                      data-tour-id="report-players-controls"
+                      className="flex w-auto max-w-full flex-wrap items-center gap-1.5 lg:flex-nowrap lg:justify-end"
                       aria-label="Players tab controls"
                     />
                   ) : null}
@@ -2502,11 +2696,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <Popover open={topFiltersOpen} onOpenChange={setTopFiltersOpen}>
                     <PopoverTrigger asChild>
                       {isPlayersAnalyticsTab ? (
-                        <Button type="button" variant="outline" size="sm" className={`order-6 w-auto flex-none gap-1 sm:order-none sm:px-3 ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <Button type="button" variant="outline" size="sm" className={`order-6 w-auto flex-none gap-1 lg:order-none lg:px-3 ${navControlClassName}`} data-tour-id="report-filters-button" aria-label={filterButtonLabel}>
                           <span className="truncate">{activeTopFilterCount > 0 ? `Filters (${activeTopFilterCount})` : 'Filters'}</span>
                         </Button>
                       ) : (
-                        <Button type="button" variant="outline" size="sm" className={`w-auto min-w-[116px] gap-1.5 sm:w-[116px] sm:justify-between ${navControlClassName}`} aria-label={filterButtonLabel}>
+                        <Button type="button" variant="outline" size="sm" className={`w-auto min-w-[116px] gap-1.5 sm:w-[116px] sm:justify-between ${navControlClassName}`} data-tour-id="report-filters-button" aria-label={filterButtonLabel}>
                           <span className="flex min-w-0 items-center gap-2">
                             <SlidersHorizontal className="h-4 w-4 shrink-0" />
                             <span className="truncate">Filters</span>
@@ -2801,7 +2995,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
               extraProps.videoNavPortalTargetId = 'report-video-nav-controls';
             }
             return (
-              <TabsContent key={entry.value} value={entry.value} className="mt-2" data-live-report-tab-root={entry.value}>
+              <TabsContent key={entry.value} value={entry.value} className="mt-2" data-live-report-tab-root={entry.value} data-tour-id={`report-panel-${entry.value}`}>
                 {entry.render(extraProps)}
               </TabsContent>
             );
@@ -2809,6 +3003,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         </main>
       </Tabs>
       </div>
+
+      <GuidedTour
+        open={reportIntroOpen}
+        steps={reportIntroSteps}
+        title={isLiveMode ? 'Live Report Walkthrough' : 'Report Walkthrough'}
+        onClose={dismissReportIntro}
+      />
 
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="max-w-4xl w-[96vw] max-h-[88vh] overflow-hidden">
@@ -3030,26 +3231,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         onUpdateMatchupStint={handleUpdateMatchupStint}
         onDeleteMatchupStint={handleDeleteMatchupStint}
       />
-
-      <Dialog open={reportIntroOpen} onOpenChange={(open) => (open ? setReportIntroOpen(true) : dismissReportIntro())}>
-        <DialogContent className="w-[min(92vw,34rem)] max-w-[min(92vw,34rem)] rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Quick Report Guide</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-sm leading-6 text-slate-700">
-            <p>Use the tabs to move between Overview, Shooting, Possessions, Restarts, Defense, Players, and Video.</p>
-            <ul className="list-disc space-y-1 pl-5">
-              <li>Filters narrow the whole tab; info buttons explain the stat or chart beside them.</li>
-              <li>Charts are interactive: click bars or map points for breakdowns, and scroll or sort tables where available.</li>
-              <li>Players has two views: Player Card for one player, Comparison for player-v-player and scatter/radar work.</li>
-              <li>Video links clips to events and possessions. On maps, tap/click once for detail and double tap/click for video.</li>
-            </ul>
-            <Button type="button" className="w-full" onClick={dismissReportIntro}>
-              Got it
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="max-w-md">

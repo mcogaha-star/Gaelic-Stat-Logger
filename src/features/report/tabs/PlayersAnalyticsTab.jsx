@@ -48,6 +48,7 @@ import {
   shotPointsForOutcome,
   normalizeFoulType,
   getPlayerRateMinutesBase,
+  resolveTurnoverLostBySelection,
 } from '@/lib/reportAnalytics';
 import { buildDefendingAllowedRows } from '@/lib/defendingAllowed';
 import {
@@ -131,7 +132,7 @@ const COMPARISON_PRESET_METRIC_KEYS = {
   passing: ['passes', 'prog_passes', 'shot_assists', 'final_third_prog_passes', 'passes_to_scoring_zone', 'avg_pass_length', 'prog_metres_passes', 'first_time_pass_pct', 'to_passes'],
   carrying: ['carries', 'prog_carries', 'takeons', 'high_pressure_carries', 'prog_carries_opp_third', 'fouls_won_carries', 'total_carry_metres', 'prog_carry_metres'],
   shooting: ['points', 'xp', 'scoring_pct', 'goal_pct', 'one_point_pct', 'two_point_pct', 'points_per_shot', 'xp_per_shot', 'shots_short', 'avg_distance'],
-  progression: ['passes_received', 'prog_passes_received', 'touches', 'prog_passes_received_opp_third', 'total_prog_metres', 'scorable_frees_won'],
+  progression: ['passes_received', 'prog_passes_received', 'touches', 'prog_passes_received_opp_third', 'total_prog_metres', 'to_lost_per_10_touches', 'prog_metres_per_to_lost', 'scorable_frees_won'],
   restarts: ['targetted', 'targetted_kos_won', 'clean_won', 'clean_lost', 'break_won', 'break_lost', 'broken', 'marks'],
   defending: ['to_won', 'to_lost', 'to_forced', 'to_recovered', 'def_actions', 'blocks', 'pressure_applied', 'fouls_conceded'],
   defending_allowed: ['da_touches', 'da_shots', 'da_points', 'da_xp', 'da_passes', 'da_prog_passes', 'da_carries', 'da_prog_carries', 'da_prog_passes_received', 'da_prog_metres', 'da_kickout_win_pct', 'da_to_lost', 'da_fouls_won'],
@@ -175,7 +176,9 @@ const COMPARISON_METRIC_DEFINITIONS = [
   { key: 'prog_passes_received', label: 'Prog Passes Received', shortLabel: 'Prog Rec', category: 'progression', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.progPassRecv, mode) },
   { key: 'touches', label: 'Touches', shortLabel: 'Touches', category: 'progression', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.touches, mode) },
   { key: 'prog_passes_received_opp_third', label: 'Prog Passes Received In Opp 1/3', shortLabel: 'Prog Rec O1/3', category: 'progression', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, derived?.progressiveReceptionsOppThird, mode) },
-  { key: 'total_prog_metres', label: 'Total Prog Metres', shortLabel: 'Prog Metres', category: 'progression', decimals: 1, suffix: 'm', getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, (Number(derived?.passProgressiveMeters) || 0) + (Number(derived?.carryProgressiveMeters) || 0), mode) },
+  { key: 'total_prog_metres', label: 'Total Prog Metres', shortLabel: 'Prog Metres', category: 'progression', decimals: 1, suffix: 'm', getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, getComparisonTotalProgressiveMetres(row, derived), mode) },
+  { key: 'to_lost_per_10_touches', label: 'TO Lost / 10 Touches', shortLabel: 'TO Lost / 10T', category: 'progression', decimals: 2, inverse: true, getValue: (row) => getComparisonTurnoversLostPer10Touches(row) },
+  { key: 'prog_metres_per_to_lost', label: 'Prog Metres / TO Lost', shortLabel: 'Prog M / TO', category: 'progression', decimals: 1, suffix: 'm', getValue: (row, derived) => getComparisonProgressiveMetresPerTurnoverLost(row, derived) },
   { key: 'scorable_frees_won', label: 'Scorable Frees Won', shortLabel: 'Scorable Frees', category: 'progression', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, derived?.scorableFreesWon, mode) },
   { key: 'targetted', label: 'Targetted', shortLabel: 'Targetted', category: 'restarts', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.kickoutTargets, mode) },
   { key: 'targetted_kos_won', label: 'Targetted KOs Won By Team', shortLabel: 'KO Won By Team', category: 'restarts', decimals: 1, getValue: (row, derived, { mode = 'rate' } = {}) => comparisonCountValue(row, row?.kickoutWins, mode) },
@@ -496,6 +499,21 @@ function comparisonPlayerShortLabel(entry) {
   return 'Selected Player';
 }
 
+function getComparisonTotalProgressiveMetres(row, derived) {
+  return (Number(derived?.passProgressiveMeters) || 0) + (Number(derived?.carryProgressiveMeters) || 0);
+}
+
+function getComparisonTurnoversLostPer10Touches(row) {
+  const touches = Number(row?.touches) || 0;
+  if (touches <= 0) return NaN;
+  return ((Number(row?.turnoversLost) || 0) / touches) * 10;
+}
+
+function getComparisonProgressiveMetresPerTurnoverLost(row, derived) {
+  const denominator = Math.max(1, Number(row?.turnoversLost) || 0);
+  return getComparisonTotalProgressiveMetres(row, derived) / denominator;
+}
+
 function ComparisonInlineSelect({
   value,
   onChange,
@@ -525,7 +543,7 @@ function ComparisonInlineSelect({
           <span className="ml-3 text-slate-500">▾</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-[220px] p-1">
+      <DropdownMenuContent align="start" className="min-w-[220px] max-h-[min(24rem,70vh)] overflow-y-auto overscroll-contain p-1">
         <DropdownMenuRadioGroup value={String(value ?? '')} onValueChange={onChange}>
           {groups.map((group) => (
             <React.Fragment key={group.key || group.label || 'group'}>
@@ -743,6 +761,7 @@ function PlayerShootingPanel({
 }) {
   const isMobile = useIsMobile();
   const [mobileTooltip, setMobileTooltip] = useState('');
+  const videoEnabled = typeof onOpenVideoSelection === 'function';
   const summary = useMemo(() => {
     const sourceShots = Array.isArray(shots) ? shots : [];
     const filteredShots = sourceShots.filter((stat) => {
@@ -996,12 +1015,12 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           data-tap-key={shot.id}
-                          className="cursor-pointer"
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                          className={videoEnabled ? 'cursor-pointer' : undefined}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
-                          onDoubleClick={handleOpenVideo}
+                          onDoubleClick={videoEnabled ? handleOpenVideo : undefined}
                         >
                           <rect
                             x={shot.x - size}
@@ -1040,12 +1059,12 @@ function PlayerShootingPanel({
                         <g
                           key={shot.id}
                           data-tap-key={shot.id}
-                          className="cursor-pointer"
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                          className={videoEnabled ? 'cursor-pointer' : undefined}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
-                          onDoubleClick={handleOpenVideo}
+                          onDoubleClick={videoEnabled ? handleOpenVideo : undefined}
                         >
                           <rect
                             x={shot.x - size}
@@ -1086,12 +1105,12 @@ function PlayerShootingPanel({
                       <g
                         key={shot.id}
                         data-tap-key={shot.id}
-                        className="cursor-pointer"
-                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, handleOpenVideo, shot.id)}
+                        className={videoEnabled ? 'cursor-pointer' : undefined}
+                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
                         onClick={(event) => {
                           if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                         }}
-                        onDoubleClick={handleOpenVideo}
+                        onDoubleClick={videoEnabled ? handleOpenVideo : undefined}
                       >
                         <circle
                           cx={shot.x}
@@ -1126,7 +1145,7 @@ function PlayerShootingPanel({
             <PlayerMapOverlay
               title="Shots"
               arrowText="Attacking ↑"
-              onOpenVideo={summary.mapShots.length ? () => onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots' }) : null}
+              onOpenVideo={videoEnabled && summary.mapShots.length ? () => onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots' }) : null}
             />
             <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
           </div>
@@ -1641,6 +1660,7 @@ function PlayerRestartPanel({
 }) {
   const isMobile = useIsMobile();
   const [mobileTooltip, setMobileTooltip] = useState('');
+  const videoEnabled = typeof onOpenVideoSelection === 'function';
   if (!row) return null;
 
   const metrics = [
@@ -1706,12 +1726,12 @@ function PlayerRestartPanel({
                   <g
                     key={item.id}
                     data-tap-key={item.id}
-                    className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, handleOpenVideo, item.id)}
+                    className={videoEnabled ? 'cursor-pointer' : undefined}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? handleOpenVideo : null, item.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
                     }}
-                    onDoubleClick={handleOpenVideo}
+                    onDoubleClick={videoEnabled ? handleOpenVideo : undefined}
                   >
                     <line
                       x1={startPoint.x}
@@ -1743,7 +1763,7 @@ function PlayerRestartPanel({
               title="Kickouts"
               arrowText={teamSide === 'away' ? '<- Attacking' : 'Attacking ->'}
               arrowSide={teamSide === 'away' ? 'right' : 'left'}
-              onOpenVideo={safeKickoutItems.length ? () => onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts' }) : null}
+              onOpenVideo={videoEnabled && safeKickoutItems.length ? () => onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts' }) : null}
             />
             <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
             {!safeKickoutItems.length ? (
@@ -1998,6 +2018,9 @@ function PlayerDefensePanel({
   const metrics = [
     { label: 'TO Forced', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.turnoversForced, 'rate') : row.turnoversForced, { decimals: 0 }) },
     { label: 'TO Recovered', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.turnoversRecovered, 'rate') : row.turnoversRecovered, { decimals: 0 }) },
+    ...(isLiveMode ? [
+      { label: 'TO Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.turnoversLost, 'rate') : row.turnoversLost, { decimals: 0 }) },
+    ] : []),
     { label: 'Fouls', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.foulsConceded, 'rate') : row.foulsConceded, { decimals: 0 }) },
     ...(!isLiveMode ? [
       { label: 'Defensive Actions', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.defActions, 'rate') : row.defActions, { decimals: 0 }) },
@@ -2518,6 +2541,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
   const isMobile = useIsMobile();
   const [mobileTooltip, setMobileTooltip] = useState('');
   const safeItems = Array.isArray(items) ? items : [];
+  const videoEnabled = typeof onOpenVideoSelection === 'function';
 
   return (
     <div className="flex min-w-0 overflow-hidden p-2">
@@ -2546,20 +2570,20 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                 <g
                   key={item.id}
                   data-tap-key={item.id}
-                  className={item.raw ? 'cursor-pointer' : undefined}
-                  onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, (openEvent) => {
+                  className={videoEnabled && item.raw ? 'cursor-pointer' : undefined}
+                  onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? ((openEvent) => {
                     if (!item.raw) return;
                     openEvent.stopPropagation();
                     onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                  }, item.id)}
+                  }) : null, item.id)}
                   onClick={(event) => {
                     if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
                   }}
-                  onDoubleClick={(event) => {
+                  onDoubleClick={videoEnabled ? ((event) => {
                     if (!item.raw) return;
                     event.stopPropagation();
                     onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                  }}
+                  }) : undefined}
                 >
                   {item.tooltip ? <title>{item.tooltip}</title> : null}
                   <line
@@ -2582,20 +2606,20 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
               <g
                 key={item.id}
                 data-tap-key={item.id}
-                className={item.raw ? 'cursor-pointer' : undefined}
-                onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, (openEvent) => {
+                className={videoEnabled && item.raw ? 'cursor-pointer' : undefined}
+                onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? ((openEvent) => {
                   if (!item.raw) return;
                   openEvent.stopPropagation();
                   onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                }, item.id)}
+                }) : null, item.id)}
                 onClick={(event) => {
                   if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
                 }}
-                onDoubleClick={(event) => {
+                onDoubleClick={videoEnabled ? ((event) => {
                   if (!item.raw) return;
                   event.stopPropagation();
                   onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
-                }}
+                }) : undefined}
               >
                 {item.tooltip ? <title>{item.tooltip}</title> : null}
                 <circle
@@ -2615,7 +2639,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
           title={title}
           arrowText={arrowText}
           arrowSide={arrowSide}
-          onOpenVideo={safeItems.length ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title }) : null}
+          onOpenVideo={videoEnabled && safeItems.length ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title }) : null}
         />
         <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
       </div>
@@ -2742,6 +2766,7 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
   const isMobile = useIsMobile();
   const [mobileTooltip, setMobileTooltip] = useState('');
   const safeShots = Array.isArray(shots) ? shots : [];
+  const videoEnabled = typeof onOpenVideoSelection === 'function';
   const zoneDepth = 45;
   const visibleDepth = zoneDepth * 0.75;
 
@@ -2779,18 +2804,18 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                   <g
                     key={shot.id}
                     data-tap-key={shot.id}
-                    className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, (openEvent) => {
+                    className={videoEnabled ? 'cursor-pointer' : undefined}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? ((openEvent) => {
                       openEvent.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
-                    }, shot.id)}
+                    }) : null, shot.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                     }}
-                    onDoubleClick={(event) => {
+                    onDoubleClick={videoEnabled ? ((event) => {
                       event.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
-                    }}
+                    }) : undefined}
                   >
                     <circle cx={point.x} cy={point.y} r="1.9" fill="none" stroke="#111827" strokeWidth="0.4" />
                     <circle
@@ -2817,88 +2842,12 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
           <PlayerMapOverlay
             title="Shots On Goal"
             arrowText="Attacking ^"
-            onOpenVideo={safeShots.length ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal' }) : null}
+            onOpenVideo={videoEnabled && safeShots.length ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal' }) : null}
           />
           <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function LiveGoalkeeperRestartMetricsCard({ row, statMode = 'raw', cardStyle = undefined }) {
-  if (!row) return null;
-
-  const metrics = [
-    { label: 'Clean Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanWon, 'rate') : row.cleanWon, { decimals: 0 }) },
-    { label: 'Clean Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.cleanLost, 'rate') : row.cleanLost, { decimals: 0 }) },
-    { label: 'Break Won', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.breakWon, 'rate') : row.breakWon, { decimals: 0 }) },
-    { label: 'Break Lost', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.breakLost, 'rate') : row.breakLost, { decimals: 0 }) },
-    { label: 'Broken', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.broken, 'rate') : row.broken, { decimals: 0 }) },
-    { label: 'Marks', value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(row, row.marks, 'rate') : row.marks, { decimals: 0 }) },
-  ];
-
-  return (
-    <GoalkeeperSummaryMetricsCard
-      title={<ReportInfoTitle title="Restart Metrics" helpId="players_restarts" titleClassName="text-lg font-semibold text-slate-900" />}
-      metrics={metrics}
-      cardStyle={cardStyle}
-    />
-  );
-}
-
-function LiveGoalkeeperPlayerPanels({
-  row,
-  teamSide = 'home',
-  match = null,
-  statMode = 'raw',
-  involvementMetrics = [],
-  savingMetrics = [],
-  shotsOnGoal = [],
-  defensiveActions = [],
-  cardCounts = null,
-  onOpenVideoSelection = null,
-  cardStyle = undefined,
-}) {
-  const isMobile = useIsMobile();
-  if (!row) return null;
-
-  return (
-    <div className="space-y-4">
-      <LiveGoalkeeperRestartMetricsCard row={row} statMode={statMode} cardStyle={cardStyle} />
-
-      <div className="grid gap-4 xl:grid-cols-2 xl:items-stretch">
-        <GoalkeeperSummaryMetricsCard
-          title={<ReportInfoTitle title="Involvement" helpId="players_goalkeeper_involvement" titleClassName="text-lg font-semibold text-slate-900" />}
-          metrics={involvementMetrics}
-          cardStyle={cardStyle}
-        />
-        <PlayerDefensePanel
-          row={row}
-          actions={defensiveActions}
-          cardCounts={cardCounts}
-          statMode={statMode}
-          isLiveMode
-          onOpenVideoSelection={onOpenVideoSelection}
-          cardStyle={cardStyle}
-        />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2 xl:items-stretch">
-        <GoalkeeperSummaryMetricsCard
-          title={<ReportInfoTitle title="Saving Metrics" helpId="players_goalkeeper_saving" titleClassName="text-lg font-semibold text-slate-900" />}
-          metrics={savingMetrics}
-          cardStyle={cardStyle}
-        />
-        <GoalkeeperShotsMap
-          shots={shotsOnGoal}
-          teamSide={teamSide}
-          match={match}
-          onOpenVideoSelection={onOpenVideoSelection}
-          cardStyle={cardStyle}
-        />
-      </div>
-    </div>
   );
 }
 
@@ -3327,7 +3276,7 @@ function PlayersAnalyticsTabContent({
           ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || turnover?.forced_by)
           : ensure(turnover?.recovered_by);
         const forced = ensure(turnover?.forced_by);
-        const lost = ensure(turnover?.lost_by);
+        const lost = ensure(resolveTurnoverLostBySelection(s, ex));
         const defensivePlayers = new Set();
         if (recovered) {
           recovered.turnoversRecovered += 1;
@@ -4785,7 +4734,6 @@ function PlayersAnalyticsTabContent({
 
   const heroKpis = useMemo(() => {
     if (!selectedPlayerRow) return [];
-    const progressionValue = selectedPlayerRow.progPassComp + selectedPlayerRow.progCarryComp;
     const kickoutsWonValue = (selectedPlayerRow.cleanWon || 0) + (selectedPlayerRow.breakWon || 0);
     if (selectedIsGoalkeeper) {
       return [
@@ -4803,13 +4751,10 @@ function PlayersAnalyticsTabContent({
             ? `${selectedPlayerRow.ownKickoutsWon}/${selectedPlayerRow.kickoutsTaken} (${formatPct(selectedPlayerRow.ownKickoutWinPct)})`
             : '0/0',
         },
-        ...(isLiveMode ? [{
+        {
           label: 'TO Won',
           value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversWon, 'rate') : selectedPlayerRow.turnoversWon, { decimals: 0 }),
-        }] : [{
-          label: 'Progression',
-          value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, progressionValue, 'rate') : progressionValue, { decimals: 0 }),
-        }]),
+        },
       ];
     }
     if (isLiveMode) {
@@ -4961,7 +4906,7 @@ function PlayersAnalyticsTabContent({
     : (currentColumns[playerBucket] || currentColumns.scoring);
 
   const renderToolbarPlayerSelect = (value, onChange) => (
-    <div className="order-5 flex min-w-0 flex-[1_1_9rem] items-center sm:order-none sm:w-[165px] sm:flex-none lg:w-[185px]">
+    <div className="order-5 flex min-w-0 flex-[1_1_9rem] items-center lg:order-none lg:w-[165px] lg:flex-none 2xl:w-[185px]">
       <select
         value={String(value || 'all')}
         onChange={(event) => onChange(event.target.value)}
@@ -4980,33 +4925,34 @@ function PlayersAnalyticsTabContent({
   const availablePlayerCardModes = isLiveMode ? [['player-card', 'Player Card']] : (singlePlayerOnly ? PLAYER_CARD_MODES.slice(0, 1) : PLAYER_CARD_MODES);
 
   const playersNavControls = (
-    <div className="contents sm:flex sm:w-auto sm:max-w-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5" aria-label="Players tab controls">
+    <>
+      {availablePlayerCardModes.length > 1 ? (
+        <div className="order-2 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 lg:order-none">
+          {availablePlayerCardModes.map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={activeMode === value ? 'default' : 'ghost'}
+              className="h-7 rounded-full px-2 text-xs"
+              onClick={() => setActiveMode(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      <div className="order-3 basis-full lg:hidden" aria-hidden="true" />
       {(activeMode === 'player-card' && !singlePlayerOnly) ? (
         renderToolbarPlayerSelect(safeChartPlayerValue, setChartPlayerId)
       ) : null}
       {(activeMode === 'player-card' || activeMode === 'comparison') ? (
-        <div className="order-4 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
+        <div className="order-4 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 lg:order-none">
           <Button type="button" size="sm" variant={statMode === 'raw' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('raw')}>Total</Button>
           <Button type="button" size="sm" variant={statMode === 'rate' ? 'default' : 'ghost'} className="h-7 rounded-full px-1.5 text-xs" onClick={() => setStatMode('rate')}>{rateModeLabel}</Button>
         </div>
       ) : null}
-      {availablePlayerCardModes.length > 1 ? (
-      <div className="order-2 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 sm:order-none">
-        {availablePlayerCardModes.map(([value, label]) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={activeMode === value ? 'default' : 'ghost'}
-            className="h-7 rounded-full px-2 text-xs"
-            onClick={() => setActiveMode(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
-      ) : null}
-    </div>
+    </>
   );
 
   return (
@@ -5017,41 +4963,118 @@ function PlayersAnalyticsTabContent({
         <div className="space-y-2.5">
           {selectedPlayerRow ? (
               <div className="space-y-2.5">
-                <PlayerHeaderCard
-                  row={selectedPlayerRow}
-                  role={playerRoleByKey.get(selectedPlayerRow.key)}
-                  homeTeam={homeTeam}
-                  awayTeam={awayTeam}
-                  heroKpis={heroKpis}
-                  teamSide={selectedPlayerTeamSide}
-                  heatmapPoints={selectedPlayerHeatmapPoints}
-                  match={reportFilters?.match}
-                  rightPanelMode={isLiveMode ? (selectedTopRightIsGoalkeeper ? 'kickout-map' : 'none') : (selectedTopRightIsGoalkeeper ? 'kickout-map' : 'heatmap')}
-                  kickoutMapItems={selectedTopRightIsGoalkeeper ? goalkeeperKickoutItems : []}
-                  onComparePlayer={(!singlePlayerOnly && !isLiveMode) ? () => {
-                    setActiveMode('comparison');
-                    if (!comparisonSecondPlayerId || comparisonSecondPlayerId === safeChartPlayerValue) {
-                      setComparisonSecondPlayerId(defaultComparisonSecondValue);
-                    }
-                  } : null}
-                  onOpenVideoSelection={openPlayerMapVideoSelection}
-                  isLiveMode={isLiveMode}
-                />
-
-                {selectedIsGoalkeeper && isLiveMode ? (
-                  <LiveGoalkeeperPlayerPanels
+                {isLiveMode ? (
+                  selectedIsGoalkeeper ? (
+                    <PlayerHeaderCard
+                      row={selectedPlayerRow}
+                      role={playerRoleByKey.get(selectedPlayerRow.key)}
+                      homeTeam={homeTeam}
+                      awayTeam={awayTeam}
+                      heroKpis={heroKpis}
+                      teamSide={selectedPlayerTeamSide}
+                      heatmapPoints={selectedPlayerHeatmapPoints}
+                      match={reportFilters?.match}
+                      rightPanelMode="kickout-map"
+                      kickoutMapItems={goalkeeperKickoutItems}
+                      onComparePlayer={null}
+                      onOpenVideoSelection={null}
+                      isLiveMode
+                    />
+                  ) : (
+                    <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
+                      <PlayerHeaderCard
+                        row={selectedPlayerRow}
+                        role={playerRoleByKey.get(selectedPlayerRow.key)}
+                        homeTeam={homeTeam}
+                        awayTeam={awayTeam}
+                        heroKpis={heroKpis}
+                        teamSide={selectedPlayerTeamSide}
+                        heatmapPoints={selectedPlayerHeatmapPoints}
+                        match={reportFilters?.match}
+                        rightPanelMode="none"
+                        kickoutMapItems={[]}
+                        onComparePlayer={null}
+                        onOpenVideoSelection={null}
+                        isLiveMode
+                      />
+                      <PlayerDefensePanel
+                        row={selectedPlayerRow}
+                        actions={selectedPlayerDefensiveActions}
+                        cardCounts={selectedPlayerCardCounts}
+                        statMode={statMode}
+                        isLiveMode
+                        onOpenVideoSelection={null}
+                        cardStyle={selectedCardTintStyle}
+                      />
+                    </div>
+                  )
+                ) : (
+                  <PlayerHeaderCard
                     row={selectedPlayerRow}
+                    role={playerRoleByKey.get(selectedPlayerRow.key)}
+                    homeTeam={homeTeam}
+                    awayTeam={awayTeam}
+                    heroKpis={heroKpis}
                     teamSide={selectedPlayerTeamSide}
+                    heatmapPoints={selectedPlayerHeatmapPoints}
                     match={reportFilters?.match}
-                    statMode={statMode}
-                    involvementMetrics={goalkeeperInvolvementMetrics}
-                    savingMetrics={goalkeeperSavingMetrics}
-                    shotsOnGoal={selectedGoalkeeperShotsOnGoal}
-                    defensiveActions={selectedPlayerDefensiveActions}
-                    cardCounts={selectedPlayerCardCounts}
+                    rightPanelMode={selectedTopRightIsGoalkeeper ? 'kickout-map' : 'heatmap'}
+                    kickoutMapItems={selectedTopRightIsGoalkeeper ? goalkeeperKickoutItems : []}
+                    onComparePlayer={(!singlePlayerOnly && !isLiveMode) ? () => {
+                      setActiveMode('comparison');
+                      if (!comparisonSecondPlayerId || comparisonSecondPlayerId === safeChartPlayerValue) {
+                        setComparisonSecondPlayerId(defaultComparisonSecondValue);
+                      }
+                    } : null}
                     onOpenVideoSelection={openPlayerMapVideoSelection}
-                    cardStyle={selectedCardTintStyle}
+                    isLiveMode={isLiveMode}
                   />
+                )}
+
+                {isLiveMode ? (
+                <div className="space-y-4">
+                  {selectedIsGoalkeeper ? (
+                    <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
+                      <GoalkeeperSummaryMetricsCard
+                        title={<ReportInfoTitle title="Saving Metrics" helpId="players_goalkeeper_saving" titleClassName="text-lg font-semibold text-slate-900" />}
+                        metrics={goalkeeperSavingMetrics}
+                        cardStyle={selectedCardTintStyle}
+                      />
+                      <GoalkeeperShotsMap
+                        shots={selectedGoalkeeperShotsOnGoal}
+                        teamSide={selectedPlayerTeamSide}
+                        match={reportFilters?.match}
+                        onOpenVideoSelection={null}
+                        cardStyle={selectedCardTintStyle}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <PlayerShootingPanel
+                        row={selectedPlayerRow}
+                        shots={selectedPlayerShotStats}
+                        statMode={statMode}
+                        showXp={showXp}
+                        teamSide={selectedPlayerTeamSide}
+                        match={reportFilters?.match}
+                        filter={playerShotPaneFilter}
+                        onFilterChange={setPlayerShotPaneFilter}
+                        onOpenVideoSelection={null}
+                        cardStyle={selectedCardTintStyle}
+                      />
+                      <PlayerRestartPanel
+                        row={selectedPlayerRow}
+                        statMode={statMode}
+                        isLiveMode={isLiveMode}
+                        kickoutItems={selectedPlayerKickoutMapItems}
+                        teamSide={selectedPlayerTeamSide}
+                        match={reportFilters?.match}
+                        onOpenVideoSelection={null}
+                        cardStyle={selectedCardTintStyle}
+                      />
+                    </>
+                  )}
+                </div>
                 ) : (
                 <div className="space-y-4">
                   {!selectedIsGoalkeeper ? (
@@ -5113,17 +5136,6 @@ function PlayersAnalyticsTabContent({
                       kickoutItems={selectedPlayerKickoutMapItems}
                       teamSide={selectedPlayerTeamSide}
                       match={reportFilters?.match}
-                      onOpenVideoSelection={openPlayerMapVideoSelection}
-                      cardStyle={selectedCardTintStyle}
-                    />
-                  ) : null}
-                  {(!selectedIsGoalkeeper || isLiveMode) ? (
-                    <PlayerDefensePanel
-                      row={selectedPlayerRow}
-                      actions={selectedPlayerDefensiveActions}
-                      cardCounts={selectedPlayerCardCounts}
-                      statMode={statMode}
-                      isLiveMode={isLiveMode}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5498,7 +5510,9 @@ function bucketColumnsBuilder({
       { key: 'progPassRecv', label: 'Prog Passes Received', numeric: true, render: (row) => countValue(row, row.progPassRecv) },
       { key: 'touches', label: 'Touches', numeric: true, render: (row) => countValue(row, row.touches) },
       { key: 'progRecvOppThird', label: 'Prog Passes Received In Opp 1/3', numeric: true, sortValue: (row) => getDerived(row).progressiveReceptionsOppThird || 0, render: (row) => countValue(row, getDerived(row).progressiveReceptionsOppThird || 0) },
-      { key: 'totalProgMetres', label: 'Total Prog Metres', numeric: true, sortValue: (row) => (getDerived(row).passProgressiveMeters || 0) + (getDerived(row).carryProgressiveMeters || 0), render: (row) => distanceValue(row, (getDerived(row).passProgressiveMeters || 0) + (getDerived(row).carryProgressiveMeters || 0)) },
+      { key: 'totalProgMetres', label: 'Total Prog Metres', numeric: true, sortValue: (row) => getComparisonTotalProgressiveMetres(row, getDerived(row)), render: (row) => distanceValue(row, getComparisonTotalProgressiveMetres(row, getDerived(row))) },
+      { key: 'toLostPer10Touches', label: 'TO Lost / 10 Touches', numeric: true, sortValue: (row) => getComparisonTurnoversLostPer10Touches(row), render: (row) => formatMetricValue(getComparisonTurnoversLostPer10Touches(row), { decimals: 2 }) },
+      { key: 'progMetresPerToLost', label: 'Prog Metres / TO Lost', numeric: true, sortValue: (row) => getComparisonProgressiveMetresPerTurnoverLost(row, getDerived(row)), render: (row) => formatMetricValue(getComparisonProgressiveMetresPerTurnoverLost(row, getDerived(row)), { decimals: 1, suffix: 'm' }) },
       { key: 'scorableFreesWon', label: 'Scorable Frees Won', numeric: true, sortValue: (row) => getDerived(row).scorableFreesWon || 0, render: (row) => countValue(row, getDerived(row).scorableFreesWon || 0) },
     ],
     defending: [

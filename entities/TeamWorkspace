@@ -1,0 +1,34 @@
+{
+  "name": "TeamWorkspace",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "primary_team_ref": {
+      "type": "string"
+    },
+    "team_code": {
+      "type": "string"
+    },
+    "join_policy": {
+      "type": "string",
+      "enum": [
+        "approval_required",
+        "open"
+      ],
+      "default": "approval_required"
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "archived_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "primary_team_ref",
+    "team_code"
+  ]
+}

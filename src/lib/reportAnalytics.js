@@ -57,6 +57,33 @@ function safeParseExtraObject(stat) {
   return safeParseJSONLocal(stat.extra_data, {});
 }
 
+function hasMeaningfulSelectionLocal(selection) {
+  return !!(
+    selection
+    && typeof selection === 'object'
+    && selection.kind
+    && selection.kind !== 'none'
+  );
+}
+
+export function resolveTurnoverLostBySelection(stat, extra = null) {
+  const ex = extra && typeof extra === 'object' ? extra : safeParseExtraObject(stat);
+  const explicitLostBy = ex?.turnover?.lost_by;
+  if (hasMeaningfulSelectionLocal(explicitLostBy)) return explicitLostBy;
+
+  const passOutcome = normalizeOutcomeAlias(ex?.pass?.outcome);
+  if ((stat?.stat_type === 'pass' || passOutcome === 'turnover') && hasMeaningfulSelectionLocal(ex?.pass?.intended_recipient)) {
+    return ex.pass.intended_recipient;
+  }
+
+  const carryOutcome = normalizeOutcomeAlias(ex?.carry?.outcome);
+  if ((stat?.stat_type === 'carry' || carryOutcome === 'turnover') && hasMeaningfulSelectionLocal(ex?.carry?.carrier)) {
+    return ex.carry.carrier;
+  }
+
+  return explicitLostBy || null;
+}
+
 function safeNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;

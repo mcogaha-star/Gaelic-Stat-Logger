@@ -753,6 +753,7 @@ function RestartsTab({
   playerOptions,
   reportFilters,
   isLiveMode = false,
+  liveModeSettings = null,
   showXpData = true,
   restartTargetFilter = [],
   restartWonByFilter = [],
@@ -760,10 +761,12 @@ function RestartsTab({
   restartSideFilter = [],
   onOpenVideoAt,
 }) {
+  const videoOpenHandler = isLiveMode ? null : onOpenVideoAt;
   const isMobile = useIsMobile();
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['kickout', 'throw_in'] }), [reportFilters]);
   const showXp = !isLiveMode || showXpData;
   const activeRestartTargetFilter = isLiveMode ? [] : restartTargetFilter;
+  const showKickoutPressFilter = !isLiveMode || Boolean(liveModeSettings?.showKickoutPress);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
@@ -1071,6 +1074,11 @@ function RestartsTab({
   useEffect(() => { setKoMapLengths(Array.isArray(restartLengthFilter) ? restartLengthFilter : []); }, [restartLengthFilter]);
   useEffect(() => { setKoMapSides(Array.isArray(restartSideFilter) ? restartSideFilter : []); }, [restartSideFilter]);
   useEffect(() => {
+    if (!showKickoutPressFilter && koMapPress.length > 0) {
+      setKoMapPress([]);
+    }
+  }, [showKickoutPressFilter, koMapPress.length]);
+  useEffect(() => {
     if (isLiveMode && kickoutValueGrouping === 'press') setKickoutValueGrouping('all');
   }, [isLiveMode, kickoutValueGrouping]);
   useEffect(() => {
@@ -1159,7 +1167,7 @@ function RestartsTab({
       });
       if (!matchesSelectedWinner) return false;
     }
-    if (koMapPress.length) {
+    if (showKickoutPressFilter && koMapPress.length) {
       const press = String(kick?.press || '').toLowerCase();
       if (!press || !koMapPress.includes(press)) return false;
     }
@@ -1172,7 +1180,7 @@ function RestartsTab({
       if (!sideLabel || !koMapSides.includes(sideLabel)) return false;
     }
     return true;
-  }), [isLiveMode, kickoutMapBase, koMapTeam, koMapTargets, koMapOutcomes, koMapWonBy, koMapPress, koMapLengths, koMapSides, nextStatById]);
+  }), [isLiveMode, kickoutMapBase, koMapTeam, koMapTargets, koMapOutcomes, koMapWonBy, koMapPress, koMapLengths, koMapSides, nextStatById, showKickoutPressFilter]);
   const restartFilteredKickouts = useMemo(() => calcKickouts.filter((stat) => {
     const extra = safeParseJSON(stat.extra_data || '{}', {});
     const kick = extra?.kickout || {};
@@ -1516,7 +1524,7 @@ function RestartsTab({
                       directionLabel="Home ->"
                       align="left"
                       pitchScale="100%"
-                      onOpenVideoAt={onOpenVideoAt}
+                      onOpenVideoAt={videoOpenHandler}
                     />
                   </div>
                   <div className="space-y-3">
@@ -1578,17 +1586,19 @@ function RestartsTab({
                         onChange={setKoMapWonBy}
                         options={kickoutWonByOptions}
                       />
-                      <MultiSelect
-                        label="Press"
-                        placeholder="All"
-                        values={koMapPress}
-                        onChange={setKoMapPress}
-                        options={[
-                          { value: 'm2m', label: 'M2M' },
-                          { value: 'zonal', label: 'Zonal' },
-                          { value: 'conceded', label: 'Conceded' },
-                        ]}
-                      />
+                      {showKickoutPressFilter ? (
+                        <MultiSelect
+                          label="Press"
+                          placeholder="All"
+                          values={koMapPress}
+                          onChange={setKoMapPress}
+                          options={[
+                            { value: 'm2m', label: 'M2M' },
+                            { value: 'zonal', label: 'Zonal' },
+                            { value: 'conceded', label: 'Conceded' },
+                          ]}
+                        />
+                      ) : null}
                       <MultiSelect
                         label="Distance"
                         placeholder="All"

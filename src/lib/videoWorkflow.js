@@ -179,8 +179,8 @@ export function createTimestampClipRef({
 }
 
 export function createPossessionClipRef(row, match, homeTeam, awayTeam, clipSettings) {
-  const start = Number(row?.startTime);
-  const end = Number(row?.endTime);
+  const start = Number.isFinite(Number(row?.videoStartTime)) ? Number(row.videoStartTime) : Number(row?.startTime);
+  const end = Number.isFinite(Number(row?.videoEndTime)) ? Number(row.videoEndTime) : Number(row?.endTime);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   return {
     match_id: match?.id || '',

@@ -464,6 +464,7 @@ function WinProbabilityBar({ title, sim, homeTeam, awayTeam, homeColor, awayColo
 }
 
 function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, playerOptions = [], reportFilters, isLiveMode = false, showXpData = true, shotType, setShotType, situation, setSituation, pressure, setPressure, method, setMethod, attackType = 'any', onOpenVideoAt }) {
+  const videoOpenHandler = isLiveMode ? null : onOpenVideoAt;
   const scopedReportFilters = useMemo(() => ({ ...reportFilters, allowedActionTypes: ['shot'] }), [reportFilters]);
   const teamMode = String(reportFilters?.team || 'both');
   const showXp = !isLiveMode || showXpData;
@@ -1104,7 +1105,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
           <>
             <Card className={paneClassName}>
               <CardContent className="p-4">
-                <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={onOpenVideoAt} />
+                <ShotMap shots={mapShots} mode={shotMapMode} setMode={setShotMapMode} teamMode={teamMode} homeColor={homeTeam?.color} awayColor={awayTeam?.color} onOpenVideoAt={videoOpenHandler} />
               </CardContent>
             </Card>
 

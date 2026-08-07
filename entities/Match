@@ -57,6 +57,15 @@
     "video_half_start_time_s": {
       "type": "string",
       "description": "Local-only JSON mapping half->video start time (seconds) used to normalize stat timestamps"
+    },
+    "team_workspace_id": {
+      "type": "string"
+    },
+    "workspace_perspective_team_ref": {
+      "type": "string"
+    },
+    "workspace_match_health_override": {
+      "type": "string"
     }
   },
   "required": [

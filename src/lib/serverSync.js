@@ -15,6 +15,36 @@ async function requireAuthUser() {
   return data?.user ?? null;
 }
 
+async function fetchAllUserRows(table, { userId, limit = 1000, applyFilters = null } = {}) {
+  const maxRows = Math.max(1, Number(limit) || 1000);
+  const pageSize = Math.min(maxRows, 1000);
+  const rows = [];
+
+  for (let from = 0; from < maxRows; from += pageSize) {
+    let query = supabase
+      .from(table)
+      .select('*')
+      .eq('user_id', userId);
+
+    if (typeof applyFilters === 'function') {
+      query = applyFilters(query);
+    }
+
+    const to = Math.min(from + pageSize - 1, maxRows - 1);
+    const { data, error } = await query
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    if (error) return { ok: false, reason: error.message, rows: [] };
+
+    const batch = Array.isArray(data) ? data : [];
+    rows.push(...batch);
+    if (batch.length < (to - from + 1)) break;
+  }
+
+  return { ok: true, rows };
+}
+
 function isMissingOptionalSchema(error, pattern) {
   const msg = String(error?.message || '');
   return !!msg && pattern.test(msg);
@@ -150,39 +180,29 @@ function findPrimaryRefs(stat, playerRefByLocalId = {}) {
 export async function fetchPrivateTeams({ limit = 1000 } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', teams: [] };
-  const { data, error } = await supabase
-    .from('private_teams')
-    .select('*')
-    .eq('user_id', user.id)
-    .limit(limit);
-  if (error) return { ok: false, reason: error.message, teams: [] };
-  return { ok: true, teams: (data || []).filter((row) => !row?.deleted_at) };
+  const result = await fetchAllUserRows('private_teams', { userId: user.id, limit });
+  if (!result.ok) return { ok: false, reason: result.reason, teams: [] };
+  return { ok: true, teams: result.rows.filter((row) => !row?.deleted_at) };
 }
 
 export async function fetchPrivatePlayers({ limit = 3000 } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', players: [] };
-  const { data, error } = await supabase
-    .from('private_players')
-    .select('*')
-    .eq('user_id', user.id)
-    .limit(limit);
-  if (error) return { ok: false, reason: error.message, players: [] };
-  return { ok: true, players: (data || []).filter((row) => !row?.deleted_at) };
+  const result = await fetchAllUserRows('private_players', { userId: user.id, limit });
+  if (!result.ok) return { ok: false, reason: result.reason, players: [] };
+  return { ok: true, players: result.rows.filter((row) => !row?.deleted_at) };
 }
 
 export async function fetchPrivateMatchupStints({ serverMatchId = null, limit = 10000 } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', matchupStints: [] };
-  let query = supabase
-    .from('private_matchup_stints')
-    .select('*')
-    .eq('user_id', user.id)
-    .limit(limit);
-  if (serverMatchId) query = query.eq('match_id', serverMatchId);
-  const { data, error } = await query;
-  if (error) return { ok: false, reason: error.message, matchupStints: [] };
-  const matchupStints = (data || []).filter((row) => !row?.deleted_at);
+  const result = await fetchAllUserRows('private_matchup_stints', {
+    userId: user.id,
+    limit,
+    applyFilters: (query) => (serverMatchId ? query.eq('match_id', serverMatchId) : query),
+  });
+  if (!result.ok) return { ok: false, reason: result.reason, matchupStints: [] };
+  const matchupStints = result.rows.filter((row) => !row?.deleted_at);
   matchupStints.sort((a, b) => {
     const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
     const periodDiff = (periodOrder[a?.period_key] ?? 99) - (periodOrder[b?.period_key] ?? 99);
@@ -683,16 +703,9 @@ export async function updateServerStat(statId, patch) {
 export async function fetchServerMatches({ limit = 1000 } = {}) {
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', matches: [] };
-
-  const { data, error } = await supabase
-    .from('matches')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) return { ok: false, reason: error.message, matches: [] };
-  const matches = (data || []).filter((row) => !row?.deleted_at);
+  const result = await fetchAllUserRows('matches', { userId: user.id, limit });
+  if (!result.ok) return { ok: false, reason: result.reason, matches: [] };
+  const matches = result.rows.filter((row) => !row?.deleted_at);
   matches.sort((a, b) => String(b?.created_at || b?.match_date || '').localeCompare(String(a?.created_at || a?.match_date || '')));
   return { ok: true, matches };
 }
@@ -701,22 +714,17 @@ export async function fetchServerStatsForMatch({ serverMatchId, publicMatchId, l
   const user = await requireAuthUser();
   if (!user) return { ok: false, reason: 'not_authenticated', stats: [] };
   if (!serverMatchId && !publicMatchId) return { ok: false, reason: 'missing_match_reference', stats: [] };
-
-  let query = supabase
-    .from('stat_entries')
-    .select('*')
-    .eq('user_id', user.id)
-    .limit(limit);
-
-  if (serverMatchId) {
-    query = query.eq('match_id', serverMatchId);
-  } else {
-    query = query.eq('public_match_id', publicMatchId);
-  }
-
-  const { data, error } = await query;
-  if (error) return { ok: false, reason: error.message, stats: [] };
-  const stats = (data || []).filter((row) => !row?.deleted_at);
+  const result = await fetchAllUserRows('stat_entries', {
+    userId: user.id,
+    limit,
+    applyFilters: (query) => (
+      serverMatchId
+        ? query.eq('match_id', serverMatchId)
+        : query.eq('public_match_id', publicMatchId)
+    ),
+  });
+  if (!result.ok) return { ok: false, reason: result.reason, stats: [] };
+  const stats = result.rows.filter((row) => !row?.deleted_at);
   stats.sort((a, b) => {
     const playDiff = Number(a?.play_id || 0) - Number(b?.play_id || 0);
     if (playDiff) return playDiff;

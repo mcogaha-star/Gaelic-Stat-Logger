@@ -1,0 +1,36 @@
+{
+  "name": "StintPreset",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "include_player_refs": {
+      "type": "string",
+      "description": "JSON array of player ids that must be on the field"
+    },
+    "exclude_player_refs": {
+      "type": "string",
+      "description": "JSON array of player ids that must be off the field"
+    },
+    "perspective": {
+      "type": "string",
+      "enum": [
+        "workspace_team",
+        "opposition",
+        "either"
+      ],
+      "default": "workspace_team"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace_id",
+    "name"
+  ]
+}

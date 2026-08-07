@@ -1,0 +1,35 @@
+{
+  "name": "AnalysisGroup",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "group_type": {
+      "type": "string",
+      "enum": [
+        "own_team",
+        "scouting",
+        "mixed",
+        "custom"
+      ],
+      "default": "custom"
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "archived_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace_id",
+    "name"
+  ]
+}
