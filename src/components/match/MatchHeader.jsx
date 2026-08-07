@@ -44,11 +44,11 @@ export default function MatchHeader({
                         <div className="flex items-start gap-3" data-tour-id="logger-header-summary">
                             {backUrl && (
                                 <div className="pt-0.5">
-                                    <Link to={backUrl}>
-                                        <Button variant="ghost" size="sm" className="gap-2 px-2 h-7">
+                                        <Button asChild variant="ghost" size="sm" className="gap-2 px-2 h-7">
+                                          <Link to={backUrl}>
                                             <ArrowLeft className="w-4 h-4" /> Back
+                                          </Link>
                                         </Button>
-                                    </Link>
                                 </div>
                             )}
 
@@ -99,11 +99,11 @@ export default function MatchHeader({
                     
                     <div className="flex items-center gap-2 justify-end">
                         {statsUrl && (
-                            <Link to={statsUrl}>
-                                <Button variant="outline" size="sm" className="gap-2 h-7">
+                                <Button asChild variant="outline" size="sm" className="gap-2 h-7">
+                                  <Link to={statsUrl}>
                                     <BarChart3 className="w-4 h-4" /> Match Reports
+                                  </Link>
                                 </Button>
-                            </Link>
                         )}
                         {(dataUrl || onDataClick) && (
                             onDataClick ? (
@@ -111,37 +111,37 @@ export default function MatchHeader({
                                     <BarChart3 className="w-4 h-4" /> Data
                                 </Button>
                             ) : (
-                                <Link to={dataUrl}>
-                                    <Button variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-data-button">
+                                    <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-data-button">
+                                      <Link to={dataUrl}>
                                         <BarChart3 className="w-4 h-4" /> Data
+                                      </Link>
                                     </Button>
-                                </Link>
                             )
                         )}
                         {seasonStatsUrl && (
-                            <Link to={seasonStatsUrl}>
-                                <Button variant="outline" size="sm" className="gap-2 h-7">
+                                <Button asChild variant="outline" size="sm" className="gap-2 h-7">
+                                  <Link to={seasonStatsUrl}>
                                     <BarChart3 className="w-4 h-4" /> Season Stats
+                                  </Link>
                                 </Button>
-                            </Link>
                         )}
                         {settingsUrl && (
-                            <Link to={settingsUrl}>
-                                <Button variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-settings-button">
+                                <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-settings-button">
+                                  <Link to={settingsUrl}>
                                     <Settings className="w-4 h-4" /> {settingsLabel}
+                                  </Link>
                                 </Button>
-                            </Link>
                         )}
                         {onHelpClick ? (
                             <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onHelpClick} data-tour-id="logger-help-button">
                                 <BookOpen className="w-4 h-4" /> {helpLabel}
                             </Button>
                         ) : helpUrl ? (
-                            <Link to={helpUrl}>
-                                <Button variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-help-button">
+                                <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-help-button">
+                                  <Link to={helpUrl}>
                                     <BookOpen className="w-4 h-4" /> {helpLabel}
+                                  </Link>
                                 </Button>
-                            </Link>
                         ) : null}
                     </div>
                 </div>

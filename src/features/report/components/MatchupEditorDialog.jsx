@@ -349,25 +349,25 @@ export default function MatchupEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>Assign Matchups</DialogTitle>
+      <DialogContent className="flex h-[90vh] w-[96vw] max-w-4xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[90vh]">
+        <DialogHeader className="border-b border-slate-200 px-4 py-4 sm:px-6">
+          <DialogTitle className="text-2xl font-semibold text-slate-900">Assign Matchups</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-slate-600">
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-2xl text-sm leading-6 text-slate-600">
               {defaultDefenderKey
                 ? 'Focused on one defender with suggested opposition matchups and draggable stint windows.'
                 : 'Assign defender-vs-attacker stints using period clocks and the matchup range bar.'}
             </div>
-            <Button type="button" size="sm" onClick={addRow} className="gap-2">
+            <Button type="button" size="sm" onClick={addRow} className="h-10 gap-2 self-start rounded-xl px-4">
               <Plus className="h-4 w-4" />
               Add Matchup
             </Button>
           </div>
 
-          <div className="max-h-[68vh] space-y-3 overflow-y-auto pr-1">
+          <div className="space-y-3 pr-1">
             {draftRows.length ? draftRows.map((row) => {
               const defender = playerById.get(String(row.defenderPlayerId || '')) || null;
               const attackerCandidates = defender?.team_side
@@ -381,8 +381,8 @@ export default function MatchupEditorDialog({
               const saving = busyKey === row.key;
 
               return (
-                <div key={row.key} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="grid gap-3 lg:grid-cols-[1.2fr_1.2fr_0.7fr_auto] lg:items-center">
+                <div key={row.key} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                  <div className="grid gap-3 xl:grid-cols-[1.2fr_1.2fr_0.7fr_auto] xl:items-center">
                     <Select value={String(row.defenderPlayerId || '')} onValueChange={(value) => updateRow(row.key, { defenderPlayerId: value })}>
                       <SelectTrigger className="h-10 rounded-xl bg-white" aria-label="Select defender">
                         <SelectValue placeholder="Choose defender" />
@@ -428,17 +428,17 @@ export default function MatchupEditorDialog({
                       </SelectContent>
                     </Select>
 
-                    <div className="flex items-center justify-end gap-2">
-                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl px-3" onClick={() => saveRow(row)} disabled={saving}>
+                    <div className="flex items-center justify-end gap-2 xl:justify-self-end">
+                      <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 sm:flex-none" onClick={() => saveRow(row)} disabled={saving}>
                         <Save className="h-4 w-4" />
                       </Button>
-                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl px-3 text-red-600" onClick={() => deleteRow(row)} disabled={saving}>
+                      <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 text-red-600 sm:flex-none" onClick={() => deleteRow(row)} disabled={saving}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
                     <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-slate-700">
                       <span>{startLabel}</span>
                       <span>{endLabel}</span>
@@ -458,8 +458,8 @@ export default function MatchupEditorDialog({
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                    <div className="inline-flex items-center gap-2 text-sm text-slate-600">
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                    <div className="inline-flex flex-wrap items-center gap-2 text-sm text-slate-600">
                       <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">{durationLabel}</span>
                       <span className={`${error ? 'text-red-600' : 'text-slate-500'}`}>
                         {error || (row.source === 'default' ? 'Default' : row.id ? 'Saved' : 'Draft')}

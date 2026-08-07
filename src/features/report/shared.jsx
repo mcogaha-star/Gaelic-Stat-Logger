@@ -1611,6 +1611,17 @@ function buildTouchEvents(stats, playerOptions = []) {
       reason,
     });
   };
+  const addTurnoverRecovery = (stat, extra) => {
+    const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
+    if (turnoverType === 'foul') return;
+    add(
+      extra?.turnover?.recovered_by,
+      stat,
+      stat?.end_x_position ?? stat?.x_position,
+      stat?.end_y_position ?? stat?.y_position,
+      'Turnover Recovery',
+    );
+  };
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat) continue;
@@ -1625,14 +1636,12 @@ function buildTouchEvents(stats, playerOptions = []) {
       if (extra?.pass?.deadball) {
         add(extra?.pass?.passer, stat, stat?.x_position, stat?.y_position, 'Deadball Pass');
       }
+      if (extra?.turnover) addTurnoverRecovery(stat, extra);
       continue;
     }
 
     if (stat.stat_type === 'turnover' || extra?.turnover) {
-      const turnoverType = normalizeOutcomeAlias(extra?.turnover?.turnover_type, 'turnover');
-      if (turnoverType !== 'foul') {
-        add(extra?.turnover?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Turnover Recovery');
-      }
+      addTurnoverRecovery(stat, extra);
       continue;
     }
 
@@ -1669,6 +1678,7 @@ function buildTouchEvents(stats, playerOptions = []) {
       if (String(extra?.carry?.outcome || '') === 'dispossessed_retained') {
         add(extra?.carry?.recovered_by, stat, stat?.end_x_position ?? stat?.x_position, stat?.end_y_position ?? stat?.y_position, 'Dispossessed Retained');
       }
+      if (extra?.turnover) addTurnoverRecovery(stat, extra);
     }
   }
 

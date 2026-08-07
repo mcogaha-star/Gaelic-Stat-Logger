@@ -1671,7 +1671,7 @@ function DataTab({
           type="button"
           variant="outline"
           size="sm"
-          className="order-2 h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none sm:px-4"
+          className="order-2 ml-auto h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none lg:ml-0 sm:px-4"
           onClick={handleWatchCurrentVideoSet}
           disabled={!currentClipCandidates.length}
           aria-label="Watch selected rows, or current filtered rows if nothing is selected"
@@ -1702,7 +1702,7 @@ function DataTab({
         </div>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="order-5 h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none sm:px-4">
+          <Button type="button" variant="outline" size="sm" className="order-5 h-8 min-w-[5rem] flex-none px-2 text-xs lg:order-none sm:px-4">
               {!isMobile ? <ListVideo className="mr-2 h-4 w-4" /> : null}
               Options
             </Button>

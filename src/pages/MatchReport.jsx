@@ -111,6 +111,7 @@ import {
 import { MOBILE_REVIEW_PLAYER_EVENT } from '@/lib/videoWorkflow';
 import { buildStatShareLink } from '@/lib/shareLinks';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const db = globalThis.__B44_DB__ || {
   entities: new Proxy({}, {
@@ -138,6 +139,21 @@ const REPORT_EXPORT_FORMATS = [
   { value: 'pdf', label: 'PDF' },
   { value: 'jpeg', label: 'JPEG' },
 ];
+
+function normalizeEditableMatchupStint(row, fallbackId) {
+  const stableId = String(
+    row?.id
+    || row?.server_matchup_stint_id
+    || row?.serverId
+    || fallbackId
+    || `local-${Math.random().toString(36).slice(2, 10)}`
+  );
+  return {
+    ...row,
+    id: stableId,
+    server_matchup_stint_id: row?.server_matchup_stint_id || null,
+  };
+}
 const REPORT_TOUR_STORAGE_KEY_PREFIX = 'gaeliq_report_tour_seen_v2';
 
 function isStoredTrue(value) {
@@ -426,6 +442,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
+  const detectedMobile = useIsMobile();
+  const isMobile = detectedMobile || (typeof window !== 'undefined' && window.innerWidth < 768);
   const requestedTab = useMemo(() => {
     const params = new URLSearchParams(location?.search || '');
     const value = String(params.get('tab') || '').trim();
@@ -453,16 +471,19 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
   const [manageMenuOpen, setManageMenuOpen] = useState(false);
   const [reportIntroOpen, setReportIntroOpen] = useState(false);
+  const [reportIntroReady, setReportIntroReady] = useState(false);
+  const [mobileBootMinElapsed, setMobileBootMinElapsed] = useState(!isMobile);
   const shotArcImportInputRef = useRef(null);
   const exportWorkspaceRef = useRef(null);
   const reportMainRef = useRef(null);
   const pendingManageActionRef = useRef(null);
 
-  const { data: matchArr = [] } = useQuery({
+  const matchQuery = useQuery({
     queryKey: ['match', matchId],
     queryFn: () => db.entities.Match.filter({ id: matchId }),
     enabled: !!matchId && !isSharedView,
   });
+  const { data: matchArr = [] } = matchQuery;
 
   const match = isSharedView ? sharedData.match : (matchArr?.[0] || null);
   const reportReadOnly = readOnly
@@ -470,6 +491,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     || match?.is_stat_view_copy === 'true'
     || match?.read_only_shared_view === true
     || match?.read_only_shared_view === 'true';
+  const canEditMatchups = !!(matchId || statShareCode || match?.id);
   const isImportedReportCopy = isSharedView || isStoredTrue(match?.is_shared_copy) || !!match?.imported_from_snapshot_id;
   const canMentionManageInTour = !reportReadOnly && !isImportedReportCopy;
   const reportIntroTriggerKey = match?.id || (isSharedView ? (statShareCode || sharedData?.match?.id || 'shared-report') : '');
@@ -484,54 +506,61 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       // Best-effort bridge for shared/mobile review players.
     }
   }, [matchId, match?.video_config]);
-  const { data: homeTeamArr = [] } = useQuery({
+  const homeTeamQuery = useQuery({
     queryKey: ['team', match?.home_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.home_team_id }),
     enabled: !!match?.home_team_id && !isSharedView,
   });
+  const { data: homeTeamArr = [] } = homeTeamQuery;
 
-  const { data: awayTeamArr = [] } = useQuery({
+  const awayTeamQuery = useQuery({
     queryKey: ['team', match?.away_team_id],
     queryFn: () => db.entities.Team.filter({ id: match?.away_team_id }),
     enabled: !!match?.away_team_id && !isSharedView,
   });
+  const { data: awayTeamArr = [] } = awayTeamQuery;
 
   const homeTeam = isSharedView ? sharedData.homeTeam : (homeTeamArr?.[0] || null);
   const awayTeam = isSharedView ? sharedData.awayTeam : (awayTeamArr?.[0] || null);
 
-  const { data: homePlayers = [] } = useQuery({
+  const homePlayersQuery = useQuery({
     queryKey: ['players', 'home', match?.home_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.home_team_id }),
     enabled: !!match?.home_team_id && !isSharedView,
   });
+  const { data: homePlayers = [] } = homePlayersQuery;
 
-  const { data: awayPlayers = [] } = useQuery({
+  const awayPlayersQuery = useQuery({
     queryKey: ['players', 'away', match?.away_team_id],
     queryFn: () => db.entities.Player.filter({ team_id: match?.away_team_id }),
     enabled: !!match?.away_team_id && !isSharedView,
   });
+  const { data: awayPlayers = [] } = awayPlayersQuery;
 
-  const { data: rawStats = [] } = useQuery({
+  const rawStatsQuery = useQuery({
     queryKey: ['stats', matchId],
     queryFn: () => db.entities.StatEntry.filter({ match_id: matchId }),
     enabled: !!matchId && !isSharedView,
   });
+  const { data: rawStats = [] } = rawStatsQuery;
 
-  const { data: settingsRecords = [] } = useQuery({
+  const settingsQuery = useQuery({
     queryKey: ['app-settings'],
     queryFn: () => db.entities.AppSettings.list(),
     enabled: !isSharedView,
   });
+  const { data: settingsRecords = [] } = settingsQuery;
   const settingsRecord = settingsRecords[0];
   const liveModeSettings = useMemo(
     () => parseLiveModeSettings(settingsRecord?.live_mode_settings_config),
     [settingsRecord?.live_mode_settings_config],
   );
-  const { data: matchupStintRows = [] } = useQuery({
+  const matchupStintsQuery = useQuery({
     queryKey: ['matchup-stints', matchId],
     queryFn: () => db.entities.MatchupStint.filter({ match_id: matchId }),
     enabled: !!matchId && !isSharedView,
   });
+  const { data: matchupStintRows = [] } = matchupStintsQuery;
   useEffect(() => {
     setGameShareCode(match?.latest_game_share_code || match?.latest_share_code || '');
     setStatViewShareCode(match?.latest_stat_share_code || '');
@@ -612,15 +641,36 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   );
 
   useEffect(() => {
-    if (!reportIntroTriggerKey || typeof window === 'undefined') return;
-    try {
-      if (window.localStorage.getItem(reportTourStorageKey) === 'seen') return;
-    } catch {
+    if (!reportIntroTriggerKey || typeof window === 'undefined') {
+      setReportIntroReady(true);
       return;
     }
-    const id = window.setTimeout(() => setReportIntroOpen(true), 250);
+    try {
+      if (window.localStorage.getItem(reportTourStorageKey) === 'seen') {
+        setReportIntroReady(true);
+        return;
+      }
+    } catch {
+      setReportIntroReady(true);
+      return;
+    }
+    setReportIntroReady(false);
+    const id = window.setTimeout(() => {
+      setReportIntroOpen(true);
+      setReportIntroReady(true);
+    }, 250);
     return () => window.clearTimeout(id);
   }, [reportIntroTriggerKey, reportTourStorageKey]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileBootMinElapsed(true);
+      return undefined;
+    }
+    setMobileBootMinElapsed(false);
+    const id = window.setTimeout(() => setMobileBootMinElapsed(true), 1600);
+    return () => window.clearTimeout(id);
+  }, [isMobile, matchId, statShareCode]);
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
   const [migratingDefenceSet, setMigratingDefenceSet] = useState(false);
@@ -806,7 +856,57 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     () => buildMatchupPeriodMaxSeconds({ stats, match, imputedTimeById }),
     [imputedTimeById, match, stats],
   );
+  const editableMatchupStorageKey = useMemo(() => {
+    if (!reportReadOnly) return '';
+    const scopeKey = statShareCode || match?.id || matchId;
+    return scopeKey ? `gstl_local_matchup_stints:${scopeKey}` : '';
+  }, [match?.id, matchId, reportReadOnly, statShareCode]);
+  const [editableMatchupStints, setEditableMatchupStints] = useState([]);
+  const [editableMatchupsLoaded, setEditableMatchupsLoaded] = useState(!reportReadOnly);
+  useEffect(() => {
+    if (!editableMatchupStorageKey || typeof window === 'undefined') {
+      setEditableMatchupStints([]);
+      setEditableMatchupsLoaded(true);
+      return;
+    }
+    setEditableMatchupsLoaded(false);
+    try {
+      const stored = window.localStorage.getItem(editableMatchupStorageKey);
+      if (stored) {
+        const parsed = safeParseJSON(stored, []);
+        setEditableMatchupStints(
+          (Array.isArray(parsed) ? parsed : []).map((row, index) => normalizeEditableMatchupStint(row, `stored-${index + 1}`)),
+        );
+      } else {
+        const seededRows = (
+          isSharedView
+            ? (Array.isArray(sharedData.matchupStints) ? sharedData.matchupStints : [])
+            : (Array.isArray(matchupStintRows) ? matchupStintRows : [])
+        ).map((row, index) => normalizeEditableMatchupStint(row, `seed-${index + 1}`));
+        setEditableMatchupStints(seededRows);
+      }
+    } catch {
+      setEditableMatchupStints([]);
+    } finally {
+      setEditableMatchupsLoaded(true);
+    }
+  }, [editableMatchupStorageKey, isSharedView, matchupStintRows, reportReadOnly, sharedData.matchupStints]);
+
+  const persistEditableMatchupStints = (nextRows) => {
+    const normalizedRows = (Array.isArray(nextRows) ? nextRows : []).map((row, index) => normalizeEditableMatchupStint(row, `local-${index + 1}`));
+    setEditableMatchupStints(normalizedRows);
+    if (!editableMatchupStorageKey || typeof window === 'undefined') return normalizedRows;
+    try {
+      window.localStorage.setItem(editableMatchupStorageKey, JSON.stringify(normalizedRows));
+    } catch {
+      // Best-effort local persistence for shared/read-only reports.
+    }
+    return normalizedRows;
+  };
   const effectiveMatchupStints = useMemo(() => {
+    if (reportReadOnly) {
+      return editableMatchupsLoaded ? editableMatchupStints : [];
+    }
     if (isSharedView) return sharedData.matchupStints || [];
     return buildEffectiveMatchupStints({
       match,
@@ -816,7 +916,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       playerTimeAndPossessionStats,
       imputedTimeById,
     });
-  }, [imputedTimeById, isSharedView, match, matchupStintRows, playerOptions, playerTimeAndPossessionStats, sharedData.matchupStints, stats]);
+  }, [editableMatchupStints, editableMatchupsLoaded, imputedTimeById, isSharedView, match, matchupStintRows, playerOptions, playerTimeAndPossessionStats, reportReadOnly, sharedData.matchupStints, stats]);
   const rawStatsForPlayerProfile = isSharedView ? (sharedData.rawStats || []) : rawStats;
   const matchupStintsForPlayerProfile = effectiveMatchupStints;
   const selectedPlayerProfileOption = useMemo(() => {
@@ -827,7 +927,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     )) || null;
   }, [playerOptions, selectedPlayerProfile]);
   const openMatchupEditor = (defenderKey = null) => {
-    if (reportReadOnly) return;
+    if (!canEditMatchups) return;
     setMatchupEditorState({ open: true, defenderKey: defenderKey || null });
   };
   const closeMatchupEditor = (open) => {
@@ -887,7 +987,18 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleCreateMatchupStint = async (payload) => {
-    if (!match?.id || reportReadOnly) return;
+    if (reportReadOnly) {
+      persistEditableMatchupStints([
+        ...editableMatchupStints,
+        normalizeEditableMatchupStint({
+          ...payload,
+          match_id: match?.id || matchId,
+          source: 'local',
+        }, `local-${Date.now()}`),
+      ]);
+      return;
+    }
+    if (!match?.id) return;
     const created = await db.entities.MatchupStint.create({
       ...payload,
       match_id: match.id,
@@ -912,7 +1023,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleUpdateMatchupStint = async (stintId, payload) => {
-    if (!stintId || reportReadOnly) return;
+    if (!stintId) return;
+    if (reportReadOnly) {
+      persistEditableMatchupStints(
+        editableMatchupStints.map((row) => (String(row?.id) === String(stintId) ? { ...row, ...payload } : row)),
+      );
+      return;
+    }
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
     await db.entities.MatchupStint.update(stintId, {
@@ -938,7 +1055,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   };
 
   const handleDeleteMatchupStint = async (stintId) => {
-    if (!stintId || reportReadOnly) return;
+    if (!stintId) return;
+    if (reportReadOnly) {
+      persistEditableMatchupStints(editableMatchupStints.filter((row) => String(row?.id) !== String(stintId)));
+      return;
+    }
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
     await db.entities.MatchupStint.delete(stintId);
@@ -1474,7 +1595,6 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
       if (s.stat_type === 'kickout') {
         out[side].kickoutsTaken += 1;
-        const o = extra?.kickout?.outcome;
         const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
         if ((wonSide === 'home' || wonSide === 'away')) {
           out[wonSide].kickoutsWon += 1;
@@ -2115,7 +2235,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
           showXpData={showXpData}
           matchupStints={effectiveMatchupStints}
           playerTimeAndPossessionStats={playerTimeAndPossessionStats}
-          readOnly={reportReadOnly}
+          readOnly={!canEditMatchups}
           onPlayerSelect={openPlayerProfile}
           onOpenVideoAt={openSharedVideoAt}
           onOpenVideoSelection={openSharedVideoSelection}
@@ -2486,6 +2606,21 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   }
 
   const canManageReport = !reportReadOnly;
+  const reportQueriesReady = isSharedView
+    ? !!sharedData?.match
+    : (
+      !!match
+      && matchQuery.isFetched
+      && (!match?.home_team_id || homeTeamQuery.isFetched)
+      && (!match?.away_team_id || awayTeamQuery.isFetched)
+      && (!match?.home_team_id || homePlayersQuery.isFetched)
+      && (!match?.away_team_id || awayPlayersQuery.isFetched)
+      && rawStatsQuery.isFetched
+      && settingsQuery.isFetched
+      && matchupStintsQuery.isFetched
+    );
+  const reportBuildReady = !repairingLegacyPossessions && !migratingDefenceSet && !migratingStatModel && !deletingLegacyDefContact;
+  const showMobileBootOverlay = isMobile && (!mobileBootMinElapsed || !reportQueriesReady || !reportBuildReady || !reportIntroReady || !editableMatchupsLoaded);
   const openSeasonWorkspace = () => {
     const params = new URLSearchParams();
     if (match?.team_workspace_id) params.set('workspace', String(match.team_workspace_id));
@@ -2500,6 +2635,22 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
   return (
     <div className="relative min-h-screen" style={reportAmbient.shell}>
+      {showMobileBootOverlay ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-white/96 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white px-6 py-7 text-center shadow-xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-sm">
+              <BarChart3 className="h-7 w-7" />
+            </div>
+            <div className="text-lg font-semibold text-slate-900">Preparing stats report</div>
+            <div className="mt-2 text-sm leading-6 text-slate-600">
+              Loading match data, building the report, and getting the walkthrough ready.
+            </div>
+            <div className="mt-5 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2 w-full animate-pulse rounded-full bg-slate-900/80" />
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0" style={reportAmbient.baseWash} />
         <div className="absolute inset-y-0 -left-[12%] w-[72%] blur-3xl" style={reportAmbient.homeField} />
@@ -2638,7 +2789,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   ))}
                 </TabsList>
               </div>
-              <div className={`${usesSplitMobileNav ? 'order-1 min-w-[11rem] flex-[1_1_11rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none' : 'min-w-[11rem] flex-[1_1_11rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none'} xl:hidden`} data-tour-id="report-tabs-mobile">
+              <div className={`${usesSplitMobileNav ? 'order-1 min-w-[10rem] flex-[1_1_10rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none' : 'min-w-[11rem] flex-[1_1_11rem] md:min-w-0 md:flex-none lg:order-none lg:flex-none'} xl:hidden`} data-tour-id="report-tabs-mobile">
                 <label className="relative block h-9 min-w-[112px] md:inline-block md:min-w-0">
                   <span className="sr-only">Report tab</span>
                   <Menu className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-700" />

@@ -395,7 +395,7 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
   );
 }
 
-function MobilePlayerMapTooltip({ text, onClose, title = 'Event details' }) {
+function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpenVideo = null }) {
   if (!text) return null;
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={onClose}>
@@ -405,9 +405,26 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details' }) {
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</div>
-          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClose}>
-            Close
-          </Button>
+          <div className="flex items-center gap-2">
+            {typeof onOpenVideo === 'function' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenVideo();
+                }}
+              >
+                Video
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClose}>
+              Close
+            </Button>
+          </div>
         </div>
         {text}
       </div>
@@ -1147,7 +1164,11 @@ function PlayerShootingPanel({
               arrowText="Attacking ↑"
               onOpenVideo={videoEnabled && summary.mapShots.length ? () => onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={videoEnabled && summary.mapShots.length ? () => onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots' }) : null}
+            />
           </div>
         </CardContent>
       </Card>
@@ -1378,7 +1399,11 @@ function PlayerPassingPanel({
               title="Passes"
               onOpenVideo={summary.mapPasses.length ? () => onOpenVideoSelection?.(summary.mapPasses, { sourceLabel: 'Player Passes' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={summary.mapPasses.length ? () => onOpenVideoSelection?.(summary.mapPasses, { sourceLabel: 'Player Passes' }) : null}
+            />
           </div>
           <div className="space-y-2 pt-1">
             <div className="text-sm font-medium uppercase tracking-wide text-slate-500">Pass Method Split</div>
@@ -1641,7 +1666,11 @@ function PlayerCarryingPanel({
               title="Carries"
               onOpenVideo={summary.mapCarries.length ? () => onOpenVideoSelection?.(summary.mapCarries, { sourceLabel: 'Player Carries' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={summary.mapCarries.length ? () => onOpenVideoSelection?.(summary.mapCarries, { sourceLabel: 'Player Carries' }) : null}
+            />
           </div>
         </CardContent>
       </Card>
@@ -1765,7 +1794,11 @@ function PlayerRestartPanel({
               arrowSide={teamSide === 'away' ? 'right' : 'left'}
               onOpenVideo={videoEnabled && safeKickoutItems.length ? () => onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={videoEnabled && safeKickoutItems.length ? () => onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts' }) : null}
+            />
             {!safeKickoutItems.length ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-500">
                 No kickout involvements in the current filter.
@@ -1957,7 +1990,11 @@ function PlayerProgressionPanel({
               title="Receptions"
               onOpenVideo={summary.mapReceptions.length ? () => onOpenVideoSelection?.(summary.mapReceptions, { sourceLabel: 'Player Receptions' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={summary.mapReceptions.length ? () => onOpenVideoSelection?.(summary.mapReceptions, { sourceLabel: 'Player Receptions' }) : null}
+            />
           </div>
         </CardContent>
       </Card>
@@ -2114,7 +2151,11 @@ function PlayerDefensePanel({
               title="Defensive Actions"
               onOpenVideo={summary.mapActions.length ? () => onOpenVideoSelection?.(summary.mapActions, { sourceLabel: 'Player Defensive Actions' }) : null}
             />
-            <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+            <MobilePlayerMapTooltip
+              text={mobileTooltip}
+              onClose={() => setMobileTooltip('')}
+              onOpenVideo={summary.mapActions.length ? () => onOpenVideoSelection?.(summary.mapActions, { sourceLabel: 'Player Defensive Actions' }) : null}
+            />
           </div>
         </CardContent>
       </Card>
@@ -2641,7 +2682,11 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
           arrowSide={arrowSide}
           onOpenVideo={videoEnabled && safeItems.length ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title }) : null}
         />
-        <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+        <MobilePlayerMapTooltip
+          text={mobileTooltip}
+          onClose={() => setMobileTooltip('')}
+          onOpenVideo={videoEnabled && safeItems.length ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title }) : null}
+        />
       </div>
     </div>
   );
@@ -2844,7 +2889,11 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
             arrowText="Attacking ^"
             onOpenVideo={videoEnabled && safeShots.length ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal' }) : null}
           />
-          <MobilePlayerMapTooltip text={mobileTooltip} onClose={() => setMobileTooltip('')} />
+          <MobilePlayerMapTooltip
+            text={mobileTooltip}
+            onClose={() => setMobileTooltip('')}
+            onOpenVideo={videoEnabled && safeShots.length ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal' }) : null}
+          />
         </div>
       </CardContent>
     </Card>
@@ -4799,8 +4848,8 @@ function PlayersAnalyticsTabContent({
         value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.turnoversLost, 'rate') : selectedPlayerRow.turnoversLost, { decimals: 0 }),
       },
       {
-        label: 'Passes',
-        value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.passes, 'rate') : selectedPlayerRow.passes, { decimals: 0 }),
+        label: 'Passes Completed',
+        value: formatMetricValue(statMode === 'rate' ? scalePlayerCount(selectedPlayerRow, selectedPlayerRow.passComp, 'rate') : selectedPlayerRow.passComp, { decimals: 0 }),
       },
     ];
   }, [isLiveMode, selectedIsGoalkeeper, selectedPlayerRow, statMode]);
@@ -4927,7 +4976,7 @@ function PlayersAnalyticsTabContent({
   const playersNavControls = (
     <>
       {availablePlayerCardModes.length > 1 ? (
-        <div className="order-2 inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 lg:order-none">
+        <div className="order-2 ml-auto inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5 lg:order-none lg:ml-0">
           {availablePlayerCardModes.map(([value, label]) => (
             <Button
               key={value}
