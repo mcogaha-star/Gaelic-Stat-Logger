@@ -1291,11 +1291,17 @@ export default function MatchStats() {
                 scoreLine={scoreLine}
                 backUrl={createPageUrl('Home')}
                 onBackClick={() => {
-                    if (typeof window !== 'undefined' && window.history.length > 1) {
-                        navigate(-1);
+                    const fallbackUrl = createPageUrl('Home');
+                    if (typeof window === 'undefined') {
+                        navigate(fallbackUrl);
                         return;
                     }
-                    navigate(createPageUrl('Home'));
+                    const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+                    window.history.back();
+                    window.setTimeout(() => {
+                        const nextPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+                        if (nextPath === currentPath) navigate(fallbackUrl);
+                    }, 180);
                 }}
                 onDataClick={() => setDataOpen(true)}
                 settingsUrl={createPageUrl('Settings?tab=logging')}

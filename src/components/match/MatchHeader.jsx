@@ -44,13 +44,24 @@ export default function MatchHeader({
                     <div>
                         <div className="flex items-start gap-3" data-tour-id="logger-header-summary">
                             {backUrl && (
-                                <div className="pt-0.5">
+                                <div className="shrink-0 pt-0.5">
                                     {typeof onBackClick === 'function' ? (
-                                        <Button type="button" variant="ghost" size="sm" className="gap-2 px-2 h-7" onClick={onBackClick}>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm sm:h-7 sm:px-2 sm:text-sm"
+                                            onClick={onBackClick}
+                                        >
                                             <ArrowLeft className="w-4 h-4" /> Back
                                         </Button>
                                     ) : (
-                                        <Button asChild variant="ghost" size="sm" className="gap-2 px-2 h-7">
+                                        <Button
+                                            asChild
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm sm:h-7 sm:px-2 sm:text-sm"
+                                        >
                                           <Link to={backUrl}>
                                             <ArrowLeft className="w-4 h-4" /> Back
                                           </Link>
