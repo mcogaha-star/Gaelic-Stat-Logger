@@ -2363,11 +2363,11 @@ function PitchViz({
     if (Number.isFinite(timeS)) onOpenVideoAt?.(timeS);
   };
 
-  const showMobileTooltip = (x, y, text) => {
+  const showMobileTooltip = (x, y, text, onOpenVideo = null) => {
     if (!isMobile || !text) return;
     const safeX = Math.max(8, Math.min(92, (Number(x) / PITCH_W) * 100));
     const safeY = Math.max(10, Math.min(90, (Number(y) / (PITCH_H * verticalScale)) * 100));
-    setMobileTooltip({ x: safeX, y: safeY, text });
+    setMobileTooltip({ x: safeX, y: safeY, text, onOpenVideo });
   };
 
   const renderContent = (isFullscreen = false) => (
@@ -2425,7 +2425,7 @@ function PitchViz({
                     data-mobile-tooltip-point="true"
                     onClick={(e) => {
                       e.stopPropagation();
-                      showMobileTooltip(x2, y2, tip);
+                      showMobileTooltip(x2, y2, tip, () => openVideoForStat(s));
                       onStatClick?.(s);
                     }}
                     onDoubleClick={(e) => {
@@ -2463,7 +2463,7 @@ function PitchViz({
                     data-mobile-tooltip-point="true"
                     onClick={(e) => {
                       e.stopPropagation();
-                      showMobileTooltip(x2, y2, tip);
+                      showMobileTooltip(x2, y2, tip, () => openVideoForStat(s));
                       onStatClick?.(s);
                     }}
                     onDoubleClick={(e) => {
@@ -2484,7 +2484,7 @@ function PitchViz({
                   data-mobile-tooltip-point="true"
                   onClick={(e) => {
                     e.stopPropagation();
-                    showMobileTooltip(x2, y2, tip);
+                    showMobileTooltip(x2, y2, tip, () => openVideoForStat(s));
                     onStatClick?.(s);
                   }}
                   onDoubleClick={(e) => {
@@ -2518,7 +2518,7 @@ function PitchViz({
                 data-mobile-tooltip-point="true"
                 onClick={(e) => {
                   e.stopPropagation();
-                  showMobileTooltip(x1, y1, tip);
+                  showMobileTooltip(x1, y1, tip, () => openVideoForStat(s));
                   onStatClick?.(s);
                 }}
                 onDoubleClick={(e) => {
@@ -2541,9 +2541,26 @@ function PitchViz({
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Event details</div>
-                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileTooltip(null)}>
-                  Close
-                </Button>
+                <div className="flex items-center gap-2">
+                  {typeof mobileTooltip.onOpenVideo === 'function' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        mobileTooltip.onOpenVideo();
+                      }}
+                    >
+                      Video
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileTooltip(null)}>
+                    Close
+                  </Button>
+                </div>
               </div>
               {mobileTooltip.text}
             </div>
@@ -3651,7 +3668,7 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
       openVideoForShot(shot, event);
       return;
     }
-    setMobileShotTooltip(tip);
+    setMobileShotTooltip({ text: tip, onOpenVideo: () => openVideoForShot(shot) });
   };
 
   const renderContent = (isFullscreen = false) => (
@@ -3905,11 +3922,28 @@ function ShotMap({ shots, mode, setMode, teamMode = 'both', homeColor, awayColor
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Shot details</div>
-                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileShotTooltip(null)}>
-                      Close
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {typeof mobileShotTooltip?.onOpenVideo === 'function' ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            mobileShotTooltip.onOpenVideo();
+                          }}
+                        >
+                          Video
+                        </Button>
+                      ) : null}
+                      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMobileShotTooltip(null)}>
+                        Close
+                      </Button>
+                    </div>
                   </div>
-                  {mobileShotTooltip}
+                  {mobileShotTooltip?.text || ''}
                 </div>
               </div>
             ) : null}

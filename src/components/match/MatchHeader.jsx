@@ -34,6 +34,7 @@ export default function MatchHeader({
     helpUrl,
     onHelpClick,
     helpLabel = 'Help',
+    onBackClick,
     sticky = true,
 }) {
     return (
@@ -44,11 +45,17 @@ export default function MatchHeader({
                         <div className="flex items-start gap-3" data-tour-id="logger-header-summary">
                             {backUrl && (
                                 <div className="pt-0.5">
+                                    {typeof onBackClick === 'function' ? (
+                                        <Button type="button" variant="ghost" size="sm" className="gap-2 px-2 h-7" onClick={onBackClick}>
+                                            <ArrowLeft className="w-4 h-4" /> Back
+                                        </Button>
+                                    ) : (
                                         <Button asChild variant="ghost" size="sm" className="gap-2 px-2 h-7">
                                           <Link to={backUrl}>
                                             <ArrowLeft className="w-4 h-4" /> Back
                                           </Link>
                                         </Button>
+                                    )}
                                 </div>
                             )}
 

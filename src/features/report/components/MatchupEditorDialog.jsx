@@ -381,8 +381,26 @@ export default function MatchupEditorDialog({
               const saving = busyKey === row.key;
 
               return (
-                <div key={row.key} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-                  <div className="grid gap-3 xl:grid-cols-[1.2fr_1.2fr_0.7fr_auto] xl:items-center">
+                <div key={row.key} className="rounded-3xl border border-slate-300 bg-white p-3 shadow-sm sm:border-slate-200 sm:p-4">
+                  <div className="mb-3 flex items-center justify-end gap-2 lg:hidden">
+                    <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3" onClick={() => saveRow(row)} disabled={saving}>
+                      <Save className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 text-red-600" onClick={() => deleteRow(row)} disabled={saving}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="mb-3 hidden items-center justify-end gap-2 lg:flex">
+                    <Button type="button" size="sm" variant="outline" className="h-10 rounded-xl px-3" onClick={() => saveRow(row)} disabled={saving}>
+                      <Save className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="h-10 rounded-xl px-3 text-red-600" onClick={() => deleteRow(row)} disabled={saving}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-[1.2fr_1.2fr_0.7fr] lg:items-center">
                     <Select value={String(row.defenderPlayerId || '')} onValueChange={(value) => updateRow(row.key, { defenderPlayerId: value })}>
                       <SelectTrigger className="h-10 rounded-xl bg-white" aria-label="Select defender">
                         <SelectValue placeholder="Choose defender" />
@@ -427,15 +445,6 @@ export default function MatchupEditorDialog({
                         ))}
                       </SelectContent>
                     </Select>
-
-                    <div className="flex items-center justify-end gap-2 xl:justify-self-end">
-                      <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 sm:flex-none" onClick={() => saveRow(row)} disabled={saving}>
-                        <Save className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 text-red-600 sm:flex-none" onClick={() => deleteRow(row)} disabled={saving}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
                   </div>
 
                   <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">

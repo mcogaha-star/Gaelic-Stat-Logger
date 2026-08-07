@@ -2847,7 +2847,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                   <div
                     id="report-video-nav-controls"
                     data-tour-id="report-video-controls"
-                    className="flex w-auto max-w-full flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end"
+                    className="contents lg:flex lg:w-auto lg:max-w-full lg:flex-nowrap lg:items-center lg:justify-end lg:gap-2"
                     aria-label="Video tab controls"
                   />
                 ) : null}
@@ -2855,7 +2855,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                     <div
                       id="report-players-nav-controls"
                       data-tour-id="report-players-controls"
-                      className="flex w-auto max-w-full flex-wrap items-center gap-1.5 lg:flex-nowrap lg:justify-end"
+                      className="contents lg:flex lg:w-auto lg:max-w-full lg:flex-nowrap lg:items-center lg:justify-end lg:gap-1.5"
                       aria-label="Players tab controls"
                     />
                   ) : null}

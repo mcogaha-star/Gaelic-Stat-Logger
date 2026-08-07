@@ -7,7 +7,7 @@ const db = globalThis.__B44_DB__ || {
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,7 @@ function parseLiveClockInput(value) {
 }
 
 export default function MatchStats() {
+    const navigate = useNavigate();
     // With HashRouter, query params live in the hash segment, so use react-router's location.
     const location = useLocation();
     const urlParams = new URLSearchParams(location.search);
@@ -1289,6 +1290,13 @@ export default function MatchStats() {
                 onHalfChange={requestHalfChange}
                 scoreLine={scoreLine}
                 backUrl={createPageUrl('Home')}
+                onBackClick={() => {
+                    if (typeof window !== 'undefined' && window.history.length > 1) {
+                        navigate(-1);
+                        return;
+                    }
+                    navigate(createPageUrl('Home'));
+                }}
                 onDataClick={() => setDataOpen(true)}
                 settingsUrl={createPageUrl('Settings?tab=logging')}
                 settingsLabel="Logging Settings"

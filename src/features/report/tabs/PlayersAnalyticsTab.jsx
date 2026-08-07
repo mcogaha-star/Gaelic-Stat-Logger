@@ -396,7 +396,9 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
 }
 
 function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpenVideo = null }) {
-  if (!text) return null;
+  const tooltipText = typeof text === 'string' ? text : text?.text || '';
+  const tooltipVideoAction = typeof text === 'object' && text ? text.onOpenVideo : onOpenVideo;
+  if (!tooltipText) return null;
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={onClose}>
       <div
@@ -406,7 +408,7 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</div>
           <div className="flex items-center gap-2">
-            {typeof onOpenVideo === 'function' ? (
+            {typeof tooltipVideoAction === 'function' ? (
               <Button
                 type="button"
                 variant="outline"
@@ -415,7 +417,7 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  onOpenVideo();
+                  tooltipVideoAction();
                 }}
               >
                 Video
@@ -426,7 +428,7 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
             </Button>
           </div>
         </div>
-        {text}
+        {tooltipText}
       </div>
     </div>
   );
@@ -1033,7 +1035,7 @@ function PlayerShootingPanel({
                           key={shot.id}
                           data-tap-key={shot.id}
                           className={videoEnabled ? 'cursor-pointer' : undefined}
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
@@ -1077,7 +1079,7 @@ function PlayerShootingPanel({
                           key={shot.id}
                           data-tap-key={shot.id}
                           className={videoEnabled ? 'cursor-pointer' : undefined}
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
@@ -1123,7 +1125,7 @@ function PlayerShootingPanel({
                         key={shot.id}
                         data-tap-key={shot.id}
                         className={videoEnabled ? 'cursor-pointer' : undefined}
-                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? handleOpenVideo : null, shot.id)}
+                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                         onClick={(event) => {
                           if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                         }}
@@ -1756,7 +1758,7 @@ function PlayerRestartPanel({
                     key={item.id}
                     data-tap-key={item.id}
                     className={videoEnabled ? 'cursor-pointer' : undefined}
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? handleOpenVideo : null, item.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: item.tooltip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, item.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
                     }}
@@ -1971,7 +1973,7 @@ function PlayerProgressionPanel({
                     key={reception.id}
                     data-tap-key={reception.id}
                     className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, reception.tooltip, handleOpenVideo, reception.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: reception.tooltip, onOpenVideo: () => handleOpenVideo(event) }, handleOpenVideo, reception.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, reception.tooltip);
                     }}
@@ -2121,7 +2123,7 @@ function PlayerDefensePanel({
                     key={action.id}
                     data-tap-key={action.id}
                     className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, action.tooltip, handleOpenVideo, action.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: action.tooltip, onOpenVideo: () => handleOpenVideo(event) }, handleOpenVideo, action.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, action.tooltip);
                     }}
