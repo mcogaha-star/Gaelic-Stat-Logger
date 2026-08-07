@@ -471,8 +471,9 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   const [shotArcInfoOpen, setShotArcInfoOpen] = useState(false);
   const [manageMenuOpen, setManageMenuOpen] = useState(false);
   const [reportIntroOpen, setReportIntroOpen] = useState(false);
-  const [reportIntroReady, setReportIntroReady] = useState(false);
   const [mobileBootMinElapsed, setMobileBootMinElapsed] = useState(!isMobile);
+  const [mobileBootMaxElapsed, setMobileBootMaxElapsed] = useState(!isMobile);
+  const [mobileBootProgress, setMobileBootProgress] = useState(isMobile ? 0 : 100);
   const shotArcImportInputRef = useRef(null);
   const exportWorkspaceRef = useRef(null);
   const reportMainRef = useRef(null);
@@ -641,23 +642,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   );
 
   useEffect(() => {
-    if (!reportIntroTriggerKey || typeof window === 'undefined') {
-      setReportIntroReady(true);
-      return;
-    }
+    if (!reportIntroTriggerKey || typeof window === 'undefined') return;
     try {
-      if (window.localStorage.getItem(reportTourStorageKey) === 'seen') {
-        setReportIntroReady(true);
-        return;
-      }
+      if (window.localStorage.getItem(reportTourStorageKey) === 'seen') return;
     } catch {
-      setReportIntroReady(true);
       return;
     }
-    setReportIntroReady(false);
     const id = window.setTimeout(() => {
       setReportIntroOpen(true);
-      setReportIntroReady(true);
     }, 250);
     return () => window.clearTimeout(id);
   }, [reportIntroTriggerKey, reportTourStorageKey]);
@@ -665,11 +657,26 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   useEffect(() => {
     if (!isMobile) {
       setMobileBootMinElapsed(true);
+      setMobileBootMaxElapsed(true);
+      setMobileBootProgress(100);
       return undefined;
     }
     setMobileBootMinElapsed(false);
-    const id = window.setTimeout(() => setMobileBootMinElapsed(true), 1600);
-    return () => window.clearTimeout(id);
+    setMobileBootMaxElapsed(false);
+    setMobileBootProgress(0);
+    const startedAt = Date.now();
+    const minId = window.setTimeout(() => setMobileBootMinElapsed(true), 1200);
+    const maxId = window.setTimeout(() => setMobileBootMaxElapsed(true), 5000);
+    const progressId = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const nextProgress = Math.min(100, (elapsed / 5000) * 100);
+      setMobileBootProgress(nextProgress);
+    }, 80);
+    return () => {
+      window.clearTimeout(minId);
+      window.clearTimeout(maxId);
+      window.clearInterval(progressId);
+    };
   }, [isMobile, matchId, statShareCode]);
 
   const [repairingLegacyPossessions, setRepairingLegacyPossessions] = useState(false);
@@ -2610,17 +2617,19 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     ? !!sharedData?.match
     : (
       !!match
-      && matchQuery.isFetched
-      && (!match?.home_team_id || homeTeamQuery.isFetched)
-      && (!match?.away_team_id || awayTeamQuery.isFetched)
-      && (!match?.home_team_id || homePlayersQuery.isFetched)
-      && (!match?.away_team_id || awayPlayersQuery.isFetched)
-      && rawStatsQuery.isFetched
-      && settingsQuery.isFetched
-      && matchupStintsQuery.isFetched
+      && (matchQuery.isFetched || matchQuery.isError)
+      && (!match?.home_team_id || homeTeamQuery.isFetched || homeTeamQuery.isError)
+      && (!match?.away_team_id || awayTeamQuery.isFetched || awayTeamQuery.isError)
+      && (!match?.home_team_id || homePlayersQuery.isFetched || homePlayersQuery.isError)
+      && (!match?.away_team_id || awayPlayersQuery.isFetched || awayPlayersQuery.isError)
+      && (rawStatsQuery.isFetched || rawStatsQuery.isError)
+      && (settingsQuery.isFetched || settingsQuery.isError)
+      && (matchupStintsQuery.isFetched || matchupStintsQuery.isError)
     );
   const reportBuildReady = !repairingLegacyPossessions && !migratingDefenceSet && !migratingStatModel && !deletingLegacyDefContact;
-  const showMobileBootOverlay = isMobile && (!mobileBootMinElapsed || !reportQueriesReady || !reportBuildReady || !reportIntroReady || !editableMatchupsLoaded);
+  const reportBootReady = reportQueriesReady && reportBuildReady;
+  const showMobileBootOverlay = isMobile && !mobileBootMaxElapsed && (!mobileBootMinElapsed || !reportBootReady);
+  const mobileBootProgressLabel = `${Math.round(Math.max(0, Math.min(100, mobileBootProgress)))}%`;
   const openSeasonWorkspace = () => {
     const params = new URLSearchParams();
     if (match?.team_workspace_id) params.set('workspace', String(match.team_workspace_id));
@@ -2645,8 +2654,15 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
             <div className="mt-2 text-sm leading-6 text-slate-600">
               Loading match data, building the report, and getting the walkthrough ready.
             </div>
-            <div className="mt-5 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-2 w-full animate-pulse rounded-full bg-slate-900/80" />
+            <div className="mt-5 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <span>Loading</span>
+              <span>{mobileBootProgressLabel}</span>
+            </div>
+            <div className="mt-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-2 rounded-full bg-slate-900/80 transition-[width] duration-75 ease-linear"
+                style={{ width: mobileBootProgressLabel }}
+              />
             </div>
           </div>
         </div>
