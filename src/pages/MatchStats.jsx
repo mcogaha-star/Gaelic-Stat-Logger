@@ -171,6 +171,7 @@ export default function MatchStats() {
 
     const [subDialogOpen, setSubDialogOpen] = useState(false);
     const [dataOpen, setDataOpen] = useState(false);
+    const [rosterEditorOpen, setRosterEditorOpen] = useState(false);
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
     const [subTemporary, setSubTemporary] = useState(false);
@@ -1553,20 +1554,24 @@ export default function MatchStats() {
                 }}
             />
 
-            <Dialog open={dataOpen} onOpenChange={setDataOpen}>
+            <Dialog open={dataOpen} onOpenChange={(open) => {
+                setDataOpen(open);
+                if (!open) setRosterEditorOpen(false);
+            }}>
                 <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] p-0 overflow-hidden">
                     <DialogHeader className="px-6 pt-6 pb-0">
                         <DialogTitle>Manage Data</DialogTitle>
                     </DialogHeader>
                     <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
-                        <MatchRosterEditor
-                            match={match}
-                            homeTeam={homeTeam}
-                            awayTeam={awayTeam}
-                            homePlayers={homePlayers}
-                            awayPlayers={awayPlayers}
-                            stats={stats}
-                        />
+                        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                            <div>
+                                <div className="text-sm font-semibold text-slate-900">Match roster</div>
+                                <div className="text-xs text-slate-500">Open the match-only roster editor when you need to update this game&apos;s squad.</div>
+                            </div>
+                            <Button type="button" variant="outline" onClick={() => setRosterEditorOpen(true)}>
+                                Edit Match Roster
+                            </Button>
+                        </div>
                         <DataTab
                             matchId={matchId}
                             match={match}
@@ -1577,6 +1582,24 @@ export default function MatchStats() {
                             awayPlayers={awayPlayers}
                             readOnly={false}
                             mode="data"
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={rosterEditorOpen} onOpenChange={setRosterEditorOpen}>
+                <DialogContent className="max-w-6xl w-[94vw] max-h-[90vh] overflow-hidden p-0">
+                    <DialogHeader className="px-6 pt-6 pb-0">
+                        <DialogTitle>Edit Match Roster</DialogTitle>
+                    </DialogHeader>
+                    <div className="max-h-[calc(90vh-72px)] overflow-y-auto px-6 pb-6">
+                        <MatchRosterEditor
+                            match={match}
+                            homeTeam={homeTeam}
+                            awayTeam={awayTeam}
+                            homePlayers={homePlayers}
+                            awayPlayers={awayPlayers}
+                            stats={stats}
                         />
                     </div>
                 </DialogContent>

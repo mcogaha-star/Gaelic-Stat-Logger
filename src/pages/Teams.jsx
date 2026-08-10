@@ -144,10 +144,23 @@ export default function Teams() {
 
     const saveSheetMutation = useMutation({
         mutationFn: async ({ teamId, starters, subs }) => {
-            return await db.entities.Team.update(teamId, {
+            const patch = {
                 starters: JSON.stringify(starters || []),
                 subs: JSON.stringify(subs || []),
-            });
+            };
+            const updated = await db.entities.Team.update(teamId, patch);
+            const existingTeam = teams.find((team) => team.id === teamId) || null;
+            const syncCandidate = {
+                ...(existingTeam || {}),
+                ...(updated || {}),
+                id: teamId,
+                ...patch,
+            };
+            const syncRes = await upsertPrivateTeamFromLocal(syncCandidate);
+            if (syncRes.ok && syncRes.id && syncCandidate.server_team_id !== syncRes.id) {
+                return await db.entities.Team.update(teamId, { server_team_id: syncRes.id });
+            }
+            return updated;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['teams'] });
