@@ -38,6 +38,7 @@ import {
   findScorableFreeConcededRows,
   getNextBallActionStat,
   buildPlayerTimeAndPossessionStats,
+  buildGoalkeeperAssignments,
   getProgressiveMeters,
   getScoringZoneEntry,
   inferRestartWinnerSide,
@@ -241,6 +242,14 @@ function shortTeamLabel(label) {
   return (compact || cleaned).slice(0, 3).toUpperCase();
 }
 
+function isGoalkeeperProfileRow(row) {
+  if (!row) return false;
+  if (isGoalkeeperPlayer(row)) return true;
+  if (row.goalkeeperAttributed) return true;
+  const positionText = String(row.position || '').trim().toLowerCase();
+  return positionText.includes('goalkeeper') || positionText === 'gk';
+}
+
 function getRateModeLabel(match) {
   return getPlayerRateMinutesBase(match) === 70 ? 'Per 70' : 'Per 60';
 }
@@ -284,12 +293,33 @@ function formatScoringFraction(made, attempts) {
 function buildPlayerDisplayTitle(row) {
   if (!row) return '';
   const existing = String(row.player || '').replace(/\s*\((Away|Home)\)\s*/gi, ' ').trim();
-  if (!existing) return row.number != null ? `Unknown #${row.number}` : 'Unknown Player';
-  if (row.number != null) {
-    const cleaned = existing.replace(new RegExp(`^#${row.number}\\s+`), '').trim();
-    return `${cleaned} #${row.number}`;
+  const baseTitle = !existing
+    ? (row.number != null ? `Unknown #${row.number}` : 'Unknown Player')
+    : (row.number != null
+      ? `${existing.replace(new RegExp(`^#${row.number}\\s+`), '').trim()} #${row.number}`
+      : existing);
+  if (row?.profileSplit) {
+    return `${baseTitle} (${row.profileRole === 'goalkeeper' ? 'GK' : 'Outfield'})`;
   }
-  return existing;
+  return baseTitle;
+}
+
+function makeBasePlayerKey(playerLike) {
+  if (!playerLike) return null;
+  const teamSide = String(playerLike.team_side || playerLike.team || '').trim();
+  const id = playerLike.id != null ? String(playerLike.id) : '';
+  if (!teamSide || !id) return null;
+  return `${teamSide}|${id}`;
+}
+
+function makePlayerProfileKey(playerLike, role = 'outfield') {
+  const baseKey = makeBasePlayerKey(playerLike);
+  if (!baseKey) return null;
+  return `${baseKey}|${role === 'goalkeeper' ? 'goalkeeper' : 'outfield'}`;
+}
+
+function getProfileRoleLabel(role) {
+  return role === 'goalkeeper' ? 'Goalkeeper' : 'Outfield';
 }
 
 function hexToRgbaLocal(color, alpha = 0.08) {
@@ -2382,7 +2412,7 @@ function PlayerHeaderCard({
   const isMobile = useIsMobile();
   if (!row) return null;
   const position = String(row.position || '').trim() || 'Position not logged';
-  const hideRoleChip = isLiveMode || isGoalkeeperPlayer(row) || /goalkeeper/i.test(position) || position.toLowerCase() === 'gk';
+  const hideRoleChip = isLiveMode || isGoalkeeperProfileRow(row);
   const teamLabel = teamLabelForSide(row.team, homeTeam, awayTeam);
   const playerTitle = buildPlayerDisplayTitle(row);
   const paneStyle = {
@@ -3076,11 +3106,30 @@ function PlayersAnalyticsTabContent({
     return player;
   };
 
-  const resolveLeaderboardKey = (sel) => {
+  const resolveLeaderboardProfile = (sel, stat = null, roleOverride = null) => {
     const player = resolveLeaderboardPlayer(sel);
-    return player?.id && (player.team_side === 'home' || player.team_side === 'away')
-      ? `${player.team_side}|${player.id}`
-      : null;
+    const baseKey = makeBasePlayerKey(player);
+    if (!player || !baseKey) return null;
+    const profileInfo = playerProfileTimeData?.byBaseKey?.get?.(baseKey) || {
+      profileSplit: false,
+      defaultRole: isGoalkeeperPlayer(player) ? 'goalkeeper' : 'outfield',
+    };
+    let profileRole = roleOverride || profileInfo.defaultRole || 'outfield';
+    if (!roleOverride && profileInfo.profileSplit && stat) {
+      profileRole = goalkeeperAssignments?.getRoleForPlayerAtStat?.(player, stat) || profileRole;
+    }
+    return {
+      player,
+      baseKey,
+      profileRole,
+      profileSplit: !!profileInfo.profileSplit,
+      profileKey: makePlayerProfileKey(player, profileRole),
+    };
+  };
+
+  const resolveLeaderboardKey = (sel, stat = null, roleOverride = null) => {
+    const profile = resolveLeaderboardProfile(sel, stat, roleOverride);
+    return profile?.profileKey || null;
   };
 
   const shotAssistCredits = useMemo(() => buildShotAssistCredits(calcBase), [calcBase]);
@@ -3095,6 +3144,78 @@ function PlayersAnalyticsTabContent({
     () => playerTimeAndPossessionStatsProp || buildPlayerTimeAndPossessionStats({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
     [awayTeam, homeTeam, playerOptions, playerTimeAndPossessionStatsProp, reportFilters?.match, stats],
   );
+  const goalkeeperAssignments = useMemo(
+    () => buildGoalkeeperAssignments({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
+    [awayTeam, homeTeam, playerOptions, reportFilters?.match, stats],
+  );
+  const playerProfileTimeData = useMemo(() => {
+    const byKey = new Map();
+    const byBaseKey = new Map();
+    const playerRows = Object.values(playerTimeAndPossessionStats?.players || {});
+
+    for (const row of playerRows) {
+      const baseKey = String(row?.playerKey || '');
+      if (!baseKey) continue;
+      const goalkeeperWindows = goalkeeperAssignments?.windowsByPlayerKey?.get?.(baseKey) || [];
+      const totalScaledBeforeCards = Number(row?.minutesPlayedScaledBeforeCards) || 0;
+      let goalkeeperScaledBeforeCards = 0;
+
+      for (const stint of Array.isArray(row?.stints) ? row.stints : []) {
+        const start = Number(stint?.startLoggedMinute) || 0;
+        const end = Number(stint?.endLoggedMinute) || 0;
+        const scaleFactor = Number(stint?.scaleFactor) || 1;
+        if (end <= start) continue;
+        const overlapLogged = goalkeeperWindows
+          .filter((window) => window?.periodKey === stint?.periodKey)
+          .reduce((sum, window) => {
+            const overlap = Math.max(0, Math.min(end, Number(window?.endLoggedMinute) || 0) - Math.max(start, Number(window?.startLoggedMinute) || 0));
+            return sum + overlap;
+          }, 0);
+        goalkeeperScaledBeforeCards += overlapLogged * scaleFactor;
+      }
+
+      const outfieldScaledBeforeCards = Math.max(0, totalScaledBeforeCards - goalkeeperScaledBeforeCards);
+      const blackCardMinutes = Number(row?.blackCardMinutesSubtracted) || 0;
+      const goalkeeperShare = totalScaledBeforeCards > 0 ? (goalkeeperScaledBeforeCards / totalScaledBeforeCards) : 0;
+      const goalkeeperMinutes = Math.max(0, goalkeeperScaledBeforeCards - (blackCardMinutes * goalkeeperShare));
+      const outfieldMinutes = Math.max(0, outfieldScaledBeforeCards - (blackCardMinutes * (1 - goalkeeperShare)));
+      const hasGoalkeeperRole = goalkeeperMinutes > 0.001;
+      const hasOutfieldRole = outfieldMinutes > 0.001 || !hasGoalkeeperRole;
+      const profileSplit = hasGoalkeeperRole && hasOutfieldRole;
+      const defaultRole = hasGoalkeeperRole && !hasOutfieldRole ? 'goalkeeper' : 'outfield';
+
+      byBaseKey.set(baseKey, {
+        baseKey,
+        profileSplit,
+        defaultRole,
+        hasGoalkeeperRole,
+        hasOutfieldRole,
+      });
+
+      const pushProfile = (role, minutesPlayed) => {
+        const profileKey = `${baseKey}|${role}`;
+        const minuteValue = Math.max(0, Number(minutesPlayed) || 0);
+        const minuteShare = totalScaledBeforeCards > 0 ? minuteValue / totalScaledBeforeCards : 0;
+        byKey.set(profileKey, {
+          ...row,
+          playerKey: profileKey,
+          profileRole: role,
+          profileRoleLabel: getProfileRoleLabel(role),
+          profileSplit,
+          minutesPlayed: minuteValue,
+          minutesRateFactor: minuteValue > 0 ? ((row?.rateMinutesBase || rateModeBase) / minuteValue) : null,
+          ownPossessionsPlayed: Math.round((Number(row?.ownPossessionsPlayed) || 0) * minuteShare),
+          oppPossessionsPlayed: Math.round((Number(row?.oppPossessionsPlayed) || 0) * minuteShare),
+          totalPossessionsPlayed: Math.round((Number(row?.totalPossessionsPlayed) || 0) * minuteShare),
+        });
+      };
+
+      if (hasOutfieldRole) pushProfile('outfield', outfieldMinutes);
+      if (hasGoalkeeperRole) pushProfile('goalkeeper', goalkeeperMinutes);
+    }
+
+    return { byKey, byBaseKey };
+  }, [goalkeeperAssignments, playerTimeAndPossessionStats, rateModeBase]);
   const defendingAllowedData = useMemo(
     () => buildDefendingAllowedRows({
       stats: defendingAllowedCalcBase,
@@ -3110,19 +3231,28 @@ function PlayersAnalyticsTabContent({
 
   const leaderboard = useMemo(() => {
     const rows = new Map();
-    const ensure = (sel) => {
-      const player = resolveLeaderboardPlayer(sel);
-      if (!player) return null;
-      const key = `${player.team_side}|${player.id}`;
-      const meta = playerMetaByKey.get(key) || {};
-      const current = rows.get(key) || {
-        key,
+    const ensure = (sel, stat = null, roleOverride = null) => {
+      const profile = resolveLeaderboardProfile(sel, stat, roleOverride);
+      if (!profile?.player || !profile?.profileKey) return null;
+      const player = profile.player;
+      const meta = playerMetaByKey.get(profile.baseKey) || {};
+      const profileTime = playerProfileTimeData?.byKey?.get?.(profile.profileKey) || null;
+      const displayPosition = profile.profileRole === 'goalkeeper'
+        ? 'Goalkeeper'
+        : (meta.position || player.position || '');
+      const current = rows.get(profile.profileKey) || {
+        key: profile.profileKey,
+        basePlayerKey: profile.baseKey,
         id: player.id,
         player: formatExtraValue({ kind: 'player', ...meta, ...player }),
         team: player.team_side || 'unknown',
         number: meta.number ?? player.number ?? null,
         name: meta.name || player.name || '',
-        position: meta.position || player.position || '',
+        position: displayPosition,
+        profileRole: profile.profileRole,
+        profileRoleLabel: getProfileRoleLabel(profile.profileRole),
+        profileSplit: !!profile.profileSplit,
+        goalkeeperAttributed: false,
         shots: 0,
         scores: 0,
         points: 0,
@@ -3187,15 +3317,18 @@ function PlayersAnalyticsTabContent({
           zonal: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
         },
+        minutesPlayed: profileTime?.minutesPlayed ?? 0,
       };
-      rows.set(key, current);
+      rows.set(profile.profileKey, current);
       return current;
     };
 
     const homeKeeper = getKeeperCandidate(playerOptions, 'home');
     const awayKeeper = getKeeperCandidate(playerOptions, 'away');
-    ensure(homeKeeper);
-    ensure(awayKeeper);
+    ensure(homeKeeper, null, 'goalkeeper');
+    ensure(awayKeeper, null, 'goalkeeper');
+    (goalkeeperAssignments?.uniqueKeepersBySide?.home || []).forEach((player) => ensure(player, null, 'goalkeeper'));
+    (goalkeeperAssignments?.uniqueKeepersBySide?.away || []).forEach((player) => ensure(player, null, 'goalkeeper'));
     for (const matchupRow of defendingAllowedData?.rows || []) {
       ensure({
         id: matchupRow.id,
@@ -3203,14 +3336,14 @@ function PlayersAnalyticsTabContent({
         number: matchupRow.number,
         name: matchupRow.name,
         position: matchupRow.position,
-      });
+      }, null, 'outfield');
     }
-    for (const touch of touchEvents) ensure(touch?.player);
-    for (const action of defensiveActions.playerActions) ensure(action?.player);
+    for (const touch of touchEvents) ensure(touch?.player, touch?.stat);
+    for (const action of defensiveActions.playerActions) ensure(action?.player, action?.stat);
 
     const touchPossessionsByPlayer = new Map();
     for (const touch of touchEvents) {
-      const row = ensure(touch?.player);
+      const row = ensure(touch?.player, touch?.stat);
       const playerKey = row?.key || null;
       const teamSide = touch?.stat?.possession_team_side;
       const possessionId = Number(touch?.stat?.possession_id);
@@ -3236,7 +3369,7 @@ function PlayersAnalyticsTabContent({
               }
             : null
         );
-        const row = ensure(p);
+        const row = ensure(p, s);
         if (row) {
           row.shots += 1;
           const outcome = ex?.shot?.outcome;
@@ -3262,14 +3395,17 @@ function PlayersAnalyticsTabContent({
             row.avgShotDistCount += 1;
           }
         }
-        const blocker = ensure(ex?.shot?.blocked_by);
+        const blocker = ensure(ex?.shot?.blocked_by, s);
         if (blocker && String(ex?.shot?.outcome || '') === 'blocked') blocker.blocks += 1;
         const goalShotType = normalizePlayerShotType(ex?.shot?.shot_type || ex?.shot?.type || '') === 'goal';
         if (goalShotType && ['goal', 'saved'].includes(String(ex?.shot?.outcome || ''))) {
           const keeperSide = s.team_side === 'away' ? 'home' : 'away';
           const savedBy = normalizePlayerRef(ex?.shot?.saved_by);
-          const keeperRow = ensure(savedBy?.team_side === keeperSide ? savedBy : (keeperSide === 'home' ? homeKeeper : awayKeeper));
+          const assignedKeeper = goalkeeperAssignments?.getKeeperForStat?.(keeperSide, s)
+            || (savedBy?.team_side === keeperSide ? savedBy : (keeperSide === 'home' ? homeKeeper : awayKeeper));
+          const keeperRow = ensure(assignedKeeper, s, 'goalkeeper');
           if (keeperRow) {
+            keeperRow.goalkeeperAttributed = true;
             if (ex?.shot?.outcome === 'saved') keeperRow.goalShotsSaved += 1;
             if (ex?.shot?.outcome === 'goal') keeperRow.goalShotsAgainst += 1;
           }
@@ -3278,7 +3414,7 @@ function PlayersAnalyticsTabContent({
 
       if (s.stat_type === 'pass') {
         const pass = ex?.pass || {};
-        const row = ensure(pass?.passer);
+        const row = ensure(pass?.passer, s);
         const isProg = isProgressiveShared(s);
         const isCompleted = deriveOutcome(s, ex) === 'completed';
         const gainedMeters = isCompleted ? getProgressiveMeters(s) : 0;
@@ -3297,13 +3433,13 @@ function PlayersAnalyticsTabContent({
         }
         if (isProg && isCompleted) {
           const receiver = pass?.won_by?.kind === 'player' ? pass?.won_by : pass?.intended_recipient;
-          const receiverRow = ensure(receiver);
+          const receiverRow = ensure(receiver, s);
           if (receiverRow) receiverRow.progPassRecv += 1;
         }
       }
 
       if (s.stat_type === 'carry') {
-        const row = ensure(ex?.carry?.carrier);
+        const row = ensure(ex?.carry?.carrier, s);
         const isProg = isProgressiveShared(s);
         const isCompleted = deriveOutcome(s, ex) === 'completed';
         const gainedMeters = isCompleted ? getProgressiveMeters(s) : 0;
@@ -3324,10 +3460,10 @@ function PlayersAnalyticsTabContent({
         const turnoverType = normalizeFoulType(turnover?.turnover_type || turnover?.type || '');
         const foul = turnoverType === 'foul' ? extractFoulFromStat(s) : null;
         const recovered = turnoverType === 'foul'
-          ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || turnover?.forced_by)
-          : ensure(turnover?.recovered_by);
-        const forced = ensure(turnover?.forced_by);
-        const lost = ensure(resolveTurnoverLostBySelection(s, ex));
+          ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || turnover?.forced_by, s)
+          : ensure(turnover?.recovered_by, s);
+        const forced = ensure(turnover?.forced_by, s);
+        const lost = ensure(resolveTurnoverLostBySelection(s, ex), s);
         const defensivePlayers = new Set();
         if (recovered) {
           recovered.turnoversRecovered += 1;
@@ -3349,8 +3485,8 @@ function PlayersAnalyticsTabContent({
 
       const foul = extractFoulFromStat(s);
       if (foul) {
-        const won = ensure(foul?.foul_on_or_forced_by);
-        const conceded = ensure(foul?.foul_by);
+        const won = ensure(foul?.foul_on_or_forced_by, s);
+        const conceded = ensure(foul?.foul_by, s);
         if (won) won.foulsWon += 1;
         if (conceded) conceded.foulsConceded += 1;
       }
@@ -3358,8 +3494,12 @@ function PlayersAnalyticsTabContent({
       if (s.stat_type === 'kickout') {
         const kick = ex?.kickout || {};
         const koTeam = kick?.team_side;
-        const keeper = ensure(koTeam === 'home' ? homeKeeper : koTeam === 'away' ? awayKeeper : null);
+        const assignedKeeper = (koTeam === 'home' || koTeam === 'away')
+          ? (goalkeeperAssignments?.getKeeperForStat?.(koTeam, s) || (koTeam === 'home' ? homeKeeper : awayKeeper))
+          : null;
+        const keeper = ensure(assignedKeeper, s, 'goalkeeper');
         if (keeper) {
+          keeper.goalkeeperAttributed = true;
           keeper.kickoutsTaken += 1;
           const won = inferRestartWinnerSide(s, nextStatById.get(s.id)) === koTeam;
           const cleanWon = kick?.outcome === 'clean' && kick?.won_by?.team_side === koTeam;
@@ -3386,11 +3526,11 @@ function PlayersAnalyticsTabContent({
             }
           }
         }
-        const target = ensure(kick?.intended_recipient);
+        const target = ensure(kick?.intended_recipient, s);
         const wonSide = inferRestartWinnerSide(s, nextStatById.get(s.id));
-        const winnerRow = ensure(kick?.won_by);
-        const loserRow = ensure(kick?.lost_by);
-        const brokenRow = ensure(kick?.broken_by);
+        const winnerRow = ensure(kick?.won_by, s);
+        const loserRow = ensure(kick?.lost_by, s);
+        const brokenRow = ensure(kick?.broken_by, s);
         if (target) {
           target.kickoutTargets += 1;
           if (wonSide === koTeam) target.kickoutWins += 1;
@@ -3408,13 +3548,13 @@ function PlayersAnalyticsTabContent({
       }
 
       if (s.stat_type === 'throw_in') {
-        const won = ensure(ex?.throw_in?.won_by);
+        const won = ensure(ex?.throw_in?.won_by, s);
         if (won) won.throwInsWon += 1;
       }
     }
 
     for (const row of shotAssistCredits) {
-      const passer = ensure(row.passer);
+      const passer = ensure(row.passer, row.sourceStat || row.shot);
       if (passer) {
         passer.shotAssists += 1;
         passer.shotsCreated += 1;
@@ -3480,7 +3620,7 @@ function PlayersAnalyticsTabContent({
       const longKickoutWinPct = row.longKickoutsTaken ? (row.longKickoutsWon / row.longKickoutsTaken) * 100 : NaN;
       const cleanWinPct = (row.cleanWon + row.cleanLost) ? (row.cleanWon / (row.cleanWon + row.cleanLost)) * 100 : NaN;
       const breakWinPct = (row.breakWon + row.breakLost) ? (row.breakWon / (row.breakWon + row.breakLost)) * 100 : NaN;
-      const timeStats = playerTimeAndPossessionStats?.players?.[row.key] || null;
+      const timeStats = playerProfileTimeData?.byKey?.get?.(row.key) || null;
       const defendingAllowed = defendingAllowedByKey.get(row.key) || {};
       return {
         ...row,
@@ -3537,7 +3677,7 @@ function PlayersAnalyticsTabContent({
         daStints: Array.isArray(defendingAllowed.daStints) ? defendingAllowed.daStints : [],
       };
     });
-  }, [calcBase, defendingAllowedByKey, defendingAllowedData?.rows, defensiveActions.playerActions, nextStatById, playerMetaByKey, playerOptions, playerTimeAndPossessionStats, rateModeBase, shotAssistCredits, touchEvents]);
+  }, [calcBase, defendingAllowedByKey, defendingAllowedData?.rows, defensiveActions.playerActions, goalkeeperAssignments, nextStatById, playerMetaByKey, playerOptions, playerProfileTimeData, rateModeBase, shotAssistCredits, touchEvents]);
 
   const leaderboardByKey = useMemo(() => {
     const map = new Map();
@@ -3546,30 +3686,52 @@ function PlayersAnalyticsTabContent({
   }, [leaderboard]);
 
   const chartPlayerOptions = useMemo(
-    () => (playerOptions || [])
-      .filter((p) => p?.id != null && String(p.id).trim() !== '')
-      .filter((p) => teamMode === 'both' || p.team_side === teamMode)
-        .map((p) => ({
-          ...p,
-          value: `${String(p.team_side || '')}|${String(p.id)}`,
-          displayLabel: `${String(p.name || p.label || formatExtraValue({ kind: 'player', ...p })).replace(new RegExp(`\\s*#${p.number}\\s*$`), '').trim()}${p.number != null ? ` #${p.number}` : ''} | ${shortTeamLabel(teamLabelForSide(p.team_side, homeTeam, awayTeam))}`,
-        }))
+    () => (Array.isArray(leaderboard) ? leaderboard : [])
+      .filter((row) => row?.id != null && String(row.id).trim() !== '')
+      .filter((row) => teamMode === 'both' || row.team === teamMode)
+      .map((row) => ({
+        id: row.id,
+        team_side: row.team,
+        number: row.number,
+        name: row.name,
+        position: row.position,
+        profileKey: row.key,
+        basePlayerKey: row.basePlayerKey || `${String(row.team || '')}|${String(row.id || '')}`,
+        profileRole: row.profileRole || (isGoalkeeperProfileRow(row) ? 'goalkeeper' : 'outfield'),
+        profileSplit: !!row.profileSplit,
+        value: row.key,
+        displayLabel: `${buildPlayerDisplayTitle(row)} | ${shortTeamLabel(teamLabelForSide(row.team, homeTeam, awayTeam))}`,
+      }))
       .sort((a, b) => {
         const teamCompare = String(teamLabelForSide(a.team_side, homeTeam, awayTeam)).localeCompare(String(teamLabelForSide(b.team_side, homeTeam, awayTeam)), undefined, { sensitivity: 'base' });
         if (teamCompare !== 0) return teamCompare;
         const aNumber = Number(a.number);
         const bNumber = Number(b.number);
         if (Number.isFinite(aNumber) && Number.isFinite(bNumber) && aNumber !== bNumber) return aNumber - bNumber;
-        return String(a.name || a.label || '').localeCompare(String(b.name || b.label || ''), undefined, { numeric: true, sensitivity: 'base' });
+        if (a.basePlayerKey === b.basePlayerKey && a.profileRole !== b.profileRole) {
+          return a.profileRole === 'outfield' ? -1 : 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
       }),
-    [playerOptions, teamMode, homeTeam, awayTeam],
+    [awayTeam, homeTeam, leaderboard, teamMode],
   );
+
+  const resolveChartPlayerOptionValue = (value, preferredRole = 'outfield') => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'all';
+    const exact = chartPlayerOptions.find((option) => option.value === raw);
+    if (exact) return exact.value;
+    const preferred = chartPlayerOptions.find((option) => option.basePlayerKey === raw && option.profileRole === preferredRole);
+    if (preferred) return preferred.value;
+    const fallback = chartPlayerOptions.find((option) => option.basePlayerKey === raw);
+    return fallback?.value || 'all';
+  };
 
   const defaultChartPlayerValue = useMemo(() => {
     if (!chartPlayerOptions.length) return 'all';
     const rankPlayerOptions = (options) => [...options].sort((a, b) => {
-      const aRow = leaderboardByKey.get(`${a.team_side}|${a.id}`) || null;
-      const bRow = leaderboardByKey.get(`${b.team_side}|${b.id}`) || null;
+      const aRow = leaderboardByKey.get(a.value) || null;
+      const bRow = leaderboardByKey.get(b.value) || null;
       const aTouches = Number(aRow?.touches) || 0;
       const bTouches = Number(bRow?.touches) || 0;
       if (bTouches !== aTouches) return bTouches - aTouches;
@@ -3587,9 +3749,10 @@ function PlayersAnalyticsTabContent({
     return bestOption?.value || 'all';
   }, [chartPlayerOptions, leaderboardByKey]);
 
-  const safeChartPlayerValue = useMemo(() => (
-    chartPlayerOptions.some((p) => p.value === chartPlayerId) ? chartPlayerId : 'all'
-  ), [chartPlayerId, chartPlayerOptions]);
+  const safeChartPlayerValue = useMemo(
+    () => resolveChartPlayerOptionValue(chartPlayerId),
+    [chartPlayerId, chartPlayerOptions],
+  );
 
   useEffect(() => {
     if (safeChartPlayerValue !== chartPlayerId) setChartPlayerId(safeChartPlayerValue);
@@ -3611,11 +3774,11 @@ function PlayersAnalyticsTabContent({
   useEffect(() => {
     if (!lockPlayerValue && focusPlayerId && externalSelectionRef.current.focusPlayerId !== focusPlayerId) {
       externalSelectionRef.current.focusPlayerId = focusPlayerId;
-      setChartPlayerId(focusPlayerId);
+      setChartPlayerId(resolveChartPlayerOptionValue(focusPlayerId));
     } else if (!focusPlayerId) {
       externalSelectionRef.current.focusPlayerId = null;
     }
-  }, [focusPlayerId, lockPlayerValue]);
+  }, [focusPlayerId, lockPlayerValue, resolveChartPlayerOptionValue]);
 
   useEffect(() => {
     if (chartPlayerId === 'all' && defaultChartPlayerValue !== 'all') setChartPlayerId(defaultChartPlayerValue);
@@ -3625,8 +3788,8 @@ function PlayersAnalyticsTabContent({
     const bestAway = [...chartPlayerOptions]
       .filter((player) => player.team_side === 'away')
       .sort((a, b) => {
-        const aRow = leaderboardByKey.get(`${a.team_side}|${a.id}`) || null;
-        const bRow = leaderboardByKey.get(`${b.team_side}|${b.id}`) || null;
+        const aRow = leaderboardByKey.get(a.value) || null;
+        const bRow = leaderboardByKey.get(b.value) || null;
         const aTouches = Number(aRow?.touches) || 0;
         const bTouches = Number(bRow?.touches) || 0;
         if (bTouches !== aTouches) return bTouches - aTouches;
@@ -3639,8 +3802,8 @@ function PlayersAnalyticsTabContent({
     const bestHome = [...chartPlayerOptions]
       .filter((player) => player.team_side === 'home' && player.value !== safeChartPlayerValue)
       .sort((a, b) => {
-        const aRow = leaderboardByKey.get(`${a.team_side}|${a.id}`) || null;
-        const bRow = leaderboardByKey.get(`${b.team_side}|${b.id}`) || null;
+        const aRow = leaderboardByKey.get(a.value) || null;
+        const bRow = leaderboardByKey.get(b.value) || null;
         const aTouches = Number(aRow?.touches) || 0;
         const bTouches = Number(bRow?.touches) || 0;
         if (bTouches !== aTouches) return bTouches - aTouches;
@@ -3671,14 +3834,14 @@ function PlayersAnalyticsTabContent({
   );
 
   const selectedPlayerRow = useMemo(
-    () => activeChartPlayer ? (leaderboardByKey.get(`${activeChartPlayer.team_side}|${activeChartPlayer.id}`) || null) : null,
+    () => activeChartPlayer ? (leaderboardByKey.get(activeChartPlayer.value) || null) : null,
     [activeChartPlayer, leaderboardByKey],
   );
 
   const selectedPlayerKey = selectedPlayerRow?.key || null;
   const selectedPlayerTeamSide = activeChartPlayer?.team_side || selectedPlayerRow?.team_side || selectedPlayerRow?.team || 'home';
-  const selectedIsGoalkeeper = selectedPlayerRow ? isGoalkeeperPlayer(selectedPlayerRow) : false;
-  const selectedTopRightIsGoalkeeper = selectedIsGoalkeeper || /goalkeeper/i.test(String(selectedPlayerRow?.position || ''));
+  const selectedIsGoalkeeper = selectedPlayerRow ? isGoalkeeperProfileRow(selectedPlayerRow) : false;
+  const selectedTopRightIsGoalkeeper = selectedIsGoalkeeper;
   const selectedCardTintStyle = useMemo(() => ({
     backgroundColor: '#ffffff',
     borderColor: 'rgb(226, 232, 240)',
@@ -3720,7 +3883,7 @@ function PlayersAnalyticsTabContent({
     for (const stat of calcBase) {
       const extra = safeParseJSON(stat.extra_data || '{}', {});
       if (stat.stat_type === 'pass') {
-        const passerKey = resolveLeaderboardKey(extra?.pass?.passer);
+        const passerKey = resolveLeaderboardKey(extra?.pass?.passer, stat);
         const passerInfo = ensure(passerKey);
         if (passerInfo) {
           const method = String(extra?.pass?.method || '').trim().toLowerCase();
@@ -3758,7 +3921,7 @@ function PlayersAnalyticsTabContent({
             }
           }
         }
-        const receiverKey = resolveLeaderboardKey(getCompletedReceiptSelection(stat, extra));
+        const receiverKey = resolveLeaderboardKey(getCompletedReceiptSelection(stat, extra), stat);
         const receiverInfo = ensure(receiverKey);
         if (receiverInfo) {
           receiverInfo.passesReceived += 1;
@@ -3775,7 +3938,7 @@ function PlayersAnalyticsTabContent({
       }
 
       if (stat.stat_type === 'carry') {
-        const carrierKey = resolveLeaderboardKey(extra?.carry?.carrier);
+        const carrierKey = resolveLeaderboardKey(extra?.carry?.carrier, stat);
         const carrierInfo = ensure(carrierKey);
         if (carrierInfo) {
           if (deriveOutcome(stat, extra) === 'turnover') carrierInfo.carryTurnovers += 1;
@@ -3807,7 +3970,7 @@ function PlayersAnalyticsTabContent({
 
       if (stat.stat_type === 'shot') {
         const shooter = extra?.shot?.player || getPrimaryActorSelection(stat, extra);
-        const shooterKey = resolveLeaderboardKey(shooter);
+        const shooterKey = resolveLeaderboardKey(shooter, stat);
         const shooterInfo = ensure(shooterKey);
         if (shooterInfo) {
           const method = normalizeShotMethod(extra?.shot?.method);
@@ -3820,7 +3983,7 @@ function PlayersAnalyticsTabContent({
     }
 
     for (const action of defensiveActions.playerActions) {
-      const rowKey = resolveLeaderboardKey(action?.player);
+      const rowKey = resolveLeaderboardKey(action?.player, action?.stat);
       const info = ensure(rowKey);
       if (!info) continue;
       if (String(action?.reason || '').toLowerCase().includes('pressure')) info.highPressureActions += 1;
@@ -3828,10 +3991,10 @@ function PlayersAnalyticsTabContent({
 
     for (const row of scorableFreeRows) {
       const foul = extractFoulFromStat(row?.foulStat);
-      const wonKey = resolveLeaderboardKey(foul?.foul_on || foul?.foul_on_or_forced_by);
+      const wonKey = resolveLeaderboardKey(foul?.foul_on || foul?.foul_on_or_forced_by, row?.foulStat);
       const wonInfo = ensure(wonKey);
       if (wonInfo) wonInfo.scorableFreesWon += 1;
-      const concedingKey = resolveLeaderboardKey(foul?.foul_by);
+      const concedingKey = resolveLeaderboardKey(foul?.foul_by, row?.foulStat);
       const info = ensure(concedingKey);
       if (info) info.scorableFreesConceded += 1;
     }
@@ -3842,7 +4005,7 @@ function PlayersAnalyticsTabContent({
   const comparisonPoolEntries = useMemo(() => (
     chartPlayerOptions
       .map((option) => {
-        const row = leaderboardByKey.get(`${option.team_side}|${option.id}`) || null;
+        const row = leaderboardByKey.get(option.value) || null;
         if (!row) return null;
         return {
           option,
@@ -3850,7 +4013,7 @@ function PlayersAnalyticsTabContent({
           derived: playerDerivedByKey.get(row.key) || {},
           teamLabel: teamLabelForSide(row.team, homeTeam, awayTeam),
           shortLabel: comparisonPlayerShortLabel({ option, row }),
-          isGoalkeeper: isGoalkeeperPlayer(row),
+          isGoalkeeper: isGoalkeeperProfileRow(row),
         };
       })
       .filter(Boolean)
@@ -3883,7 +4046,7 @@ function PlayersAnalyticsTabContent({
 
     for (const row of leaderboard) {
       const positionText = String(row.position || '').toLowerCase();
-      if (isGoalkeeperPlayer(row) || positionText.includes('goalkeeper') || positionText === 'gk') {
+      if (isGoalkeeperProfileRow(row)) {
         out.set(row.key, {
           label: 'Goalkeeper',
           summary: [
@@ -3968,7 +4131,7 @@ function PlayersAnalyticsTabContent({
       defending: () => true,
       defending_allowed: () => true,
       restarts: () => true,
-      goalkeepers: (row) => isGoalkeeperPlayer(row),
+      goalkeepers: (row) => isGoalkeeperProfileRow(row),
     };
     const list = (Array.isArray(leaderboard) ? leaderboard : [])
       .filter((row) => teamMode === 'both' || row.team === teamMode)
@@ -4048,10 +4211,14 @@ function PlayersAnalyticsTabContent({
     }
   }, [playerBucket, currentColumns, defendingAllowedTableColumns, lbSort.key]);
 
-  const matchesPlayerOption = (selection, playerOption) => {
+  const matchesPlayerOption = (selection, playerOption, stat = null, roleOverride = null) => {
     if (!playerOption) return false;
-    const candidate = resolveLeaderboardPlayer(selection);
-    if (!candidate) return false;
+    const profile = resolveLeaderboardProfile(selection, stat, roleOverride);
+    if (!profile?.player || !profile?.profileKey) return false;
+    if (playerOption.profileKey || playerOption.value) {
+      return String(profile.profileKey) === String(playerOption.profileKey || playerOption.value);
+    }
+    const candidate = profile.player;
     if (candidate.team_side !== playerOption.team_side) return false;
     if (candidate.id != null && playerOption.id != null && String(candidate.id) === String(playerOption.id)) return true;
     if (candidate.number != null && playerOption.number != null && String(candidate.number) === String(playerOption.number)) return true;
@@ -4065,7 +4232,7 @@ function PlayersAnalyticsTabContent({
       ? calcBase.filter((stat) => {
           if (stat?.stat_type !== 'pass') return false;
           const extra = safeParseJSON(stat.extra_data || '{}', {});
-          return matchesPlayerOption(extra?.pass?.passer, activeChartPlayer);
+          return matchesPlayerOption(extra?.pass?.passer, activeChartPlayer, stat);
         })
       : []
   ), [activeChartPlayer, calcBase]);
@@ -4075,7 +4242,7 @@ function PlayersAnalyticsTabContent({
       ? calcBase.filter((stat) => {
           if (stat?.stat_type !== 'carry') return false;
           const extra = safeParseJSON(stat.extra_data || '{}', {});
-          return matchesPlayerOption(extra?.carry?.carrier, activeChartPlayer);
+          return matchesPlayerOption(extra?.carry?.carrier, activeChartPlayer, stat);
         })
       : []
   ), [activeChartPlayer, calcBase]);
@@ -4085,7 +4252,7 @@ function PlayersAnalyticsTabContent({
       ? calcBase.filter((stat) => {
           if (stat?.stat_type !== 'shot') return false;
           const extra = safeParseJSON(stat.extra_data || '{}', {});
-          return matchesPlayerOption(extra?.shot?.player || getPrimaryActorSelection(stat, extra), activeChartPlayer);
+          return matchesPlayerOption(extra?.shot?.player || getPrimaryActorSelection(stat, extra), activeChartPlayer, stat);
         })
       : []
   ), [activeChartPlayer, calcBase]);
@@ -4096,7 +4263,7 @@ function PlayersAnalyticsTabContent({
           if (stat?.stat_type !== 'pass') return false;
           const extra = safeParseJSON(stat.extra_data || '{}', {});
           if (deriveOutcome(stat, extra) !== 'completed') return false;
-          return matchesPlayerOption(getCompletedReceiptSelection(stat, extra), activeChartPlayer);
+          return matchesPlayerOption(getCompletedReceiptSelection(stat, extra), activeChartPlayer, stat);
         })
       : []
   ), [activeChartPlayer, calcBase]);
@@ -4113,14 +4280,14 @@ function PlayersAnalyticsTabContent({
             restart?.lost_by,
             restart?.broken_by,
             getPrimaryActorSelection(stat, extra),
-          ].some((selection) => matchesPlayerOption(selection, activeChartPlayer));
+          ].some((selection) => matchesPlayerOption(selection, activeChartPlayer, stat));
         })
       : []
   ), [activeChartPlayer, calcBase]);
 
   const selectedPlayerDefensiveActions = useMemo(() => (
     activeChartPlayer
-      ? defensiveActions.playerActions.filter((action) => matchesPlayerOption(action?.player, activeChartPlayer))
+      ? defensiveActions.playerActions.filter((action) => matchesPlayerOption(action?.player, activeChartPlayer, action?.stat))
       : []
   ), [activeChartPlayer, defensiveActions.playerActions]);
 
@@ -4129,7 +4296,7 @@ function PlayersAnalyticsTabContent({
     if (!activeChartPlayer) return empty;
     return calcBase.reduce((acc, stat) => {
       const foul = extractFoulFromStat(stat);
-      if (!foul || !matchesPlayerOption(foul?.foul_by, activeChartPlayer)) return acc;
+      if (!foul || !matchesPlayerOption(foul?.foul_by, activeChartPlayer, stat)) return acc;
       const card = String(foul?.card || stat?.card || '').trim().toLowerCase();
       if (card === 'yellow') acc.yellow += 1;
       if (card === 'black') acc.black += 1;
@@ -4176,7 +4343,7 @@ function PlayersAnalyticsTabContent({
       );
     }
     for (const action of selectedPlayerDefensiveActions) addPoint(action.stat || null, action.stat?.raw_x_position, action.stat?.raw_y_position, action.x, action.y, `defence:${action.key}`);
-    for (const touch of touchEvents.filter((event) => matchesPlayerOption(event?.player, activeChartPlayer))) {
+    for (const touch of touchEvents.filter((event) => matchesPlayerOption(event?.player, activeChartPlayer, event?.stat))) {
       addPoint(touch.stat || null, touch.stat?.raw_x_position, touch.stat?.raw_y_position, touch.x, touch.y, `touch:${touch.key}`);
     }
 
@@ -4204,7 +4371,7 @@ function PlayersAnalyticsTabContent({
     if (!activeChartPlayer) return 0;
     return scorableFreeRows.reduce((count, row) => {
       const foul = extractFoulFromStat(row?.foulStat);
-      return matchesPlayerOption(foul?.foul_on || foul?.foul_on_or_forced_by, activeChartPlayer) ? count + 1 : count;
+      return matchesPlayerOption(foul?.foul_on || foul?.foul_on_or_forced_by, activeChartPlayer, row?.foulStat) ? count + 1 : count;
     }, 0);
   }, [activeChartPlayer, scorableFreeRows]);
 
@@ -4292,7 +4459,13 @@ function PlayersAnalyticsTabContent({
         const isGoalShot = normalizePlayerShotType(shot?.shot_type || shot?.type || '') === 'goal';
         if (!isGoalShot) return false;
         const keeperSide = stat?.team_side === 'away' ? 'home' : 'away';
-        return keeperSide === selectedPlayerTeamSide;
+        if (keeperSide !== selectedPlayerTeamSide) return false;
+        const assignedKeeper = goalkeeperAssignments?.getKeeperForStat?.(keeperSide, stat)
+          || (keeperSide === 'home' ? getKeeperCandidate(playerOptions, 'home') : getKeeperCandidate(playerOptions, 'away'));
+        const assignedKey = assignedKeeper?.id && assignedKeeper?.team_side
+          ? `${assignedKeeper.team_side}|${assignedKeeper.id}`
+          : null;
+        return assignedKey === (selectedPlayerRow.basePlayerKey || selectedPlayerRow.key);
       })
       .map((stat) => {
         const extra = safeParseJSON(stat?.extra_data || '{}', {});
@@ -4312,10 +4485,10 @@ function PlayersAnalyticsTabContent({
               : 'NA',
         };
       });
-  }, [calcBase, selectedIsGoalkeeper, selectedPlayerRow, selectedPlayerTeamSide]);
+  }, [calcBase, goalkeeperAssignments, playerOptions, selectedIsGoalkeeper, selectedPlayerRow, selectedPlayerTeamSide]);
 
   const goalkeeperPressCards = useMemo(() => {
-    const sourceRows = (leaderboard || []).filter((row) => isGoalkeeperPlayer(row));
+    const sourceRows = (leaderboard || []).filter((row) => isGoalkeeperProfileRow(row));
     return sourceRows
       .map((row) => {
         const pressRows = ['m2m', 'zonal', 'conceded']
@@ -4354,21 +4527,18 @@ function PlayersAnalyticsTabContent({
       if (!selectedPlayerRow || !selectedTopRightIsGoalkeeper) return [];
 
       const allKickouts = calcBase.filter((stat) => stat?.stat_type === 'kickout');
-      const directKickouts = allKickouts.filter((stat) => {
+      const sourceKickouts = allKickouts.filter((stat) => {
         const extra = safeParseJSON(stat.extra_data || '{}', {});
-        const kick = extra?.kickout;
-        return matchesPlayerOption(getPrimaryActorSelection(stat, extra), activeChartPlayer)
-          || matchesPlayerOption(kick?.won_by, activeChartPlayer)
-          || matchesPlayerOption(kick?.intended_recipient, activeChartPlayer);
+        const kick = extra?.kickout || {};
+        const restartSide = inferRestartTeamSide(stat, extra) || stat?.team_side || kick?.team_side;
+        if (restartSide !== selectedPlayerTeamSide) return false;
+        const assignedKeeper = goalkeeperAssignments?.getKeeperForStat?.(restartSide, stat)
+          || (restartSide === 'home' ? getKeeperCandidate(playerOptions, 'home') : getKeeperCandidate(playerOptions, 'away'));
+        const assignedKey = assignedKeeper?.id && assignedKeeper?.team_side
+          ? `${assignedKeeper.team_side}|${assignedKeeper.id}`
+          : null;
+        return assignedKey === (selectedPlayerRow.basePlayerKey || selectedPlayerRow.key);
       });
-
-      const sourceKickouts = directKickouts.length
-        ? directKickouts
-        : allKickouts.filter((stat) => {
-            const extra = safeParseJSON(stat.extra_data || '{}', {});
-            const restartSide = inferRestartTeamSide(stat, extra) || stat?.team_side;
-            return restartSide === selectedPlayerTeamSide;
-          });
 
       return sourceKickouts.map((stat) => {
         const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === selectedPlayerTeamSide;
@@ -4389,7 +4559,7 @@ function PlayersAnalyticsTabContent({
     } catch {
       return [];
     }
-  }, [activeChartPlayer, calcBase, nextStatById, selectedPlayerRow, selectedPlayerTeamSide, selectedTopRightIsGoalkeeper]);
+  }, [calcBase, goalkeeperAssignments, nextStatById, playerOptions, selectedPlayerRow, selectedPlayerTeamSide, selectedTopRightIsGoalkeeper]);
 
   const selectedPlayerKickoutMapItems = useMemo(() => {
     try {

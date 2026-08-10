@@ -485,6 +485,8 @@ export default function Home() {
             Object.assign(
                 payload,
                 buildMatchRosterSnapshotPatch({
+                    homeTeam: teams.find((team) => team.id === payload.home_team_id) || null,
+                    awayTeam: teams.find((team) => team.id === payload.away_team_id) || null,
                     homePlayers: (players || []).filter((player) => player.team_id === payload.home_team_id),
                     awayPlayers: (players || []).filter((player) => player.team_id === payload.away_team_id),
                 })
@@ -826,9 +828,9 @@ export default function Home() {
     ]), []);
 
     const getMatchTitle = (match) => {
-        const homeTeam = teams.find(t => t.id === match.home_team_id);
-        const awayTeam = teams.find(t => t.id === match.away_team_id);
-        if (homeTeam && awayTeam) return `${homeTeam.name} vs ${awayTeam.name}`;
+        const homeName = match?.home_team_name || teams.find(t => t.id === match.home_team_id)?.name || 'Home';
+        const awayName = match?.away_team_name || teams.find(t => t.id === match.away_team_id)?.name || 'Away';
+        if (homeName || awayName) return `${homeName} vs ${awayName}`;
         return match.opponent ? `vs ${match.opponent}` : 'Match';
     };
 

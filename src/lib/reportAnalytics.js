@@ -158,6 +158,26 @@ function normalizeTeamSideLocal(value) {
   return null;
 }
 
+function isGoalkeeperPlayerLocal(player) {
+  if (!player) return false;
+  if (String(player.position || '') === 'Goalkeeper') return true;
+  return !player.position && Number(player.number) === 1;
+}
+
+function getKeeperCandidateLocal(playerOptions = [], teamSide = null) {
+  const sidePlayers = (Array.isArray(playerOptions) ? playerOptions : [])
+    .filter((player) => normalizeTeamSideLocal(player?.team_side) === teamSide && isGoalkeeperPlayerLocal(player));
+  if (!sidePlayers.length) return null;
+  return sidePlayers
+    .slice()
+    .sort((a, b) => {
+      const aScore = String(a.position || '') === 'Goalkeeper' ? 0 : (Number(a.number) === 1 ? 1 : 2);
+      const bScore = String(b.position || '') === 'Goalkeeper' ? 0 : (Number(b.number) === 1 ? 1 : 2);
+      if (aScore !== bScore) return aScore - bScore;
+      return Number(a.number || 999) - Number(b.number || 999);
+    })[0];
+}
+
 function normalizeSelectionToPlayerLocal(selection, playerMaps, fallbackTeamSide = null) {
   if (!selection || typeof selection !== 'object') return null;
   const teamSide = normalizeTeamSideLocal(selection.team_side) || fallbackTeamSide || null;
@@ -545,6 +565,27 @@ function extractSubstitutionInfo(stat, playerMaps, substitutionTimeSById = null)
     playerOn = normalizeSelectionToPlayerLocal({ ...playerOnSelection, team_side: resolvedTeamSide }, playerMaps, resolvedTeamSide);
   }
 
+  const rawGoalkeeperSelection = extra?.goalkeeper_change?.new_goalkeeper
+    || (extra?.goalkeeper_change?.new_goalkeeper_id || extra?.goalkeeper_change?.new_goalkeeper_name || extra?.goalkeeper_change?.new_goalkeeper_number
+      ? {
+          id: extra?.goalkeeper_change?.new_goalkeeper_id || null,
+          number: extra?.goalkeeper_change?.new_goalkeeper_number ?? null,
+          name: extra?.goalkeeper_change?.new_goalkeeper_name || '',
+          team_side: resolvedTeamSide || rawTeamSide || null,
+        }
+      : null);
+  const goalkeeperPlayer = rawGoalkeeperSelection
+    ? (
+      normalizeSelectionToPlayerLocal(
+        { ...rawGoalkeeperSelection, team_side: normalizeTeamSideLocal(rawGoalkeeperSelection?.team_side) || resolvedTeamSide || rawTeamSide || null },
+        playerMaps,
+        resolvedTeamSide || rawTeamSide || null,
+      )
+      || resolveSelectionAcrossTeamsLocal(rawGoalkeeperSelection, playerMaps, resolvedTeamSide || rawTeamSide || null)
+    )
+    : null;
+  const goalkeeperChange = !!(extra?.goalkeeper_change && (goalkeeperPlayer?.id || extra?.goalkeeper_change?.enabled));
+
   const inferredTimeS = Number.isFinite(Number(substitutionTimeSById?.get?.(stat?.id)))
     ? Number(substitutionTimeSById.get(stat.id))
     : getStatLoggedTimeSLocal(stat);
@@ -574,7 +615,177 @@ function extractSubstitutionInfo(stat, playerMaps, substitutionTimeSById = null)
     playId: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
     statId: stat?.id || null,
     temporary: !!extra?.temporary,
+    goalkeeperChange,
+    goalkeeperPlayer,
     issues,
+  };
+}
+
+export function buildGoalkeeperAssignments({
+  match,
+  stats = [],
+  playerOptions = [],
+  homeTeam = null,
+  awayTeam = null,
+} = {}) {
+  const baseMatch = {
+    ...match,
+    home_team_name: homeTeam?.name || match?.home_team_name || match?.homeTeamName || 'Home',
+    away_team_name: awayTeam?.name || match?.away_team_name || match?.awayTeamName || 'Away',
+  };
+  const { playerMaps } = buildPlayerSeed(baseMatch, playerOptions);
+  const defaultBySide = {
+    home: normalizeSelectionToPlayerLocal(getKeeperCandidateLocal(playerOptions, 'home'), playerMaps, 'home') || null,
+    away: normalizeSelectionToPlayerLocal(getKeeperCandidateLocal(playerOptions, 'away'), playerMaps, 'away') || null,
+  };
+
+  const sortedStats = sortStatsForStints(stats);
+  const substitutionTimeSById = buildSubstitutionTimeSById(stats);
+  const periodInfo = getPeriodActualLengthInfo(match, stats);
+  const periodOrder = ['first', 'second', 'et_first', 'et_second'];
+  const substitutionsById = new Map(
+    sortedStats
+      .filter((stat) => String(stat?.stat_type || '') === 'substitution')
+      .map((stat) => extractSubstitutionInfo(stat, playerMaps, substitutionTimeSById))
+      .filter(Boolean)
+      .sort(compareSubstitutionChronologicalLocal)
+      .map((sub) => [sub.statId, sub])
+  );
+
+  const currentBySide = { ...defaultBySide };
+  const historyBySide = {
+    home: defaultBySide.home ? [defaultBySide.home] : [],
+    away: defaultBySide.away ? [defaultBySide.away] : [],
+  };
+  const keeperByStatAndSide = new Map();
+  const windowsByPlayerKey = new Map();
+
+  const pushHistory = (teamSide, player) => {
+    if (teamSide !== 'home' && teamSide !== 'away') return;
+    if (!player) return;
+    const key = makePlayerKeyLocal(player);
+    if (!key) return;
+    const rows = historyBySide[teamSide] || [];
+    const last = rows[rows.length - 1];
+    if (makePlayerKeyLocal(last) === key) return;
+    rows.push(player);
+    historyBySide[teamSide] = rows;
+  };
+
+  const pushWindow = (player, periodKey, teamSide, startLoggedMinute, endLoggedMinute) => {
+    if (!player || !periodKey || (teamSide !== 'home' && teamSide !== 'away')) return;
+    const playerKey = makePlayerKeyLocal(player);
+    if (!playerKey) return;
+    const start = clampMinZero(startLoggedMinute);
+    const end = clampMinZero(endLoggedMinute);
+    if (end <= start) return;
+    const rows = windowsByPlayerKey.get(playerKey) || [];
+    rows.push({
+      playerKey,
+      teamSide,
+      periodKey,
+      startLoggedMinute: start,
+      endLoggedMinute: end,
+    });
+    windowsByPlayerKey.set(playerKey, rows);
+  };
+
+  for (const stat of sortedStats) {
+    const statId = stat?.id || null;
+    if (statId) {
+      keeperByStatAndSide.set(`${statId}|home`, currentBySide.home || null);
+      keeperByStatAndSide.set(`${statId}|away`, currentBySide.away || null);
+    }
+
+    if (String(stat?.stat_type || '') !== 'substitution') continue;
+    const sub = substitutionsById.get(statId);
+    const teamSide = normalizeTeamSideLocal(sub?.teamSide);
+    if (!sub?.goalkeeperChange || (teamSide !== 'home' && teamSide !== 'away')) continue;
+
+    const nextKeeper = sub.goalkeeperPlayer
+      || normalizeSelectionToPlayerLocal(sub.playerOn, playerMaps, teamSide)
+      || resolveSelectionAcrossTeamsLocal(sub.playerOn, playerMaps, teamSide)
+      || null;
+    if (!nextKeeper) continue;
+
+    currentBySide[teamSide] = nextKeeper;
+    pushHistory(teamSide, nextKeeper);
+  }
+
+  const currentWindowKeeperBySide = { ...defaultBySide };
+  for (const periodKey of periodOrder) {
+    const info = periodInfo[periodKey] || {
+      officialPeriodLengthMinutes: getOfficialPeriodLengthMinutes(match, periodKey),
+      actualLoggedPeriodLengthMinutes: getOfficialPeriodLengthMinutes(match, periodKey),
+      hasData: periodKey === 'first' || periodKey === 'second',
+    };
+    if ((periodKey === 'et_first' || periodKey === 'et_second') && !info.hasData) continue;
+    const periodEndMinute = clampMinZero(info.actualLoggedPeriodLengthMinutes);
+    const periodSubs = sortedStats
+      .filter((stat) => String(stat?.stat_type || '') === 'substitution')
+      .map((stat) => substitutionsById.get(stat?.id))
+      .filter((sub) => sub?.periodKey === periodKey && sub?.goalkeeperChange && (sub?.teamSide === 'home' || sub?.teamSide === 'away'))
+      .sort(compareSubstitutionChronologicalLocal);
+
+    for (const teamSide of ['home', 'away']) {
+      let activeKeeper = currentWindowKeeperBySide[teamSide] || null;
+      let currentStartMinute = 0;
+      const sideSubs = periodSubs.filter((sub) => sub.teamSide === teamSide);
+      for (const sub of sideSubs) {
+        if (activeKeeper) pushWindow(activeKeeper, periodKey, teamSide, currentStartMinute, sub.timeMinutes);
+        activeKeeper = sub.goalkeeperPlayer
+          || normalizeSelectionToPlayerLocal(sub.playerOn, playerMaps, teamSide)
+          || resolveSelectionAcrossTeamsLocal(sub.playerOn, playerMaps, teamSide)
+          || null;
+        currentStartMinute = clampMinZero(sub.timeMinutes);
+      }
+      if (activeKeeper) pushWindow(activeKeeper, periodKey, teamSide, currentStartMinute, periodEndMinute);
+      currentWindowKeeperBySide[teamSide] = activeKeeper;
+    }
+  }
+
+  const uniqueKeepersBySide = {
+    home: Array.from(new Map((historyBySide.home || []).map((player) => [makePlayerKeyLocal(player), player])).values()),
+    away: Array.from(new Map((historyBySide.away || []).map((player) => [makePlayerKeyLocal(player), player])).values()),
+  };
+
+  const getKeeperForStat = (teamSide, stat) => {
+    const side = normalizeTeamSideLocal(teamSide);
+    if (side !== 'home' && side !== 'away') return null;
+    const statId = stat?.id || null;
+    if (statId && keeperByStatAndSide.has(`${statId}|${side}`)) return keeperByStatAndSide.get(`${statId}|${side}`) || null;
+    return currentBySide[side] || defaultBySide[side] || null;
+  };
+
+  const getRoleForPlayerAtTime = (playerLike, periodKey, timeMinutes) => {
+    const playerKey = makePlayerKeyLocal(playerLike);
+    if (!playerKey || !periodKey || !Number.isFinite(Number(timeMinutes))) return 'outfield';
+    const windows = windowsByPlayerKey.get(playerKey) || [];
+    const minute = clampMinZero(timeMinutes);
+    const isGoalkeeper = windows.some((window) => (
+      window.periodKey === periodKey
+      && minute >= Number(window.startLoggedMinute || 0)
+      && minute < Number(window.endLoggedMinute || 0)
+    ));
+    return isGoalkeeper ? 'goalkeeper' : 'outfield';
+  };
+
+  const getRoleForPlayerAtStat = (playerLike, stat) => {
+    const periodKey = getStatPeriodKey(stat);
+    const timeMinutes = clampMinZero(getStatLoggedTimeSLocal(stat) / 60);
+    return getRoleForPlayerAtTime(playerLike, periodKey, timeMinutes);
+  };
+
+  return {
+    defaultBySide,
+    currentBySide,
+    historyBySide,
+    uniqueKeepersBySide,
+    keeperByStatAndSide,
+    windowsByPlayerKey,
+    getKeeperForStat,
+    getRoleForPlayerAtTime,
+    getRoleForPlayerAtStat,
   };
 }
 

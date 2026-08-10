@@ -225,6 +225,8 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
         home_on_field: JSON.stringify(homeSheet.on_field),
         away_on_field: JSON.stringify(awaySheet.on_field),
         ...buildMatchRosterSnapshotPatch({
+          homeTeam: fallbackHomeTeam,
+          awayTeam: fallbackAwayTeam,
           homePlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackHomeTeam.id),
           awayPlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === fallbackAwayTeam.id),
         }),
@@ -272,6 +274,8 @@ export async function hydrateServerAccountData(db, { localMatches = [], localSta
             home_on_field: JSON.stringify(homeSheet.on_field),
             away_on_field: JSON.stringify(awaySheet.on_field),
             ...buildMatchRosterSnapshotPatch({
+              homeTeam: localHomeTeam,
+              awayTeam: localAwayTeam,
               homePlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localHomeTeam.id),
               awayPlayers: Array.from(identity.playerByServerId.values()).filter((player) => player?.team_id === localAwayTeam.id),
             }),

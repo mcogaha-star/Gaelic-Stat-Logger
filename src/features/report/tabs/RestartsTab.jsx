@@ -23,6 +23,7 @@ import {
   getMatchTimeS,
   getProgressiveMeters,
   getScoringZoneEntry,
+  buildGoalkeeperAssignments,
   isAttackPossession,
   isDeadBallGapStart,
   shouldExcludeFromTotals,
@@ -105,6 +106,14 @@ function KickoutPressTable({ card, homeTeam, awayTeam }) {
       </div>
     </div>
   );
+}
+
+function formatKeeperLabel(player, fallbackTeam = 'home') {
+  if (!player) return fallbackTeam === 'away' ? 'Away Goalkeeper' : 'Home Goalkeeper';
+  const bits = [];
+  if (player.number != null && String(player.number) !== '') bits.push(`#${player.number}`);
+  if (player.name) bits.push(player.name);
+  return bits.join(' ').trim() || (fallbackTeam === 'away' ? 'Away Goalkeeper' : 'Home Goalkeeper');
 }
 
 function getKickoutSideLabel(stat) {
@@ -768,6 +777,10 @@ function RestartsTab({
   const activeRestartTargetFilter = isLiveMode ? [] : restartTargetFilter;
   const showKickoutPressFilter = !isLiveMode || Boolean(liveModeSettings?.showKickoutPress);
   const base = useMemo(() => applyNonTeamReportFilters(stats, scopedReportFilters), [stats, scopedReportFilters]);
+  const goalkeeperAssignments = useMemo(
+    () => buildGoalkeeperAssignments({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
+    [awayTeam, homeTeam, playerOptions, reportFilters?.match, stats],
+  );
   const calcBase = useMemo(() => base.filter((s) => !shouldExcludeFromTotals(s)), [base]);
   const teamMode = String(reportFilters?.team || 'both');
 
@@ -945,12 +958,13 @@ function RestartsTab({
       const kick = extra?.kickout || {};
       const team = kick?.team_side;
       if (team !== 'home' && team !== 'away') continue;
-      const keeper = getKeeperCandidate(playerOptions, team);
-      const keeperKey = keeper?.id ? `${team}|${keeper.id}` : `${team}|keeper`;
-      const current = keeperRows.get(keeperKey) || {
-        key: keeperKey,
+      const keeper = goalkeeperAssignments.getKeeperForStat(team, stat) || getKeeperCandidate(playerOptions, team);
+      const teamKey = `${team}|press`;
+      const current = keeperRows.get(teamKey) || {
+        key: teamKey,
         team,
-        player: keeper ? `#${keeper.number || ''} ${keeper.name || ''}`.trim() : `${team === 'away' ? 'Away' : 'Home'} Goalkeeper`,
+        player: team === 'away' ? 'Away Goalkeeper' : 'Home Goalkeeper',
+        playerLabels: new Map(),
         kickoutsTaken: 0,
         ownKickoutsWon: 0,
         pressBreakdown: {
@@ -959,12 +973,14 @@ function RestartsTab({
           conceded: { taken: 0, won: 0, shortTaken: 0, shortWon: 0, longTaken: 0, longWon: 0 },
         },
       };
+      const keeperLabel = formatKeeperLabel(keeper, team);
+      current.playerLabels.set(keeperLabel, keeperLabel);
       current.kickoutsTaken += 1;
       const won = inferRestartWinnerSide(stat, nextStatById.get(stat.id)) === team;
       if (won) current.ownKickoutsWon += 1;
       const pressKey = ['m2m', 'zonal', 'conceded'].includes(String(kick?.press || '').toLowerCase()) ? String(kick.press).toLowerCase() : null;
       if (!pressKey) {
-        keeperRows.set(keeperKey, current);
+        keeperRows.set(teamKey, current);
         continue;
       }
       const isLong = classifyKickoutLength(stat) === 'long';
@@ -977,7 +993,7 @@ function RestartsTab({
         current.pressBreakdown[pressKey].shortTaken += 1;
         if (won) current.pressBreakdown[pressKey].shortWon += 1;
       }
-      keeperRows.set(keeperKey, current);
+      keeperRows.set(teamKey, current);
     }
 
     return Array.from(keeperRows.values()).map((row) => {
@@ -992,9 +1008,13 @@ function RestartsTab({
             long: info.longTaken ? `${info.longWon}/${info.longTaken} (${formatPct((info.longWon / info.longTaken) * 100)})` : 'NA',
           };
         })
-      return { ...row, pressRows };
+      return {
+        ...row,
+        player: Array.from(row.playerLabels.values()).join(' / '),
+        pressRows,
+      };
     }).filter((row) => row.kickoutsTaken > 0 && (teamMode === 'both' || row.team === teamMode));
-  }, [calcKickouts, nextStatById, playerOptions, teamMode]);
+  }, [calcKickouts, goalkeeperAssignments, nextStatById, playerOptions, teamMode]);
   const kickoutOutcomeRows = useMemo(() => {
     const seed = (side) => ({
       team: side,

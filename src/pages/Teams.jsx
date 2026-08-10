@@ -4,7 +4,7 @@ const db = globalThis.__B44_DB__ || {
   integrations: { Core: { UploadFile: async () => ({ file_url: '' }) } }
 };
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -25,6 +25,22 @@ const POSITIONS = [
     'Centre Back', 'Midfielder', 'Wing Forward', 'Centre Forward',
     'Corner Forward', 'Full Forward', 'Substitute'
 ];
+
+function getAutoFillPosition(number) {
+    const num = Number(number);
+    if (num === 1) return 'Goalkeeper';
+    if (num === 2 || num === 4) return 'Corner Back';
+    if (num === 3) return 'Full Back';
+    if (num === 5 || num === 7) return 'Wing Back';
+    if (num === 6) return 'Centre Back';
+    if (num === 8 || num === 9) return 'Midfielder';
+    if (num === 10 || num === 12) return 'Wing Forward';
+    if (num === 11) return 'Centre Forward';
+    if (num === 13 || num === 15) return 'Corner Forward';
+    if (num === 14) return 'Full Forward';
+    if (num >= 16 && num <= 30) return 'Substitute';
+    return '';
+}
 
 export default function Teams() {
     const [expandedTeam, setExpandedTeam] = useState(null);
@@ -139,6 +155,49 @@ export default function Teams() {
         }
     });
 
+    const quickFillPlayersMutation = useMutation({
+        mutationFn: async (team) => {
+            const existingPlayers = players.filter((player) => player.team_id === team.id);
+            const existingNumbers = new Set(existingPlayers.map((player) => Number(player.number)));
+            const numbersToCreate = Array.from({ length: 30 }, (_, index) => index + 1)
+                .filter((number) => !existingNumbers.has(number));
+
+            if (!numbersToCreate.length) return { createdCount: 0 };
+
+            let teamRef = team?.server_team_id || null;
+            if (!teamRef) {
+                const teamRes = await upsertPrivateTeamFromLocal(team);
+                if (teamRes.ok && teamRes.id) {
+                    teamRef = teamRes.id;
+                    await db.entities.Team.update(team.id, { server_team_id: teamRef });
+                }
+            }
+
+            for (const number of numbersToCreate) {
+                const created = await db.entities.Player.create({
+                    name: String(number),
+                    number,
+                    position: getAutoFillPosition(number),
+                    team_id: team.id,
+                });
+                const syncRes = await upsertPrivatePlayerFromLocal(created, { teamServerId: teamRef });
+                if (syncRes.ok && syncRes.id) {
+                    await db.entities.Player.update(created.id, {
+                        server_player_id: syncRes.id,
+                        server_team_id: teamRef,
+                    });
+                }
+            }
+
+            return { createdCount: numbersToCreate.length };
+        },
+        onSuccess: ({ createdCount }) => {
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['players'] });
+            toast.success(createdCount ? `Added ${createdCount} players` : 'All numbers 1-30 already exist');
+        },
+    });
+
     const safeParseIds = (s) => {
         if (!s || typeof s !== 'string') return [];
         try {
@@ -149,21 +208,72 @@ export default function Teams() {
         }
     };
 
-    const computeSheet = (team, teamPlayers) => {
+    const arraysEqual = (a = [], b = []) => (
+        a.length === b.length && a.every((value, index) => value === b[index])
+    );
+
+    const buildSheetState = (team, teamPlayers, draftSheet = null) => {
+        const validIds = new Set(teamPlayers.map((player) => player.id));
+        const normalizeList = (list = []) => {
+            const seen = new Set();
+            return (Array.isArray(list) ? list : [])
+                .filter((id) => validIds.has(id) && !seen.has(id) && seen.add(id));
+        };
+
         const startersIds = safeParseIds(team?.starters);
         const subsIds = safeParseIds(team?.subs);
+        const draftStarters = normalizeList(draftSheet?.starters);
+        const draftSubs = normalizeList(draftSheet?.subs);
+        const savedStarters = normalizeList(startersIds);
+        const savedSubs = normalizeList(subsIds);
 
         // Fallback: first 15 by number.
-        let starters = startersIds.length ? startersIds.filter((id) => teamPlayers.some(p => p.id === id)) : teamPlayers.slice(0, 15).map(p => p.id);
+        let starters = draftStarters.length
+            ? draftStarters
+            : savedStarters.length
+                ? savedStarters
+                : teamPlayers.slice(0, 15).map((p) => p.id);
         starters = starters.slice(0, 15);
         const startersSet = new Set(starters);
         const remaining = teamPlayers.map(p => p.id).filter((id) => !startersSet.has(id));
 
-        const subs = (subsIds.length ? subsIds.filter((id) => teamPlayers.some(p => p.id === id) && !startersSet.has(id)) : [])
-            .concat(remaining.filter((id) => !(subsIds || []).includes(id)));
+        const preferredSubs = draftSubs.length ? draftSubs : savedSubs;
+        const subs = preferredSubs
+            .filter((id) => !startersSet.has(id))
+            .concat(remaining.filter((id) => !preferredSubs.includes(id)));
 
         return { starters, subs };
     };
+
+    const computeSheet = (team, teamPlayers) => buildSheetState(team, teamPlayers, teamSheets[team.id]);
+
+    useEffect(() => {
+        if (!teams.length) {
+            setTeamSheets((prev) => (Object.keys(prev).length ? {} : prev));
+            return;
+        }
+
+        setTeamSheets((prev) => {
+            let changed = false;
+            const next = {};
+
+            teams.forEach((team) => {
+                const teamPlayers = getTeamPlayers(team.id);
+                const merged = buildSheetState(team, teamPlayers, prev[team.id]);
+                next[team.id] = merged;
+                if (
+                    !prev[team.id]
+                    || !arraysEqual(prev[team.id].starters, merged.starters)
+                    || !arraysEqual(prev[team.id].subs, merged.subs)
+                ) {
+                    changed = true;
+                }
+            });
+
+            if (!changed && Object.keys(prev).length !== Object.keys(next).length) changed = true;
+            return changed ? next : prev;
+        });
+    }, [teams, players]);
 
     const openTeamDialog = (team = null) => {
         setTeamForm(team ? { name: team.name, color: team.color || '#22c55e' } : { name: '', color: '#22c55e' });
@@ -262,14 +372,34 @@ export default function Teams() {
 
                                 {isExpanded && (
                                     <div className="border-t bg-slate-50">
-                                        <div className="px-4 py-3 flex justify-end">
+                                        <div className="px-4 py-3 flex flex-wrap justify-end gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => quickFillPlayersMutation.mutate(team)}
+                                                disabled={quickFillPlayersMutation.isPending}
+                                            >
+                                                Quick Fill 1-30
+                                            </Button>
                                             <Button size="sm" onClick={() => openPlayerDialog(team.id)} className="gap-1.5 bg-green-600 hover:bg-green-700">
                                                 <Plus className="w-3.5 h-3.5" /> Add Player
                                             </Button>
                                         </div>
                                         {(() => {
-                                            const sheet = teamSheets[team.id] || computeSheet(team, teamPlayers);
-                                            const setSheet = (next) => setTeamSheets((prev) => ({ ...prev, [team.id]: next }));
+                                            const sheet = computeSheet(team, teamPlayers);
+                                            const setSheet = (updater) => setTeamSheets((prev) => {
+                                                const current = buildSheetState(team, teamPlayers, prev[team.id]);
+                                                const nextSheet = typeof updater === 'function' ? updater(current) : updater;
+                                                const normalized = buildSheetState(team, teamPlayers, nextSheet);
+                                                if (
+                                                    prev[team.id]
+                                                    && arraysEqual(prev[team.id].starters, normalized.starters)
+                                                    && arraysEqual(prev[team.id].subs, normalized.subs)
+                                                ) {
+                                                    return prev;
+                                                }
+                                                return { ...prev, [team.id]: normalized };
+                                            });
 
                                             const onDragEnd = (result) => {
                                                 const { source, destination } = result;
@@ -282,24 +412,26 @@ export default function Teams() {
 
                                                 const fromKey = src === startersId ? 'starters' : 'subs';
                                                 const toKey = dst === startersId ? 'starters' : 'subs';
-                                                const from = [...sheet[fromKey]];
-                                                const to = fromKey === toKey ? from : [...sheet[toKey]];
 
-                                                const [moved] = from.splice(source.index, 1);
-                                                if (!moved) return;
+                                                setSheet((currentSheet) => {
+                                                    const from = [...currentSheet[fromKey]];
+                                                    const to = fromKey === toKey ? from : [...currentSheet[toKey]];
 
-                                                // Enforce max 15 starters.
-                                                if (toKey === 'starters' && fromKey !== 'starters' && sheet.starters.length >= 15) {
-                                                    toast.error('Starters list is capped at 15');
-                                                    return;
-                                                }
+                                                    const [moved] = from.splice(source.index, 1);
+                                                    if (!moved) return currentSheet;
 
-                                                to.splice(destination.index, 0, moved);
-                                                const next = {
-                                                    starters: toKey === 'starters' ? to : fromKey === 'starters' ? from : sheet.starters,
-                                                    subs: toKey === 'subs' ? to : fromKey === 'subs' ? from : sheet.subs,
-                                                };
-                                                setSheet(next);
+                                                    // Enforce max 15 starters.
+                                                    if (toKey === 'starters' && fromKey !== 'starters' && currentSheet.starters.length >= 15) {
+                                                        toast.error('Starters list is capped at 15');
+                                                        return currentSheet;
+                                                    }
+
+                                                    to.splice(destination.index, 0, moved);
+                                                    return {
+                                                        starters: toKey === 'starters' ? to : fromKey === 'starters' ? from : currentSheet.starters,
+                                                        subs: toKey === 'subs' ? to : fromKey === 'subs' ? from : currentSheet.subs,
+                                                    };
+                                                });
                                             };
 
                                             const renderPlayerChip = (playerId, idx) => {

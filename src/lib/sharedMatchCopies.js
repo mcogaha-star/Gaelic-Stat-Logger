@@ -440,6 +440,8 @@ export async function importSharedMatchSnapshot({ db, snapshotRow, importMode = 
     home_on_field: remapIdList(sourceMatch.home_on_field, playerIdMap),
     away_on_field: remapIdList(sourceMatch.away_on_field, playerIdMap),
     ...buildMatchRosterSnapshotPatch({
+      homeTeam: createdHomeTeam,
+      awayTeam: createdAwayTeam,
       homePlayers: createdPlayers.filter((player) => player?.team_id === createdHomeTeam?.id),
       awayPlayers: createdPlayers.filter((player) => player?.team_id === createdAwayTeam?.id),
     }),

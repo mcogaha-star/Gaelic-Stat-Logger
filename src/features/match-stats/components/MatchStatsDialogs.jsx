@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -60,12 +61,20 @@ export default function MatchStatsDialogs({
     setSubIn,
     subTemporary,
     setSubTemporary,
+    subGoalkeeperChange,
+    setSubGoalkeeperChange,
+    subNewGoalkeeperId,
+    setSubNewGoalkeeperId,
     liveModeSettings: subLiveModeSettings,
     allPlayers,
     homePlayers: subHomePlayers,
     awayPlayers: subAwayPlayers,
+    homeOnField: subHomeOnField,
+    awayOnField: subAwayOnField,
     homeTeamName,
     awayTeamName,
+    currentGoalkeeperBySide,
+    subOutIsCurrentGoalkeeper,
     logSubstitution,
   } = subDialogProps;
 
@@ -75,6 +84,20 @@ export default function MatchStatsDialogs({
     if (subTeamFilter === 'away') return subAwayPlayers || [];
     return allPlayers || [];
   }, [subTeamFilter, allPlayers, subHomePlayers, subAwayPlayers]);
+  const subOutPlayer = React.useMemo(() => (allPlayers || []).find((player) => player.id === subOut) || null, [allPlayers, subOut]);
+  const subOutSide = React.useMemo(() => {
+    if (subOutPlayer && (subHomePlayers || []).some((player) => player.id === subOutPlayer.id)) return 'home';
+    if (subOutPlayer && (subAwayPlayers || []).some((player) => player.id === subOutPlayer.id)) return 'away';
+    return null;
+  }, [subAwayPlayers, subHomePlayers, subOutPlayer]);
+  const goalkeeperOverrideOptions = React.useMemo(() => {
+    if (subOutSide !== 'home' && subOutSide !== 'away') return [];
+    const onFieldIds = new Set(subOutSide === 'home' ? (subHomeOnField || []) : (subAwayOnField || []));
+    onFieldIds.delete(subOut);
+    if (subIn) onFieldIds.add(subIn);
+    const sourcePlayers = subOutSide === 'home' ? (subHomePlayers || []) : (subAwayPlayers || []);
+    return sourcePlayers.filter((player) => onFieldIds.has(player.id));
+  }, [subAwayOnField, subHomeOnField, subAwayPlayers, subHomePlayers, subIn, subOut, subOutSide]);
 
   const {
     endPeriodPrompt,
@@ -203,6 +226,41 @@ export default function MatchStatsDialogs({
                 </SelectContent>
               </Select>
             </div>
+            {subOutIsCurrentGoalkeeper && (
+              <div className="space-y-3 rounded-md border border-slate-200 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="sub-new-goalkeeper"
+                    checked={!!subGoalkeeperChange}
+                    onCheckedChange={(checked) => setSubGoalkeeperChange(!!checked)}
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="sub-new-goalkeeper">Sub is new goalkeeper?</Label>
+                    <div className="text-xs text-slate-500">
+                      Default is the player coming on for the current goalkeeper.
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Current goalkeeper: {currentGoalkeeperBySide?.[subOutSide]?.number != null ? `#${currentGoalkeeperBySide[subOutSide].number} ` : ''}{currentGoalkeeperBySide?.[subOutSide]?.name || (subOutSide === 'away' ? awayTeamName : homeTeamName)}
+                    </div>
+                  </div>
+                </div>
+
+                {!subGoalkeeperChange && (
+                  <div className="space-y-2">
+                    <Label>Set new goalkeeper</Label>
+                    <Select value={subNewGoalkeeperId} onValueChange={setSubNewGoalkeeperId}>
+                      <SelectTrigger><SelectValue placeholder="Choose goalkeeper..." /></SelectTrigger>
+                      <SelectContent>
+                        {goalkeeperOverrideOptions.map((player) => (
+                          <SelectItem key={player.id} value={player.id}>#{player.number} {player.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
             {subLiveModeSettings?.showTemporarySub !== false && <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
               <div className="space-y-0.5">
                 <Label>Temporary Sub</Label>
@@ -214,13 +272,13 @@ export default function MatchStatsDialogs({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); setSubTemporary(false); setSubTeamFilter('all'); }}
+                onClick={() => { setSubDialogOpen(false); setSubOut(''); setSubIn(''); setSubTemporary(false); setSubGoalkeeperChange(false); setSubNewGoalkeeperId(''); setSubTeamFilter('all'); }}
               >
                 Cancel
               </Button>
               <Button
                 className="flex-1 bg-green-600 hover:bg-green-700"
-                disabled={!subOut || !subIn}
+                disabled={!subOut || !subIn || (subOutIsCurrentGoalkeeper && !subGoalkeeperChange && !subNewGoalkeeperId)}
                 onClick={logSubstitution}
               >
                 Log sub

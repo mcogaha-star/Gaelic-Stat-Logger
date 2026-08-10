@@ -276,6 +276,8 @@ function buildDemoMatch(bundle, maps, demoPlayers = [], demoConfig) {
   return {
     ...match,
     ...buildMatchRosterSnapshotPatch({
+      homeTeam: buildDemoTeams(demoBundle, maps, demoConfig).find((team) => team?.id === demoConfig.teamIds.home) || null,
+      awayTeam: buildDemoTeams(demoBundle, maps, demoConfig).find((team) => team?.id === demoConfig.teamIds.away) || null,
       homePlayers: demoPlayers.filter((player) => player?.team_id === demoConfig.teamIds.home),
       awayPlayers: demoPlayers.filter((player) => player?.team_id === demoConfig.teamIds.away),
     }),
@@ -314,6 +316,8 @@ export async function openDemoMatch(db, options = {}) {
   const teams = buildDemoTeams(demoBundle, maps, demoConfig);
   const players = buildDemoPlayers(demoBundle, maps, demoConfig);
   const rosterPatch = buildMatchRosterSnapshotPatch({
+    homeTeam: teams.find((team) => team?.id === demoConfig.teamIds.home) || null,
+    awayTeam: teams.find((team) => team?.id === demoConfig.teamIds.away) || null,
     homePlayers: players.filter((player) => player?.team_id === demoConfig.teamIds.home),
     awayPlayers: players.filter((player) => player?.team_id === demoConfig.teamIds.away),
   });

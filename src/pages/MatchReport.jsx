@@ -521,8 +521,14 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
   });
   const { data: awayTeamArr = [] } = awayTeamQuery;
 
-  const homeTeam = isSharedView ? sharedData.homeTeam : (homeTeamArr?.[0] || null);
-  const awayTeam = isSharedView ? sharedData.awayTeam : (awayTeamArr?.[0] || null);
+  const liveHomeTeam = isSharedView ? sharedData.homeTeam : (homeTeamArr?.[0] || null);
+  const liveAwayTeam = isSharedView ? sharedData.awayTeam : (awayTeamArr?.[0] || null);
+  const homeTeam = liveHomeTeam
+    ? { ...liveHomeTeam, name: match?.home_team_name || liveHomeTeam.name || 'Home' }
+    : (match?.home_team_id || match?.home_team_name ? { id: match?.home_team_id || null, name: match?.home_team_name || 'Home', color: '#22c55e' } : null);
+  const awayTeam = liveAwayTeam
+    ? { ...liveAwayTeam, name: match?.away_team_name || liveAwayTeam.name || 'Away' }
+    : (match?.away_team_id || match?.away_team_name ? { id: match?.away_team_id || null, name: match?.away_team_name || 'Away', color: '#ef4444' } : null);
 
   const homePlayersQuery = useQuery({
     queryKey: ['players', 'home', match?.home_team_id],
@@ -575,16 +581,19 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     : resolveMatchRosterPlayers(match?.away_roster_snapshot, awayPlayers, awayTeam?.id);
 
   useEffect(() => {
-    if (isSharedView || !match?.id || !homeTeam?.id || !awayTeam?.id) return;
-    if (match?.home_roster_snapshot && match?.away_roster_snapshot) return;
+    if (isSharedView || !match?.id || !liveHomeTeam?.id || !liveAwayTeam?.id) return;
+    const hasLockedNames = !!(match?.home_team_name && match?.away_team_name);
+    if (match?.home_roster_snapshot && match?.away_roster_snapshot && hasLockedNames) return;
     if (homePlayers.length === 0 && awayPlayers.length === 0) return;
     db.entities.Match.update(match.id, buildMatchRosterSnapshotPatch({
+      homeTeam: liveHomeTeam,
+      awayTeam: liveAwayTeam,
       homePlayers,
       awayPlayers,
     }))
       .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
       .catch(() => {});
-  }, [awayPlayers, awayTeam?.id, homePlayers, homeTeam?.id, isSharedView, match?.away_roster_snapshot, match?.home_roster_snapshot, match?.id, matchId, queryClient]);
+  }, [awayPlayers, homePlayers, isSharedView, liveAwayTeam?.id, liveHomeTeam?.id, match?.away_roster_snapshot, match?.away_team_name, match?.home_roster_snapshot, match?.home_team_name, match?.id, matchId, queryClient]);
 
   const defenceSetMigrationKey = matchId ? `gstl-defence-set:${DEFENCE_SET_MIGRATION_VERSION}:${matchId}` : null;
   const readDefenceSetMigrationDone = (key) => {

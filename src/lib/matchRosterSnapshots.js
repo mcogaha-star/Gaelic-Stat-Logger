@@ -41,13 +41,11 @@ export function resolveMatchRosterPlayers(snapshotValue, livePlayers = [], fallb
   if (!snapshot.length) return Array.isArray(livePlayers) ? livePlayers : [];
 
   const liveById = new Map((Array.isArray(livePlayers) ? livePlayers : []).filter((player) => player?.id).map((player) => [player.id, player]));
-  const usedIds = new Set();
 
   const resolved = snapshot
     .filter((entry) => entry?.id)
     .map((entry) => {
       const live = liveById.get(entry.id) || {};
-      usedIds.add(entry.id);
       return {
         ...live,
         id: entry.id,
@@ -58,18 +56,13 @@ export function resolveMatchRosterPlayers(snapshotValue, livePlayers = [], fallb
       };
     });
 
-  const extras = (Array.isArray(livePlayers) ? livePlayers : [])
-    .filter((player) => player?.id && !usedIds.has(player.id))
-    .map((player) => ({
-      ...player,
-      team_id: player.team_id || fallbackTeamId || null,
-    }));
-
-  return resolved.concat(extras);
+  return resolved;
 }
 
-export function buildMatchRosterSnapshotPatch({ homePlayers = [], awayPlayers = [] }) {
+export function buildMatchRosterSnapshotPatch({ homeTeam = null, awayTeam = null, homePlayers = [], awayPlayers = [] }) {
   return {
+    home_team_name: homeTeam?.name || null,
+    away_team_name: awayTeam?.name || null,
     home_roster_snapshot: buildMatchRosterSnapshot(homePlayers),
     away_roster_snapshot: buildMatchRosterSnapshot(awayPlayers),
   };

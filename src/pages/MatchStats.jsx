@@ -23,11 +23,12 @@ import DataTab from '@/features/report/tabs/DataTab';
 import { DEFAULT_CLICK_STATS, DEFAULT_DRAG_STATS, DEFAULT_DEFAULTS, DEFAULT_CUSTOM_FIELDS } from '@/components/statDefaults';
 import { ensureServerMatch, insertServerStat, softDeleteServerStat, updateServerStat, upsertPrivatePlayerFromLocal, upsertPrivateTeamFromLocal } from '@/lib/serverSync';
 import { eventMatchesShortcut, isTypingTarget, parseShortcutConfig } from '@/lib/shortcuts';
-import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, getSetDefenceValue, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION } from '@/lib/reportAnalytics';
+import { buildLegacyPossessionRepairs, buildLegacyDefenceSetRepairs, buildLegacyDefensiveContactDeletes, buildStatModelRepairs, normalizeDefenceSetRows, normalizeStatModelRows, rebuildPossessionRows, sequencePossessionRows, deriveMatchLengthMinutes, shouldExcludeFromTotals, getSetDefenceValue, POSSESSION_REBUILD_VERSION, DEFENCE_SET_MIGRATION_VERSION, STAT_MODEL_MIGRATION_VERSION, buildGoalkeeperAssignments } from '@/lib/reportAnalytics';
 import { parseLiveModeSettings } from '@/lib/liveModeSettings';
 import { buildMatchRosterSnapshotPatch, resolveMatchRosterPlayers } from '@/lib/matchRosterSnapshots';
 import MatchStatsToolbar from '@/features/match-stats/components/MatchStatsToolbar';
 import MatchStatsDialogs from '@/features/match-stats/components/MatchStatsDialogs';
+import MatchRosterEditor from '@/features/match-stats/components/MatchRosterEditor';
 import useMatchVideoControls from '@/features/match-stats/hooks/useMatchVideoControls';
 import useHalfManagement from '@/features/match-stats/hooks/useHalfManagement';
 import useStatLogging from '@/features/match-stats/hooks/useStatLogging';
@@ -173,6 +174,8 @@ export default function MatchStats() {
     const [subOut, setSubOut] = useState('');
     const [subIn, setSubIn] = useState('');
     const [subTemporary, setSubTemporary] = useState(false);
+    const [subGoalkeeperChange, setSubGoalkeeperChange] = useState(false);
+    const [subNewGoalkeeperId, setSubNewGoalkeeperId] = useState('');
     const [lastDefenceSetByPossession, setLastDefenceSetByPossession] = useState(null);
     const [liveClockSecondsByHalf, setLiveClockSecondsByHalf] = useState({});
     const [liveClockRunning, setLiveClockRunning] = useState(false);
@@ -181,8 +184,14 @@ export default function MatchStats() {
     const [loggingTourOpen, setLoggingTourOpen] = useState(false);
 
     // Match teams + players
-    const homeTeam = teams.find(t => t.id === match?.home_team_id);
-    const awayTeam = teams.find(t => t.id === match?.away_team_id);
+    const liveHomeTeam = teams.find(t => t.id === match?.home_team_id) || null;
+    const liveAwayTeam = teams.find(t => t.id === match?.away_team_id) || null;
+    const homeTeam = liveHomeTeam
+        ? { ...liveHomeTeam, name: match?.home_team_name || liveHomeTeam.name || 'Home' }
+        : (match?.home_team_id || match?.home_team_name ? { id: match?.home_team_id || null, name: match?.home_team_name || 'Home', color: '#22c55e' } : null);
+    const awayTeam = liveAwayTeam
+        ? { ...liveAwayTeam, name: match?.away_team_name || liveAwayTeam.name || 'Away' }
+        : (match?.away_team_id || match?.away_team_name ? { id: match?.away_team_id || null, name: match?.away_team_name || 'Away', color: '#ef4444' } : null);
     const parseIds = (s) => {
         if (!s || typeof s !== 'string') return [];
         try { const arr = JSON.parse(s); return Array.isArray(arr) ? arr.filter(Boolean) : []; } catch { return []; }
@@ -250,20 +259,69 @@ export default function MatchStats() {
         : resolvedAwayRoster.slice(0, 15).map((player) => player?.id).filter(Boolean);
     const homePlayers = homeTeam ? orderByTeamSheet(resolvedHomeRoster, homeStarters, homeSubs, homeOnField) : [];
     const awayPlayers = awayTeam ? orderByTeamSheet(resolvedAwayRoster, awayStarters, awaySubs, awayOnField) : [];
+    const loggerPlayerOptions = useMemo(() => [
+        ...homePlayers.map((player) => ({ ...player, team_side: 'home' })),
+        ...awayPlayers.map((player) => ({ ...player, team_side: 'away' })),
+    ], [awayPlayers, homePlayers]);
+    const matchRosterPlayers = useMemo(() => [...homePlayers, ...awayPlayers], [awayPlayers, homePlayers]);
+    const goalkeeperAssignments = useMemo(
+        () => buildGoalkeeperAssignments({ match, stats, playerOptions: loggerPlayerOptions, homeTeam, awayTeam }),
+        [awayTeam, homeTeam, loggerPlayerOptions, match, stats],
+    );
+    const currentGoalkeeperBySide = goalkeeperAssignments?.currentBySide || { home: null, away: null };
+    const currentSubOutPlayer = useMemo(() => matchRosterPlayers.find((player) => player.id === subOut) || null, [matchRosterPlayers, subOut]);
+    const currentSubOutSide = currentSubOutPlayer?.team_id && currentSubOutPlayer.team_id === match?.home_team_id
+        ? 'home'
+        : currentSubOutPlayer?.team_id && currentSubOutPlayer.team_id === match?.away_team_id
+            ? 'away'
+            : 'unknown';
+    const subOutIsCurrentGoalkeeper = useMemo(() => {
+        if (currentSubOutSide !== 'home' && currentSubOutSide !== 'away') return false;
+        const currentKeeper = currentGoalkeeperBySide[currentSubOutSide];
+        if (!currentKeeper) return false;
+        if (currentKeeper.id && currentSubOutPlayer?.id) return String(currentKeeper.id) === String(currentSubOutPlayer.id);
+        if (Number.isFinite(Number(currentKeeper.number)) && Number.isFinite(Number(currentSubOutPlayer?.number))) {
+            return Number(currentKeeper.number) === Number(currentSubOutPlayer.number);
+        }
+        return String(currentKeeper.name || '').trim().toLowerCase() === String(currentSubOutPlayer?.name || '').trim().toLowerCase();
+    }, [currentGoalkeeperBySide, currentSubOutPlayer, currentSubOutSide]);
 
     useEffect(() => {
-        if (!match?.id || !homeTeam?.id || !awayTeam?.id) return;
-        if (match?.home_roster_snapshot && match?.away_roster_snapshot) return;
-        const liveHomePlayers = allPlayers.filter((player) => player.team_id === homeTeam.id);
-        const liveAwayPlayers = allPlayers.filter((player) => player.team_id === awayTeam.id);
+        if (!subDialogOpen) {
+            setSubGoalkeeperChange(false);
+            setSubNewGoalkeeperId('');
+            return;
+        }
+        if (!subOutIsCurrentGoalkeeper) {
+            setSubGoalkeeperChange(false);
+            setSubNewGoalkeeperId('');
+            return;
+        }
+        setSubGoalkeeperChange(true);
+        setSubNewGoalkeeperId(subIn || '');
+    }, [subDialogOpen, subOut, subOutIsCurrentGoalkeeper]);
+
+    useEffect(() => {
+        if (!subDialogOpen || !subGoalkeeperChange || !subOutIsCurrentGoalkeeper) return;
+        setSubNewGoalkeeperId(subIn || '');
+    }, [subDialogOpen, subGoalkeeperChange, subIn, subOutIsCurrentGoalkeeper]);
+
+    useEffect(() => {
+        if (!match?.id || !liveHomeTeam?.id || !liveAwayTeam?.id) return;
+        const hasLockedNames = !!(match?.home_team_name && match?.away_team_name);
+        if (match?.home_roster_snapshot && match?.away_roster_snapshot && hasLockedNames) return;
+        const liveHomePlayers = allPlayers.filter((player) => player.team_id === liveHomeTeam.id);
+        const liveAwayPlayers = allPlayers.filter((player) => player.team_id === liveAwayTeam.id);
         if (liveHomePlayers.length === 0 && liveAwayPlayers.length === 0) return;
         db.entities.Match.update(match.id, buildMatchRosterSnapshotPatch({
+            homeTeam: liveHomeTeam,
+            awayTeam: liveAwayTeam,
             homePlayers: liveHomePlayers,
             awayPlayers: liveAwayPlayers,
         }))
             .then(() => queryClient.invalidateQueries({ queryKey: ['match', matchId] }))
             .catch(() => {});
-    }, [allPlayers, awayTeam?.id, homeTeam?.id, match?.away_roster_snapshot, match?.home_roster_snapshot, match?.id, matchId, queryClient]);
+    }, [allPlayers, liveAwayTeam?.id, liveHomeTeam?.id, match?.away_roster_snapshot, match?.away_team_name, match?.home_roster_snapshot, match?.home_team_name, match?.id, matchId, queryClient]);
     const previousStat = useMemo(() => {
         const ordered = [...(stats || [])]
             .filter((s) => s?.stat_type !== 'substitution' && s?.stat_type !== 'period_end')
@@ -1191,8 +1249,8 @@ export default function MatchStats() {
     const handleEditStat = (stat) => openEditStat(stat);
 
     const logSubstitution = async () => {
-        const outP = allPlayers.find((p) => p.id === subOut);
-        const inP = allPlayers.find((p) => p.id === subIn);
+        const outP = matchRosterPlayers.find((p) => p.id === subOut);
+        const inP = matchRosterPlayers.find((p) => p.id === subIn);
         const outSide =
             outP?.team_id && outP.team_id === match?.home_team_id ? 'home'
             : outP?.team_id && outP.team_id === match?.away_team_id ? 'away'
@@ -1203,6 +1261,22 @@ export default function MatchStats() {
             sub_in_id: subIn,
             temporary: liveModeSettings?.showTemporarySub === false ? false : !!subTemporary,
         };
+        if (subGoalkeeperChange && (outSide === 'home' || outSide === 'away')) {
+            const keeperPlayer = matchRosterPlayers.find((player) => player.id === (subNewGoalkeeperId || subIn));
+            if (keeperPlayer) {
+                extra.goalkeeper_change = {
+                    enabled: true,
+                    defaulted_to_sub_in: String(keeperPlayer.id) === String(subIn || ''),
+                    new_goalkeeper: {
+                        kind: 'player',
+                        id: keeperPlayer.id,
+                        number: keeperPlayer.number ?? null,
+                        name: keeperPlayer.name || '',
+                        team_side: outSide,
+                    },
+                };
+            }
+        }
         const statData = {
             match_id: matchId,
             player_name: outP?.name,
@@ -1246,6 +1320,8 @@ export default function MatchStats() {
         setSubOut('');
         setSubIn('');
         setSubTemporary(false);
+        setSubGoalkeeperChange(false);
+        setSubNewGoalkeeperId('');
     };
 
     const handleEndPeriodChoice = async (shouldFlipDirection) => {
@@ -1449,12 +1525,20 @@ export default function MatchStats() {
                     setSubIn,
                     subTemporary,
                     setSubTemporary,
+                    subGoalkeeperChange,
+                    setSubGoalkeeperChange,
+                    subNewGoalkeeperId,
+                    setSubNewGoalkeeperId,
                     liveModeSettings,
-                    allPlayers,
+                    allPlayers: matchRosterPlayers,
                     homePlayers,
                     awayPlayers,
+                    homeOnField,
+                    awayOnField,
                     homeTeamName: homeTeam?.name || 'Home',
                     awayTeamName: awayTeam?.name || 'Away',
+                    currentGoalkeeperBySide,
+                    subOutIsCurrentGoalkeeper,
                     logSubstitution,
                 }}
                 endPeriodPromptProps={{
@@ -1475,6 +1559,14 @@ export default function MatchStats() {
                         <DialogTitle>Manage Data</DialogTitle>
                     </DialogHeader>
                     <div className="px-6 pb-6 overflow-y-auto max-h-[calc(92vh-72px)]">
+                        <MatchRosterEditor
+                            match={match}
+                            homeTeam={homeTeam}
+                            awayTeam={awayTeam}
+                            homePlayers={homePlayers}
+                            awayPlayers={awayPlayers}
+                            stats={stats}
+                        />
                         <DataTab
                             matchId={matchId}
                             match={match}

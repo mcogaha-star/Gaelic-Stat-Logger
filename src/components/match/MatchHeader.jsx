@@ -219,9 +219,9 @@ export default function MatchHeader({
                     </div>
                 </div>
 
-                <div className="hidden sm:flex sm:flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5">
-                    <div>
-                        <div className="flex items-start gap-3" data-tour-id="logger-header-summary">
+                <div className="hidden sm:block space-y-2">
+                    <div className="flex items-start justify-between gap-4" data-tour-id="logger-header-summary">
+                        <div className="min-w-0 flex items-start gap-3">
                             {backUrl && (
                                 <div className="shrink-0 pt-0.5">
                                     {typeof onBackClick === 'function' ? (
@@ -229,7 +229,7 @@ export default function MatchHeader({
                                             type="button"
                                             variant="outline"
                                             size="sm"
-                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm sm:h-7 sm:px-2 sm:text-sm"
+                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm md:h-7 md:px-2 md:text-sm"
                                             onClick={onBackClick}
                                         >
                                             <ArrowLeft className="w-4 h-4" /> Back
@@ -239,107 +239,103 @@ export default function MatchHeader({
                                             asChild
                                             variant="outline"
                                             size="sm"
-                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm sm:h-7 sm:px-2 sm:text-sm"
+                                            className="h-10 shrink-0 rounded-full px-4 text-base font-semibold shadow-sm md:h-7 md:px-2 md:text-sm"
                                         >
-                                          <Link to={backUrl}>
-                                            <ArrowLeft className="w-4 h-4" /> Back
-                                          </Link>
+                                            <Link to={backUrl}>
+                                                <ArrowLeft className="w-4 h-4" /> Back
+                                            </Link>
                                         </Button>
                                     )}
                                 </div>
                             )}
 
                             <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <h1 className="text-lg font-bold text-slate-900">
-                                        {matchTitle || (match?.opponent ? `vs ${match.opponent}` : 'Match')}
-                                    </h1>
-
-                                    {scoreLine && (
-                                        <Badge variant="outline" className="text-xs font-semibold h-7 w-32 inline-flex items-center justify-center">
-                                            {scoreLine}
-                                        </Badge>
-                                    )}
-
-                                    <div data-tour-id="logger-half-select">
-                                        <Select value={half} onValueChange={onHalfChange}>
-                                            <SelectTrigger className="w-32 h-7">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="first">1st Half</SelectItem>
-                                                <SelectItem value="second">2nd Half</SelectItem>
-                                                <SelectItem value="et_first">ET 1st Half</SelectItem>
-                                                <SelectItem value="et_second">ET 2nd Half</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center gap-4 mt-0 text-xs text-slate-500">
-                                    {match?.date && (
-                                        <span className="flex items-center gap-1">
-                                            <Clock className="w-3.5 h-3.5" />
-                                            {safeFormatDate(match.date)}
-                                        </span>
-                                    )}
-                                    {match?.venue && (
-                                        <span className="flex items-center gap-1">
-                                            <MapPin className="w-3.5 h-3.5" />
-                                            {match.venue}
-                                        </span>
-                                    )}
-                                </div>
+                                <h1 className="truncate text-lg font-bold text-slate-900 md:text-xl">
+                                    {matchTitle || (match?.opponent ? `vs ${match.opponent}` : 'Match')}
+                                </h1>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 justify-end">
-                        {statsUrl && (
+                        <div className="flex shrink-0 items-center gap-2 justify-end">
+                            {statsUrl && (
                                 <Button asChild variant="outline" size="sm" className="gap-2 h-7">
                                   <Link to={statsUrl}>
                                     <BarChart3 className="w-4 h-4" /> Match Reports
                                   </Link>
                                 </Button>
-                        )}
-                        {(dataUrl || onDataClick) && (
-                            onDataClick ? (
-                                <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onDataClick} data-tour-id="logger-data-button">
-                                    <BarChart3 className="w-4 h-4" /> Data
-                                </Button>
-                            ) : (
+                            )}
+                            {(dataUrl || onDataClick) && (
+                                onDataClick ? (
+                                    <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onDataClick} data-tour-id="logger-data-button">
+                                        <BarChart3 className="w-4 h-4" /> Data
+                                    </Button>
+                                ) : (
                                     <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-data-button">
                                       <Link to={dataUrl}>
                                         <BarChart3 className="w-4 h-4" /> Data
                                       </Link>
                                     </Button>
-                            )
-                        )}
-                        {seasonStatsUrl && (
+                                )
+                            )}
+                            {seasonStatsUrl && (
                                 <Button asChild variant="outline" size="sm" className="gap-2 h-7">
                                   <Link to={seasonStatsUrl}>
                                     <BarChart3 className="w-4 h-4" /> Season Stats
                                   </Link>
                                 </Button>
-                        )}
-                        {settingsUrl && (
+                            )}
+                            {settingsUrl && (
                                 <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-settings-button">
                                   <Link to={settingsUrl}>
                                     <Settings className="w-4 h-4" /> {settingsLabel}
                                   </Link>
                                 </Button>
-                        )}
-                        {onHelpClick ? (
-                            <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onHelpClick} data-tour-id="logger-help-button">
-                                <BookOpen className="w-4 h-4" /> {helpLabel}
-                            </Button>
-                        ) : helpUrl ? (
+                            )}
+                            {onHelpClick ? (
+                                <Button type="button" variant="outline" size="sm" className="gap-2 h-7" onClick={onHelpClick} data-tour-id="logger-help-button">
+                                    <BookOpen className="w-4 h-4" /> {helpLabel}
+                                </Button>
+                            ) : helpUrl ? (
                                 <Button asChild variant="outline" size="sm" className="gap-2 h-7" data-tour-id="logger-help-button">
                                   <Link to={helpUrl}>
                                     <BookOpen className="w-4 h-4" /> {helpLabel}
                                   </Link>
                                 </Button>
-                        ) : null}
+                            ) : null}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 text-sm text-slate-500">
+                        {match?.date && (
+                            <span className="flex items-center gap-1 shrink-0">
+                                <Clock className="w-3.5 h-3.5" />
+                                {safeFormatDate(match.date)}
+                            </span>
+                        )}
+                        {match?.venue && (
+                            <span className="flex items-center gap-1 min-w-0">
+                                <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">{match.venue}</span>
+                            </span>
+                        )}
+                        {scoreLine && (
+                            <Badge variant="outline" className="h-10 min-w-36 justify-center rounded-2xl px-4 text-base font-semibold text-slate-900 md:h-9 md:min-w-32 md:text-sm">
+                                {scoreLine}
+                            </Badge>
+                        )}
+                        <div data-tour-id="logger-half-select" className="shrink-0">
+                            <Select value={half} onValueChange={onHalfChange}>
+                                <SelectTrigger className="h-10 w-40 rounded-2xl text-slate-900 md:h-9 md:w-36">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="first">1st Half</SelectItem>
+                                    <SelectItem value="second">2nd Half</SelectItem>
+                                    <SelectItem value="et_first">ET 1st Half</SelectItem>
+                                    <SelectItem value="et_second">ET 2nd Half</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                 </div>
             </div>
