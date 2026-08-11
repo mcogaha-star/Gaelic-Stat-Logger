@@ -3429,6 +3429,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         playerOptions={playerOptions}
         matchupStints={reportReadOnly ? effectiveMatchupStints : matchupStintRows}
         periodMaxSecondsByKey={matchupPeriodMaxSecondsByKey}
+        playerTimeAndPossessionStats={playerTimeAndPossessionStats}
         defaultDefenderKey={matchupEditorState.defenderKey}
         onCreateMatchupStint={handleCreateMatchupStint}
         onUpdateMatchupStint={handleUpdateMatchupStint}

@@ -140,7 +140,82 @@ function clampRangeToPeriod(startTimeS, endTimeS, periodLimitS) {
   return { startTimeS: safeStart, endTimeS: safeEnd };
 }
 
-function buildDraftRow(source, match, defaultDefenderKey = null, playerByKey = new Map(), playerOptions = [], periodMaxSecondsByKey = {}) {
+function buildAvailabilityByPlayerKey(playerTimeAndPossessionStats = null) {
+  const byKey = new Map();
+  const players = playerTimeAndPossessionStats?.players || {};
+  for (const row of Object.values(players)) {
+    const playerKey = String(row?.playerKey || '');
+    if (!playerKey) continue;
+    const windowsByPeriod = new Map();
+    for (const stint of Array.isArray(row?.stints) ? row.stints : []) {
+      const periodKey = String(stint?.periodKey || '');
+      const startTimeS = Math.max(0, Math.round((Number(stint?.startLoggedMinute) || 0) * 60));
+      const endTimeS = Math.max(0, Math.round((Number(stint?.endLoggedMinute) || 0) * 60));
+      if (!periodKey || !(endTimeS > startTimeS)) continue;
+      const bucket = windowsByPeriod.get(periodKey) || [];
+      bucket.push({ startTimeS, endTimeS });
+      windowsByPeriod.set(periodKey, bucket);
+    }
+    for (const [periodKey, windows] of windowsByPeriod.entries()) {
+      windows.sort((a, b) => a.startTimeS - b.startTimeS);
+      const merged = [];
+      for (const window of windows) {
+        const last = merged[merged.length - 1];
+        if (!last || window.startTimeS > last.endTimeS) {
+          merged.push({ ...window });
+        } else {
+          last.endTimeS = Math.max(last.endTimeS, window.endTimeS);
+        }
+      }
+      windowsByPeriod.set(periodKey, merged);
+    }
+    byKey.set(playerKey, windowsByPeriod);
+  }
+  return byKey;
+}
+
+function getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, periodKey) {
+  if (!defenderKey || !periodKey) return [];
+  const windowsByPeriod = availabilityByPlayerKey.get(defenderKey);
+  return Array.isArray(windowsByPeriod?.get?.(periodKey)) ? windowsByPeriod.get(periodKey) : [];
+}
+
+function pickBestAvailabilityWindow(windows = [], startTimeS = 0, endTimeS = 0) {
+  const safeWindows = Array.isArray(windows) ? windows.filter((window) => Number(window?.endTimeS) > Number(window?.startTimeS)) : [];
+  if (!safeWindows.length) return null;
+  const start = Number(startTimeS) || 0;
+  const end = Number(endTimeS) || start + 1;
+  let best = safeWindows[0];
+  let bestScore = -Infinity;
+  for (const window of safeWindows) {
+    const overlap = Math.max(0, Math.min(end, Number(window.endTimeS)) - Math.max(start, Number(window.startTimeS)));
+    const containsStart = start >= Number(window.startTimeS) && start < Number(window.endTimeS);
+    const distance = Math.min(
+      Math.abs(start - Number(window.startTimeS)),
+      Math.abs(start - Number(window.endTimeS)),
+    );
+    const score = overlap * 100000 + (containsStart ? 10000 : 0) - distance;
+    if (score > bestScore) {
+      best = window;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function clampRangeToAvailability(startTimeS, endTimeS, periodLimitS, availabilityWindows = []) {
+  const periodClamped = clampRangeToPeriod(startTimeS, endTimeS, periodLimitS);
+  const safeWindows = Array.isArray(availabilityWindows) ? availabilityWindows.filter((window) => Number(window?.endTimeS) > Number(window?.startTimeS)) : [];
+  if (!safeWindows.length) return periodClamped;
+  const targetWindow = pickBestAvailabilityWindow(safeWindows, periodClamped.startTimeS, periodClamped.endTimeS) || safeWindows[0];
+  const windowStart = Math.max(0, Number(targetWindow.startTimeS) || 0);
+  const windowEnd = Math.max(windowStart + 1, Number(targetWindow.endTimeS) || periodLimitS);
+  const safeStart = Math.max(windowStart, Math.min(windowEnd - 1, periodClamped.startTimeS));
+  const safeEnd = Math.max(safeStart + 1, Math.min(windowEnd, periodClamped.endTimeS));
+  return { startTimeS: safeStart, endTimeS: safeEnd };
+}
+
+function buildDraftRow(source, match, defaultDefenderKey = null, playerByKey = new Map(), playerOptions = [], periodMaxSecondsByKey = {}, availabilityByPlayerKey = new Map()) {
   const defaultDefender = defaultDefenderKey ? playerByKey.get(defaultDefenderKey) : null;
   const defenderPlayerId = source?.defender_player_id || defaultDefender?.id || '';
   const defenderTeamSide = source?.defender_team_side || defaultDefender?.team_side || '';
@@ -150,9 +225,18 @@ function buildDraftRow(source, match, defaultDefenderKey = null, playerByKey = n
   const attackerTeamSide = source?.attacker_team_side || suggestedAttacker?.team_side || '';
   const periodKey = source?.period_key || 'first';
   const periodLimitS = getPeriodLimitSeconds(match, periodKey, periodMaxSecondsByKey);
+  const defenderKey = defender ? buildPlayerKey(defender) : defaultDefenderKey;
+  const availabilityWindows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, periodKey);
   const rawStart = Number.isFinite(Number(source?.start_time_s)) ? Number(source.start_time_s) : 0;
   const rawEnd = Number.isFinite(Number(source?.end_time_s)) ? Number(source.end_time_s) : periodLimitS;
-  const range = clampRangeToPeriod(rawStart, rawEnd, periodLimitS);
+  const defaultStart = availabilityWindows[0]?.startTimeS ?? rawStart;
+  const defaultEnd = availabilityWindows[0]?.endTimeS ?? rawEnd;
+  const range = clampRangeToAvailability(
+    Number.isFinite(Number(source?.start_time_s)) ? rawStart : defaultStart,
+    Number.isFinite(Number(source?.end_time_s)) ? rawEnd : defaultEnd,
+    periodLimitS,
+    availabilityWindows,
+  );
 
   return {
     key: source?.id || `draft-${Math.random().toString(36).slice(2, 10)}`,
@@ -169,25 +253,31 @@ function buildDraftRow(source, match, defaultDefenderKey = null, playerByKey = n
   };
 }
 
-function buildSuggestedRows(match, defaultDefenderKey, playerByKey, playerOptions, periodMaxSecondsByKey = {}) {
+function buildSuggestedRows(match, defaultDefenderKey, playerByKey, playerOptions, periodMaxSecondsByKey = {}, availabilityByPlayerKey = new Map()) {
   if (!defaultDefenderKey) return [];
   const defender = playerByKey.get(defaultDefenderKey);
   if (!defender) return [];
   const suggestedAttacker = getSuggestedAttacker(defender, playerOptions);
-  return DEFAULT_MATCHUP_PERIODS
-    .filter((periodKey) => getPeriodLimitSeconds(match, periodKey, periodMaxSecondsByKey) > 0)
+  const availablePeriods = PERIOD_OPTIONS
+    .map((option) => option.value)
+    .filter((periodKey) => getDefenderAvailabilityWindows(defaultDefenderKey, availabilityByPlayerKey, periodKey).length > 0);
+  const sourcePeriods = availablePeriods.length ? availablePeriods : DEFAULT_MATCHUP_PERIODS
+    .filter((periodKey) => getPeriodLimitSeconds(match, periodKey, periodMaxSecondsByKey) > 0);
+  return sourcePeriods
     .map((periodKey) => {
       const periodLimitS = getPeriodLimitSeconds(match, periodKey, periodMaxSecondsByKey);
+      const availabilityWindows = getDefenderAvailabilityWindows(defaultDefenderKey, availabilityByPlayerKey, periodKey);
+      const firstWindow = availabilityWindows[0] || { startTimeS: 0, endTimeS: periodLimitS };
       return buildDraftRow({
         defender_player_id: defender.id,
         defender_team_side: defender.team_side,
         attacker_player_id: suggestedAttacker?.id || '',
         attacker_team_side: suggestedAttacker?.team_side || '',
         period_key: periodKey,
-        start_time_s: 0,
-        end_time_s: periodLimitS,
+        start_time_s: firstWindow.startTimeS,
+        end_time_s: firstWindow.endTimeS,
         source: 'default',
-      }, match, defaultDefenderKey, playerByKey, playerOptions, periodMaxSecondsByKey);
+      }, match, defaultDefenderKey, playerByKey, playerOptions, periodMaxSecondsByKey, availabilityByPlayerKey);
     });
 }
 
@@ -202,6 +292,7 @@ export default function MatchupEditorDialog({
   playerOptions = [],
   matchupStints = [],
   periodMaxSecondsByKey = {},
+  playerTimeAndPossessionStats = null,
   defaultDefenderKey = null,
   onCreateMatchupStint,
   onUpdateMatchupStint,
@@ -237,6 +328,11 @@ export default function MatchupEditorDialog({
     }
     return map;
   }, [sortedPlayerOptions]);
+
+  const availabilityByPlayerKey = useMemo(
+    () => buildAvailabilityByPlayerKey(playerTimeAndPossessionStats),
+    [playerTimeAndPossessionStats],
+  );
 
   const defaultDefenderBaseKey = useMemo(
     () => normalizeDefenderKey(defaultDefenderKey, playerByKey),
@@ -280,23 +376,25 @@ export default function MatchupEditorDialog({
       return;
     }
     const seededRows = filteredSourceRows.length
-      ? filteredSourceRows.map((row) => buildDraftRow(row, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey))
+      ? filteredSourceRows.map((row) => buildDraftRow(row, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey, availabilityByPlayerKey))
       : [];
     setDraftRows(seededRows);
     setErrorByKey({});
     setBusyKey('');
-  }, [filteredSourceRows, match, open, periodMaxSecondsByKey, playerByKey, selectedDefenderKey, sortedPlayerOptions]);
+  }, [availabilityByPlayerKey, filteredSourceRows, match, open, periodMaxSecondsByKey, playerByKey, selectedDefenderKey, sortedPlayerOptions]);
 
   const addRow = () => {
     if (!selectedDefenderKey) return;
-    setDraftRows((current) => [...current, buildDraftRow(null, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey)]);
+    setDraftRows((current) => [...current, buildDraftRow(null, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey, availabilityByPlayerKey)]);
   };
 
   const buildNextRow = (row, patch) => {
     const next = { ...row, ...patch };
+    const defenderKey = row?.defenderTeamSide && row?.defenderPlayerId ? `${row.defenderTeamSide}|${row.defenderPlayerId}` : selectedDefenderKey;
     if (Object.prototype.hasOwnProperty.call(patch, 'periodKey')) {
       const periodLimitS = getPeriodLimitSeconds(match, patch.periodKey, periodMaxSecondsByKey);
-      Object.assign(next, clampRangeToPeriod(next.startTimeS, next.endTimeS, periodLimitS));
+      const availabilityWindows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, patch.periodKey);
+      Object.assign(next, clampRangeToAvailability(next.startTimeS, next.endTimeS, periodLimitS, availabilityWindows));
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'defenderPlayerId')) {
       const defender = playerById.get(String(patch.defenderPlayerId || ''));
@@ -315,7 +413,8 @@ export default function MatchupEditorDialog({
     if (Object.prototype.hasOwnProperty.call(patch, 'range')) {
       const [rawStart, rawEnd] = Array.isArray(patch.range) ? patch.range : [next.startTimeS, next.endTimeS];
       const periodLimitS = getPeriodLimitSeconds(match, next.periodKey, periodMaxSecondsByKey);
-      Object.assign(next, clampRangeToPeriod(rawStart, rawEnd, periodLimitS));
+      const availabilityWindows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, next.periodKey);
+      Object.assign(next, clampRangeToAvailability(rawStart, rawEnd, periodLimitS, availabilityWindows));
     }
     return next;
   };
@@ -338,6 +437,12 @@ export default function MatchupEditorDialog({
     if (endTimeS <= startTimeS) return { ok: false, message: 'End time must be after start time.' };
     const periodLimitS = getPeriodLimitSeconds(match, row.periodKey, periodMaxSecondsByKey);
     if (startTimeS < 0 || endTimeS > periodLimitS) return { ok: false, message: 'Times must stay within the selected period.' };
+    const defenderKey = defender ? buildPlayerKey(defender) : null;
+    const availabilityWindows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, row.periodKey);
+    if (availabilityWindows.length) {
+      const fitsWindow = availabilityWindows.some((window) => startTimeS >= Number(window.startTimeS) && endTimeS <= Number(window.endTimeS));
+      if (!fitsWindow) return { ok: false, message: 'Times must stay within the defender\'s on-pitch stint.' };
+    }
 
     const overlap = (Array.isArray(rowsOverride) ? rowsOverride : []).some((other) => {
       if (other.key === row.key) return false;
@@ -366,7 +471,7 @@ export default function MatchupEditorDialog({
     if (!savedRow) return;
     setDraftRows((current) => current.map((row) => (
       row.key === rowKey
-        ? buildDraftRow(savedRow, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey)
+        ? buildDraftRow(savedRow, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey, availabilityByPlayerKey)
         : row
     )));
   };
@@ -459,6 +564,11 @@ export default function MatchupEditorDialog({
                 ? sortedPlayerOptions.filter((player) => player.team_side && player.team_side !== defender.team_side)
                 : sortedPlayerOptions;
               const periodLimitS = getPeriodLimitSeconds(match, row.periodKey, periodMaxSecondsByKey);
+              const defenderKey = defender ? buildPlayerKey(defender) : selectedDefenderKey;
+              const availabilityWindows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, row.periodKey);
+              const activeWindow = pickBestAvailabilityWindow(availabilityWindows, row.startTimeS, row.endTimeS);
+              const sliderMin = activeWindow ? Number(activeWindow.startTimeS) : 0;
+              const sliderMax = activeWindow ? Number(activeWindow.endTimeS) : Math.max(1, periodLimitS);
               const startLabel = formatHalfClock(row.startTimeS, row.periodKey, match);
               const endLabel = formatHalfClock(row.endTimeS, row.periodKey, match);
               const durationLabel = formatHalfClock(Math.max(0, row.endTimeS - row.startTimeS), 'first', { code: 'GAA', level: 'Other' });
@@ -504,7 +614,11 @@ export default function MatchupEditorDialog({
                         <SelectValue placeholder="Period" />
                       </SelectTrigger>
                       <SelectContent>
-                        {PERIOD_OPTIONS.filter((option) => getPeriodLimitSeconds(match, option.value, periodMaxSecondsByKey) > 0).map((option) => (
+                        {PERIOD_OPTIONS.filter((option) => {
+                          const windows = getDefenderAvailabilityWindows(defenderKey, availabilityByPlayerKey, option.value);
+                          if (windows.length) return true;
+                          return getPeriodLimitSeconds(match, option.value, periodMaxSecondsByKey) > 0 && !availabilityByPlayerKey.size;
+                        }).map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
@@ -519,8 +633,8 @@ export default function MatchupEditorDialog({
                       <span>{endLabel}</span>
                     </div>
                     <Slider
-                      min={0}
-                      max={Math.max(1, periodLimitS)}
+                      min={sliderMin}
+                      max={Math.max(sliderMin + 1, sliderMax)}
                       step={1}
                       value={[row.startTimeS, row.endTimeS]}
                       onValueChange={(range) => updateRow(row.key, { range })}
@@ -528,10 +642,15 @@ export default function MatchupEditorDialog({
                       className="px-0"
                     />
                     <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
-                      <span>0</span>
+                      <span>{formatHalfClock(sliderMin, row.periodKey, match)}</span>
                       <span>{PERIOD_OPTIONS.find((option) => option.value === row.periodKey)?.label || row.periodKey}</span>
-                      <span>{formatHalfClock(periodLimitS, row.periodKey, match)}</span>
+                      <span>{formatHalfClock(Math.max(sliderMin + 1, sliderMax), row.periodKey, match)}</span>
                     </div>
+                    {activeWindow ? (
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Defender available: {formatHalfClock(sliderMin, row.periodKey, match)} - {formatHalfClock(Math.max(sliderMin + 1, sliderMax), row.periodKey, match)}
+                      </div>
+                    ) : null}
                   </div>
 
                 </div>

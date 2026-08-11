@@ -613,30 +613,28 @@ export function buildEffectiveMatchupStints({
 
   if (!defaultStints.length) return explicitStints;
 
-  const explicitBlocksByDefenderAttackerPeriod = new Map();
+  const explicitBlocksByDefenderPeriod = new Map();
   for (const source of explicitStints) {
     const defenderTeamSide = normalizeTeamSide(source?.defender_team_side);
     const defenderPlayerId = source?.defender_player_id ? String(source.defender_player_id) : '';
-    const attackerPlayerId = source?.attacker_player_id ? String(source.attacker_player_id) : '';
     const periodKey = String(source?.period_key || '');
     const startTimeS = Number(source?.start_time_s);
     const endTimeS = Number(source?.end_time_s);
-    if (!defenderTeamSide || !defenderPlayerId || !attackerPlayerId || !MATCHUP_PERIOD_ORDER.includes(periodKey)) continue;
+    if (!defenderTeamSide || !defenderPlayerId || !MATCHUP_PERIOD_ORDER.includes(periodKey)) continue;
     if (!Number.isFinite(startTimeS) || !Number.isFinite(endTimeS) || !(endTimeS > startTimeS)) continue;
-    const bucketKey = `${defenderTeamSide}|${defenderPlayerId}|${attackerPlayerId}|${periodKey}`;
-    const bucket = explicitBlocksByDefenderAttackerPeriod.get(bucketKey) || [];
+    const bucketKey = `${defenderTeamSide}|${defenderPlayerId}|${periodKey}`;
+    const bucket = explicitBlocksByDefenderPeriod.get(bucketKey) || [];
     bucket.push({ startTimeS, endTimeS });
-    explicitBlocksByDefenderAttackerPeriod.set(bucketKey, bucket);
+    explicitBlocksByDefenderPeriod.set(bucketKey, bucket);
   }
 
   const defaultFragments = [];
   for (const source of defaultStints) {
     const defenderTeamSide = normalizeTeamSide(source?.defender_team_side);
     const defenderPlayerId = source?.defender_player_id ? String(source.defender_player_id) : '';
-    const attackerPlayerId = source?.attacker_player_id ? String(source.attacker_player_id) : '';
     const periodKey = String(source?.period_key || '');
-    if (!defenderTeamSide || !defenderPlayerId || !attackerPlayerId || !MATCHUP_PERIOD_ORDER.includes(periodKey)) continue;
-    const overlaps = explicitBlocksByDefenderAttackerPeriod.get(`${defenderTeamSide}|${defenderPlayerId}|${attackerPlayerId}|${periodKey}`) || [];
+    if (!defenderTeamSide || !defenderPlayerId || !MATCHUP_PERIOD_ORDER.includes(periodKey)) continue;
+    const overlaps = explicitBlocksByDefenderPeriod.get(`${defenderTeamSide}|${defenderPlayerId}|${periodKey}`) || [];
     const fragments = subtractIntervals(
       { startTimeS: Number(source.start_time_s), endTimeS: Number(source.end_time_s) },
       overlaps,
@@ -751,6 +749,7 @@ export function buildDefendingAllowedRows({
 } = {}) {
   const playerMaps = buildPlayerMaps(playerOptions);
   const matchOffsets = getMatchSectionOffsets(match);
+  const periodMaxSecondsByKey = buildMatchupPeriodMaxSeconds({ stats, match });
   const filterHalves = Array.isArray(reportFilters?.halves) ? reportFilters.halves : [];
   const timeMinS = getFilterTimeSeconds(reportFilters?.timeMin);
   const timeMaxS = getFilterTimeSeconds(reportFilters?.timeMax);
@@ -785,7 +784,7 @@ export function buildDefendingAllowedRows({
     if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd) || rawEnd <= rawStart) continue;
     if (filterHalves.length && !filterHalves.includes(periodKey)) continue;
 
-    const periodLimit = getOfficialPeriodLengthMinutes(match, periodKey) * 60;
+    const periodLimit = Number(periodMaxSecondsByKey?.[periodKey]) || (getOfficialPeriodLengthMinutes(match, periodKey) * 60);
     const safeStart = Math.max(0, Math.min(periodLimit, rawStart));
     const safeEnd = Math.max(0, Math.min(periodLimit, rawEnd));
     if (!(safeEnd > safeStart)) continue;
