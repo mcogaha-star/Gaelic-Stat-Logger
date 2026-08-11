@@ -692,7 +692,28 @@ export function buildGoalkeeperAssignments({
     windowsByPlayerKey.set(playerKey, rows);
   };
 
-  for (const stat of sortedStats) {
+  const statsForKeeperAssignment = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
+    const pa = { first: 0, second: 1, et_first: 2, et_second: 3 }[getStatPeriodKey(a)] ?? 99;
+    const pb = { first: 0, second: 1, et_first: 2, et_second: 3 }[getStatPeriodKey(b)] ?? 99;
+    if (pa !== pb) return pa - pb;
+
+    const timeA = String(a?.stat_type || '') === 'substitution'
+      ? safeNumber(substitutionTimeSById.get(a?.id))
+      : safeNumber(a?.normalized_time_s);
+    const timeB = String(b?.stat_type || '') === 'substitution'
+      ? safeNumber(substitutionTimeSById.get(b?.id))
+      : safeNumber(b?.normalized_time_s);
+    const ta = timeA ?? -1;
+    const tb = timeB ?? -1;
+    if (ta !== tb) return ta - tb;
+
+    const playA = safeNumber(a?.play_id) ?? -1;
+    const playB = safeNumber(b?.play_id) ?? -1;
+    if (playA !== playB) return playA - playB;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+
+  for (const stat of statsForKeeperAssignment) {
     const statId = stat?.id || null;
     if (statId) {
       keeperByStatAndSide.set(`${statId}|home`, currentBySide.home || null);

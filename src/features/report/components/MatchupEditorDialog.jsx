@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -33,6 +33,18 @@ function getPeriodLimitSeconds(match, periodKey, periodMaxSecondsByKey = {}) {
 function buildPlayerKey(player) {
   if (!player?.id || !player?.team_side) return null;
   return `${player.team_side}|${player.id}`;
+}
+
+function normalizeDefenderKey(rawKey, playerByKey = new Map()) {
+  const key = String(rawKey || '').trim();
+  if (!key) return null;
+  if (playerByKey.has(key)) return key;
+  const parts = key.split('|');
+  if (parts.length >= 2) {
+    const baseKey = `${parts[0]}|${parts[1]}`;
+    if (playerByKey.has(baseKey)) return baseKey;
+  }
+  return null;
 }
 
 function formatPlayerLabel(player, teamNameBySide) {
@@ -195,6 +207,7 @@ export default function MatchupEditorDialog({
   onUpdateMatchupStint,
   onDeleteMatchupStint,
 }) {
+  const [selectedDefenderKey, setSelectedDefenderKey] = useState('');
   const [draftRows, setDraftRows] = useState([]);
   const [busyKey, setBusyKey] = useState('');
   const [errorByKey, setErrorByKey] = useState({});
@@ -224,61 +237,93 @@ export default function MatchupEditorDialog({
     return map;
   }, [sortedPlayerOptions]);
 
-  const filteredSourceRows = useMemo(() => {
-    const list = Array.isArray(matchupStints) ? matchupStints : [];
-    if (!defaultDefenderKey) return list;
-    const defender = playerByKey.get(defaultDefenderKey);
-    if (!defender?.id) return list;
-    return list.filter((row) => String(row?.defender_player_id || '') === String(defender.id));
-  }, [defaultDefenderKey, matchupStints, playerByKey]);
+  const defaultDefenderBaseKey = useMemo(
+    () => normalizeDefenderKey(defaultDefenderKey, playerByKey),
+    [defaultDefenderKey, playerByKey],
+  );
+
+  const defenderOptions = sortedPlayerOptions;
 
   useEffect(() => {
     if (!open) return;
+    const fallbackDefenderKey = defaultDefenderBaseKey
+      || normalizeDefenderKey(selectedDefenderKey, playerByKey)
+      || (Array.isArray(matchupStints)
+        ? matchupStints
+          .map((row) => normalizeDefenderKey(buildPlayerKey({
+            id: row?.defender_player_id,
+            team_side: row?.defender_team_side,
+          }), playerByKey))
+          .find(Boolean)
+        : null)
+      || (defenderOptions[0] ? buildPlayerKey(defenderOptions[0]) : null)
+      || '';
+    setSelectedDefenderKey(fallbackDefenderKey || '');
+  }, [defaultDefenderBaseKey, defenderOptions, matchupStints, open, playerByKey, selectedDefenderKey]);
+
+  const filteredSourceRows = useMemo(() => {
+    const list = Array.isArray(matchupStints) ? matchupStints : [];
+    if (!selectedDefenderKey) return [];
+    const defender = playerByKey.get(selectedDefenderKey);
+    if (!defender?.id) return [];
+    return list.filter((row) => String(row?.defender_player_id || '') === String(defender.id));
+  }, [matchupStints, playerByKey, selectedDefenderKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!selectedDefenderKey) {
+      setDraftRows([]);
+      setErrorByKey({});
+      setBusyKey('');
+      return;
+    }
     const seededRows = filteredSourceRows.length
-      ? filteredSourceRows.map((row) => buildDraftRow(row, match, defaultDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey))
-      : buildSuggestedRows(match, defaultDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey);
+      ? filteredSourceRows.map((row) => buildDraftRow(row, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey))
+      : buildSuggestedRows(match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey);
     setDraftRows(seededRows);
     setErrorByKey({});
     setBusyKey('');
-  }, [defaultDefenderKey, filteredSourceRows, match, open, periodMaxSecondsByKey, playerByKey, sortedPlayerOptions]);
+  }, [filteredSourceRows, match, open, periodMaxSecondsByKey, playerByKey, selectedDefenderKey, sortedPlayerOptions]);
 
   const addRow = () => {
-    setDraftRows((current) => [...current, buildDraftRow(null, match, defaultDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey)]);
+    if (!selectedDefenderKey) return;
+    setDraftRows((current) => [...current, buildDraftRow(null, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey)]);
+  };
+
+  const buildNextRow = (row, patch) => {
+    const next = { ...row, ...patch };
+    if (Object.prototype.hasOwnProperty.call(patch, 'periodKey')) {
+      const periodLimitS = getPeriodLimitSeconds(match, patch.periodKey, periodMaxSecondsByKey);
+      Object.assign(next, clampRangeToPeriod(next.startTimeS, next.endTimeS, periodLimitS));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'defenderPlayerId')) {
+      const defender = playerById.get(String(patch.defenderPlayerId || ''));
+      next.defenderTeamSide = defender?.team_side || '';
+      const currentAttacker = playerById.get(String(next.attackerPlayerId || ''));
+      if (!currentAttacker || currentAttacker.team_side === defender?.team_side) {
+        const suggestedAttacker = getSuggestedAttacker(defender, sortedPlayerOptions);
+        next.attackerPlayerId = suggestedAttacker?.id || '';
+        next.attackerTeamSide = suggestedAttacker?.team_side || '';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'attackerPlayerId')) {
+      const attacker = playerById.get(String(patch.attackerPlayerId || ''));
+      next.attackerTeamSide = attacker?.team_side || '';
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'range')) {
+      const [rawStart, rawEnd] = Array.isArray(patch.range) ? patch.range : [next.startTimeS, next.endTimeS];
+      const periodLimitS = getPeriodLimitSeconds(match, next.periodKey, periodMaxSecondsByKey);
+      Object.assign(next, clampRangeToPeriod(rawStart, rawEnd, periodLimitS));
+    }
+    return next;
   };
 
   const updateRow = (rowKey, patch) => {
-    setDraftRows((current) => current.map((row) => {
-      if (row.key !== rowKey) return row;
-      const next = { ...row, ...patch };
-      if (Object.prototype.hasOwnProperty.call(patch, 'periodKey')) {
-        const periodLimitS = getPeriodLimitSeconds(match, patch.periodKey, periodMaxSecondsByKey);
-        Object.assign(next, clampRangeToPeriod(next.startTimeS, next.endTimeS, periodLimitS));
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'defenderPlayerId')) {
-        const defender = playerById.get(String(patch.defenderPlayerId || ''));
-        next.defenderTeamSide = defender?.team_side || '';
-        const currentAttacker = playerById.get(String(next.attackerPlayerId || ''));
-        if (!currentAttacker || currentAttacker.team_side === defender?.team_side) {
-          const suggestedAttacker = getSuggestedAttacker(defender, sortedPlayerOptions);
-          next.attackerPlayerId = suggestedAttacker?.id || '';
-          next.attackerTeamSide = suggestedAttacker?.team_side || '';
-        }
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'attackerPlayerId')) {
-        const attacker = playerById.get(String(patch.attackerPlayerId || ''));
-        next.attackerTeamSide = attacker?.team_side || '';
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'range')) {
-        const [rawStart, rawEnd] = Array.isArray(patch.range) ? patch.range : [next.startTimeS, next.endTimeS];
-        const periodLimitS = getPeriodLimitSeconds(match, next.periodKey, periodMaxSecondsByKey);
-        Object.assign(next, clampRangeToPeriod(rawStart, rawEnd, periodLimitS));
-      }
-      return next;
-    }));
+    setDraftRows((current) => current.map((row) => (row.key === rowKey ? buildNextRow(row, patch) : row)));
     setErrorByKey((current) => ({ ...current, [rowKey]: '' }));
   };
 
-  const validateRow = (row) => {
+  const validateRow = (row, rowsOverride = draftRows) => {
     const defender = playerById.get(String(row.defenderPlayerId || ''));
     const attacker = playerById.get(String(row.attackerPlayerId || ''));
     const startTimeS = Number(row.startTimeS);
@@ -292,7 +337,7 @@ export default function MatchupEditorDialog({
     const periodLimitS = getPeriodLimitSeconds(match, row.periodKey, periodMaxSecondsByKey);
     if (startTimeS < 0 || endTimeS > periodLimitS) return { ok: false, message: 'Times must stay within the selected period.' };
 
-    const overlap = draftRows.some((other) => {
+    const overlap = (Array.isArray(rowsOverride) ? rowsOverride : []).some((other) => {
       if (other.key === row.key) return false;
       if (String(other.defenderPlayerId || '') !== String(row.defenderPlayerId || '')) return false;
       if (String(other.attackerPlayerId || '') !== String(row.attackerPlayerId || '')) return false;
@@ -315,23 +360,44 @@ export default function MatchupEditorDialog({
     };
   };
 
-  const saveRow = async (row) => {
-    const validation = validateRow(row);
+  const syncDraftRowFromSaved = (rowKey, savedRow) => {
+    if (!savedRow) return;
+    setDraftRows((current) => current.map((row) => (
+      row.key === rowKey
+        ? buildDraftRow(savedRow, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey)
+        : row
+    )));
+  };
+
+  const saveRow = async (row, rowsOverride = draftRows) => {
+    const validation = validateRow(row, rowsOverride);
     if (!validation.ok) {
       setErrorByKey((current) => ({ ...current, [row.key]: validation.message }));
       return;
     }
     setBusyKey(row.key);
     try {
+      let savedRow = null;
       if (row.id) {
-        await onUpdateMatchupStint?.(row.id, validation.payload);
+        savedRow = await onUpdateMatchupStint?.(row.id, validation.payload);
       } else {
-        await onCreateMatchupStint?.(validation.payload);
+        savedRow = await onCreateMatchupStint?.(validation.payload);
       }
       setErrorByKey((current) => ({ ...current, [row.key]: '' }));
+      syncDraftRowFromSaved(row.key, savedRow || { ...row, ...validation.payload, id: row.id });
     } finally {
       setBusyKey('');
     }
+  };
+
+  const commitRowPatch = async (rowKey, patch) => {
+    const currentRow = draftRows.find((row) => row.key === rowKey);
+    if (!currentRow) return;
+    const nextRow = buildNextRow(currentRow, patch);
+    const nextRows = draftRows.map((row) => (row.key === rowKey ? nextRow : row));
+    setDraftRows(nextRows);
+    setErrorByKey((current) => ({ ...current, [rowKey]: '' }));
+    await saveRow(nextRow, nextRows);
   };
 
   const deleteRow = async (row) => {
@@ -342,6 +408,7 @@ export default function MatchupEditorDialog({
     setBusyKey(row.key);
     try {
       await onDeleteMatchupStint?.(row.id);
+      setDraftRows((current) => current.filter((entry) => entry.key !== row.key));
     } finally {
       setBusyKey('');
     }
@@ -355,16 +422,32 @@ export default function MatchupEditorDialog({
         </DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="max-w-2xl text-sm leading-6 text-slate-600">
-              {defaultDefenderKey
-                ? 'Focused on one defender with suggested opposition matchups and draggable stint windows.'
-                : 'Assign defender-vs-attacker stints using period clocks and the matchup range bar.'}
+          <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <Select value={selectedDefenderKey || ''} onValueChange={setSelectedDefenderKey}>
+                <SelectTrigger className="h-11 rounded-2xl bg-white lg:max-w-md" aria-label="Select defending player">
+                  <SelectValue placeholder="Choose defending player" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>Defending Player</SelectLabel>
+                    {defenderOptions.map((player) => {
+                      const key = buildPlayerKey(player);
+                      if (!key) return null;
+                      return (
+                        <SelectItem key={key} value={key}>
+                          {formatPlayerLabel(player, teamNameBySide)}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button type="button" size="sm" onClick={addRow} className="h-10 gap-2 self-start rounded-xl px-4" disabled={!selectedDefenderKey}>
+                <Plus className="h-4 w-4" />
+                Add Matchup
+              </Button>
             </div>
-            <Button type="button" size="sm" onClick={addRow} className="h-10 gap-2 self-start rounded-xl px-4">
-              <Plus className="h-4 w-4" />
-              Add Matchup
-            </Button>
           </div>
 
           <div className="space-y-3 pr-1">
@@ -382,42 +465,23 @@ export default function MatchupEditorDialog({
 
               return (
                 <div key={row.key} className="rounded-3xl border border-slate-300 bg-white p-3 shadow-sm sm:border-slate-200 sm:p-4">
-                  <div className="mb-3 flex items-center justify-end gap-2 lg:hidden">
-                    <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3" onClick={() => saveRow(row)} disabled={saving}>
-                      <Save className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" className="h-10 flex-1 rounded-xl px-3 text-red-600" onClick={() => deleteRow(row)} disabled={saving}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="mb-3 hidden items-center justify-end gap-2 lg:flex">
-                    <Button type="button" size="sm" variant="outline" className="h-10 rounded-xl px-3" onClick={() => saveRow(row)} disabled={saving}>
-                      <Save className="h-4 w-4" />
-                    </Button>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-900">{defender ? formatPlayerLabel(defender, teamNameBySide) : 'Defending player'}</div>
+                      <div className="mt-1 inline-flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">{durationLabel}</span>
+                        <span className={`${error ? 'text-red-600' : 'text-slate-500'}`}>
+                          {error || (row.source === 'default' ? 'Suggested' : row.id ? 'Saved' : 'Draft')}
+                        </span>
+                      </div>
+                    </div>
                     <Button type="button" size="sm" variant="outline" className="h-10 rounded-xl px-3 text-red-600" onClick={() => deleteRow(row)} disabled={saving}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
 
-                  <div className="grid gap-3 lg:grid-cols-[1.2fr_1.2fr_0.7fr] lg:items-center">
-                    <Select value={String(row.defenderPlayerId || '')} onValueChange={(value) => updateRow(row.key, { defenderPlayerId: value })}>
-                      <SelectTrigger className="h-10 rounded-xl bg-white" aria-label="Select defender">
-                        <SelectValue placeholder="Choose defender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectLabel>Players</SelectLabel>
-                          {sortedPlayerOptions.map((player) => (
-                            <SelectItem key={player.id} value={String(player.id)}>
-                              {formatPlayerLabel(player, teamNameBySide)}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-
-                    <Select value={String(row.attackerPlayerId || '')} onValueChange={(value) => updateRow(row.key, { attackerPlayerId: value })}>
+                  <div className="grid gap-3 lg:grid-cols-[1.35fr_0.75fr] lg:items-center">
+                    <Select value={String(row.attackerPlayerId || '')} onValueChange={(value) => { commitRowPatch(row.key, { attackerPlayerId: value }); }}>
                       <SelectTrigger className="h-10 rounded-xl bg-white" aria-label="Select attacker">
                         <SelectValue placeholder="Choose attacker" />
                       </SelectTrigger>
@@ -433,7 +497,7 @@ export default function MatchupEditorDialog({
                       </SelectContent>
                     </Select>
 
-                    <Select value={row.periodKey} onValueChange={(value) => updateRow(row.key, { periodKey: value })}>
+                    <Select value={row.periodKey} onValueChange={(value) => { commitRowPatch(row.key, { periodKey: value }); }}>
                       <SelectTrigger className="h-10 rounded-xl bg-white" aria-label="Select period">
                         <SelectValue placeholder="Period" />
                       </SelectTrigger>
@@ -458,6 +522,7 @@ export default function MatchupEditorDialog({
                       step={1}
                       value={[row.startTimeS, row.endTimeS]}
                       onValueChange={(range) => updateRow(row.key, { range })}
+                      onValueCommit={(range) => { commitRowPatch(row.key, { range }); }}
                       className="px-0"
                     />
                     <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
@@ -467,14 +532,6 @@ export default function MatchupEditorDialog({
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                    <div className="inline-flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">{durationLabel}</span>
-                      <span className={`${error ? 'text-red-600' : 'text-slate-500'}`}>
-                        {error || (row.source === 'default' ? 'Default' : row.id ? 'Saved' : 'Draft')}
-                      </span>
-                    </div>
-                  </div>
                 </div>
               );
             }) : (

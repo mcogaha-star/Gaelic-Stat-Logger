@@ -1004,15 +1004,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
   const handleCreateMatchupStint = async (payload) => {
     if (reportReadOnly) {
+      const createdRow = normalizeEditableMatchupStint({
+        ...payload,
+        match_id: match?.id || matchId,
+        source: 'local',
+      }, `local-${Date.now()}`);
       persistEditableMatchupStints([
         ...editableMatchupStints,
-        normalizeEditableMatchupStint({
-          ...payload,
-          match_id: match?.id || matchId,
-          source: 'local',
-        }, `local-${Date.now()}`),
+        createdRow,
       ]);
-      return;
+      return createdRow;
     }
     if (!match?.id) return;
     const created = await db.entities.MatchupStint.create({
@@ -1033,18 +1034,23 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         }
       }
       await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['matchup-stints', matchId], exact: true });
     } catch (error) {
       toast.error(error?.message || 'Failed to save matchup stint');
     }
+    return (await db.entities.MatchupStint.get(created.id)) || created;
   };
 
   const handleUpdateMatchupStint = async (stintId, payload) => {
     if (!stintId) return;
     if (reportReadOnly) {
+      const updatedRow = editableMatchupStints.find((row) => String(row?.id) === String(stintId))
+        ? { ...editableMatchupStints.find((row) => String(row?.id) === String(stintId)), ...payload }
+        : null;
       persistEditableMatchupStints(
         editableMatchupStints.map((row) => (String(row?.id) === String(stintId) ? { ...row, ...payload } : row)),
       );
-      return;
+      return updatedRow;
     }
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
@@ -1065,9 +1071,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         }
       }
       await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['matchup-stints', matchId], exact: true });
     } catch (error) {
       toast.error(error?.message || 'Failed to update matchup stint');
     }
+    return (await db.entities.MatchupStint.get(stintId)) || { ...current, ...payload };
   };
 
   const handleDeleteMatchupStint = async (stintId) => {
@@ -1084,6 +1092,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         await softDeletePrivateMatchupStint(current.server_matchup_stint_id);
       }
       await queryClient.invalidateQueries({ queryKey: ['matchup-stints', matchId] });
+      await queryClient.refetchQueries({ queryKey: ['matchup-stints', matchId], exact: true });
     } catch (error) {
       toast.error(error?.message || 'Failed to delete matchup stint');
     }
@@ -1197,13 +1206,16 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         db.entities.HighlightReelClip.filter({ match_id: match.id }),
         db.entities.VideoNote.filter({ match_id: match.id, visibility: 'public' }),
       ]);
+      const matchupStintsForShare = reportReadOnly
+        ? effectiveMatchupStints
+        : await db.entities.MatchupStint.filter({ match_id: match.id });
       const result = await createSharedMatchSnapshot({
         match,
         homeTeam,
         awayTeam,
         players: allPlayersForShare,
         stats,
-        matchupStints: effectiveMatchupStints,
+        matchupStints: matchupStintsForShare,
         highlightReels,
         highlightReelClips,
         publicVideoNotes,

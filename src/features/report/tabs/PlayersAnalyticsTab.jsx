@@ -2335,12 +2335,12 @@ function PlayerDefendingAllowedPanel({
                     onTouchEnd={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onOpenMatchupEditor(row.key);
+                      onOpenMatchupEditor(row.basePlayerKey || row.key);
                     }}
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onOpenMatchupEditor(row.key);
+                      onOpenMatchupEditor(row.basePlayerKey || row.key);
                     }}
                   >
                     {isMobile ? 'Manage' : 'Manage Matchups'}
@@ -3342,6 +3342,7 @@ function PlayersAnalyticsTabContent({
     (goalkeeperAssignments?.uniqueKeepersBySide?.home || []).forEach((player) => ensure(player, null, 'goalkeeper'));
     (goalkeeperAssignments?.uniqueKeepersBySide?.away || []).forEach((player) => ensure(player, null, 'goalkeeper'));
     for (const matchupRow of defendingAllowedData?.rows || []) {
+      if (isGoalkeeperPlayer({ position: matchupRow.position })) continue;
       ensure({
         id: matchupRow.id,
         team_side: matchupRow.team,
@@ -3633,7 +3634,9 @@ function PlayersAnalyticsTabContent({
       const cleanWinPct = (row.cleanWon + row.cleanLost) ? (row.cleanWon / (row.cleanWon + row.cleanLost)) * 100 : NaN;
       const breakWinPct = (row.breakWon + row.breakLost) ? (row.breakWon / (row.breakWon + row.breakLost)) * 100 : NaN;
       const timeStats = playerProfileTimeData?.byKey?.get?.(row.key) || null;
-      const defendingAllowed = defendingAllowedByKey.get(row.key) || {};
+      const defendingAllowed = defendingAllowedByKey.get(row.key)
+        || defendingAllowedByKey.get(row.basePlayerKey)
+        || {};
       return {
         ...row,
         passPct,
@@ -4127,7 +4130,7 @@ function PlayersAnalyticsTabContent({
       key: 'actions',
       label: 'Actions',
       render: (row) => (
-        <Button type="button" variant="outline" size="sm" onClick={() => onOpenMatchupEditor(row.key)}>
+        <Button type="button" variant="outline" size="sm" onClick={() => onOpenMatchupEditor(row.basePlayerKey || row.key)}>
           Edit
         </Button>
       ),
