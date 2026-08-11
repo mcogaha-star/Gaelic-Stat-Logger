@@ -281,7 +281,7 @@ export default function MatchupEditorDialog({
     }
     const seededRows = filteredSourceRows.length
       ? filteredSourceRows.map((row) => buildDraftRow(row, match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey))
-      : buildSuggestedRows(match, selectedDefenderKey, playerByKey, sortedPlayerOptions, periodMaxSecondsByKey);
+      : [];
     setDraftRows(seededRows);
     setErrorByKey({});
     setBusyKey('');

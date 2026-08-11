@@ -326,6 +326,17 @@ function hasMeaningfulPlayerRowActivity(row) {
   return numericFields.some((field) => Math.abs(Number(row?.[field]) || 0) > 0.001);
 }
 
+function shouldSeedOutfieldFromMatchupRow(matchupRow, playerProfileTimeData) {
+  const baseKey = makeBasePlayerKey({
+    id: matchupRow?.id,
+    team_side: matchupRow?.team,
+  });
+  const profileInfo = baseKey ? playerProfileTimeData?.byBaseKey?.get?.(baseKey) : null;
+  if (!profileInfo) return !isGoalkeeperPlayer({ position: matchupRow?.position, number: matchupRow?.number });
+  if (profileInfo.hasGoalkeeperRole && !profileInfo.hasOutfieldRole) return false;
+  return true;
+}
+
 function makeBasePlayerKey(playerLike) {
   if (!playerLike) return null;
   const teamSide = String(playerLike.team_side || playerLike.team || '').trim();
@@ -3364,7 +3375,7 @@ function PlayersAnalyticsTabContent({
     (goalkeeperAssignments?.uniqueKeepersBySide?.home || []).forEach((player) => ensure(player, null, 'goalkeeper'));
     (goalkeeperAssignments?.uniqueKeepersBySide?.away || []).forEach((player) => ensure(player, null, 'goalkeeper'));
     for (const matchupRow of defendingAllowedData?.rows || []) {
-      if (isGoalkeeperPlayer({ position: matchupRow.position })) continue;
+      if (!shouldSeedOutfieldFromMatchupRow(matchupRow, playerProfileTimeData)) continue;
       ensure({
         id: matchupRow.id,
         team_side: matchupRow.team,
