@@ -3149,6 +3149,7 @@ function PlayersAnalyticsTabContent({
     [awayTeam, homeTeam, playerOptions, reportFilters?.match, stats],
   );
   const playerProfileTimeData = useMemo(() => {
+    const PROFILE_SPLIT_EPSILON_MINUTES = 0.25;
     const byKey = new Map();
     const byBaseKey = new Map();
     const playerRows = Object.values(playerTimeAndPossessionStats?.players || {});
@@ -3177,10 +3178,21 @@ function PlayersAnalyticsTabContent({
       const outfieldScaledBeforeCards = Math.max(0, totalScaledBeforeCards - goalkeeperScaledBeforeCards);
       const blackCardMinutes = Number(row?.blackCardMinutesSubtracted) || 0;
       const goalkeeperShare = totalScaledBeforeCards > 0 ? (goalkeeperScaledBeforeCards / totalScaledBeforeCards) : 0;
-      const goalkeeperMinutes = Math.max(0, goalkeeperScaledBeforeCards - (blackCardMinutes * goalkeeperShare));
-      const outfieldMinutes = Math.max(0, outfieldScaledBeforeCards - (blackCardMinutes * (1 - goalkeeperShare)));
-      const hasGoalkeeperRole = goalkeeperMinutes > 0.001;
-      const hasOutfieldRole = outfieldMinutes > 0.001 || !hasGoalkeeperRole;
+      const rawGoalkeeperMinutes = Math.max(0, goalkeeperScaledBeforeCards - (blackCardMinutes * goalkeeperShare));
+      const rawOutfieldMinutes = Math.max(0, outfieldScaledBeforeCards - (blackCardMinutes * (1 - goalkeeperShare)));
+      let goalkeeperMinutes = rawGoalkeeperMinutes;
+      let outfieldMinutes = rawOutfieldMinutes;
+
+      if (goalkeeperMinutes >= PROFILE_SPLIT_EPSILON_MINUTES && outfieldMinutes < PROFILE_SPLIT_EPSILON_MINUTES) {
+        goalkeeperMinutes += outfieldMinutes;
+        outfieldMinutes = 0;
+      } else if (outfieldMinutes >= PROFILE_SPLIT_EPSILON_MINUTES && goalkeeperMinutes < PROFILE_SPLIT_EPSILON_MINUTES) {
+        outfieldMinutes += goalkeeperMinutes;
+        goalkeeperMinutes = 0;
+      }
+
+      const hasGoalkeeperRole = goalkeeperMinutes >= PROFILE_SPLIT_EPSILON_MINUTES;
+      const hasOutfieldRole = outfieldMinutes >= PROFILE_SPLIT_EPSILON_MINUTES || !hasGoalkeeperRole;
       const profileSplit = hasGoalkeeperRole && hasOutfieldRole;
       const defaultRole = hasGoalkeeperRole && !hasOutfieldRole ? 'goalkeeper' : 'outfield';
 

@@ -85,6 +85,8 @@ export function resolveTurnoverLostBySelection(stat, extra = null) {
 }
 
 function safeNumber(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
@@ -771,6 +773,13 @@ export function buildGoalkeeperAssignments({
   };
 
   const getRoleForPlayerAtStat = (playerLike, stat) => {
+    const playerKey = makePlayerKeyLocal(playerLike);
+    const playerTeamSide = normalizeTeamSideLocal(playerLike?.team_side);
+    if (playerKey && (playerTeamSide === 'home' || playerTeamSide === 'away')) {
+      const assignedKeeper = getKeeperForStat(playerTeamSide, stat);
+      const assignedKeeperKey = makePlayerKeyLocal(assignedKeeper);
+      if (assignedKeeperKey) return assignedKeeperKey === playerKey ? 'goalkeeper' : 'outfield';
+    }
     const periodKey = getStatPeriodKey(stat);
     const timeMinutes = clampMinZero(getStatLoggedTimeSLocal(stat) / 60);
     return getRoleForPlayerAtTime(playerLike, periodKey, timeMinutes);
@@ -2602,6 +2611,15 @@ export function rebuildPossessionRows(stats) {
   return (Array.isArray(stats) ? stats : []).map((stat) => map.get(stat?.id) || stat);
 }
 
+function shouldDeferStandaloneFoulPossessionStart({ nextPossession, stat, nextStat, isStandaloneFoul }) {
+  if (!isStandaloneFoul) return false;
+  if (!nextPossession?.forceStart) return false;
+  if (nextPossession?.source !== 'Open Play') return false;
+  if (String(stat?.stat_type || '') !== 'foul') return false;
+  const nextType = String(nextStat?.stat_type || '');
+  return nextType === 'kickout' || nextType === 'throw_in';
+}
+
 export function sequencePossessionRows(stats, injected = {}) {
   const ordered = (Array.isArray(stats) ? stats.slice() : []).sort((a, b) => {
     const pa = Number(a?.play_id);
@@ -2742,11 +2760,17 @@ export function sequencePossessionRows(stats, injected = {}) {
       || (stat?.stat_type === 'kickout' && String(extra?.kickout?.outcome || '') === 'foul')
       || (stat?.stat_type === 'throw_in' && String(extra?.throw_in?.outcome || '') === 'foul');
     const isStandaloneFoul = !!foul && !isEmbeddedActionFoul;
+    const deferStandaloneFoulStart = shouldDeferStandaloneFoulPossessionStart({
+      nextPossession,
+      stat,
+      nextStat,
+      isStandaloneFoul,
+    });
 
     let startInfo = null;
     if (immediateStart?.team && validSide(immediateStart.team)) {
       startInfo = immediateStart;
-    } else if (nextPossession?.forceStart) {
+    } else if (nextPossession?.forceStart && !deferStandaloneFoulStart) {
       const fallbackTeam = validSide(actorFromData) ? actorFromData : (validSide(currentPossessionTeam) ? currentPossessionTeam : stat?.team_side);
       startInfo = {
         team: validSide(nextPossession.team) ? nextPossession.team : fallbackTeam,
@@ -2769,7 +2793,8 @@ export function sequencePossessionRows(stats, injected = {}) {
       currentStartSource = 'Open Play';
     }
 
-    nextPossession = null;
+    const pendingNextPossession = deferStandaloneFoulStart ? nextPossession : null;
+    nextPossession = pendingNextPossession;
 
     let rowActingTeam = actorFromData;
     let rowPossessionTeam = currentPossessionTeam;
