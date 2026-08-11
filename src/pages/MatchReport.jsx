@@ -1022,6 +1022,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       server_match_id: match.server_match_id || null,
       server_matchup_stint_id: null,
     });
+    queryClient.setQueryData(['matchup-stints', matchId], (current = []) => {
+      const next = Array.isArray(current) ? current.slice() : [];
+      next.push(created);
+      return next;
+    });
     try {
       if (isAuthenticated) {
         const { serverMatchId, playerRefByLocalId } = await ensureMatchupSyncIdentity();
@@ -1058,6 +1063,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       ...payload,
       server_match_id: current.server_match_id || match?.server_match_id || null,
     });
+    queryClient.setQueryData(['matchup-stints', matchId], (rows = []) => (
+      Array.isArray(rows)
+        ? rows.map((row) => (String(row?.id) === String(stintId) ? { ...row, ...payload } : row))
+        : rows
+    ));
     try {
       if (isAuthenticated) {
         const refreshed = (await db.entities.MatchupStint.get(stintId)) || { ...current, ...payload };
@@ -1087,6 +1097,11 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
     const current = await db.entities.MatchupStint.get(stintId);
     if (!current?.id) return;
     await db.entities.MatchupStint.delete(stintId);
+    queryClient.setQueryData(['matchup-stints', matchId], (rows = []) => (
+      Array.isArray(rows)
+        ? rows.filter((row) => String(row?.id) !== String(stintId))
+        : rows
+    ));
     try {
       if (isAuthenticated && current.server_matchup_stint_id) {
         await softDeletePrivateMatchupStint(current.server_matchup_stint_id);

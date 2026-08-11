@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -207,6 +207,7 @@ export default function MatchupEditorDialog({
   onUpdateMatchupStint,
   onDeleteMatchupStint,
 }) {
+  const lastOpenRef = useRef(false);
   const [selectedDefenderKey, setSelectedDefenderKey] = useState('');
   const [draftRows, setDraftRows] = useState([]);
   const [busyKey, setBusyKey] = useState('');
@@ -245,9 +246,10 @@ export default function MatchupEditorDialog({
   const defenderOptions = sortedPlayerOptions;
 
   useEffect(() => {
-    if (!open) return;
+    const justOpened = open && !lastOpenRef.current;
+    lastOpenRef.current = open;
+    if (!open || !justOpened) return;
     const fallbackDefenderKey = defaultDefenderBaseKey
-      || normalizeDefenderKey(selectedDefenderKey, playerByKey)
       || (Array.isArray(matchupStints)
         ? matchupStints
           .map((row) => normalizeDefenderKey(buildPlayerKey({
@@ -259,7 +261,7 @@ export default function MatchupEditorDialog({
       || (defenderOptions[0] ? buildPlayerKey(defenderOptions[0]) : null)
       || '';
     setSelectedDefenderKey(fallbackDefenderKey || '');
-  }, [defaultDefenderBaseKey, defenderOptions, matchupStints, open, playerByKey, selectedDefenderKey]);
+  }, [defaultDefenderBaseKey, defenderOptions, matchupStints, open, playerByKey]);
 
   const filteredSourceRows = useMemo(() => {
     const list = Array.isArray(matchupStints) ? matchupStints : [];

@@ -304,6 +304,28 @@ function buildPlayerDisplayTitle(row) {
   return baseTitle;
 }
 
+function hasMeaningfulPlayerRowActivity(row) {
+  if (!row) return false;
+  const numericFields = [
+    'minutesPlayed',
+    'touches',
+    'shots',
+    'points',
+    'passes',
+    'passComp',
+    'carries',
+    'carryComp',
+    'turnoversWon',
+    'turnoversLost',
+    'defActions',
+    'kickoutsTaken',
+    'goalShotsSaved',
+    'goalShotsAgainst',
+    'matchupMinutes',
+  ];
+  return numericFields.some((field) => Math.abs(Number(row?.[field]) || 0) > 0.001);
+}
+
 function makeBasePlayerKey(playerLike) {
   if (!playerLike) return null;
   const teamSide = String(playerLike.team_side || playerLike.team || '').trim();
@@ -3613,7 +3635,7 @@ function PlayersAnalyticsTabContent({
       if (row) row.defActions += 1;
     }
 
-    return Array.from(rows.values()).map((row) => {
+    const enrichedRows = Array.from(rows.values()).map((row) => {
       const passPct = row.passes ? (row.passComp / row.passes) * 100 : NaN;
       const carryPct = row.carries ? (row.carryComp / row.carries) * 100 : NaN;
       const progPassPct = row.progPassAtt ? (row.progPassComp / row.progPassAtt) * 100 : NaN;
@@ -3691,6 +3713,14 @@ function PlayersAnalyticsTabContent({
         daFoulsWon: Number(defendingAllowed.daFoulsWon) || 0,
         daStints: Array.isArray(defendingAllowed.daStints) ? defendingAllowed.daStints : [],
       };
+    });
+    return enrichedRows.filter((row) => {
+      const baseKey = String(row?.basePlayerKey || '');
+      if (!baseKey) return true;
+      const siblings = enrichedRows.filter((candidate) => String(candidate?.basePlayerKey || '') === baseKey);
+      if (siblings.length <= 1) return true;
+      if (hasMeaningfulPlayerRowActivity(row)) return true;
+      return !siblings.some((candidate) => candidate !== row && hasMeaningfulPlayerRowActivity(candidate));
     });
   }, [calcBase, defendingAllowedByKey, defendingAllowedData?.rows, defensiveActions.playerActions, goalkeeperAssignments, nextStatById, playerMetaByKey, playerOptions, playerProfileTimeData, rateModeBase, shotAssistCredits, touchEvents]);
 
