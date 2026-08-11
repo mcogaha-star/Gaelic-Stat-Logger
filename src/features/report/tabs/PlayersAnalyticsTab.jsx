@@ -5418,6 +5418,17 @@ function PlayersAnalyticsTabContent({
                     />
                   ) : null}
                   {!selectedIsGoalkeeper && !isLiveMode ? (
+                    <PlayerDefensePanel
+                      row={selectedPlayerRow}
+                      actions={selectedPlayerDefensiveActions}
+                      cardCounts={selectedPlayerCardCounts}
+                      statMode={statMode}
+                      isLiveMode={isLiveMode}
+                      onOpenVideoSelection={openPlayerMapVideoSelection}
+                      cardStyle={selectedCardTintStyle}
+                    />
+                  ) : null}
+                  {!selectedIsGoalkeeper && !isLiveMode ? (
                     <PlayerDefendingAllowedPanel
                       row={selectedPlayerRow}
                       statMode={statMode}
