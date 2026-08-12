@@ -421,6 +421,11 @@ function buildStarPoints(cx, cy, outerRadius = 2.25, innerRadius = 0.95, spikes 
 }
 
 function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left', onOpenVideo = null }) {
+  const handleOpenVideo = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    onOpenVideo?.();
+  };
   return (
     <>
       <div className="pointer-events-none absolute left-3 top-2 z-20 rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm">
@@ -432,20 +437,9 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             type="button"
             size="sm"
             variant="outline"
-            className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm"
-            onPointerDown={(event) => {
-              event.stopPropagation();
-            }}
-            onTouchEnd={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onOpenVideo();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onOpenVideo();
-            }}
+            className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm touch-manipulation"
+            onPointerUp={handleOpenVideo}
+            onClick={handleOpenVideo}
           >
             Video
           </Button>

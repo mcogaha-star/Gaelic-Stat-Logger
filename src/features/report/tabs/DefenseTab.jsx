@@ -238,32 +238,7 @@ function buildDefenseSankeyData({ turnovers, teamSide, groupingMode, possessionG
     const groupName = getOrderedGroupName(rawGroupName);
 
     const possessionEvents = possessionGroups.get(String(stat?.id || '')) || [];
-    const groupedOutcomeFromShot = possessionEvents
-      .slice()
-      .sort((a, b) => {
-        const pa = Number(a?.play_id);
-        const pb = Number(b?.play_id);
-        if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
-        const ta = Number(a?.normalized_time_s);
-        const tb = Number(b?.normalized_time_s);
-        if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
-        return String(a?.id || '').localeCompare(String(b?.id || ''));
-      })
-      .reverse()
-      .reduce((found, event) => {
-        if (found || event?.stat_type !== 'shot' || event?.team_side !== teamSide) return found;
-        const shotExtra = safeParseJSON(event?.extra_data || '{}', {});
-        if (shotExtra?.shot?.brought_back_adv) return found;
-        const shotOutcome = String(shotExtra?.shot?.outcome || '').toLowerCase();
-        if (shotOutcomeGroup(shotOutcome) === 'score') return 'Score';
-        if (shotOutcome === 'wide') return 'Wide';
-        if (shotOutcome === 'short') return 'Short';
-        if (shotOutcome === 'blocked') return 'Blocked';
-        if (shotOutcome === 'saved') return 'Saved';
-        if (shotOutcome === 'post') return 'Post';
-        return found;
-      }, null);
-    const groupedOutcome = groupedOutcomeFromShot || derivePossessionOutcome(possessionEvents, teamSide);
+    const groupedOutcome = derivePossessionOutcome(possessionEvents, teamSide);
 
     let layer2 = 'No Shot / Other';
     let layer3 = null;
