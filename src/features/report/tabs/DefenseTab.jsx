@@ -24,6 +24,7 @@ import {
   shotOutcomeGroup,
   shotPointsForOutcome,
   normalizeFoulType,
+  resolveTurnoverLostBySelection,
 } from '@/lib/reportAnalytics';
 import {
   safeParseJSON,
@@ -237,7 +238,32 @@ function buildDefenseSankeyData({ turnovers, teamSide, groupingMode, possessionG
     const groupName = getOrderedGroupName(rawGroupName);
 
     const possessionEvents = possessionGroups.get(String(stat?.id || '')) || [];
-    const groupedOutcome = derivePossessionOutcome(possessionEvents, teamSide);
+    const groupedOutcomeFromShot = possessionEvents
+      .slice()
+      .sort((a, b) => {
+        const pa = Number(a?.play_id);
+        const pb = Number(b?.play_id);
+        if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+        const ta = Number(a?.normalized_time_s);
+        const tb = Number(b?.normalized_time_s);
+        if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+      })
+      .reverse()
+      .reduce((found, event) => {
+        if (found || event?.stat_type !== 'shot' || event?.team_side !== teamSide) return found;
+        const shotExtra = safeParseJSON(event?.extra_data || '{}', {});
+        if (shotExtra?.shot?.brought_back_adv) return found;
+        const shotOutcome = String(shotExtra?.shot?.outcome || '').toLowerCase();
+        if (shotOutcomeGroup(shotOutcome) === 'score') return 'Score';
+        if (shotOutcome === 'wide') return 'Wide';
+        if (shotOutcome === 'short') return 'Short';
+        if (shotOutcome === 'blocked') return 'Blocked';
+        if (shotOutcome === 'saved') return 'Saved';
+        if (shotOutcome === 'post') return 'Post';
+        return found;
+      }, null);
+    const groupedOutcome = groupedOutcomeFromShot || derivePossessionOutcome(possessionEvents, teamSide);
 
     let layer2 = 'No Shot / Other';
     let layer3 = null;
@@ -1168,78 +1194,80 @@ function DefenseTab({
 
   const playerDefenseRows = useMemo(() => {
     const rows = new Map();
-    const ensure = (id, label, teamSide) => {
-      if (!id) return null;
-      const key = String(id);
+    const ensure = (selection) => {
+      const player = normalizePlayerRef(selection);
+      if (!player?.id) return null;
+      const key = selectionKey(player) || `${player.team_side || ''}:${player.id}`;
       if (!rows.has(key)) {
-        rows.set(key, { id: key, player: label || key, team: teamSide, toForced: 0, toRecovered: 0, toWon: 0, toLost: 0, defensiveActions: 0, fouls: 0, _seenActions: new Set(), _seenTurnoversWon: new Set(), _seenTurnoversLost: new Set() });
+        const label = [player?.number != null && player?.number !== '' ? `#${player.number}` : '', String(player?.name || '').trim()]
+          .filter(Boolean)
+          .join(' ')
+          || player?.label
+          || String(player.id);
+        rows.set(key, {
+          id: key,
+          player: label,
+          team: player.team_side || '',
+          toForced: 0,
+          toRecovered: 0,
+          toWon: 0,
+          toLost: 0,
+          defensiveActions: 0,
+          fouls: 0,
+        });
       }
       return rows.get(key);
     };
-    const bumpAction = (row, statId) => {
-      if (!row) return;
-      const key = String(statId || '');
-      if (row._seenActions.has(key)) return;
-      row._seenActions.add(key);
-      row.defensiveActions += 1;
-    };
 
-    defensiveActions.playerActions.forEach((action) => {
-      const player = action?.player;
-      if (!player?.id) return;
-      const label = [player?.number != null && player?.number !== '' ? `#${player.number}` : '', String(player?.name || '').trim()]
-        .filter(Boolean)
-        .join(' ')
-        || player?.label
-        || String(player.id);
-      ensure(player.id, label, player.team_side);
-    });
-
-    resolvedDefensiveTeamActions.forEach((action) => {
-      const statId = action?.statId || action?.stat?.id;
-      const metricIncluded = !!action?.metricIncluded;
-      const forcedRow = ensure(action?.forcedById, action?.forcedByLabel, action?.teamSide);
-      const recoveredRow = ensure(action?.recoveredById, action?.recoveredByLabel, action?.teamSide);
-      const lostRow = ensure(action?.lostById, action?.lostByLabel, action?.lostByTeamSide || action?.turnoverLostBy || action?.actingTeamSide);
-      const foulRow = ensure(action?.foulById, action?.fouledByLabel, action?.committingTeamSide || action?.teamSide);
-      const defenderRow = ensure(action?.defenderId, action?.defenderLabel, action?.teamSide);
-      const blockedRow = ensure(action?.blockedById, action?.blockedByLabel, action?.teamSide);
-      const savedRow = ensure(action?.savedById, action?.savedByLabel, action?.teamSide);
-
-      if ((action?.primaryCategory || action?.actionCategory) === 'turnover') {
-        const turnoverKey = String(statId || action?.id || `${action?.forcedById || ''}:${action?.recoveredById || ''}:${action?.timeS || action?.normalizedTimeS || ''}`);
-        if (forcedRow) {
-          forcedRow.toForced += 1;
-          if (!forcedRow._seenTurnoversWon.has(turnoverKey)) {
-            forcedRow._seenTurnoversWon.add(turnoverKey);
-            forcedRow.toWon += 1;
+    for (const stat of calcBase) {
+      if (!stat) continue;
+      const extra = safeParseJSON(stat.extra_data || '{}', {});
+      if (stat.stat_type === 'turnover' || extra?.turnover) {
+        const turnover = extra?.turnover || {};
+        const turnoverType = normalizeFoulType(turnover?.turnover_type || turnover?.type || '');
+        const foul = turnoverType === 'foul' ? extractFoulFromStat(stat) : null;
+        const recovered = turnoverType === 'foul'
+          ? ensure(foul?.foul_on || foul?.foul_on_or_forced_by || turnover?.forced_by)
+          : ensure(turnover?.recovered_by);
+        const forced = ensure(turnover?.forced_by);
+        const lost = ensure(resolveTurnoverLostBySelection(stat, extra));
+        const defensivePlayerKeys = new Set();
+        if (recovered) {
+          recovered.toRecovered += 1;
+          defensivePlayerKeys.add(recovered.id);
+        }
+        if (forced) {
+          forced.toForced += 1;
+          defensivePlayerKeys.add(forced.id);
+        }
+        for (const playerKey of defensivePlayerKeys) {
+          const row = rows.get(playerKey);
+          if (row) {
+            row.toWon += 1;
+            row.defensiveActions += 1;
           }
         }
-        if (recoveredRow) {
-          recoveredRow.toRecovered += 1;
-          if (!recoveredRow._seenTurnoversWon.has(turnoverKey)) {
-            recoveredRow._seenTurnoversWon.add(turnoverKey);
-            recoveredRow.toWon += 1;
-          }
-        }
-        if (lostRow && !lostRow._seenTurnoversLost.has(turnoverKey)) {
-          lostRow._seenTurnoversLost.add(turnoverKey);
-          lostRow.toLost += 1;
-        }
+        if (lost) lost.toLost += 1;
       }
-      if (Array.isArray(action?.filterTags) && action.filterTags.includes('foul') && foulRow) {
-        foulRow.fouls += 1;
+
+      const foul = extractFoulFromStat(stat);
+      if (foul) {
+        const conceded = ensure(foul?.foul_by);
+        if (conceded) conceded.fouls += 1;
       }
-      if (metricIncluded) {
-        [forcedRow, recoveredRow, foulRow, defenderRow, blockedRow, savedRow].forEach((row) => bumpAction(row, statId));
-      }
-    });
+    }
+
+    for (const action of defensiveActions.playerActions) {
+      if (String(action?.reason || '') === 'Turnover Recovered' || String(action?.reason || '') === 'Turnover Forced') continue;
+      const row = ensure(action?.player);
+      if (row) row.defensiveActions += 1;
+    }
 
     return Array.from(rows.values())
       .filter((row) => isMeaningfulPlayerLabel(row?.player))
       .map((row) => ({ ...row, teamLabel: row.team === 'away' ? (awayTeam?.name || 'Away') : (homeTeam?.name || 'Home') }))
       .sort((a, b) => b.defensiveActions - a.defensiveActions || b.toWon - a.toWon || b.toForced - a.toForced || String(a.player).localeCompare(String(b.player)));
-  }, [defensiveActions, resolvedDefensiveTeamActions, homeTeam, awayTeam]);
+  }, [calcBase, defensiveActions.playerActions, homeTeam, awayTeam]);
 
   const [playerDefenseSort, setPlayerDefenseSort] = useState({ key: 'defensiveActions', dir: 'desc' });
   const playerDefenseColumns = useMemo(() => ([

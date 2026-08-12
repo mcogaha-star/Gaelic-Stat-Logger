@@ -113,6 +113,7 @@ export default function Video() {
   const intervalRef = useRef(null);
   const reviewRootRef = useRef(null);
   const completedClipRef = useRef('');
+  const pendingClipSeekRef = useRef('');
   const hasUnsavedNotesRef = useRef(false);
 
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' | 'local'
@@ -357,6 +358,7 @@ export default function Video() {
     setCurrentClipIndex(nextIndex);
     completedClipRef.current = '';
     if (!clip) return;
+    pendingClipSeekRef.current = String(clip.id || clip.source_ref || nextIndex);
     seekToAbsolute(Number(clip.start_time));
     if (autoplay) {
       window.setTimeout(() => playPlayback(), 100);
@@ -667,8 +669,13 @@ export default function Video() {
 
   useEffect(() => {
     if (!reviewMode || !ready || !currentClip) return;
+    const clipKey = String(currentClip.id || currentClip.source_ref || currentClipIndex);
+    if (pendingClipSeekRef.current === clipKey) {
+      pendingClipSeekRef.current = '';
+      return;
+    }
     seekToAbsolute(Number(currentClip.start_time));
-  }, [reviewMode, ready, currentClip?.id]);
+  }, [reviewMode, ready, currentClip, currentClipIndex]);
 
   const currentClipPublicNote = useMemo(
     () => reviewNotes.find((note) => note?.target_type === currentClip?.source_type && String(note?.target_id || '') === String(currentClip?.source_ref || '') && note?.visibility === 'public') || null,

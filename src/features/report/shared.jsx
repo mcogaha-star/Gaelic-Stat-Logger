@@ -2948,29 +2948,21 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
     return connected;
   }, [selectedNodeId, visibleEdgeList]);
 
-  const renderContent = (isFullscreen = false) => (
-    <div className="w-full space-y-3">
-        {!isFullscreen && showHeader && (
-          <ReportInfoTitle
-            title={`${teamLabel || toTitleCase(side)} Pass Network`}
-            helpId={headerHelpId}
-          />
-        )}
-        {showPitch && (
-          <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
-            <div
-              data-fullscreen-trigger="true"
-              className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
-              style={{
-                ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: isMobile ? '100%' : pitchScale, maxWidth: '100%' }),
-                aspectRatio: `${PITCH_W} / ${PITCH_H}`,
-                backgroundImage: `url(${pitchImg})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
-            >
-              <DirectionBadge />
-              <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none" onClick={() => setSelectedNodeId(null)}>
+  const renderPitch = (isFullscreen = false) => (
+    <div className={`w-full overflow-hidden ${isFullscreen ? '' : 'rounded-xl border border-slate-200 bg-white'}`}>
+      <div
+        data-fullscreen-trigger="true"
+        className={`relative ${isFullscreen ? 'mx-auto w-full' : 'mx-auto'}`}
+        style={{
+          ...(isFullscreen ? fullscreenPitchStyle(PITCH_W / PITCH_H) : { width: isMobile ? '100%' : pitchScale, maxWidth: '100%' }),
+          aspectRatio: `${PITCH_W} / ${PITCH_H}`,
+          backgroundImage: `url(${pitchImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <DirectionBadge />
+        <svg className="absolute inset-0 w-full h-full" viewBox={`-5 -5 ${PITCH_W + 10} ${PITCH_H + 10}`} preserveAspectRatio="none" onClick={() => setSelectedNodeId(null)}>
             {visibleEdgeList.map((e) => {
               const a = nodeById.get(e.a);
               const b = nodeById.get(e.b);
@@ -3048,12 +3040,26 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
                 </g>
               );
             })}
-              </svg>
-            </div>
-          </div>
-        )}
-        {showTable && visibleCentralityRows.length > 0 && (
-          <div data-fullscreen-block="true" className={`${isFullscreen ? 'rounded-xl bg-white/95 p-4' : ''}`}>
+        </svg>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full space-y-3">
+      {showHeader && (
+        <ReportInfoTitle
+          title={`${teamLabel || toTitleCase(side)} Pass Network`}
+          helpId={headerHelpId}
+        />
+      )}
+      {showPitch ? (
+        <FullscreenMapShell title={teamLabel || `${toTitleCase(side)} Pass Network`} enabled={fullscreenEnabled}>
+          {(isFullscreen) => renderPitch(isFullscreen)}
+        </FullscreenMapShell>
+      ) : null}
+      {showTable && visibleCentralityRows.length > 0 && (
+        <div data-fullscreen-block="true">
           <div className={`mb-2 flex items-center gap-3 ${tableHelpId ? 'justify-between' : 'justify-end'}`}>
             {tableHelpId ? (
               <ReportInfoTitle
@@ -3114,15 +3120,9 @@ function PassNetwork({ passes, side, minCount, teamColor, teamLabel, showTable =
             </TableBody>
           </Table>
           </div>
-          </div>
-        )}
+        </div>
+      )}
     </div>
-  );
-
-  return (
-    <FullscreenMapShell title={teamLabel || `${toTitleCase(side)} Pass Network`} enabled={fullscreenEnabled}>
-      {(isFullscreen) => renderContent(isFullscreen)}
-    </FullscreenMapShell>
   );
 }
 

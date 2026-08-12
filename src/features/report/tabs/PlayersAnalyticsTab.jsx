@@ -1088,7 +1088,7 @@ function PlayerShootingPanel({
                       : shot.shotType;
                     const size = 1.87;
                     const handleOpenVideo = (event) => {
-                      event.stopPropagation();
+                      event?.stopPropagation?.();
                       onOpenVideoSelection?.(summary.mapShots, { sourceLabel: 'Player Shots', selectedId: shot.raw?.id });
                     };
 
@@ -1098,7 +1098,7 @@ function PlayerShootingPanel({
                           key={shot.id}
                           data-tap-key={shot.id}
                           className={videoEnabled ? 'cursor-pointer' : undefined}
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo() : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
@@ -1142,7 +1142,7 @@ function PlayerShootingPanel({
                           key={shot.id}
                           data-tap-key={shot.id}
                           className={videoEnabled ? 'cursor-pointer' : undefined}
-                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
+                          onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo() : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                           onClick={(event) => {
                             if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                           }}
@@ -1188,7 +1188,7 @@ function PlayerShootingPanel({
                         key={shot.id}
                         data-tap-key={shot.id}
                         className={videoEnabled ? 'cursor-pointer' : undefined}
-                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
+                        onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => handleOpenVideo() : null }, videoEnabled ? handleOpenVideo : null, shot.id)}
                         onClick={(event) => {
                           if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, tip);
                         }}
@@ -1421,7 +1421,7 @@ function PlayerPassingPanel({
                 />
                 {summary.mapPasses.map((pass) => {
                   const handleOpenVideo = (event) => {
-                    event.stopPropagation();
+                    event?.stopPropagation?.();
                     onOpenVideoSelection?.(summary.mapPasses, { sourceLabel: 'Player Passes', selectedId: pass.raw?.id });
                   };
                   return (
@@ -1429,7 +1429,7 @@ function PlayerPassingPanel({
                       key={pass.id}
                       data-tap-key={pass.id}
                       className="cursor-pointer"
-                      onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, pass.tooltip, handleOpenVideo, pass.id)}
+                      onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: pass.tooltip, onOpenVideo: () => handleOpenVideo() }, handleOpenVideo, pass.id)}
                       onClick={(event) => {
                         if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, pass.tooltip);
                       }}
@@ -1663,7 +1663,7 @@ function PlayerCarryingPanel({
               />
               {summary.mapCarries.map((carry) => {
                 const handleOpenVideo = (event) => {
-                  event.stopPropagation();
+                  event?.stopPropagation?.();
                   onOpenVideoSelection?.(summary.mapCarries, { sourceLabel: 'Player Carries', selectedId: carry.raw?.id });
                 };
                 return (
@@ -1671,7 +1671,7 @@ function PlayerCarryingPanel({
                     key={carry.id}
                     data-tap-key={carry.id}
                     className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, carry.tooltip, handleOpenVideo, carry.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: carry.tooltip, onOpenVideo: () => handleOpenVideo() }, handleOpenVideo, carry.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, carry.tooltip);
                     }}
@@ -1812,7 +1812,7 @@ function PlayerRestartPanel({
                 if (!startPoint || !endPoint) return null;
 
                 const handleOpenVideo = (event) => {
-                  event.stopPropagation();
+                  event?.stopPropagation?.();
                   onOpenVideoSelection?.(safeKickoutItems, { sourceLabel: 'Player Restarts', selectedId: item.raw?.id });
                 };
 
@@ -1821,7 +1821,7 @@ function PlayerRestartPanel({
                     key={item.id}
                     data-tap-key={item.id}
                     className={videoEnabled ? 'cursor-pointer' : undefined}
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: item.tooltip, onOpenVideo: videoEnabled ? () => handleOpenVideo(event) : null }, videoEnabled ? handleOpenVideo : null, item.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: item.tooltip, onOpenVideo: videoEnabled ? () => handleOpenVideo() : null }, videoEnabled ? handleOpenVideo : null, item.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, item.tooltip);
                     }}
@@ -2028,7 +2028,7 @@ function PlayerProgressionPanel({
               />
               {summary.mapReceptions.map((reception) => {
                 const handleOpenVideo = (event) => {
-                  event.stopPropagation();
+                  event?.stopPropagation?.();
                   onOpenVideoSelection?.(summary.mapReceptions, { sourceLabel: 'Player Receptions', selectedId: reception.raw?.id });
                 };
                 return (
@@ -2036,7 +2036,7 @@ function PlayerProgressionPanel({
                     key={reception.id}
                     data-tap-key={reception.id}
                     className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: reception.tooltip, onOpenVideo: () => handleOpenVideo(event) }, handleOpenVideo, reception.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: reception.tooltip, onOpenVideo: () => handleOpenVideo() }, handleOpenVideo, reception.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, reception.tooltip);
                     }}
@@ -2178,7 +2178,7 @@ function PlayerDefensePanel({
               />
               {summary.mapActions.map((action) => {
                 const handleOpenVideo = (event) => {
-                  event.stopPropagation();
+                  event?.stopPropagation?.();
                   onOpenVideoSelection?.(summary.mapActions, { sourceLabel: 'Player Defensive Actions', selectedId: action.raw?.id });
                 };
                 return (
@@ -2186,7 +2186,7 @@ function PlayerDefensePanel({
                     key={action.id}
                     data-tap-key={action.id}
                     className="cursor-pointer"
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: action.tooltip, onOpenVideo: () => handleOpenVideo(event) }, handleOpenVideo, action.id)}
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: action.tooltip, onOpenVideo: () => handleOpenVideo() }, handleOpenVideo, action.id)}
                     onClick={(event) => {
                       if (!isMobile) handlePlayerMapTap(event, isMobile, setMobileTooltip, action.tooltip);
                     }}
@@ -3654,7 +3654,7 @@ function PlayersAnalyticsTabContent({
       const passRate = row.touches ? (row.passes / row.touches) * 100 : NaN;
       const carryRate = row.touches ? (row.carries / row.touches) * 100 : NaN;
       const shootRate = row.touches ? (row.shots / row.touches) * 100 : NaN;
-      const noCarryPassRate = row.touches ? (row.noCarryPasses / row.touches) * 100 : NaN;
+      const noCarryPassRate = row.passes ? (row.noCarryPasses / row.passes) * 100 : NaN;
       const avgShotDist = row.avgShotDistCount ? row.avgShotDistTotal / row.avgShotDistCount : NaN;
       const goalShotSavePct = (row.goalShotsSaved + row.goalShotsAgainst)
         ? (row.goalShotsSaved / (row.goalShotsSaved + row.goalShotsAgainst)) * 100
@@ -4445,6 +4445,7 @@ function PlayersAnalyticsTabContent({
       bucket.push({
         startTimeS: Number(stint?.clippedStartTimeS),
         endTimeS: Number(stint?.clippedEndTimeS),
+        attackerLabel: stint?.attackerPlayerLabel || '',
       });
       stintMap.set(bucketKey, bucket);
     }
@@ -4458,10 +4459,13 @@ function PlayersAnalyticsTabContent({
       const timeS = Number(touch?.stat?.normalized_time_s);
       if (!attackerKey || !periodKey || !Number.isFinite(timeS)) continue;
       const windows = stintMap.get(`${periodKey}|${attackerKey}`) || [];
-      if (!windows.some((window) => timeS >= window.startTimeS && timeS <= window.endTimeS)) continue;
+      const matchingWindow = windows.find((window) => timeS >= window.startTimeS && timeS <= window.endTimeS);
+      if (!matchingWindow) continue;
 
       const reason = String(touch?.reason || 'Touch');
-      const matchupLabel = selectionTooltipLabel(touch?.player).replace(/\s+\((Home|Away)\)\s*$/i, '') || 'Unknown matchup';
+      const matchupLabel = selectionTooltipLabel(touch?.player).replace(/\s+\((Home|Away)\)\s*$/i, '')
+        || String(matchingWindow?.attackerLabel || '').trim()
+        || 'Unknown matchup';
       const loweredReason = reason.toLowerCase();
       const color = loweredReason.includes('kickout')
         ? '#1d4ed8'
