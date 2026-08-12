@@ -421,10 +421,24 @@ function buildStarPoints(cx, cy, outerRadius = 2.25, innerRadius = 0.95, spikes 
 }
 
 function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left', onOpenVideo = null }) {
+  const lastTouchActivationRef = useRef(0);
   const handleOpenVideo = (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
     onOpenVideo?.();
+  };
+  const handlePointerUp = (event) => {
+    if (event?.pointerType === 'mouse') return;
+    lastTouchActivationRef.current = Date.now();
+    handleOpenVideo(event);
+  };
+  const handleClick = (event) => {
+    if (Date.now() - lastTouchActivationRef.current < 750) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      return;
+    }
+    handleOpenVideo(event);
   };
   return (
     <>
@@ -438,7 +452,8 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             size="sm"
             variant="outline"
             className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm touch-manipulation"
-            onClick={handleOpenVideo}
+            onPointerUp={handlePointerUp}
+            onClick={handleClick}
           >
             Video
           </Button>
