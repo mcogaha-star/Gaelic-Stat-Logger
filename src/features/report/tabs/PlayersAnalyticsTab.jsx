@@ -3021,6 +3021,7 @@ function PlayersAnalyticsTabContent({
     }),
     [match, reportFilters],
   );
+  const reportMatch = scopedReportFilters.match;
   const [playerBucket, setPlayerBucket] = useState(lockPlayerBucket || 'scoring');
   const [activeMode, setActiveMode] = useState('player-card');
   const [chartPlayerId, setChartPlayerId] = useState(lockPlayerValue || focusPlayerId || 'all');
@@ -3044,13 +3045,13 @@ function PlayersAnalyticsTabContent({
     [defendingAllowedBase],
   );
   const teamMode = String(reportFilters?.team || 'both');
-  const rateModeLabel = getRateModeLabel(reportFilters?.match);
-  const rateModeBase = formatModeMinuteBase(reportFilters?.match);
+  const rateModeLabel = getRateModeLabel(reportMatch);
+  const rateModeBase = formatModeMinuteBase(reportMatch);
   const playersNavPortalTarget = useMemo(() => {
     if (!playersNavPortalTargetId || typeof document === 'undefined') return null;
     return document.getElementById(playersNavPortalTargetId);
   }, [playersNavPortalTargetId]);
-  const playerMapClipSettings = useMemo(() => getVideoClipSettings(reportFilters?.match), [reportFilters?.match]);
+  const playerMapClipSettings = useMemo(() => getVideoClipSettings(reportMatch), [reportMatch]);
   useEffect(() => {
     if (isLiveMode && activeMode !== 'player-card') {
       setActiveMode('player-card');
@@ -3065,7 +3066,7 @@ function PlayersAnalyticsTabContent({
   }, [activeMode, forcePlayerMode]);
 
   const openPlayerMapVideoSelection = (items, { sourceLabel = 'Player Map', selectedId = null } = {}) => {
-    const matchId = reportFilters?.match?.id || '';
+    const matchId = reportMatch?.id || '';
     const clips = [];
     for (const item of Array.isArray(items) ? items : []) {
       const stat = item?.raw || item?.stat || item || null;
@@ -3195,15 +3196,15 @@ function PlayersAnalyticsTabContent({
     () => buildTouchEvents(defendingAllowedCalcBase, playerOptions),
     [defendingAllowedCalcBase, playerOptions],
   );
-  const defensiveActions = useMemo(() => buildDefensiveActions(calcBase, { match: reportFilters?.match }), [calcBase, reportFilters?.match]);
+  const defensiveActions = useMemo(() => buildDefensiveActions(calcBase, { match: reportMatch }), [calcBase, reportMatch]);
   const scorableFreeRows = useMemo(() => findScorableFreeConcededRows(calcBase), [calcBase]);
   const playerTimeAndPossessionStats = useMemo(
-    () => playerTimeAndPossessionStatsProp || buildPlayerTimeAndPossessionStats({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
-    [awayTeam, homeTeam, playerOptions, playerTimeAndPossessionStatsProp, reportFilters?.match, stats],
+    () => playerTimeAndPossessionStatsProp || buildPlayerTimeAndPossessionStats({ match: reportMatch, stats, playerOptions, homeTeam, awayTeam }),
+    [awayTeam, homeTeam, playerOptions, playerTimeAndPossessionStatsProp, reportMatch, stats],
   );
   const goalkeeperAssignments = useMemo(
-    () => buildGoalkeeperAssignments({ match: reportFilters?.match, stats, playerOptions, homeTeam, awayTeam }),
-    [awayTeam, homeTeam, playerOptions, reportFilters?.match, stats],
+    () => buildGoalkeeperAssignments({ match: reportMatch, stats, playerOptions, homeTeam, awayTeam }),
+    [awayTeam, homeTeam, playerOptions, reportMatch, stats],
   );
   const playerProfileTimeData = useMemo(() => {
     const PROFILE_SPLIT_EPSILON_MINUTES = 0.25;
@@ -4566,11 +4567,11 @@ function PlayersAnalyticsTabContent({
     for (const point of points) unique.set(point.id, point);
     const dedupedPoints = Array.from(unique.values());
     const finalThirdTouches = dedupedPoints.reduce((count, point) => {
-      const oriented = horizontalPointForSelectedTeam(point, point?.teamSide || selectedPlayerTeamSide, reportFilters?.match);
+      const oriented = horizontalPointForSelectedTeam(point, point?.teamSide || selectedPlayerTeamSide, reportMatch);
       return oriented && oriented.x >= ((2 * PITCH_W) / 3) ? count + 1 : count;
     }, 0);
     return { points: dedupedPoints, finalThirdTouches };
-  }, [defendingAllowedTouchEvents, reportFilters?.match, selectedPlayerRow, selectedPlayerTeamSide]);
+  }, [defendingAllowedTouchEvents, reportMatch, selectedPlayerRow, selectedPlayerTeamSide]);
 
   const selectedGoalkeeperShotsOnGoal = useMemo(() => {
     if (!selectedIsGoalkeeper || !selectedPlayerRow) return [];
@@ -5317,7 +5318,7 @@ function PlayersAnalyticsTabContent({
                       heroKpis={heroKpis}
                       teamSide={selectedPlayerTeamSide}
                       heatmapPoints={selectedPlayerHeatmapPoints}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       rightPanelMode="kickout-map"
                       kickoutMapItems={goalkeeperKickoutItems}
                       onComparePlayer={null}
@@ -5334,7 +5335,7 @@ function PlayersAnalyticsTabContent({
                         heroKpis={heroKpis}
                         teamSide={selectedPlayerTeamSide}
                         heatmapPoints={selectedPlayerHeatmapPoints}
-                        match={reportFilters?.match}
+                        match={reportMatch}
                         rightPanelMode="none"
                         kickoutMapItems={[]}
                         onComparePlayer={null}
@@ -5361,7 +5362,7 @@ function PlayersAnalyticsTabContent({
                     heroKpis={heroKpis}
                     teamSide={selectedPlayerTeamSide}
                     heatmapPoints={selectedPlayerHeatmapPoints}
-                    match={reportFilters?.match}
+                    match={reportMatch}
                     rightPanelMode={selectedTopRightIsGoalkeeper ? 'kickout-map' : 'heatmap'}
                     kickoutMapItems={selectedTopRightIsGoalkeeper ? goalkeeperKickoutItems : []}
                     onComparePlayer={(!singlePlayerOnly && !isLiveMode) ? () => {
@@ -5387,7 +5388,7 @@ function PlayersAnalyticsTabContent({
                       <GoalkeeperShotsMap
                         shots={selectedGoalkeeperShotsOnGoal}
                         teamSide={selectedPlayerTeamSide}
-                        match={reportFilters?.match}
+                        match={reportMatch}
                         onOpenVideoSelection={null}
                         cardStyle={selectedCardTintStyle}
                       />
@@ -5400,7 +5401,7 @@ function PlayersAnalyticsTabContent({
                         statMode={statMode}
                         showXp={showXp}
                         teamSide={selectedPlayerTeamSide}
-                        match={reportFilters?.match}
+                        match={reportMatch}
                         filter={playerShotPaneFilter}
                         onFilterChange={setPlayerShotPaneFilter}
                         onOpenVideoSelection={null}
@@ -5412,7 +5413,7 @@ function PlayersAnalyticsTabContent({
                         isLiveMode={isLiveMode}
                         kickoutItems={selectedPlayerKickoutMapItems}
                         teamSide={selectedPlayerTeamSide}
-                        match={reportFilters?.match}
+                        match={reportMatch}
                         onOpenVideoSelection={null}
                         cardStyle={selectedCardTintStyle}
                       />
@@ -5428,7 +5429,7 @@ function PlayersAnalyticsTabContent({
                       statMode={statMode}
                       showXp={showXp}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       filter={playerShotPaneFilter}
                       onFilterChange={setPlayerShotPaneFilter}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
@@ -5441,7 +5442,7 @@ function PlayersAnalyticsTabContent({
                       passes={selectedPlayerPassStats}
                       statMode={statMode}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5452,7 +5453,7 @@ function PlayersAnalyticsTabContent({
                       carries={selectedPlayerCarryStats}
                       statMode={statMode}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5467,7 +5468,7 @@ function PlayersAnalyticsTabContent({
                       scorableFreesWon={selectedPlayerScorableFreesWon}
                       statMode={statMode}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5479,7 +5480,7 @@ function PlayersAnalyticsTabContent({
                       isLiveMode={isLiveMode}
                       kickoutItems={selectedPlayerKickoutMapItems}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5504,7 +5505,7 @@ function PlayersAnalyticsTabContent({
                       touchPoints={selectedPlayerDefendingAllowedTouchSummary.points}
                       finalThirdTouches={selectedPlayerDefendingAllowedTouchSummary.finalThirdTouches}
                       teamSide={selectedPlayerTeamSide}
-                      match={reportFilters?.match}
+                      match={reportMatch}
                       onOpenVideoSelection={openPlayerMapVideoSelection}
                       cardStyle={selectedCardTintStyle}
                     />
@@ -5540,7 +5541,7 @@ function PlayersAnalyticsTabContent({
                       <GoalkeeperShotsMap
                         shots={selectedGoalkeeperShotsOnGoal}
                         teamSide={selectedPlayerTeamSide}
-                        match={reportFilters?.match}
+                        match={reportMatch}
                         onOpenVideoSelection={openPlayerMapVideoSelection}
                         cardStyle={selectedCardTintStyle}
                       />
