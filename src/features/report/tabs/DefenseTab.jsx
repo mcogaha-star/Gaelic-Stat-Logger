@@ -16,6 +16,7 @@ import {
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
   getMatchTimeS,
+  getPreviousBallActionStat,
   getProgressiveMeters,
   getScoringZoneEntry,
   shouldExcludeFromTotals,
@@ -874,7 +875,7 @@ function DefenseTab({
       if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
       const key = `${pside}-${pid}`;
       if (!map.has(key)) {
-        map.set(key, index > 0 ? orderedBase[index - 1] : null);
+        map.set(key, getPreviousBallActionStat(orderedBase, index));
       }
     });
     return map;

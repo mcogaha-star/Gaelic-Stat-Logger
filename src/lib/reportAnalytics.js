@@ -2632,6 +2632,22 @@ export function rebuildPossessionRows(stats) {
   return (Array.isArray(stats) ? stats : []).map((stat) => map.get(stat?.id) || stat);
 }
 
+export function getPreviousBallActionStat(list, startIndex, options = {}) {
+  if (!Array.isArray(list)) return null;
+  const stopAtPeriodEnd = options?.stopAtPeriodEnd !== false;
+  for (let i = startIndex - 1; i >= 0; i -= 1) {
+    const stat = list[i];
+    if (!stat) continue;
+    if (String(stat?.stat_type || '') === 'period_end') {
+      if (stopAtPeriodEnd) return null;
+      continue;
+    }
+    if (String(stat?.stat_type || '') === 'substitution') continue;
+    return stat;
+  }
+  return null;
+}
+
 function shouldDeferStandaloneFoulPossessionStart({ nextPossession, stat, nextStat, isStandaloneFoul }) {
   if (!isStandaloneFoul) return false;
   if (!nextPossession?.forceStart) return false;

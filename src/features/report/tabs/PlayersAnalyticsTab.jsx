@@ -438,7 +438,6 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             size="sm"
             variant="outline"
             className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm touch-manipulation"
-            onPointerUp={handleOpenVideo}
             onClick={handleOpenVideo}
           >
             Video
