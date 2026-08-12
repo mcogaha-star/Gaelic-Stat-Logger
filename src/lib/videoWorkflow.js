@@ -52,6 +52,33 @@ function dispatchMobileReviewPlayer(detail) {
   return !!payload.handled;
 }
 
+function persistReviewSelection(key, serialized) {
+  let stored = false;
+  try {
+    window.sessionStorage.setItem(key, serialized);
+    stored = true;
+  } catch {
+    // Safari can deny one storage type while the other remains available.
+  }
+  try {
+    window.localStorage.setItem(key, serialized);
+    stored = true;
+  } catch {
+    // Imported matches can leave Safari's smaller local-storage quota full.
+  }
+  return stored;
+}
+
+function cacheReviewSelection(selectionKey, payload) {
+  const existing = window.__gstlReviewSelections && typeof window.__gstlReviewSelections === 'object'
+    ? window.__gstlReviewSelections
+    : {};
+  const next = { ...existing, [selectionKey]: payload };
+  const keys = Object.keys(next);
+  for (const staleKey of keys.slice(0, Math.max(0, keys.length - 20))) delete next[staleKey];
+  window.__gstlReviewSelections = next;
+}
+
 function broadcastReviewMessage(message, delays = [0, 180, 500, 1100]) {
   if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
   const channel = new BroadcastChannel(REVIEW_PLAYER_CHANNEL);
@@ -207,13 +234,14 @@ export function openReportVideoSelection(matchId, clips = [], { sourceLabel = 'S
     sourceLabel,
     clips: list,
   };
+  cacheReviewSelection(selectionKey, payload);
+  let serialized = '';
   try {
-    const serialized = JSON.stringify(payload);
-    window.sessionStorage.setItem(`gstl_video_selection:${selectionKey}`, serialized);
-    window.localStorage.setItem(`gstl_video_selection:${selectionKey}`, serialized);
+    serialized = JSON.stringify(payload);
   } catch {
     return false;
   }
+  persistReviewSelection(`gstl_video_selection:${selectionKey}`, serialized);
   const url = buildReviewPlayerUrl(matchId, { selectionKey, embedded: false });
   const existing = window.__gstlReviewPlayerWindow;
   const message = { matchId, type: 'SET_REVIEW_SELECTION', selectionKey };

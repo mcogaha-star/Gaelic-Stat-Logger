@@ -163,9 +163,37 @@ export default function Video() {
   });
   const reviewSelectionPayload = useMemo(() => {
     if (!reviewMode || !activeSelectionKey) return { clips: [], sourceLabel: 'Selection' };
+    const memoryScopes = [window];
+    try { if (window.parent && window.parent !== window) memoryScopes.push(window.parent); } catch {}
+    try { if (window.opener) memoryScopes.push(window.opener); } catch {}
+    for (const scope of memoryScopes) {
+      try {
+        const cached = scope?.__gstlReviewSelections?.[activeSelectionKey];
+        if (cached && typeof cached === 'object') {
+          return {
+            clips: Array.isArray(cached.clips) ? cached.clips : [],
+            sourceLabel: String(cached.sourceLabel || 'Selection'),
+          };
+        }
+      } catch {
+        // Cross-window access can be unavailable; browser storage remains the fallback.
+      }
+    }
+    const storageKey = `gstl_video_selection:${activeSelectionKey}`;
+    let raw = null;
     try {
-      const raw = window.sessionStorage.getItem(`gstl_video_selection:${activeSelectionKey}`)
-        || window.localStorage.getItem(`gstl_video_selection:${activeSelectionKey}`);
+      raw = window.sessionStorage.getItem(storageKey);
+    } catch {
+      // Continue to local storage when Safari blocks session storage.
+    }
+    if (!raw) {
+      try {
+        raw = window.localStorage.getItem(storageKey);
+      } catch {
+        // The empty selection state below handles unavailable browser storage.
+      }
+    }
+    try {
       const parsed = raw ? JSON.parse(raw) : [];
       if (Array.isArray(parsed)) return { clips: parsed, sourceLabel: 'Selection' };
       if (parsed && typeof parsed === 'object') {
