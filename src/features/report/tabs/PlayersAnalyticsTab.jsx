@@ -461,6 +461,17 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
 function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpenVideo = null }) {
   const tooltipText = typeof text === 'string' ? text : text?.text || '';
   const tooltipVideoAction = typeof text === 'object' && text ? text.onOpenVideo : onOpenVideo;
+  const handleOpenVideo = () => {
+    if (typeof tooltipVideoAction !== 'function') return;
+    onClose?.();
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        tooltipVideoAction();
+      }, 0);
+      return;
+    }
+    tooltipVideoAction();
+  };
   if (!tooltipText) return null;
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/20 px-4" onClick={onClose}>
@@ -480,12 +491,12 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
                 onTouchEnd={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  tooltipVideoAction();
+                  handleOpenVideo();
                 }}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  tooltipVideoAction();
+                  handleOpenVideo();
                 }}
               >
                 Video

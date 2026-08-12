@@ -921,16 +921,46 @@ function DefenseTab({
   const turnoverWonPossessionsByTurnoverId = useMemo(() => {
     const groups = groupByPossession(calcBase);
     const map = new Map();
-    const shouldContinueTurnoverChain = (previousStat, teamSide) => {
-      if (!previousStat || (teamSide !== 'home' && teamSide !== 'away')) return false;
-      const extra = safeParseJSON(previousStat?.extra_data || '{}', {});
-      if (previousStat?.stat_type === 'shot' && previousStat?.team_side === teamSide) {
+    const isRetainedContinuationStat = (stat, teamSide) => {
+      if (!stat || (teamSide !== 'home' && teamSide !== 'away')) return false;
+      const extra = safeParseJSON(stat?.extra_data || '{}', {});
+      const foul = extractFoulFromStat(stat);
+      const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
+      if (stat?.stat_type === 'shot' && stat?.team_side === teamSide) {
         const outcome = String(extra?.shot?.outcome || '').toLowerCase();
         return ['short', 'blocked', 'saved', 'post'].includes(outcome);
       }
-      if (previousStat?.team_side !== teamSide) return false;
-      const outcome = String(deriveOutcome(previousStat, extra) || '').toLowerCase();
+      if (stat?.stat_type === 'foul') return foulOn === teamSide;
+      const outcome = String(deriveOutcome(stat, extra) || '').toLowerCase();
+      if (['pass', 'carry', 'kickout', 'throw_in'].includes(String(stat?.stat_type || '')) && outcome === 'foul') {
+        return foulOn === teamSide;
+      }
+      if (stat?.team_side !== teamSide) return false;
       return ['sideline_for', '45_for', '45', 'goal_kick_for'].includes(outcome);
+    };
+    const hasRetainedContinuationAnchor = (events, teamSide) => {
+      for (let index = (Array.isArray(events) ? events.length : 0) - 1; index >= 0; index -= 1) {
+        const stat = events[index];
+        if (!stat) continue;
+        if (isRetainedContinuationStat(stat, teamSide)) return true;
+        const foul = extractFoulFromStat(stat);
+        const foulBy = foul?.foul_by?.team_side || null;
+        const foulOn = foul?.foul_on?.team_side || foul?.foul_on_or_forced_by?.team_side || null;
+        const relevant = stat?.team_side === teamSide
+          || stat?.possession_team_side === teamSide
+          || foulBy === teamSide
+          || foulOn === teamSide;
+        if (!relevant) continue;
+        return false;
+      }
+      return false;
+    };
+    const shouldContinueTurnoverChain = (chainedEvents, nextPreviousStat, nextEvents, teamSide) => {
+      if (isRetainedContinuationStat(nextPreviousStat, teamSide)) return true;
+      const nextStartSource = inferPossessionStartSource(nextEvents, teamSide, nextPreviousStat || []);
+      if (['Shot Short', 'Shot Blocked', 'Shot Post', 'Shot Saved'].includes(nextStartSource)) return true;
+      if (!hasRetainedContinuationAnchor(chainedEvents, teamSide)) return false;
+      return ['Kickout Won', 'Throw In Won', 'Open Play'].includes(nextStartSource);
     };
     for (let index = 0; index < orderedPossessionKeys.length; index += 1) {
       const key = orderedPossessionKeys[index];
@@ -946,8 +976,8 @@ function DefenseTab({
           const [nextTeamSide] = String(nextKey).split('-');
           if (nextTeamSide !== teamSide) break;
           const nextPreviousStat = previousByPossessionKey.get(nextKey) || null;
-          if (!shouldContinueTurnoverChain(nextPreviousStat, teamSide)) break;
           const nextEvents = groups.get(nextKey) || [];
+          if (!shouldContinueTurnoverChain(chainedEvents, nextPreviousStat, nextEvents, teamSide)) break;
           chainedEvents.push(...nextEvents);
           nextIndex += 1;
         }
