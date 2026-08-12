@@ -477,6 +477,11 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
+                onTouchEnd={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  tooltipVideoAction();
+                }}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -2677,7 +2682,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                   key={item.id}
                   data-tap-key={item.id}
                   className={videoEnabled && item.raw ? 'cursor-pointer' : undefined}
-                  onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? ((openEvent) => {
+                  onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: item.tooltip, onOpenVideo: videoEnabled && item.raw ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id }) : null }, videoEnabled ? ((openEvent) => {
                     if (!item.raw) return;
                     openEvent.stopPropagation();
                     onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
@@ -2713,7 +2718,7 @@ function PlayerTopPitchMap({ items = [], teamSide = 'home', match = null, title 
                 key={item.id}
                 data-tap-key={item.id}
                 className={videoEnabled && item.raw ? 'cursor-pointer' : undefined}
-                onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, item.tooltip, videoEnabled ? ((openEvent) => {
+                onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: item.tooltip, onOpenVideo: videoEnabled && item.raw ? () => onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id }) : null }, videoEnabled ? ((openEvent) => {
                   if (!item.raw) return;
                   openEvent.stopPropagation();
                   onOpenVideoSelection?.(safeItems, { sourceLabel: title, selectedId: item.raw?.id });
@@ -2915,7 +2920,7 @@ function GoalkeeperShotsMap({ shots = [], teamSide = 'home', match = null, onOpe
                     key={shot.id}
                     data-tap-key={shot.id}
                     className={videoEnabled ? 'cursor-pointer' : undefined}
-                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, tip, videoEnabled ? ((openEvent) => {
+                    onPointerUp={(event) => handlePlayerMapPointerUp(event, isMobile, setMobileTooltip, { text: tip, onOpenVideo: videoEnabled ? () => onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id }) : null }, videoEnabled ? ((openEvent) => {
                       openEvent.stopPropagation();
                       onOpenVideoSelection?.(safeShots, { sourceLabel: 'Goalkeeper Shots On Goal', selectedId: shot.raw?.id });
                     }) : null, shot.id)}
@@ -3613,19 +3618,58 @@ function PlayersAnalyticsTabContent({
       if (teamSide !== 'home' && teamSide !== 'away') continue;
       const acting = events.filter((event) => event && event.team_side === teamSide);
       if (!acting.length) continue;
-      const carriedEarlier = new Set();
+      const actionsSinceReceipt = new Set();
       for (const event of acting) {
         const extra = safeParseJSON(event.extra_data || '{}', {});
         if (event?.stat_type === 'pass') {
           const passerKey = selectionKey(extra?.pass?.passer);
-          if (passerKey && !carriedEarlier.has(passerKey)) {
+          if (extra?.pass?.deadball && passerKey) {
+            actionsSinceReceipt.delete(passerKey);
+          }
+          if (passerKey && !actionsSinceReceipt.has(passerKey)) {
             const row = rows.get(passerKey);
             if (row) row.noCarryPasses += 1;
+          }
+          if (passerKey) actionsSinceReceipt.add(passerKey);
+          const receipt = getCompletedReceiptSelection(event, extra);
+          const receiptKey = selectionKey(receipt);
+          if (receiptKey && receiptKey !== passerKey) {
+            actionsSinceReceipt.delete(receiptKey);
           }
         }
         if (event?.stat_type === 'carry') {
           const carrierKey = selectionKey(extra?.carry?.carrier);
-          if (carrierKey) carriedEarlier.add(carrierKey);
+          if (carrierKey) actionsSinceReceipt.add(carrierKey);
+        }
+        if (event?.stat_type === 'shot') {
+          const shooterKey = selectionKey(extra?.shot?.player);
+          if (shooterKey) actionsSinceReceipt.add(shooterKey);
+        }
+        if (event?.stat_type === 'kickout') {
+          const winnerKey = selectionKey(extra?.kickout?.won_by);
+          if (winnerKey) actionsSinceReceipt.delete(winnerKey);
+        }
+        if (event?.stat_type === 'throw_in') {
+          const winnerKey = selectionKey(extra?.throw_in?.won_by);
+          if (winnerKey) actionsSinceReceipt.delete(winnerKey);
+        }
+        if (event?.stat_type === 'turnover' || extra?.turnover) {
+          const recoveredKey = selectionKey(extra?.turnover?.recovered_by);
+          if (recoveredKey) actionsSinceReceipt.delete(recoveredKey);
+        }
+        if (event?.stat_type === 'shot') {
+          const recoveredKey = selectionKey(extra?.shot?.recovered_by);
+          if (recoveredKey) actionsSinceReceipt.delete(recoveredKey);
+        }
+        if (event?.stat_type === 'pass') {
+          if (normalizeFoulType(extra?.turnover?.turnover_type || extra?.turnover?.type || '') !== 'foul') {
+            const recoveredKey = selectionKey(extra?.turnover?.recovered_by);
+            if (recoveredKey) actionsSinceReceipt.delete(recoveredKey);
+          }
+        }
+        if (event?.stat_type === 'carry') {
+          const recoveredKey = selectionKey(extra?.carry?.recovered_by);
+          if (recoveredKey) actionsSinceReceipt.delete(recoveredKey);
         }
       }
       const isAttack = isAttackPossession(events, teamSide);

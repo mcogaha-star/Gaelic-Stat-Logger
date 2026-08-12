@@ -904,19 +904,58 @@ function DefenseTab({
     });
     return map;
   }, [orderedBase]);
+  const orderedPossessionKeys = useMemo(() => {
+    const seen = new Set();
+    const keys = [];
+    orderedBase.forEach((stat) => {
+      const pid = Number(stat?.possession_id);
+      const pside = stat?.possession_team_side;
+      if (!Number.isFinite(pid) || (pside !== 'home' && pside !== 'away')) return;
+      const key = `${pside}-${pid}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      keys.push(key);
+    });
+    return keys;
+  }, [orderedBase]);
   const turnoverWonPossessionsByTurnoverId = useMemo(() => {
     const groups = groupByPossession(calcBase);
     const map = new Map();
-    for (const [key, evs] of groups.entries()) {
+    const shouldContinueTurnoverChain = (previousStat, teamSide) => {
+      if (!previousStat || (teamSide !== 'home' && teamSide !== 'away')) return false;
+      const extra = safeParseJSON(previousStat?.extra_data || '{}', {});
+      if (previousStat?.stat_type === 'shot' && previousStat?.team_side === teamSide) {
+        const outcome = String(extra?.shot?.outcome || '').toLowerCase();
+        return ['short', 'blocked', 'saved', 'post'].includes(outcome);
+      }
+      if (previousStat?.team_side !== teamSide) return false;
+      const outcome = String(deriveOutcome(previousStat, extra) || '').toLowerCase();
+      return ['sideline_for', '45_for', '45', 'goal_kick_for'].includes(outcome);
+    };
+    for (let index = 0; index < orderedPossessionKeys.length; index += 1) {
+      const key = orderedPossessionKeys[index];
+      const evs = groups.get(key) || [];
       const [teamSide] = String(key).split('-');
       const previousStat = previousByPossessionKey.get(key) || null;
       const startSource = inferPossessionStartSource(evs, teamSide, previousStat || []);
       if (startSource === 'Turnover Won' && previousStat?.id) {
-        map.set(String(previousStat.id), evs);
+        const chainedEvents = [...evs];
+        let nextIndex = index + 1;
+        while (nextIndex < orderedPossessionKeys.length) {
+          const nextKey = orderedPossessionKeys[nextIndex];
+          const [nextTeamSide] = String(nextKey).split('-');
+          if (nextTeamSide !== teamSide) break;
+          const nextPreviousStat = previousByPossessionKey.get(nextKey) || null;
+          if (!shouldContinueTurnoverChain(nextPreviousStat, teamSide)) break;
+          const nextEvents = groups.get(nextKey) || [];
+          chainedEvents.push(...nextEvents);
+          nextIndex += 1;
+        }
+        map.set(String(previousStat.id), chainedEvents);
       }
     }
     return map;
-  }, [calcBase, previousByPossessionKey]);
+  }, [calcBase, orderedPossessionKeys, previousByPossessionKey]);
 
   const classifyTurnover = (s) => {
     const ex = safeParseJSON(s?.extra_data || '{}', {});

@@ -358,8 +358,13 @@ export default function Video() {
     setCurrentClipIndex(nextIndex);
     completedClipRef.current = '';
     if (!clip) return;
-    pendingClipSeekRef.current = String(clip.id || clip.source_ref || nextIndex);
-    seekToAbsolute(Number(clip.start_time));
+    const clipKey = String(clip.id || clip.source_ref || nextIndex);
+    const targetStartTime = Number(clip.start_time);
+    pendingClipSeekRef.current = clipKey;
+    if (Number.isFinite(targetStartTime)) {
+      setTimeS(targetStartTime);
+      seekToAbsolute(targetStartTime);
+    }
     if (autoplay) {
       window.setTimeout(() => playPlayback(), 100);
     } else {
