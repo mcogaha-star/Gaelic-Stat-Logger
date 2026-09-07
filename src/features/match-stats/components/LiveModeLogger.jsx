@@ -260,9 +260,9 @@ export default function LiveModeLogger({
           <div className="space-y-3">
             {settings.showTurnoverType !== false && (
               <Field label="Type">
-                <Select value={draft.turnoverType} onValueChange={(v) => update({ turnoverType: v })}>
+                <Select value={draft.turnoverType} onValueChange={(v) => update({ turnoverType: v, ...(v === 'kickout_against' ? { turnoverRecoveredBy: NONE } : {}) })}>
                   <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{['forced', 'unforced', 'interception', 'foul', 'breach'].map((v) => <SelectItem key={v} value={v}>{toTitleCase(v)}</SelectItem>)}</SelectContent>
+                  <SelectContent>{['forced', 'unforced', 'interception', 'foul', 'breach', 'kickout_against'].map((v) => <SelectItem key={v} value={v}>{v === 'kickout_against' ? 'Kick Out Against' : toTitleCase(v)}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
             )}
@@ -272,7 +272,7 @@ export default function LiveModeLogger({
               <>
                 <Field label="Won By"><PlayerSelect value={draft.turnoverWonBy} onChange={(v) => update({ turnoverWonBy: v })} players={players} /></Field>
                 <Field label="Lost By"><PlayerSelect value={draft.turnoverLostBy} onChange={(v) => update({ turnoverLostBy: v })} players={players} /></Field>
-                <Field label="Recovered By"><PlayerSelect value={draft.turnoverRecoveredBy} onChange={(v) => update({ turnoverRecoveredBy: v })} players={players} /></Field>
+                {draft.turnoverType !== 'kickout_against' && <Field label="Recovered By"><PlayerSelect value={draft.turnoverRecoveredBy} onChange={(v) => update({ turnoverRecoveredBy: v })} players={players} /></Field>}
               </>
             )}
             {settings.showTurnoverBroughtBackAdv !== false && <ToggleRow label="Brought Back - Adv." checked={draft.turnoverBroughtBackAdv} onCheckedChange={(v) => update({ turnoverBroughtBackAdv: v })} />}

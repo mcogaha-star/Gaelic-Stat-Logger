@@ -219,6 +219,14 @@ function getSelectionLabel(selection) {
   return '';
 }
 
+function isMeaningfulSelection(selection) {
+  return Boolean(selection && typeof selection === 'object' && selection.kind && selection.kind !== 'none');
+}
+
+function firstMeaningfulSelection(...selections) {
+  return selections.find(isMeaningfulSelection) || null;
+}
+
 function getTurnoverClassification(stat) {
   const extra = safeParseJSON(stat?.extra_data || '{}', {});
   const turnover = extra?.turnover || {};
@@ -254,7 +262,7 @@ function formatDisplayOutcome(value) {
 
 function getSecondaryPlayerForEvent(stat) {
   const extra = safeParseJSON(stat?.extra_data || '{}', {});
-  const turnoverWinner = extra?.turnover?.recovered_by || extra?.turnover?.forced_by;
+  const turnoverWinner = firstMeaningfulSelection(extra?.turnover?.recovered_by, extra?.turnover?.forced_by);
 
   const action = String(stat?.stat_type || '');
   if (action === 'pass') {
@@ -609,7 +617,7 @@ function DataTab({
   const [rawRecipientNumber, setRawRecipientNumber] = useState('');
   const [rawExtraJson, setRawExtraJson] = useState('{}');
   const structuredExtra = useMemo(() => safeParseJSON(rawExtraJson || '{}', {}), [rawExtraJson]);
-  const hasMeaningfulSelection = (value) => Boolean(value && value.kind && value.kind !== 'none');
+  const hasMeaningfulSelection = isMeaningfulSelection;
   const selectionsMatch = (left, right) => {
     if (!hasMeaningfulSelection(left) || !hasMeaningfulSelection(right)) return false;
     if ((left.id || '') && (right.id || '')) return String(left.id) === String(right.id);
@@ -624,6 +632,9 @@ function DataTab({
     const next = safeParseJSON(rawExtraJson || '{}', {});
     const previousRecipient = next?.pass?.intended_recipient;
     next[section] = { ...(next[section] || {}), [key]: value };
+    if (section === 'turnover' && key === 'turnover_type' && value === 'kickout_against') {
+      next.turnover.recovered_by = { kind: 'none' };
+    }
     if (section === 'turnover' && key === 'turnover_type' && value === 'fumbled') {
       if (!hasMeaningfulSelection(next?.turnover?.lost_by) && hasMeaningfulSelection(next?.pass?.intended_recipient)) {
         next.turnover.lost_by = next.pass.intended_recipient;
@@ -867,11 +878,11 @@ function DataTab({
             label="Turnover Type"
             value={structuredExtra?.turnover?.turnover_type || 'NA'}
             onChange={(v) => setStructuredExtraValue('turnover', 'turnover_type', v === 'NA' ? '' : v)}
-            options={['NA', 'interception', 'tackle', 'fumbled', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'other'].map((v) => ({ value: v, label: v === 'NA' ? 'NA' : toTitleCase(v) }))}
+            options={['NA', 'interception', 'tackle', 'fumbled', 'foul', 'handling_error', 'bad_pass', 'sideline_against', 'sideline_for', 'kickout_against', 'other'].map((v) => ({ value: v, label: v === 'NA' ? 'NA' : v === 'kickout_against' ? 'Kick Out Against' : toTitleCase(v) }))}
           />
         <SelectionField label="Lost By" section="turnover" field="lost_by" />
         <SelectionField label="Forced By" section="turnover" field="forced_by" />
-        {structuredExtra?.turnover?.turnover_type !== 'foul' && <SelectionField label="Recovered By" section="turnover" field="recovered_by" />}
+        {!['foul', 'kickout_against'].includes(structuredExtra?.turnover?.turnover_type) && <SelectionField label="Recovered By" section="turnover" field="recovered_by" />}
         <FieldBool label="Brought Back - Adv." value={!!structuredExtra?.turnover?.brought_back_adv} onChange={(v) => setStructuredExtraValue('turnover', 'brought_back_adv', v)} />
       </div>
       {structuredExtra?.turnover?.turnover_type === 'foul' && renderFoulFields('Foul Turnover Fields')}
@@ -1028,7 +1039,7 @@ function DataTab({
         const turnover = getTurnoverClassification(stat);
         if (videoTurnoverTypes.length && !videoTurnoverTypes.includes(turnover.type)) return false;
         const turnoverData = extra?.turnover || {};
-        const wonBy = turnoverData?.recovered_by || turnoverData?.forced_by;
+        const wonBy = firstMeaningfulSelection(turnoverData?.recovered_by, turnoverData?.forced_by);
         const lostBy = turnoverData?.lost_by;
         const recoveredBy = turnoverData?.recovered_by;
         const wonById = String(wonBy?.id || '');
@@ -1439,7 +1450,7 @@ function DataTab({
     for (const stat of videoGenericFiltered) {
       if (!statMatchesActionType(stat, 'turnover')) continue;
       const turnover = safeParseJSON(stat?.extra_data || '{}', {})?.turnover || {};
-      const selection = turnover?.recovered_by || turnover?.forced_by;
+      const selection = firstMeaningfulSelection(turnover?.recovered_by, turnover?.forced_by);
       const id = String(selection?.id || '');
       const label = formatSelectionLabel(selection);
       if (id && label) values.set(id, { value: id, label });
@@ -2625,6 +2636,9 @@ function DataTab({
       parsedExtra.pass = { ...(parsedExtra.pass || {}) };
       parsedExtra.pass.accuracy = normalizePassAccuracy(parsedExtra.pass.accuracy);
       if (Object.prototype.hasOwnProperty.call(parsedExtra.pass, 'style')) delete parsedExtra.pass.style;
+    }
+    if (parsedExtra?.turnover?.turnover_type === 'kickout_against') {
+      parsedExtra.turnover.recovered_by = { kind: 'none' };
     }
 
     const nextTime = rawTimeS === '' ? null : Number(rawTimeS);

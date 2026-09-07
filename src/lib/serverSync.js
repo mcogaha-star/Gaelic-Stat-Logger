@@ -68,6 +68,10 @@ function playerRefFromSelection(selection, playerRefByLocalId = {}) {
   return selection.player_ref || selection.server_player_id || playerRefByLocalId[selection.id] || null;
 }
 
+function firstMeaningfulSelection(...selections) {
+  return selections.find((selection) => selection && typeof selection === 'object' && selection.kind !== 'none') || null;
+}
+
 function selectionNumber(selection) {
   if (!selection || typeof selection !== 'object') return null;
   const n = Number(selection.number);
@@ -163,7 +167,7 @@ function findPrimaryRefs(stat, playerRefByLocalId = {}) {
     : byType === 'shot' ? extra?.shot?.player
     : byType === 'kickout' ? extra?.kickout?.won_by
     : byType === 'throw_in' ? extra?.throw_in?.won_by
-    : byType === 'turnover' ? (extra?.turnover?.recovered_by || extra?.turnover?.forced_by || extra?.turnover?.lost_by)
+    : byType === 'turnover' ? firstMeaningfulSelection(extra?.turnover?.recovered_by, extra?.turnover?.forced_by, extra?.turnover?.lost_by)
     : byType === 'foul' ? (extra?.foul?.foul_on || extra?.foul?.foul_by)
     : null;
   const recipient =

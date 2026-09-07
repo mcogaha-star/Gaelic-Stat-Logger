@@ -11,6 +11,10 @@ const NONE = 'none';
 const TEAM_HOME = 'team:home';
 const TEAM_AWAY = 'team:away';
 
+function turnoverUsesRecoveredBy(turnoverType) {
+  return turnoverType !== 'foul' && turnoverType !== 'kickout_against';
+}
+
 function normalizePassAccuracy(value) {
   const accuracy = String(value || '').trim();
   return ['++', '+', '-', '--'].includes(accuracy) ? accuracy : '+';
@@ -1055,9 +1059,9 @@ export default function StatModalV4({
   // Turnover: recovered_by defaults to forced_by when untouched
   useEffect(() => {
     const isTurnoverContext =
-      action === 'turnover'
-      || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
-      || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+      (action === 'turnover' && turnoverUsesRecoveredBy(turnoverType))
+      || (action === 'pass' && passOutcome === 'turnover' && turnoverUsesRecoveredBy(turnoverType))
+      || (action === 'carry' && carryOutcome === 'turnover' && turnoverUsesRecoveredBy(turnoverType));
     if (initialStat) return;
     if (!isTurnoverContext) return;
     if (touchedRoles?.recovered_by) return;
@@ -1066,9 +1070,9 @@ export default function StatModalV4({
 
   useEffect(() => {
     const isTurnoverContext =
-      action === 'turnover'
-      || (action === 'pass' && passOutcome === 'turnover' && turnoverType !== 'foul')
-      || (action === 'carry' && carryOutcome === 'turnover' && turnoverType !== 'foul');
+      (action === 'turnover' && turnoverUsesRecoveredBy(turnoverType))
+      || (action === 'pass' && passOutcome === 'turnover' && turnoverUsesRecoveredBy(turnoverType))
+      || (action === 'carry' && carryOutcome === 'turnover' && turnoverUsesRecoveredBy(turnoverType));
     if (initialStat) return;
     if (!isTurnoverContext) return;
     const lostSide = makeSelection(lostBy, ctx).team_side;
@@ -1102,7 +1106,7 @@ export default function StatModalV4({
     }
     if (passWonBy !== NONE) {
       if (forcedBy === NONE) setForcedBy(passWonBy);
-      if (recoveredBy === NONE) setRecoveredBy(passWonBy);
+      if (turnoverUsesRecoveredBy(turnoverType) && recoveredBy === NONE) setRecoveredBy(passWonBy);
     }
   }, [isDrag, action, passOutcome, turnoverType, passer, passIntendedRecipient, passWonBy, lostBy, forcedBy, recoveredBy, touchedRoles, initialStat]);
 
@@ -1340,7 +1344,9 @@ export default function StatModalV4({
     if (action === 'foul') return ['foul_by', 'foul_on'];
     if (action === 'turnover') {
       if (turnoverType === 'foul') return ['foul_on', 'foul_by'];
-      return ['lost_by', 'forced_by', 'recovered_by'];
+      return turnoverUsesRecoveredBy(turnoverType)
+        ? ['lost_by', 'forced_by', 'recovered_by']
+        : ['lost_by', 'forced_by'];
     }
     if (action === 'throw_in') {
       if (throwOutcome === 'clean') return ['throw_won_by', 'throw_lost_by'];
@@ -1363,14 +1369,20 @@ export default function StatModalV4({
     }
     if (action === 'pass') {
       const base = ['pass_intended', 'passer'];
-      if (passOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_on', 'foul_by'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (passOutcome === 'turnover') {
+        if (turnoverType === 'foul') return base.concat(['foul_on', 'foul_by']);
+        return base.concat(turnoverUsesRecoveredBy(turnoverType) ? ['lost_by', 'forced_by', 'recovered_by'] : ['lost_by', 'forced_by']);
+      }
       if (passOutcome === 'broken_retained') return base.concat(['recovered_by']);
       if (passOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       return base.concat(['pass_won_by']);
     }
     if (action === 'carry') {
       const base = ['carrier'].concat((carrierPressure === 'high' || takeOnStatus !== 'no') ? ['defender'] : []);
-      if (carryOutcome === 'turnover') return base.concat(turnoverType === 'foul' ? ['foul_on', 'foul_by'] : ['lost_by', 'forced_by', 'recovered_by']);
+      if (carryOutcome === 'turnover') {
+        if (turnoverType === 'foul') return base.concat(['foul_on', 'foul_by']);
+        return base.concat(turnoverUsesRecoveredBy(turnoverType) ? ['lost_by', 'forced_by', 'recovered_by'] : ['lost_by', 'forced_by']);
+      }
       if (carryOutcome === 'foul') return base.concat(['foul_by', 'foul_on']);
       if (carryOutcome === 'dispossessed_retained') return base.concat(['recovered_by']);
       return base;
@@ -1638,7 +1650,7 @@ export default function StatModalV4({
     <div className="grid grid-cols-2 gap-2">
       {roleButton('lost_by')}
       {roleButton('forced_by')}
-      {turnoverType !== 'foul' && roleButton('recovered_by')}
+      {turnoverUsesRecoveredBy(turnoverType) && roleButton('recovered_by')}
     </div>
   );
 
@@ -1658,6 +1670,7 @@ export default function StatModalV4({
                 { value: 'interception', label: 'Interception' },
                 { value: 'fumbled', label: 'Fumbled' },
                 { value: 'sideline_against', label: 'Sideline Against' },
+                { value: 'kickout_against', label: 'Kick Out Against' },
               ].map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
               ))}
@@ -1708,8 +1721,9 @@ export default function StatModalV4({
           && isRoleFilled('foul_on', foulOn)
           && !!foulType;
       }
-      if (liveMode) return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
-      return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
+      return isRoleFilled('lost_by', lostBy)
+        && isRoleFilled('forced_by', forcedBy)
+        && (!turnoverUsesRecoveredBy(turnoverType) || isRoleFilled('recovered_by', recoveredBy));
     }
     if (action === 'throw_in') {
       if (!throwOutcome) return false;
@@ -1740,7 +1754,9 @@ export default function StatModalV4({
       if (carryOutcome === 'turnover') {
         if (!turnoverType) return false;
         if (turnoverType === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-        return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
+        return isRoleFilled('lost_by', lostBy)
+          && isRoleFilled('forced_by', forcedBy)
+          && (!turnoverUsesRecoveredBy(turnoverType) || isRoleFilled('recovered_by', recoveredBy));
       }
       if (carryOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
       if (carryOutcome === 'dispossessed_retained') return isRoleFilled('recovered_by', recoveredBy);
@@ -1751,7 +1767,9 @@ export default function StatModalV4({
       if (passOutcome === 'turnover') {
         if (!turnoverType) return false;
         if (turnoverType === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
-        return isRoleFilled('lost_by', lostBy) && isRoleFilled('forced_by', forcedBy) && isRoleFilled('recovered_by', recoveredBy);
+        return isRoleFilled('lost_by', lostBy)
+          && isRoleFilled('forced_by', forcedBy)
+          && (!turnoverUsesRecoveredBy(turnoverType) || isRoleFilled('recovered_by', recoveredBy));
       }
       if (passOutcome === 'broken_retained') return isRoleFilled('recovered_by', recoveredBy);
       if (passOutcome === 'foul') return isRoleFilled('foul_by', foulBy) && isRoleFilled('foul_on', foulOn) && !!foulType;
@@ -1830,7 +1848,9 @@ export default function StatModalV4({
         turnover_type: effectiveTurnoverType,
         lost_by: lost,
         forced_by: forced,
-        recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy),
+        recovered_by: effectiveTurnoverType === 'foul'
+          ? forced
+          : (turnoverUsesRecoveredBy(effectiveTurnoverType) ? sel(recoveredBy) : { kind: 'none' }),
         unforced: !!unforced,
         brought_back_adv: !!broughtBackAdv,
       };
@@ -1884,7 +1904,15 @@ export default function StatModalV4({
         const foulBySel = sel(foulBy);
         const lost = effectiveTurnoverType === 'foul' ? foulBySel : sel(lostBy);
         const forced = effectiveTurnoverType === 'foul' ? foulOnSel : sel(forcedBy);
-        extra.turnover = { turnover_type: effectiveTurnoverType, lost_by: lost, forced_by: forced, recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
+        extra.turnover = {
+          turnover_type: effectiveTurnoverType,
+          lost_by: lost,
+          forced_by: forced,
+          recovered_by: effectiveTurnoverType === 'foul'
+            ? forced
+            : (turnoverUsesRecoveredBy(effectiveTurnoverType) ? sel(recoveredBy) : { kind: 'none' }),
+          unforced: !!unforced,
+        };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (carryOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
@@ -1910,7 +1938,15 @@ export default function StatModalV4({
         const foulBySel = sel(foulBy);
         const lost = effectiveTurnoverType === 'foul' ? foulBySel : sel(lostBy);
         const forced = effectiveTurnoverType === 'foul' ? foulOnSel : sel(forcedBy);
-        extra.turnover = { turnover_type: effectiveTurnoverType, lost_by: lost, forced_by: forced, recovered_by: effectiveTurnoverType === 'foul' ? forced : sel(recoveredBy), unforced: !!unforced };
+        extra.turnover = {
+          turnover_type: effectiveTurnoverType,
+          lost_by: lost,
+          forced_by: forced,
+          recovered_by: effectiveTurnoverType === 'foul'
+            ? forced
+            : (turnoverUsesRecoveredBy(effectiveTurnoverType) ? sel(recoveredBy) : { kind: 'none' }),
+          unforced: !!unforced,
+        };
         extra.turnover.brought_back_adv = !!broughtBackAdv;
       }
       if (passOutcome === 'foul') extra.foul = { foul_by: sel(foulBy), foul_on: sel(foulOn), foul_type: foulType, card };
