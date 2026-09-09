@@ -476,9 +476,10 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
     { k: 'Score', c: '#059669' },
     { k: 'Missed Shot', c: '#eab308' },
     { k: 'Turnover', c: '#f97316' },
+    { k: 'Own Kick Out', c: '#2563eb' },
     { k: 'Half End', c: '#64748b' },
   ];
-  const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover', 'Half End']);
+  const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover', 'Own Kick Out', 'Half End']);
   const [outcomeMode, setOutcomeMode] = useState('possessions');
   const [flowView, setFlowView] = useState('charts');
   const [selectedPossessionSankeyNodeKey, setSelectedPossessionSankeyNodeKey] = useState(null);
@@ -780,6 +781,7 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         Score: ['Goal', '2 Point', '1 Point'],
         'Missed Shot': ['Wide', 'Short', 'Blocked', 'Saved', 'Post'],
         Turnover: [],
+        'Own Kick Out': ['Own Kick Out'],
         'Half End': ['1st', '2nd'],
       };
     const grouped = {};

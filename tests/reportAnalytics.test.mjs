@@ -55,3 +55,56 @@ test('kick out against ends possession and the following kickout starts a new on
   assert.notEqual(rows[1].possession_id, rows[0].possession_id);
   assert.equal(rows[1].__possession_start_source, 'Kickout Won');
 });
+
+test('goal kick for ends as own kick out before the following kickout possession', () => {
+  const rows = rebuildPossessionRows([
+    {
+      id: 'shot-1',
+      play_id: 1,
+      stat_type: 'shot',
+      team_side: 'away',
+      half: 'first',
+      extra_data: JSON.stringify({
+        shot: {
+          outcome: 'short',
+          result: 'opposition',
+          recovered_by: selection('player', 'home', 'home-1'),
+        },
+      }),
+    },
+    {
+      id: 'carry-2',
+      play_id: 2,
+      stat_type: 'carry',
+      team_side: 'home',
+      half: 'first',
+      extra_data: JSON.stringify({
+        carry: {
+          carrier: selection('player', 'home', 'home-1'),
+          outcome: 'goal_kick_for',
+        },
+      }),
+    },
+    {
+      id: 'kickout-3',
+      play_id: 3,
+      stat_type: 'kickout',
+      team_side: 'home',
+      half: 'first',
+      extra_data: JSON.stringify({
+        kickout: {
+          team_side: 'home',
+          outcome: 'clean',
+          won_by: selection('player', 'home', 'home-8'),
+        },
+      }),
+    },
+  ]);
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[1].possession_team_side, 'home');
+  assert.equal(derivePossessionOutcome([rows[1]], 'home'), 'Own Kick Out');
+  assert.equal(rows[2].possession_team_side, 'home');
+  assert.notEqual(rows[2].possession_id, rows[1].possession_id);
+  assert.equal(rows[2].__possession_start_source, 'Kickout Won');
+});

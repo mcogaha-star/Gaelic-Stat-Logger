@@ -1797,12 +1797,13 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
 
   const overviewPossessionOutcome = useMemo(() => {
     const groups = groupByPossession(overviewStats);
-    const init = () => ({ Score: 0, 'Missed Shot': 0, Turnover: 0, 'Half End': 0 });
+    const init = () => ({ Score: 0, 'Missed Shot': 0, Turnover: 0, 'Own Kick Out': 0, 'Half End': 0 });
     const outcomes = { home: init(), away: init() };
     const breakdownInit = () => ({
       Score: { Goal: 0, '2 Point': 0, '1 Point': 0 },
       'Missed Shot': { Wide: 0, Short: 0, Blocked: 0, Saved: 0, Post: 0 },
       Turnover: {},
+      'Own Kick Out': { 'Own Kick Out': 0 },
       'Half End': { 'Half End': 0 },
     });
     const breakdowns = { home: breakdownInit(), away: breakdownInit() };
@@ -1866,6 +1867,8 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
         breakdowns[teamSide].Turnover[turnoverLabel] = Number(breakdowns[teamSide].Turnover[turnoverLabel] || 0) + 1;
       } else if (outcome === 'Half End') {
         breakdowns[teamSide]['Half End']['Half End'] = Number(breakdowns[teamSide]['Half End']['Half End'] || 0) + 1;
+      } else if (outcome === 'Own Kick Out') {
+        breakdowns[teamSide]['Own Kick Out']['Own Kick Out'] = Number(breakdowns[teamSide]['Own Kick Out']['Own Kick Out'] || 0) + 1;
       }
     }
 
@@ -1874,7 +1877,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       { team: awayTeam?.name || 'Away', side: 'away', ...outcomes.away },
     ];
     const breakdownRows = Object.fromEntries(
-      ['Score', 'Missed Shot', 'Turnover', 'Half End'].map((category) => {
+      ['Score', 'Missed Shot', 'Turnover', 'Own Kick Out', 'Half End'].map((category) => {
         const keys = Array.from(new Set([
           ...Object.keys(breakdowns.home[category] || {}),
           ...Object.keys(breakdowns.away[category] || {}),
@@ -3000,6 +3003,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
                                 { value: 'Score', label: 'Score' },
                                 { value: 'Missed Shot', label: 'Missed Shot' },
                                 { value: 'Turnover', label: 'Turnover' },
+                                { value: 'Own Kick Out', label: 'Own Kick Out' },
                                 { value: 'Half End', label: 'Half End' },
                               ]}
                             />

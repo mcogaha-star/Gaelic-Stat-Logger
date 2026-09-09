@@ -2164,7 +2164,8 @@ export function classifyTerminalOutcome(stat, teamSide) {
   const { foulBy, foulOn } = getFoulTeams(stat);
   if (foulOn === teamSide) return 'CONTINUE';
   if (outcome === 'sideline_against' || outcome === '45_against' || outcome === 'goal_kick_against') return 'TURNOVER';
-  if (outcome === 'sideline_for' || outcome === '45_for' || outcome === '45' || outcome === 'goal_kick_for') return 'CONTINUE';
+  if (outcome === 'goal_kick_for') return 'OWN_KICK_OUT';
+  if (outcome === 'sideline_for' || outcome === '45_for' || outcome === '45') return 'CONTINUE';
   if (foulBy === teamSide) return 'CONTINUE';
 
   return 'OTHER';
@@ -2208,6 +2209,7 @@ export function derivePossessionOutcome(events, teamSide) {
     if (cls === 'SAVED') return 'Saved';
     if (cls === 'POST') return 'Post';
     if (cls === 'TURNOVER') return 'Turnover';
+    if (cls === 'OWN_KICK_OUT') return 'Own Kick Out';
   }
 
   let halfEndFallback = false;
@@ -2236,6 +2238,7 @@ export function derivePossessionOutcome(events, teamSide) {
     if (cls === 'SAVED') return 'Saved';
     if (cls === 'POST') return 'Post';
     if (cls === 'TURNOVER') return 'Turnover';
+    if (cls === 'OWN_KICK_OUT') return 'Own Kick Out';
   }
   if (halfEndFallback) return 'Half End';
   return 'Other';

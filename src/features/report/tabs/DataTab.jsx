@@ -82,7 +82,7 @@ const VIDEO_PLAY_ACTION_OPTIONS = [
 ];
 
 const VIDEO_PREVIEW_COUNT = 5;
-const POSSESSION_OUTCOME_GROUPS = ['Score', 'Missed Shot', 'Turnover', 'Half End'];
+const POSSESSION_OUTCOME_GROUPS = ['Score', 'Missed Shot', 'Turnover', 'Own Kick Out', 'Half End'];
 const POSSESSION_ORIGIN_GROUPS = ['Own KO Won', 'Opp KO Won', 'Turnover Won', 'Shot Missed (Live Ball)', 'Throw In Won'];
 const POSSESSION_START_ZONES = ['Defensive Third', 'Middle Third', 'Attacking Third'];
 const POSSESSION_ATTACK_TYPE_OPTIONS = ['Transition', 'Set', 'Transition->Set'];

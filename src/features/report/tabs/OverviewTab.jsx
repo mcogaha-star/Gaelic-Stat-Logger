@@ -28,9 +28,10 @@ export default function OverviewTab({
     { k: 'Score', c: '#059669' },
     { k: 'Missed Shot', c: '#eab308' },
     { k: 'Turnover', c: '#f97316' },
+    { k: 'Own Kick Out', c: '#2563eb' },
     { k: 'Half End', c: '#64748b' },
   ];
-  const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover']);
+  const clickableOutcomeKeys = new Set(['Score', 'Missed Shot', 'Turnover', 'Own Kick Out']);
   const isMobile = useIsMobile();
   const [breakdownOpen, setBreakdownOpen] = React.useState(false);
   const [breakdownCategory, setBreakdownCategory] = React.useState('');
