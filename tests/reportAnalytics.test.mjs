@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   derivePossessionOutcome,
+  getDefenseTurnoverFlowOverride,
   rebuildPossessionRows,
 } from '../src/lib/reportAnalytics.js';
 
@@ -10,6 +11,17 @@ const selection = (kind, teamSide, id = null) => ({
   kind,
   team_side: teamSide,
   ...(id ? { id } : {}),
+});
+
+test('kick out against has an explicit defensive turnover Sankey flow', () => {
+  const expected = {
+    typeLabel: 'Over Endline',
+    outcomeLabel: 'Own Kickout',
+  };
+
+  assert.deepEqual(getDefenseTurnoverFlowOverride('kickout_against'), expected);
+  assert.deepEqual(getDefenseTurnoverFlowOverride('Kickout Against'), expected);
+  assert.equal(getDefenseTurnoverFlowOverride('interception'), null);
 });
 
 test('kick out against ends possession and the following kickout starts a new one', () => {

@@ -1851,6 +1851,14 @@ export function normalizeFoulType(value) {
     .replace(/[\s-]+/g, '_');
 }
 
+export function getDefenseTurnoverFlowOverride(turnoverType) {
+  if (normalizeFoulType(turnoverType) !== 'kickout_against') return null;
+  return {
+    typeLabel: 'Over Endline',
+    outcomeLabel: 'Own Kickout',
+  };
+}
+
 export function calcDistanceToGoal(x, y) {
   const dx = GOAL_X - Number(x);
   const dy = GOAL_Y - Number(y);

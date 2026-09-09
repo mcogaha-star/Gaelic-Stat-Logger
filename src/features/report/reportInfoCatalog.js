@@ -592,6 +592,7 @@ export const reportInfoCatalog = {
     calculationOrChartLabel: 'What the chart shows',
     calculationOrChart: [
       'The flow groups defensive wins and links them to what happened next, including the following possession result and shot result.',
+      'An Over Endline turnover stops at Own Kickout because the restart is awarded, but possession is not secured until that kickout is contested.',
     ],
     howToUse: [
       'Use it to spot the regain patterns that genuinely hurt the opposition or launch attacks.',

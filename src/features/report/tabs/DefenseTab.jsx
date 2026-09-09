@@ -15,6 +15,7 @@ import {
   findScorableFreeConcededRows,
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
+  getDefenseTurnoverFlowOverride,
   getMatchTimeS,
   getPreviousBallActionStat,
   getProgressiveMeters,
@@ -71,11 +72,11 @@ const DEFENSE_SANKEY_GROUPING_OPTIONS = [
   { value: 'type', label: 'Type' },
   { value: 'zone', label: 'Zone' },
 ];
-const DEFENSE_SANKEY_TYPE_ORDER = ['Tackle', 'Group Tackle', 'Interception', 'Foul', 'Sideline Against'];
+const DEFENSE_SANKEY_TYPE_ORDER = ['Tackle', 'Group Tackle', 'Interception', 'Foul', 'Sideline Against', 'Over Endline'];
 const DEFENSE_SANKEY_ZONE_ORDER = ['Def', 'Mid', 'Att'];
 const DEFENSE_SANKEY_HIDDEN_LAYER3_SINK = '__defense_layer3_sink__';
 const DEFENSE_SANKEY_LAYER_ORDER = {
-  2: ['Shot', 'TO Lost', 'Half End', 'No Shot / Other'],
+  2: ['Shot', 'TO Lost', 'Own Kickout', 'Half End', 'No Shot / Other'],
   3: ['Score', 'Miss', DEFENSE_SANKEY_HIDDEN_LAYER3_SINK],
 };
 const DEFENSE_OUTCOME_TO_SHOT_RESULT = {
@@ -100,6 +101,7 @@ function getDefenseSankeyNodeFill(name, layer) {
   if (layer === 2) {
     if (name === 'Shot') return '#7c3aed';
     if (name === 'TO Lost') return '#f97316';
+    if (name === 'Own Kickout') return '#2563eb';
   }
   if (layer === 3) return name === 'Score' ? '#16a34a' : '#dc2626';
   return '#475569';
@@ -158,9 +160,16 @@ function serializeDefenseOriginTotals(originMap) {
     .sort((a, b) => b.value - a.value || String(a.label).localeCompare(String(b.label)));
 }
 
-function getTurnoverZoneLabel(stat, winningSide, match, possessionGroups) {
+function getTurnoverZoneLabel(stat, winningSide, match, possessionGroups, turnoverType = null) {
   const possessionEvents = possessionGroups?.get(String(stat?.id || '')) || [];
-  const startZone = getPossessionStartZone(possessionEvents, {
+  const flowOverride = getDefenseTurnoverFlowOverride(turnoverType);
+  const hasCoordinate = (value) => value != null && value !== '' && Number.isFinite(Number(value));
+  const terminalRawX = hasCoordinate(stat?.raw_end_x_position) ? stat.raw_end_x_position : stat?.raw_x_position;
+  const terminalX = hasCoordinate(stat?.end_x_position) ? stat.end_x_position : stat?.x_position;
+  const zoneEvents = flowOverride && !possessionEvents.length
+    ? [{ ...stat, team_side: winningSide, raw_x_position: terminalRawX, x_position: terminalX }]
+    : possessionEvents;
+  const startZone = getPossessionStartZone(zoneEvents, {
     startSource: 'Turnover Won',
     previousStat: stat,
     teamSide: winningSide,
@@ -202,16 +211,20 @@ function buildDefenseSankeyData({ turnovers, teamSide, groupingMode, possessionG
     }
     return rawName;
   };
+  const getTypeLabel = (classification) => {
+    const flowOverride = getDefenseTurnoverFlowOverride(classification?.typ);
+    return flowOverride?.typeLabel || toTitleCase(normalizeFoulType(String(classification?.typ || 'unknown')));
+  };
 
   const turnoverList = (Array.isArray(turnovers) ? turnovers : [])
     .filter((stat) => classifyTurnover(stat).rec === teamSide)
     .sort((a, b) => {
       const aClass = classifyTurnover(a);
       const bClass = classifyTurnover(b);
-      const aType = toTitleCase(normalizeFoulType(String(aClass.typ || 'unknown')));
-      const bType = toTitleCase(normalizeFoulType(String(bClass.typ || 'unknown')));
-      const aZone = getTurnoverZoneLabel(a, teamSide, match, possessionGroups);
-      const bZone = getTurnoverZoneLabel(b, teamSide, match, possessionGroups);
+      const aType = getTypeLabel(aClass);
+      const bType = getTypeLabel(bClass);
+      const aZone = getTurnoverZoneLabel(a, teamSide, match, possessionGroups, aClass.typ);
+      const bZone = getTurnoverZoneLabel(b, teamSide, match, possessionGroups, bClass.typ);
       const aGroup = groupingMode === 'type'
         ? (DEFENSE_SANKEY_TYPE_ORDER.indexOf(aType) === -1 ? 999 : DEFENSE_SANKEY_TYPE_ORDER.indexOf(aType))
         : groupingMode === 'zone'
@@ -230,25 +243,26 @@ function buildDefenseSankeyData({ turnovers, teamSide, groupingMode, possessionG
     });
   turnoverList.forEach((stat) => {
     const classification = classifyTurnover(stat);
-    const typeLabel = toTitleCase(normalizeFoulType(String(classification.typ || 'unknown')));
+    const flowOverride = getDefenseTurnoverFlowOverride(classification.typ);
+    const typeLabel = flowOverride?.typeLabel || toTitleCase(normalizeFoulType(String(classification.typ || 'unknown')));
     const rawGroupName = groupingMode === 'type'
       ? typeLabel
       : groupingMode === 'zone'
-        ? getTurnoverZoneLabel(stat, teamSide, match, possessionGroups)
+        ? getTurnoverZoneLabel(stat, teamSide, match, possessionGroups, classification.typ)
         : 'All Turnovers Won';
     const groupName = getOrderedGroupName(rawGroupName);
 
     const possessionEvents = possessionGroups.get(String(stat?.id || '')) || [];
     const groupedOutcome = derivePossessionOutcome(possessionEvents, teamSide);
 
-    let layer2 = 'No Shot / Other';
+    let layer2 = flowOverride?.outcomeLabel || 'No Shot / Other';
     let layer3 = null;
-    if (DEFENSE_OUTCOME_TO_SHOT_RESULT[groupedOutcome]) {
+    if (!flowOverride && DEFENSE_OUTCOME_TO_SHOT_RESULT[groupedOutcome]) {
       layer2 = 'Shot';
       layer3 = DEFENSE_OUTCOME_TO_SHOT_RESULT[groupedOutcome];
-    } else if (groupedOutcome === 'Turnover') {
+    } else if (!flowOverride && groupedOutcome === 'Turnover') {
       layer2 = 'TO Lost';
-    } else if (groupedOutcome === 'Half End') {
+    } else if (!flowOverride && groupedOutcome === 'Half End') {
       layer2 = 'Half End';
     }
 
