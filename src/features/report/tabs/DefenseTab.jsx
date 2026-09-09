@@ -72,7 +72,7 @@ const DEFENSE_SANKEY_GROUPING_OPTIONS = [
   { value: 'type', label: 'Type' },
   { value: 'zone', label: 'Zone' },
 ];
-const DEFENSE_SANKEY_TYPE_ORDER = ['Tackle', 'Group Tackle', 'Interception', 'Foul', 'Sideline Against', 'Over Endline'];
+const DEFENSE_SANKEY_TYPE_ORDER = ['Tackle', 'Group Tackle', 'Interception', 'Broken', 'Fumbled', 'Foul', 'Sideline Against', 'Over Endline'];
 const DEFENSE_SANKEY_ZONE_ORDER = ['Def', 'Mid', 'Att'];
 const DEFENSE_SANKEY_HIDDEN_LAYER3_SINK = '__defense_layer3_sink__';
 const DEFENSE_SANKEY_LAYER_ORDER = {

@@ -421,24 +421,10 @@ function buildStarPoints(cx, cy, outerRadius = 2.25, innerRadius = 0.95, spikes 
 }
 
 function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left', onOpenVideo = null }) {
-  const lastTouchActivationRef = useRef(0);
   const handleOpenVideo = (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
     onOpenVideo?.();
-  };
-  const handlePointerUp = (event) => {
-    if (event?.pointerType === 'mouse') return;
-    lastTouchActivationRef.current = Date.now();
-    handleOpenVideo(event);
-  };
-  const handleClick = (event) => {
-    if (Date.now() - lastTouchActivationRef.current < 750) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      return;
-    }
-    handleOpenVideo(event);
   };
   return (
     <>
@@ -452,8 +438,7 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
             size="sm"
             variant="outline"
             className="h-7 rounded-full bg-white/95 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm touch-manipulation"
-            onPointerUp={handlePointerUp}
-            onClick={handleClick}
+            onClick={handleOpenVideo}
           >
             Video
           </Button>
@@ -469,16 +454,12 @@ function PlayerMapOverlay({ title, arrowText = 'Attacking ->', arrowSide = 'left
 function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpenVideo = null }) {
   const tooltipText = typeof text === 'string' ? text : text?.text || '';
   const tooltipVideoAction = typeof text === 'object' && text ? text.onOpenVideo : onOpenVideo;
-  const handleOpenVideo = () => {
+  const handleOpenVideo = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     if (typeof tooltipVideoAction !== 'function') return;
-    onClose?.();
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        tooltipVideoAction();
-      }, 0);
-      return;
-    }
     tooltipVideoAction();
+    onClose?.();
   };
   if (!tooltipText) return null;
   return (
@@ -495,17 +476,8 @@ function MobilePlayerMapTooltip({ text, onClose, title = 'Event details', onOpen
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
-                onTouchEnd={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleOpenVideo();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleOpenVideo();
-                }}
+                className="h-7 touch-manipulation px-2 text-xs"
+                onClick={handleOpenVideo}
               >
                 Video
               </Button>
