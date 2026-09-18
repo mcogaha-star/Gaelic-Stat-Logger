@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   derivePossessionOutcome,
   getDefenseTurnoverFlowOverride,
+  isTurnoverFollowedByThrowInForSankey,
   rebuildPossessionRows,
 } from '../src/lib/reportAnalytics.js';
 
@@ -22,6 +23,37 @@ test('kick out against has an explicit defensive turnover Sankey flow', () => {
   assert.deepEqual(getDefenseTurnoverFlowOverride('kickout_against'), expected);
   assert.deepEqual(getDefenseTurnoverFlowOverride('Kickout Against'), expected);
   assert.equal(getDefenseTurnoverFlowOverride('interception'), null);
+});
+
+test('turnover followed by a throw-in is excluded from the turnover Sankey', () => {
+  const turnover = { id: 'turnover-1', play_id: 1, half: 'first', stat_type: 'turnover' };
+  const throwIn = { id: 'throw-in-1', play_id: 2, half: 'first', stat_type: 'throw_in' };
+
+  assert.equal(isTurnoverFollowedByThrowInForSankey(turnover, [turnover, throwIn]), true);
+});
+
+test('substitution rows do not break a turnover-to-throw-in Sankey exclusion', () => {
+  const turnover = { id: 'turnover-1', play_id: 1, half: 'first', stat_type: 'turnover' };
+  const substitution = { id: 'sub-1', play_id: 2, half: 'first', stat_type: 'substitution' };
+  const throwIn = { id: 'throw-in-1', play_id: 3, half: 'first', stat_type: 'throw_in' };
+
+  assert.equal(isTurnoverFollowedByThrowInForSankey(turnover, [turnover, substitution, throwIn]), true);
+});
+
+test('period end prevents turnover-to-throw-in Sankey exclusion', () => {
+  const turnover = { id: 'turnover-1', play_id: 1, half: 'first', stat_type: 'turnover' };
+  const periodEnd = { id: 'period-end-1', play_id: 2, half: 'first', stat_type: 'period_end' };
+  const throwIn = { id: 'throw-in-1', play_id: 3, half: 'second', stat_type: 'throw_in' };
+
+  assert.equal(isTurnoverFollowedByThrowInForSankey(turnover, [turnover, periodEnd, throwIn]), false);
+});
+
+test('an intervening live action keeps the turnover in the Sankey', () => {
+  const turnover = { id: 'turnover-1', play_id: 1, half: 'first', stat_type: 'turnover' };
+  const pass = { id: 'pass-1', play_id: 2, half: 'first', stat_type: 'pass' };
+  const throwIn = { id: 'throw-in-1', play_id: 3, half: 'first', stat_type: 'throw_in' };
+
+  assert.equal(isTurnoverFollowedByThrowInForSankey(turnover, [turnover, pass, throwIn]), false);
 });
 
 test('kick out against ends possession and the following kickout starts a new one', () => {

@@ -1859,6 +1859,27 @@ export function getDefenseTurnoverFlowOverride(turnoverType) {
   };
 }
 
+export function isTurnoverFollowedByThrowInForSankey(turnover, orderedStats = []) {
+  const rows = Array.isArray(orderedStats) ? orderedStats : [];
+  const turnoverId = String(turnover?.id || '');
+  const index = rows.findIndex((stat) => (
+    stat === turnover || (turnoverId && String(stat?.id || '') === turnoverId)
+  ));
+  if (index < 0) return false;
+
+  const turnoverHalf = String(turnover?.half || '');
+  for (let cursor = index + 1; cursor < rows.length; cursor += 1) {
+    const next = rows[cursor];
+    if (!next) continue;
+    const nextType = String(next?.stat_type || '').trim().toLowerCase();
+    if (nextType === 'substitution') continue;
+    if (nextType === 'period_end') return false;
+    if (turnoverHalf && String(next?.half || '') !== turnoverHalf) return false;
+    return nextType === 'throw_in';
+  }
+  return false;
+}
+
 export function calcDistanceToGoal(x, y) {
   const dx = GOAL_X - Number(x);
   const dy = GOAL_Y - Number(y);

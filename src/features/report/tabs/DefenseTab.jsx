@@ -16,6 +16,7 @@ import {
   getAttackEntryChannelForPossession,
   getFieldTiltContribution,
   getDefenseTurnoverFlowOverride,
+  isTurnoverFollowedByThrowInForSankey,
   getMatchTimeS,
   getPreviousBallActionStat,
   getProgressiveMeters,
@@ -881,6 +882,33 @@ function DefenseTab({
     });
     return list;
   }, [calcBase]);
+  const orderedSankeySequence = useMemo(() => {
+    const source = Array.isArray(reportFilters?.allStats) ? reportFilters.allStats : stats;
+    const list = applyNonTeamReportFilters(source, {
+      ...reportFilters,
+      team: 'both',
+      actionTypes: [],
+      outcomes: [],
+      playerIds: [],
+    }).slice();
+    list.sort((a, b) => {
+      const periodOrder = { first: 0, second: 1, et_first: 2, et_second: 3 };
+      const periodA = periodOrder[String(a?.half || '')] ?? 99;
+      const periodB = periodOrder[String(b?.half || '')] ?? 99;
+      if (periodA !== periodB) return periodA - periodB;
+      const pa = Number(a?.play_id);
+      const pb = Number(b?.play_id);
+      if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+      const ta = Number(a?.normalized_time_s);
+      const tb = Number(b?.normalized_time_s);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      const ra = Number(a?.time_s);
+      const rb = Number(b?.time_s);
+      if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    return list;
+  }, [reportFilters, stats]);
   const previousByPossessionKey = useMemo(() => {
     const map = new Map();
     orderedBase.forEach((stat, index) => {
@@ -1358,7 +1386,10 @@ function DefenseTab({
   );
 
   const possessionGroups = turnoverWonPossessionsByTurnoverId;
-  const filteredTurnovers = turnovers;
+  const filteredTurnovers = useMemo(
+    () => turnovers.filter((turnover) => !isTurnoverFollowedByThrowInForSankey(turnover, orderedSankeySequence)),
+    [turnovers, orderedSankeySequence],
+  );
   const defenseSankeyBaseByTeam = useMemo(() => ({
     home: buildDefenseSankeyData({ turnovers: filteredTurnovers, teamSide: 'home', groupingMode: defenseSankeyGrouping, possessionGroups, classifyTurnover, match: reportFilters?.match }),
     away: buildDefenseSankeyData({ turnovers: filteredTurnovers, teamSide: 'away', groupingMode: defenseSankeyGrouping, possessionGroups, classifyTurnover, match: reportFilters?.match }),
