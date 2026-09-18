@@ -1,10 +1,11 @@
 import {
+  GOAL_X,
+  GOAL_Y,
   PITCH_H,
-  calcAngleToGoal,
   calcDistanceToGoal,
   getNormalizedTimeS,
   isBroughtBackAdvantageStat,
-} from '@/lib/reportAnalytics';
+} from './reportAnalytics.js';
 
 const EXPORT_HEADERS = [
   'Team',
@@ -174,6 +175,13 @@ function getExportSide(y) {
   return yy <= (PITCH_H / 2) ? 'Left' : 'Right';
 }
 
+export function calcShotArcAngle(x, y) {
+  const longitudinalDistance = GOAL_X - Number(x);
+  const lateralDistance = Math.abs(Number(y) - GOAL_Y);
+  if (!Number.isFinite(longitudinalDistance) || !Number.isFinite(lateralDistance)) return NaN;
+  return Math.atan2(lateralDistance, longitudinalDistance) * (180 / Math.PI);
+}
+
 function parseDpNumber(value) {
   const text = normalizeTextLower(value);
   if (!text) return NaN;
@@ -263,7 +271,7 @@ export function buildThirdPartyShotRecords(stats, match, teams = {}, players = [
     const x = Number(stat?.x_position);
     const y = Number(stat?.y_position);
     const distance = calcDistanceToGoal(x, y);
-    const angle = calcAngleToGoal(x, y);
+    const angle = calcShotArcAngle(x, y);
     const possessionId = Number(stat?.possession_id);
     records.push({
       id: stat.id,
@@ -276,6 +284,7 @@ export function buildThirdPartyShotRecords(stats, match, teams = {}, players = [
       half: String(stat?.half || 'first'),
       gameHalf: getHalfBucket(stat?.half),
       gameTime: Number.isFinite(normalizedTime) ? Math.round(normalizedTime) : null,
+      playId: Number.isFinite(Number(stat?.play_id)) ? Number(stat.play_id) : null,
       shotPressure: getShotPressureLabel(String(shot?.pressure || '')),
       shotTypeKey: String(shot?.type || shot?.shot_type || shot?.shotType || 'point') === '2 point'
         ? '2_point'
@@ -287,7 +296,7 @@ export function buildThirdPartyShotRecords(stats, match, teams = {}, players = [
       setPlay: getSetPlayLabel(shot?.situation || ''),
       shotMethodKey: String(shot?.method || ''),
       shotMethod: getShotMethodLabel(String(shot?.method || '')),
-      distanceValue: Number.isFinite(distance) ? Math.round(distance) : NaN,
+      distanceValue: Number.isFinite(distance) ? distance : NaN,
       distance: Number.isFinite(distance) ? formatDistance(distance) : '',
       angleValue: Number.isFinite(angle) ? Math.round(Math.abs(angle)) : NaN,
       angle: Number.isFinite(angle) ? formatAngle(angle) : '',
@@ -324,13 +333,21 @@ export function mapShotToThirdPartyRow(record, newAttack = 'No') {
 
 export function buildThirdPartyShotExportRows(stats, match, teams = {}, players = [], imputedTimeById) {
   const records = buildThirdPartyShotRecords(stats, match, teams, players, imputedTimeById)
-    .filter((record) => !record.broughtBackAdv);
-  const groupedCounts = new Map();
+    .filter((record) => !record.broughtBackAdv)
+    .sort((a, b) => {
+      if (a.gameHalf !== b.gameHalf) return a.gameHalf - b.gameHalf;
+      if (Number.isFinite(a.playId) && Number.isFinite(b.playId) && a.playId !== b.playId) return a.playId - b.playId;
+      if (Number.isFinite(a.gameTime) && Number.isFinite(b.gameTime) && a.gameTime !== b.gameTime) return a.gameTime - b.gameTime;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+  let previousAttackKey = null;
   return records.map((record) => {
-    const key = record.possessionId != null ? `${record.teamSide}:${record.possessionId}` : `shot:${record.id}`;
-    const count = groupedCounts.get(key) || 0;
-    groupedCounts.set(key, count + 1);
-    return mapShotToThirdPartyRow(record, count === 0 ? 'Yes' : 'No');
+    const key = record.possessionId != null
+      ? `${record.half}:${record.teamSide}:${record.possessionId}`
+      : `shot:${record.id}`;
+    const newAttack = key === previousAttackKey ? 'No' : 'Yes';
+    previousAttackKey = key;
+    return mapShotToThirdPartyRow(record, newAttack);
   });
 }
 
@@ -349,11 +366,14 @@ export function parseThirdPartyXpCsv(fileText) {
   if (missingHeaders.length) {
     throw new Error(`Missing required CSV columns: ${missingHeaders.join(', ')}`);
   }
-  const rows = parsed.rows.map((row, index) => ({
-    ...row,
-    __rowIndex: index,
-    __expectedScoreValue: Number(row.ExpectedScore),
-  }));
+  const rows = parsed.rows.map((row, index) => {
+    const csvRow = /** @type {Record<string, string>} */ (row);
+    return {
+      ...csvRow,
+      __rowIndex: index,
+      __expectedScoreValue: normalizeText(csvRow.ExpectedScore) === '' ? NaN : Number(csvRow.ExpectedScore),
+    };
+  });
   return { headers: parsed.headers, rows };
 }
 
@@ -383,7 +403,7 @@ export function matchThirdPartyRowToShot(importRow, shotRecords) {
   const outcomeText = normalizeTextLower(importRow.ShotOutcome);
 
   const refined = baseCandidates.filter((record) => {
-    if (Number.isFinite(importDistance) && !numbersClose(record.distanceValue, importDistance, 0.01)) return false;
+    if (Number.isFinite(importDistance) && !numbersClose(record.distanceValue, importDistance, 0.011)) return false;
     if (Number.isFinite(importAngle) && !numbersClose(record.angleValue, importAngle, 1)) return false;
     if (sideText && normalizeTextLower(record.side) !== sideText) return false;
     if (outcomeText && normalizeTextLower(record.shotOutcome) !== outcomeText) return false;
@@ -399,30 +419,50 @@ export function matchThirdPartyRowToShot(importRow, shotRecords) {
   return { status: 'ambiguous', candidates: refined, record: null };
 }
 
-export function applyXpImportToShots(importRows, shotRecords, rawStatsById, updateFns = {}) {
-  const {
-    updateLocalShot = async () => null,
-    updateServerShot = async () => null,
-    uploadedAt = new Date().toISOString(),
-  } = updateFns;
-
+export function validateThirdPartyXpImport(importRows, shotRecords, rawStatsById) {
   const summary = {
     totalRows: 0,
+    expectedRows: Array.isArray(shotRecords) ? shotRecords.length : 0,
     matched: 0,
     unmatched: 0,
     ambiguous: 0,
+    invalidXp: 0,
+    duplicateMatches: 0,
+    missingShots: 0,
     updatedShotsCount: 0,
     issues: [],
     updates: [],
+    plans: [],
+    valid: false,
   };
 
   const matchedShotIds = new Set();
   const rows = Array.isArray(importRows) ? importRows : [];
+  const records = Array.isArray(shotRecords) ? shotRecords : [];
   const byId = rawStatsById instanceof Map ? rawStatsById : new Map();
+  if (rows.length !== records.length) {
+    summary.issues.push({
+      type: 'row_count',
+      expectedRows: records.length,
+      actualRows: rows.length,
+      signature: `Expected ${records.length} rows; received ${rows.length}`,
+    });
+  }
 
-  const work = rows.map(async (row) => {
+  for (const row of rows) {
     summary.totalRows += 1;
-    const match = matchThirdPartyRowToShot(row, shotRecords);
+    const xpValue = Number(row.__expectedScoreValue);
+    if (normalizeText(row.ExpectedScore) === '' || !Number.isFinite(xpValue)) {
+      summary.invalidXp += 1;
+      summary.issues.push({
+        type: 'invalid_xp',
+        rowIndex: row.__rowIndex,
+        signature: buildImportRowSignature(row),
+      });
+      continue;
+    }
+
+    const match = matchThirdPartyRowToShot(row, records);
     if (match.status === 'unmatched') {
       summary.unmatched += 1;
       summary.issues.push({
@@ -430,7 +470,7 @@ export function applyXpImportToShots(importRows, shotRecords, rawStatsById, upda
         rowIndex: row.__rowIndex,
         signature: buildImportRowSignature(row),
       });
-      return;
+      continue;
     }
     if (match.status === 'ambiguous') {
       summary.ambiguous += 1;
@@ -440,23 +480,79 @@ export function applyXpImportToShots(importRows, shotRecords, rawStatsById, upda
         signature: buildImportRowSignature(row),
         candidateShotIds: match.candidates.map((candidate) => candidate.id),
       });
-      return;
+      continue;
     }
 
     const record = match.record;
     const current = byId.get(record?.id) || record?.stat || null;
-    const xpValue = Number(row.__expectedScoreValue);
-    if (!current || !Number.isFinite(xpValue)) {
+    if (!current) {
       summary.unmatched += 1;
       summary.issues.push({
         type: 'unmatched',
         rowIndex: row.__rowIndex,
         signature: buildImportRowSignature(row),
       });
-      return;
+      continue;
+    }
+    if (matchedShotIds.has(current.id)) {
+      summary.duplicateMatches += 1;
+      summary.issues.push({
+        type: 'duplicate',
+        rowIndex: row.__rowIndex,
+        signature: buildImportRowSignature(row),
+        candidateShotIds: [current.id],
+      });
+      continue;
     }
 
     summary.matched += 1;
+    matchedShotIds.add(current.id);
+    summary.plans.push({ row, record, current, xpValue });
+  }
+
+  for (const record of records) {
+    if (matchedShotIds.has(record?.id)) continue;
+    summary.missingShots += 1;
+    summary.issues.push({
+      type: 'missing',
+      signature: `Shot ${String(record?.id || 'unknown')} was not matched`,
+      candidateShotIds: record?.id ? [record.id] : [],
+    });
+  }
+  summary.valid = summary.issues.length === 0 && summary.plans.length === records.length;
+  return summary;
+}
+
+function createImportValidationError(summary) {
+  const parts = [];
+  if (summary.totalRows !== summary.expectedRows) parts.push(`${summary.totalRows}/${summary.expectedRows} rows`);
+  if (summary.invalidXp) parts.push(`${summary.invalidXp} blank or invalid xP`);
+  if (summary.unmatched) parts.push(`${summary.unmatched} unmatched`);
+  if (summary.ambiguous) parts.push(`${summary.ambiguous} ambiguous`);
+  if (summary.duplicateMatches) parts.push(`${summary.duplicateMatches} duplicate matches`);
+  if (summary.missingShots) parts.push(`${summary.missingShots} missing shots`);
+  return Object.assign(
+    new Error(`ShotArc import rejected (${parts.join(', ') || 'validation failed'}). No changes were saved.`),
+    { summary },
+  );
+}
+
+function ensureServerSaveSucceeded(result, shotId, action = 'save') {
+  if (result?.ok === false) {
+    throw new Error(`Server ${action} failed for shot ${shotId}: ${result.reason || 'unknown error'}`);
+  }
+}
+
+export async function applyXpImportToShots(importRows, shotRecords, rawStatsById, updateFns = {}) {
+  const {
+    updateLocalShot = async () => null,
+    updateServerShot = async () => null,
+    uploadedAt = new Date().toISOString(),
+  } = updateFns;
+  const summary = validateThirdPartyXpImport(importRows, shotRecords, rawStatsById);
+  if (!summary.valid) throw createImportValidationError(summary);
+
+  const updates = summary.plans.map(({ current, xpValue }) => {
     const extra = safeParseJSONLocal(current.extra_data || '{}', {});
     const nextExtra = {
       ...extra,
@@ -470,21 +566,50 @@ export function applyXpImportToShots(importRows, shotRecords, rawStatsById, upda
         },
       },
     };
-    const patch = { extra_data: JSON.stringify(nextExtra) };
-    await updateLocalShot(current.id, patch);
-    if (current?.server_stat_id) {
-      try {
-        await updateServerShot(current.server_stat_id, patch);
-      } catch {}
-    }
-    if (!matchedShotIds.has(current.id)) {
-      matchedShotIds.add(current.id);
-      summary.updatedShotsCount += 1;
-    }
-    summary.updates.push({ id: current.id, patch });
+    return {
+      id: current.id,
+      serverStatId: current?.server_stat_id || null,
+      patch: { extra_data: JSON.stringify(nextExtra) },
+      rollbackPatch: { extra_data: current.extra_data || '{}' },
+    };
   });
 
-  return Promise.all(work).then(() => summary);
+  const applied = [];
+  try {
+    for (const update of updates) {
+      const state = { ...update, serverApplied: false, localApplied: false };
+      applied.push(state);
+      if (update.serverStatId) {
+        const serverResult = await updateServerShot(update.serverStatId, update.patch);
+        ensureServerSaveSucceeded(serverResult, update.id);
+        state.serverApplied = true;
+      }
+      await updateLocalShot(update.id, update.patch);
+      state.localApplied = true;
+    }
+  } catch (saveError) {
+    const rollbackFailures = [];
+    for (const state of applied.slice().reverse()) {
+      if (state.localApplied) {
+        try { await updateLocalShot(state.id, state.rollbackPatch); } catch (error) { rollbackFailures.push(error); }
+      }
+      if (state.serverApplied) {
+        try {
+          const result = await updateServerShot(state.serverStatId, state.rollbackPatch);
+          ensureServerSaveSucceeded(result, state.id, 'rollback');
+        } catch (error) {
+          rollbackFailures.push(error);
+        }
+      }
+    }
+    const rollbackNote = rollbackFailures.length ? ' Automatic rollback was incomplete; refresh and check data before retrying.' : ' Earlier updates were rolled back.';
+    throw new Error(`${saveError?.message || 'ShotArc import save failed.'}${rollbackNote}`);
+  }
+
+  summary.updatedShotsCount = updates.length;
+  summary.updates = updates.map(({ id, patch }) => ({ id, patch }));
+  delete summary.plans;
+  return summary;
 }
 
 export function buildImportRowSignature(row) {
@@ -505,6 +630,8 @@ export function formatThirdPartyXpImportSummary(summary) {
     `${summary.matched} matched`,
     `${summary.unmatched} unmatched`,
     `${summary.ambiguous} ambiguous`,
+    `${summary.invalidXp || 0} invalid xP`,
+    `${summary.duplicateMatches || 0} duplicate matches`,
     `${summary.updatedShotsCount} shots updated`,
   ].join(' | ');
 }

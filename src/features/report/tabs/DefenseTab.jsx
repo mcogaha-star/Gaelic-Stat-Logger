@@ -1040,9 +1040,9 @@ function DefenseTab({
         const ex = safeParseJSON(e.extra_data || '{}', {});
         return acc + shotPointsForOutcome(ex?.shot?.outcome);
       }, 0), 0);
-      const xpFrom = regainedPossessions.reduce((sum, evs) => sum + evs.reduce((acc, e) => {
-        if (e.team_side !== teamSide || e.stat_type !== 'shot' || shouldExcludeFromTotals(e)) return acc;
-        return acc + getShotXpValue(e);
+      const xpFrom = regainedPossessions.reduce((sum, evs) => sum + evs.reduce((highest, e) => {
+        if (e.team_side !== teamSide || e.stat_type !== 'shot' || shouldExcludeFromTotals(e)) return highest;
+        return Math.max(highest, getShotXpValue(e));
       }, 0), 0);
 
       const oppSide = teamSide === 'home' ? 'away' : 'home';
@@ -1069,9 +1069,13 @@ function DefenseTab({
         return shotOutcomeGroup(ex?.shot?.outcome) === 'score';
       })).length;
       const shotsConceded = calcBase.filter((s) => s?.stat_type === 'shot' && s?.team_side === oppSide && !shouldExcludeFromTotals(s)).length;
-      const xpConceded = calcBase.reduce((sum, s) => {
-        if (s?.stat_type !== 'shot' || s?.team_side !== oppSide || shouldExcludeFromTotals(s)) return sum;
-        return sum + getShotXpValue(s);
+      const xpConceded = Array.from(byPoss.entries()).reduce((sum, [key, events]) => {
+        if (!String(key).startsWith(`${oppSide}-`)) return sum;
+        const possessionXp = (Array.isArray(events) ? events : []).reduce((highest, s) => {
+          if (s?.stat_type !== 'shot' || s?.team_side !== oppSide || shouldExcludeFromTotals(s)) return highest;
+          return Math.max(highest, getShotXpValue(s));
+        }, 0);
+        return sum + possessionXp;
       }, 0);
 
       const foulConceded = fouls.filter((s) => extractFoulFromStat(s)?.foul_by?.team_side === teamSide).length;

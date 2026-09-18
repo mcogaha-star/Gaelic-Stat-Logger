@@ -104,6 +104,10 @@ import {
 } from '@/lib/thirdPartyXp';
 import { createSeededRng, hashSimulationSeed, simulateFullMatchFromShots } from '@/lib/winProbability';
 import {
+  POSSESSION_XP_AGGREGATION_METHOD,
+  selectHighestXpShotPerPossession,
+} from '@/lib/expectedPoints';
+import {
   exportReportTargetsAsJpegs,
   exportReportTargetsAsPdf,
   sanitizeExportFilePart,
@@ -263,7 +267,7 @@ function getImportedShotXpValue(stat, overrideValue = NaN) {
 }
 
 function buildStoredShotWinProbabilitySim(shotRecords = [], xpOverrides = new Map()) {
-  const simulationShots = (Array.isArray(shotRecords) ? shotRecords : [])
+  const sourceShots = (Array.isArray(shotRecords) ? shotRecords : [])
     .map((record) => {
       const stat = record?.stat || null;
       const xp = getImportedShotXpValue(stat, xpOverrides.get(record?.id));
@@ -271,11 +275,14 @@ function buildStoredShotWinProbabilitySim(shotRecords = [], xpOverrides = new Ma
       return {
         key: record?.id || `${record?.teamSide || 'home'}-${record?.shotTypeKey || 'point'}-${xp}`,
         team_side: record?.teamSide === 'away' ? 'away' : 'home',
+        half: record?.half || '',
+        possession_id: record?.possessionId,
         shotType: record?.shotTypeKey || 'point',
         xp,
       };
     })
     .filter(Boolean);
+  const simulationShots = selectHighestXpShotPerPossession(sourceShots);
 
   if (!simulationShots.length) return null;
 
@@ -286,8 +293,10 @@ function buildStoredShotWinProbabilitySim(shotRecords = [], xpOverrides = new Ma
   return {
     ...simulateFullMatchFromShots(simulationShots, 10000, createSeededRng(seed)),
     shotCount: simulationShots.length,
+    sourceShotCount: sourceShots.length,
     seed,
     source: 'third_party_import',
+    aggregationMethod: POSSESSION_XP_AGGREGATION_METHOD,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -1195,6 +1204,7 @@ export default function MatchReport({ sharedPayload = null, statShareCode = '', 
       await queryClient.refetchQueries({ queryKey: ['stats', matchId], type: 'active' });
       toast.success(`xP import complete: ${formatThirdPartyXpImportSummary(summary)}`);
     } catch (error) {
+      if (error?.summary?.issues) writeThirdPartyXpIssues(matchId, error.summary.issues);
       toast.error(error?.message || 'Failed to import xP CSV');
     } finally {
       if (event?.target) event.target.value = '';

@@ -29,6 +29,11 @@ import {
 } from '@/lib/reportAnalytics';
 import { createSeededRng, hashSimulationSeed, simulateFullMatchFromShots } from '@/lib/winProbability';
 import {
+  POSSESSION_XP_AGGREGATION_METHOD,
+  selectHighestXpShotPerPossession,
+  sumPossessionExpectedPoints,
+} from '@/lib/expectedPoints';
+import {
   safeParseJSON,
   toTitleCase,
   formatMatchClock,
@@ -673,7 +678,8 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
       const shotsN = sh.length;
       const scoresN = sh.filter((s) => s.isScore).length;
       const totalPts = sh.reduce((a, s) => a + (s.points || 0), 0);
-      const totalXp = sh.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+      const shotXpTotal = sh.reduce((a, s) => a + (Number.isFinite(s.xp) ? s.xp : 0), 0);
+      const totalXp = sumPossessionExpectedPoints(sh);
       const xpCount = sh.filter((s) => Number.isFinite(s.xp)).length;
       const goals = sh.filter((s) => s.outcome === 'goal').length;
       const points1 = sh.filter((s) => s.outcome === 'point').length;
@@ -707,7 +713,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
         totalPts,
         totalXp,
         xpCount,
-        xpShot: xpCount ? totalXp / xpCount : NaN,
+        xpShot: xpCount ? shotXpTotal / xpCount : NaN,
         conv,
         pps,
         avgDist,
@@ -996,7 +1002,7 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
   ]), [showXp]);
   const sortedPlayerSummary = useMemo(() => sortRows(playerSummary, playerSort, playerColumns, 'key'), [playerSummary, playerSort, playerColumns]);
   const togglePlayerSort = (key) => setPlayerSort((current) => current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
-  const simulationShots = useMemo(() => (
+  const simulationShots = useMemo(() => selectHighestXpShotPerPossession(
     simShots
       .filter((shot) => !shot.broughtBackAdv)
       .filter((shot) => matchesSelectedPlayer(shot))
@@ -1009,6 +1015,8 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
       .map((shot) => ({
         key: shot.id || `${shot.team_side}-${shot.shotType}-${shot.xp}-${shot.time_s ?? ''}`,
         team_side: shot.team_side,
+        half: shot.half,
+        possession_id: shot.possession_id,
         shotType: shot.shotType,
         xp: shot.xp,
       }))
@@ -1017,11 +1025,18 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
     try {
       const raw = match?.shot_win_probability_sim;
       if (!raw) return null;
-      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return parsed?.aggregationMethod === POSSESSION_XP_AGGREGATION_METHOD ? parsed : null;
     } catch {
       return null;
     }
   }, [match?.shot_win_probability_sim]);
+  const hasShotSimulationFilters = selectedPlayerKeys.length > 0
+    || shotType.length > 0
+    || situation.length > 0
+    || pressure.length > 0
+    || method.length > 0
+    || scoringAttackTypeFilter !== 'any';
   const winProbabilitySeed = useMemo(
     () => hashSimulationSeed({
       teamMode,
@@ -1036,14 +1051,16 @@ function ScoringTab({ stats, simStats = null, match = null, homeTeam, awayTeam, 
     [teamMode, selectedPlayerKeys, shotType, situation, pressure, method, scoringAttackTypeFilter, simulationShots]
   );
   const winProbabilitySim = useMemo(() => {
-    if (storedWinProbabilitySim) return null;
+    if (storedWinProbabilitySim && !hasShotSimulationFilters) return null;
     return simulateFullMatchFromShots(
       simulationShots,
       10000,
       createSeededRng(winProbabilitySeed),
     );
-  }, [simulationShots, winProbabilitySeed, storedWinProbabilitySim]);
-  const displayedWinProbabilitySim = storedWinProbabilitySim || winProbabilitySim;
+  }, [simulationShots, winProbabilitySeed, storedWinProbabilitySim, hasShotSimulationFilters]);
+  const displayedWinProbabilitySim = hasShotSimulationFilters
+    ? winProbabilitySim
+    : (storedWinProbabilitySim || winProbabilitySim);
 
   return (
     <div className="space-y-4">

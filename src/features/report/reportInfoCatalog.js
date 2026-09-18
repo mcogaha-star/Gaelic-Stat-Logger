@@ -625,7 +625,7 @@ export const reportInfoCatalog = {
   shooting_expected_points: {
     title: 'xP',
     whatItIs: [
-      'xP means expected points. It adds up the value of the shots a team created.',
+      'xP means expected points. Each possession contributes its highest-value shot, matching ShotArc treatment of retained follow-up attempts.',
     ],
     whyItMatters: [
       'It tells you how good the shooting chances were, even before you look at whether the team finished them well.',

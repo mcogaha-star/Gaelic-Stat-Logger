@@ -298,6 +298,11 @@ function buildTeamAndPlayerMetrics({
   team.oppPossessions = oppPossGroups.length;
   team.combinedPossessions = ownPossGroups.length + oppPossGroups.length;
   team.attackPossessions = ownPossGroups.filter((events) => isAttackPossession(events, perspectiveSide)).length;
+  const possessionXp = (events) => (Array.isArray(events) ? events : [])
+    .filter((stat) => stat?.stat_type === 'shot' && !shouldExcludeFromTotals(stat))
+    .reduce((highest, stat) => Math.max(highest, getShotExpectedPointsValue(stat)), 0);
+  team.xpFor = ownPossGroups.reduce((sum, events) => sum + possessionXp(events), 0);
+  team.xpAgainst = oppPossGroups.reduce((sum, events) => sum + possessionXp(events), 0);
 
   for (const stat of Array.isArray(stats) ? stats : []) {
     if (!stat || shouldExcludeFromTotals(stat)) continue;
@@ -312,11 +317,9 @@ function buildTeamAndPlayerMetrics({
       if (teamSide === perspectiveSide) {
         team.shotsFor += 1;
         team.pointsFor += points;
-        team.xpFor += xp;
       } else if (validSide(teamSide)) {
         team.shotsAgainst += 1;
         team.pointsAgainst += points;
-        team.xpAgainst += xp;
       }
       incrementPlayerMetric(players, shotPlayer, teamSide, teamsBySide, positionsById, 'shots', 1);
       incrementPlayerMetric(players, shotPlayer, teamSide, teamsBySide, positionsById, 'points', points);

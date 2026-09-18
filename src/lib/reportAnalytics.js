@@ -2415,6 +2415,12 @@ export function buildDataHealthChecks(stats) {
             add('warning', 'xP import ambiguous row', `Could not safely assign imported xP for ${signature}.`, null);
           } else if (issue?.type === 'unmatched') {
             add('warning', 'xP import unmatched row', `No local shot matched imported xP row ${signature}.`, null);
+          } else if (issue?.type === 'invalid_xp') {
+            add('error', 'xP import invalid value', `ExpectedScore is blank or invalid for ${signature}.`, null);
+          } else if (issue?.type === 'duplicate') {
+            add('error', 'xP import duplicate match', `More than one import row matched ${signature}.`, null);
+          } else if (issue?.type === 'missing' || issue?.type === 'row_count') {
+            add('error', 'xP import incomplete file', signature, null);
           }
         });
       }

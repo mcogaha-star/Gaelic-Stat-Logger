@@ -583,9 +583,9 @@ function PossessionsTab({ stats, homeTeam, awayTeam, reportFilters, isLiveMode =
         (sum, shot) => sum + shotPointsForOutcome(safeParseJSON(shot.extra_data || '{}', {})?.shot?.outcome),
         0,
       );
-      const possessionXp = actingShots.reduce((sum, shot) => {
+      const possessionXp = actingShots.reduce((highest, shot) => {
         const xp = getShotExpectedPointsValue(shot);
-        return sum + (Number.isFinite(xp) ? xp : 0);
+        return Number.isFinite(xp) ? Math.max(highest, xp) : highest;
       }, 0);
       const passes = acting.filter((e) => e.stat_type === 'pass' && deriveOutcome(e, safeParseJSON(e.extra_data || '{}', {})) === 'completed').length;
       const shots = acting.filter((e) => e.stat_type === 'shot' && !shouldExcludeFromTotals(e)).length;
